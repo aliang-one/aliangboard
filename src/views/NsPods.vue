@@ -1,0 +1,182 @@
+<script setup>
+import { ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useClusterStore } from '@/stores/cluster'
+import StatusChip from '@/components/common/StatusChip.vue'
+import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+
+const route = useRoute()
+const router = useRouter()
+const store = useClusterStore()
+store.setNamespace(route.params.namespace)
+
+const searchQuery = ref('')
+const statusFilter = ref('All')
+const nodeFilter = ref('All Nodes')
+
+const statusOptions = ['All', 'Running', 'Pending', 'Failed', 'Succeeded']
+const nodeOptions = computed(() => {
+  const nodes = [...new Set(store.nsPods.map(p => p.node).filter(Boolean))]
+  return ['All Nodes', ...nodes.sort()]
+})
+
+const filtered = computed(() => {
+  let list = store.nsPods
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(p => p.name.toLowerCase().includes(q) || p.ip.includes(q))
+  }
+  if (statusFilter.value !== 'All') list = list.filter(p => p.status === statusFilter.value)
+  if (nodeFilter.value !== 'All Nodes') list = list.filter(p => p.node === nodeFilter.value)
+  return list
+})
+
+const runningCount = computed(() => store.nsPods.filter(p => p.status === 'Running').length)
+const pendingCount = computed(() => store.nsPods.filter(p => p.status === 'Pending').length)
+const failedCount = computed(() => store.nsPods.filter(p => p.status === 'Failed').length)
+
+function cpuPercent(cpu) {
+  if (!cpu || cpu === '0/0') return 0
+  const parts = cpu.split('/')
+  if (parts.length !== 2) return 0
+  const used = parseInt(parts[0]) || 0
+  const total = parseInt(parts[1]) || 1
+  return Math.round((used / total) * 100)
+}
+
+function memPercent(mem) {
+  if (!mem || mem === '0/0') return 0
+  const parts = mem.split('/')
+  if (parts.length !== 2) return 0
+  const usedNum = parseFloat(parts[0]) || 0
+  const totalNum = parseFloat(parts[1]) || 1
+  return Math.round((usedNum / totalNum) * 100)
+}
+</script>
+
+<template>
+  <section class="animate-fade-in">
+    <Breadcrumbs :items="[
+      { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
+      { label: 'Pods' }
+    ]" />
+    <div class="flex justify-between items-end mt-sm mb-lg">
+      <div>
+        <h2 class="text-display-lg text-on-surface">Pods</h2>
+        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+      </div>
+      <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <span class="material-symbols-outlined">add</span> Create Pod
+      </button>
+    </div>
+
+    <!-- Status Summary Bar -->
+    <div class="grid grid-cols-4 gap-sm mb-lg">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm">
+        <span class="w-2.5 h-2.5 rounded-full bg-on-surface-variant"></span>
+        <span class="text-body-sm text-on-surface-variant">Total</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto">{{ store.nsPods.length }}</span>
+      </div>
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
+        <span class="w-2.5 h-2.5 rounded-full bg-primary"></span>
+        <span class="text-body-sm text-on-surface-variant">Running</span>
+        <span class="text-body-md font-bold text-primary ml-auto">{{ runningCount }}</span>
+      </div>
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-tertiary transition-colors" @click="statusFilter = statusFilter === 'Pending' ? 'All' : 'Pending'">
+        <span class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
+        <span class="text-body-sm text-on-surface-variant">Pending</span>
+        <span class="text-body-md font-bold text-tertiary-container ml-auto">{{ pendingCount }}</span>
+      </div>
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-error transition-colors" @click="statusFilter = statusFilter === 'Failed' ? 'All' : 'Failed'">
+        <span class="w-2.5 h-2.5 rounded-full bg-error"></span>
+        <span class="text-body-sm text-on-surface-variant">Failed</span>
+        <span class="text-body-md font-bold text-error ml-auto">{{ failedCount }}</span>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex flex-wrap items-center gap-sm mb-lg">
+      <div class="relative flex-1 min-w-[200px] max-w-md">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="Search pods by name or IP..." />
+      </div>
+      <select v-model="statusFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
+        <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? 'All Statuses' : s }}</option>
+      </select>
+      <select v-model="nodeFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
+        <option v-for="n in nodeOptions" :key="n" :value="n">{{ n }}</option>
+      </select>
+      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} result{{ filtered.length !== 1 ? 's' : '' }}</span>
+    </div>
+
+    <!-- Pods Table -->
+    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="bg-surface-container-low border-b border-outline-variant">
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">CPU</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Memory</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant w-12"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-outline-variant/30">
+          <tr v-for="p in filtered" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
+            <td class="px-lg py-md">
+              <div class="flex items-center gap-sm">
+                <span class="w-2 h-2 rounded-full shrink-0" :class="{
+                  'bg-primary animate-pulse-status': p.status === 'Running',
+                  'bg-tertiary-container': p.status === 'Pending',
+                  'bg-error': p.status === 'Failed',
+                  'bg-on-surface-variant': p.status === 'Succeeded',
+                }"></span>
+                <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
+              </div>
+            </td>
+            <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
+            <td class="px-lg py-md">
+              <span class="text-body-sm" :class="p.restarts > 3 ? 'text-error font-semibold' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span>
+            </td>
+            <td class="px-lg py-md">
+              <span class="font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</span>
+            </td>
+            <td class="px-lg py-md">
+              <div v-if="p.cpu !== '0/0'" class="flex items-center gap-sm">
+                <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full transition-all" :class="cpuPercent(p.cpu) > 80 ? 'bg-error' : cpuPercent(p.cpu) > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPercent(p.cpu) + '%' }"></div>
+                </div>
+                <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap">{{ p.cpu }}</span>
+              </div>
+              <span v-else class="text-on-surface-variant text-body-sm">-</span>
+            </td>
+            <td class="px-lg py-md">
+              <div v-if="p.memory !== '0/0'" class="flex items-center gap-sm">
+                <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full transition-all" :class="memPercent(p.memory) > 80 ? 'bg-error' : memPercent(p.memory) > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPercent(p.memory) + '%' }"></div>
+                </div>
+                <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap">{{ p.memory }}</span>
+              </div>
+              <span v-else class="text-on-surface-variant text-body-sm">-</span>
+            </td>
+            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
+            <td class="px-lg py-md">
+              <button class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" @click.stop>
+                <span class="material-symbols-outlined text-lg">more_vert</span>
+              </button>
+            </td>
+          </tr>
+          <tr v-if="!filtered.length">
+            <td colspan="8" class="px-lg py-xl text-center">
+              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">search_off</span>
+              <p class="text-on-surface-variant">No pods found matching your filters</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</template>
