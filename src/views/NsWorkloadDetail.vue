@@ -1,0 +1,95 @@
+<script setup>
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useClusterStore } from '@/stores/cluster'
+import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import StatusChip from '@/components/common/StatusChip.vue'
+
+const route = useRoute()
+const router = useRouter()
+const store = useClusterStore()
+store.setNamespace(route.params.namespace)
+
+const workload = computed(() => store.getWorkloadByName(route.params.name))
+const pod = computed(() => store.getPodByName(route.params.name))
+const displayData = computed(() => pod.value || workload.value)
+const nsPods = computed(() => store.nsPods)
+</script>
+
+<template>
+  <div class="animate-fade-in" v-if="displayData">
+    <Breadcrumbs :items="[
+      { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
+      { label: 'Workloads', route: `/ns/${route.params.namespace}/workloads` },
+      { label: displayData.name }
+    ]" />
+
+    <div class="flex items-center justify-between mt-sm mb-lg">
+      <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status"></div>
+        <h2 class="text-display-lg">{{ displayData.name }}</h2>
+        <StatusChip :status="displayData.status" />
+      </div>
+      <div class="flex gap-2">
+        <button class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-error">delete</span><span class="font-medium text-body-md">Delete</span>
+        </button>
+        <button class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90">
+          <span class="material-symbols-outlined">refresh</span><span class="font-medium text-body-md">Restart</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-gutter">
+      <div class="col-span-12 lg:col-span-8 flex flex-col gap-lg">
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <h3 class="text-headline-sm mb-lg">Overview</h3>
+          <div class="grid grid-cols-2 gap-lg">
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">TYPE</p><p class="text-body-lg font-medium">{{ displayData.type }}</p></div>
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">NAMESPACE</p><p class="text-body-lg font-medium text-primary">{{ displayData.namespace }}</p></div>
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">IMAGE</p><p class="font-mono text-code-sm text-primary">{{ displayData.image }}</p></div>
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">AGE</p><p class="text-body-lg font-medium">{{ displayData.age }}</p></div>
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">REPLICAS</p><p class="text-body-lg font-medium">{{ displayData.replicas }}</p></div>
+            <div><p class="text-label-caps text-on-surface-variant mb-xs">REVISION</p><p class="font-mono text-code-sm">{{ displayData.sha }}</p></div>
+          </div>
+        </div>
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+          <div class="p-lg pb-md"><h3 class="text-headline-sm">Managed Pods</h3></div>
+          <table class="w-full text-left">
+            <thead><tr class="bg-surface-container-low border-y border-outline-variant">
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
+            </tr></thead>
+            <tbody class="divide-y divide-outline-variant/30">
+              <tr v-for="p in nsPods.slice(0, 4)" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
+                <td class="px-lg py-md font-mono text-code-sm font-medium">{{ p.name }}</td>
+                <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
+                <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
+                <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-span-12 lg:col-span-4 flex flex-col gap-lg">
+        <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
+          <h3 class="text-headline-sm mb-md">Labels</h3>
+          <div class="flex flex-wrap gap-2">
+            <span v-for="(val, key) in (displayData.labels || {})" :key="key" class="px-2 py-1 bg-surface-container rounded text-body-sm border border-outline-variant">{{ key }}: {{ val }}</span>
+          </div>
+        </div>
+        <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
+          <h3 class="text-headline-sm mb-md">Events</h3>
+          <div class="flex flex-col gap-md">
+            <div v-for="(e, i) in store.eventList.slice(0, 4)" :key="i" class="flex gap-sm">
+              <span class="material-symbols-outlined text-base mt-0.5" :class="e.color === 'primary' ? 'text-primary' : 'text-tertiary-container'">{{ e.icon }}</span>
+              <div><p class="text-body-sm font-medium">{{ e.reason }}</p><p class="text-body-sm text-on-surface-variant">{{ e.time }}</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
