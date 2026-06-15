@@ -32,6 +32,7 @@ const nsNavGroups = [
     items: [
       { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
       { icon: 'layers', label: 'Pods', routeKey: 'pods' },
+      { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
     ]
   },
   {
@@ -40,6 +41,7 @@ const nsNavGroups = [
     items: [
       { icon: 'hub', label: 'Services', routeKey: 'services' },
       { icon: 'language', label: 'Ingress', routeKey: 'ingress' },
+      { icon: 'firewall', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
     ]
   },
   {
@@ -58,6 +60,14 @@ const nsNavGroups = [
       { icon: 'admin_panel_settings', label: 'RBAC', routeKey: 'rbac' },
     ]
   },
+  {
+    label: '策略',
+    icon: 'policy',
+    items: [
+      { icon: 'pie_chart', label: 'ResourceQuota', routeKey: 'resourcequotas' },
+      { icon: 'tune', label: 'LimitRange', routeKey: 'limitranges' },
+    ]
+  },
 ]
 
 const currentNs = computed(() => store.currentNamespace)
@@ -73,12 +83,16 @@ const nsRouteMap = {
   events: 'NsEvents',
   workloads: 'NsWorkloads',
   pods: 'NsPods',
+  hpa: 'NsHPA',
   services: 'NsServices',
   ingress: 'NsIngress',
+  networkpolicies: 'NsNetworkPolicies',
   storage: 'NsStorage',
   configmaps: 'NsConfigMaps',
   secrets: 'NsSecrets',
   rbac: 'NsRBAC',
+  resourcequotas: 'NsResourceQuotas',
+  limitranges: 'NsLimitRanges',
 }
 
 function selectNamespace(ns) {
@@ -109,6 +123,11 @@ function isNsRouteActive(routeKey) {
   if (name === 'NsStorage' && (route.name === 'NsPVCDetail')) return true
   if (name === 'NsConfigMaps' && route.name === 'NsConfigMapDetail') return true
   if (name === 'NsSecrets' && route.name === 'NsSecretDetail') return true
+  if (name === 'NsRBAC' && (route.name === 'NsRoleDetail' || route.name === 'NsServiceAccountDetail' || route.name === 'NsRoleBindingDetail')) return true
+  if (name === 'NsNetworkPolicies' && route.name === 'NsNetworkPolicyDetail') return true
+  if (name === 'NsHPA' && route.name === 'NsHPADetail') return true
+  if (name === 'NsResourceQuotas' && route.name === 'NsResourceQuotaDetail') return true
+  if (name === 'NsLimitRanges' && route.name === 'NsLimitRangeDetail') return true
   return false
 }
 
