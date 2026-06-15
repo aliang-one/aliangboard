@@ -399,3 +399,72 @@ export const serviceAccounts = [
   { name: 'elasticsearch-sa', namespace: 'logging', age: '67d' },
   { name: 'staging-deployer', namespace: 'staging', age: '85d' },
 ]
+
+// ── RoleBindings ────────────────────────────────────────────
+export const roleBindings = [
+  { name: 'admin-binding', namespace: 'production-apps', roleName: 'admin', roleKind: 'ClusterRole', subjects: [{ kind: 'User', name: 'admin@kubezen.io' }], age: '98d' },
+  { name: 'developer-binding', namespace: 'production-apps', roleName: 'developer', roleKind: 'Role', subjects: [{ kind: 'Group', name: 'developers' }, { kind: 'User', name: 'dev1@kubezen.io' }], age: '98d' },
+  { name: 'viewer-binding', namespace: 'staging', roleName: 'viewer', roleKind: 'Role', subjects: [{ kind: 'Group', name: 'qa-team' }], age: '85d' },
+  { name: 'prometheus-binding', namespace: 'monitoring', roleName: 'prometheus-k8s', roleKind: 'Role', subjects: [{ kind: 'ServiceAccount', name: 'prometheus-sa', namespace: 'monitoring' }], age: '128d' },
+  { name: 'fluentd-binding', namespace: 'kube-system', roleName: 'fluentd-reader', roleKind: 'Role', subjects: [{ kind: 'ServiceAccount', name: 'fluentd-sa', namespace: 'kube-system' }], age: '200d' },
+  { name: 'cert-manager-binding', namespace: 'cert-manager', roleName: 'cert-manager', roleKind: 'Role', subjects: [{ kind: 'ServiceAccount', name: 'cert-manager-sa', namespace: 'cert-manager' }], age: '180d' },
+  { name: 'ingress-nginx-binding', namespace: 'ingress-nginx', roleName: 'ingress-nginx', roleKind: 'Role', subjects: [{ kind: 'ServiceAccount', name: 'ingress-nginx-sa', namespace: 'ingress-nginx' }], age: '200d' },
+  { name: 'log-collector-binding', namespace: 'logging', roleName: 'log-collector', roleKind: 'Role', subjects: [{ kind: 'ServiceAccount', name: 'elasticsearch-sa', namespace: 'logging' }], age: '67d' },
+  { name: 'staging-deployer-binding', namespace: 'staging', roleName: 'edit', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'staging-deployer', namespace: 'staging' }], age: '85d' },
+]
+
+// ── NetworkPolicies ─────────────────────────────────────────
+export const networkPolicies = [
+  { name: 'deny-all-ingress', namespace: 'production-apps', podSelector: {}, policyTypes: ['Ingress'], ingressRules: [], egressRules: [], age: '98d' },
+  { name: 'allow-api-gateway', namespace: 'production-apps', podSelector: { app: 'api-gateway' }, policyTypes: ['Ingress'], ingressRules: [{ from: [{ type: 'namespaceSelector', matchLabels: { name: 'ingress-nginx' } }], ports: [{ port: 8080, protocol: 'TCP' }] }], egressRules: [], age: '45d' },
+  { name: 'allow-frontend-to-api', namespace: 'production-apps', podSelector: { app: 'frontend-web' }, policyTypes: ['Ingress', 'Egress'], ingressRules: [{ from: [{ type: 'namespaceSelector', matchLabels: { name: 'ingress-nginx' } }] }], egressRules: [{ to: [{ type: 'podSelector', matchLabels: { app: 'api-gateway' } }] }], age: '22d' },
+  { name: 'monitoring-egress', namespace: 'monitoring', podSelector: {}, policyTypes: ['Egress'], ingressRules: [], egressRules: [{ to: [{ type: 'namespaceSelector', matchLabels: {} }], ports: [{ port: 9090, protocol: 'TCP' }, { port: 9100, protocol: 'TCP' }] }], age: '128d' },
+  { name: 'elasticsearch-isolation', namespace: 'logging', podSelector: { app: 'elasticsearch' }, policyTypes: ['Ingress', 'Egress'], ingressRules: [{ from: [{ type: 'podSelector', matchLabels: { app: 'logstash' } }, { type: 'podSelector', matchLabels: { app: 'kibana' } }] }], egressRules: [], age: '67d' },
+  { name: 'default-deny', namespace: 'staging', podSelector: {}, policyTypes: ['Ingress', 'Egress'], ingressRules: [], egressRules: [], age: '85d' },
+]
+
+// ── HPAs ────────────────────────────────────────────────────
+export const hpas = [
+  { name: 'api-gateway-hpa', namespace: 'production-apps', targetName: 'api-gateway-v2', targetKind: 'Deployment', minReplicas: 2, maxReplicas: 10, currentReplicas: 3, cpuTarget: 70, memoryTarget: 80, currentCPU: 45, currentMemory: 55, status: 'Ok', age: '30d' },
+  { name: 'frontend-hpa', namespace: 'production-apps', targetName: 'frontend-web', targetKind: 'Deployment', minReplicas: 2, maxReplicas: 8, currentReplicas: 4, cpuTarget: 75, memoryTarget: 80, currentCPU: 32, currentMemory: 48, status: 'Ok', age: '20d' },
+  { name: 'payment-hpa', namespace: 'production-apps', targetName: 'payment-gateway', targetKind: 'Deployment', minReplicas: 2, maxReplicas: 6, currentReplicas: 3, cpuTarget: 60, memoryTarget: 70, currentCPU: 89, currentMemory: 82, status: 'Scaling', age: '15d' },
+  { name: 'search-hpa', namespace: 'production-apps', targetName: 'search-engine', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 5, currentReplicas: 2, cpuTarget: 80, memoryTarget: 85, currentCPU: 20, currentMemory: 30, status: 'Ok', age: '28d' },
+  { name: 'logstash-hpa', namespace: 'logging', targetName: 'logstash-pipeline', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 4, currentReplicas: 2, cpuTarget: 70, memoryTarget: 75, currentCPU: 20, currentMemory: 48, status: 'Ok', age: '60d' },
+]
+
+// ── ResourceQuotas ──────────────────────────────────────────
+export const resourceQuotas = [
+  { name: 'production-quota', namespace: 'production-apps', hard: { 'limits.cpu': '32', 'limits.memory': '64Gi', 'pods': '50', 'services': '20', 'persistentvolumeclaims': '10', 'requests.storage': '200Gi' }, used: { 'limits.cpu': '18.5', 'limits.memory': '38Gi', 'pods': '24', 'services': '10', 'persistentvolumeclaims': '3', 'requests.storage': '80Gi' }, age: '98d' },
+  { name: 'staging-quota', namespace: 'staging', hard: { 'limits.cpu': '8', 'limits.memory': '16Gi', 'pods': '15', 'services': '10' }, used: { 'limits.cpu': '3.5', 'limits.memory': '7Gi', 'pods': '6', 'services': '4' }, age: '85d' },
+  { name: 'monitoring-quota', namespace: 'monitoring', hard: { 'limits.cpu': '8', 'limits.memory': '16Gi', 'pods': '20', 'persistentvolumeclaims': '5' }, used: { 'limits.cpu': '4.2', 'limits.memory': '8.5Gi', 'pods': '12', 'persistentvolumeclaims': '1' }, age: '128d' },
+  { name: 'logging-quota', namespace: 'logging', hard: { 'limits.cpu': '12', 'limits.memory': '24Gi', 'pods': '15', 'requests.storage': '200Gi' }, used: { 'limits.cpu': '3.7', 'limits.memory': '9.5Gi', 'pods': '6', 'requests.storage': '100Gi' }, age: '67d' },
+]
+
+// ── LimitRanges ─────────────────────────────────────────────
+export const limitRanges = [
+  { name: 'production-limits', namespace: 'production-apps', defaultCPU: '500m', defaultMemory: '512Mi', defaultRequestCPU: '250m', defaultRequestMemory: '256Mi', maxCPU: '4', maxMemory: '8Gi', minCPU: '50m', minMemory: '64Mi', age: '98d' },
+  { name: 'staging-limits', namespace: 'staging', defaultCPU: '250m', defaultMemory: '256Mi', defaultRequestCPU: '100m', defaultRequestMemory: '128Mi', maxCPU: '2', maxMemory: '4Gi', minCPU: '50m', minMemory: '64Mi', age: '85d' },
+  { name: 'monitoring-limits', namespace: 'monitoring', defaultCPU: '500m', defaultMemory: '512Mi', defaultRequestCPU: '250m', defaultRequestMemory: '256Mi', maxCPU: '4', maxMemory: '8Gi', minCPU: '100m', minMemory: '128Mi', age: '128d' },
+  { name: 'default-limits', namespace: 'default', defaultCPU: '250m', defaultMemory: '256Mi', defaultRequestCPU: '100m', defaultRequestMemory: '128Mi', maxCPU: '1', maxMemory: '2Gi', minCPU: '50m', minMemory: '32Mi', age: '245d' },
+]
+
+// ── Role details (extended) ─────────────────────────────────
+// Enrich existing roles with rules data
+const roleRulesMap = {
+  'admin': { rules: [{ apiGroups: ['*'], resources: ['*'], verbs: ['*'] }] },
+  'edit': { rules: [{ apiGroups: [''], resources: ['pods', 'services', 'configmaps', 'secrets', 'deployments'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] }] },
+  'view': { rules: [{ apiGroups: [''], resources: ['pods', 'services', 'configmaps', 'deployments'], verbs: ['get', 'list', 'watch'] }] },
+  'prometheus-k8s': { rules: [{ apiGroups: [''], resources: ['pods', 'nodes', 'services', 'endpoints'], verbs: ['get', 'list', 'watch'] }] },
+  'fluentd-reader': { rules: [{ apiGroups: [''], resources: ['pods', 'pods/log'], verbs: ['get', 'list', 'watch'] }] },
+  'cert-manager': { rules: [{ apiGroups: ['cert-manager.io'], resources: ['certificates', 'issuers', 'clusterissuers'], verbs: ['*'] }] },
+  'ingress-nginx': { rules: [{ apiGroups: ['networking.k8s.io'], resources: ['ingresses'], verbs: ['*'] }] },
+  'developer': { rules: [{ apiGroups: [''], resources: ['pods', 'services', 'configmaps'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] }, { apiGroups: ['apps'], resources: ['deployments'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] }] },
+  'viewer': { rules: [{ apiGroups: [''], resources: ['pods', 'services', 'configmaps'], verbs: ['get', 'list', 'watch'] }] },
+  'log-collector': { rules: [{ apiGroups: [''], resources: ['pods', 'pods/log', 'namespaces'], verbs: ['get', 'list', 'watch'] }] },
+}
+
+// Enrich roles with rules
+roles.forEach(r => {
+  const extra = roleRulesMap[r.name]
+  if (extra) Object.assign(r, extra)
+})

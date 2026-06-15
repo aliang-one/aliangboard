@@ -3,7 +3,8 @@ import { ref, computed } from 'vue'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, configMaps, secrets, persistentVolumes,
-  pvcs, storageClasses, roles, serviceAccounts, podLogs
+  pvcs, storageClasses, roles, serviceAccounts, podLogs,
+  networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings
 } from '@/mock/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -24,6 +25,11 @@ export const useClusterStore = defineStore('cluster', () => {
   const roleList = ref(roles)
   const saList = ref(serviceAccounts)
   const logEntries = ref(podLogs)
+  const networkPolicyList = ref(networkPolicies)
+  const hpaList = ref(hpas)
+  const resourceQuotaList = ref(resourceQuotas)
+  const limitRangeList = ref(limitRanges)
+  const roleBindingList = ref(roleBindings)
 
   // === 当前选中的 Namespace ===
   const currentNamespace = ref('')
@@ -81,6 +87,31 @@ export const useClusterStore = defineStore('cluster', () => {
     return saList.value.filter(s => s.namespace === currentNamespace.value)
   })
 
+  const nsNetworkPolicies = computed(() => {
+    if (!currentNamespace.value) return []
+    return networkPolicyList.value.filter(n => n.namespace === currentNamespace.value)
+  })
+
+  const nsHPAs = computed(() => {
+    if (!currentNamespace.value) return []
+    return hpaList.value.filter(h => h.namespace === currentNamespace.value)
+  })
+
+  const nsResourceQuotas = computed(() => {
+    if (!currentNamespace.value) return []
+    return resourceQuotaList.value.filter(r => r.namespace === currentNamespace.value)
+  })
+
+  const nsLimitRanges = computed(() => {
+    if (!currentNamespace.value) return []
+    return limitRangeList.value.filter(l => l.namespace === currentNamespace.value)
+  })
+
+  const nsRoleBindings = computed(() => {
+    if (!currentNamespace.value) return []
+    return roleBindingList.value.filter(r => r.namespace === currentNamespace.value)
+  })
+
   const nsEvents = computed(() => {
     if (!currentNamespace.value) return eventList.value
     return eventList.value.filter(e => e.namespace === currentNamespace.value)
@@ -110,12 +141,14 @@ export const useClusterStore = defineStore('cluster', () => {
     currentNamespace.value = ns
   }
 
-  function getWorkloadByName(name) {
-    return workloadList.value.find(w => w.name === name)
+  function getWorkloadByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return workloadList.value.find(w => w.name === name && (!namespace || w.namespace === namespace))
   }
 
-  function getPodByName(name) {
-    return podList.value.find(p => p.name === name)
+  function getPodByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return podList.value.find(p => p.name === name && (!namespace || p.namespace === namespace))
   }
 
   function getNodeByName(name) {
@@ -149,6 +182,51 @@ export const useClusterStore = defineStore('cluster', () => {
   function getPVCByName(name, ns) {
     const namespace = ns || currentNamespace.value
     return pvcList.value.find(p => p.name === name && p.namespace === namespace)
+  }
+
+  function getNetworkPolicyByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return networkPolicyList.value.find(n => n.name === name && n.namespace === namespace)
+  }
+
+  function getHPAByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return hpaList.value.find(h => h.name === name && h.namespace === namespace)
+  }
+
+  function getResourceQuotaByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return resourceQuotaList.value.find(r => r.name === name && r.namespace === namespace)
+  }
+
+  function getLimitRangeByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return limitRangeList.value.find(l => l.name === name && l.namespace === namespace)
+  }
+
+  function getRoleByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return roleList.value.find(r => r.name === name && (r.scope === 'Cluster' || r.namespace === namespace))
+  }
+
+  function getServiceAccountByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return saList.value.find(s => s.name === name && s.namespace === namespace)
+  }
+
+  function getRoleBindingByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return roleBindingList.value.find(r => r.name === name && r.namespace === namespace)
+  }
+
+  function getWorkloadPods(workloadName, ns) {
+    const namespace = ns || currentNamespace.value
+    const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
+    if (!wl) return []
+    // Match pods by labels - find pods that share the workload's app label
+    const appLabel = wl.labels?.app
+    if (!appLabel) return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
+    return podList.value.filter(p => p.namespace === namespace && p.labels?.app === appLabel)
   }
 
   // === CRUD: Services ===
@@ -236,6 +314,141 @@ export const useClusterStore = defineStore('cluster', () => {
   function deleteWorkload(name, ns) {
     const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
     if (idx !== -1) workloadList.value.splice(idx, 1)
+  }
+
+  function updateWorkload(name, ns, updates) {
+    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
+    if (idx !== -1) workloadList.value[idx] = { ...workloadList.value[idx], ...updates }
+  }
+
+  function scaleWorkload(name, ns, replicas) {
+    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (wl) {
+      const current = parseInt(wl.replicas?.split('/')[1] || '1')
+      wl.replicas = `${Math.min(replicas, current)}/${replicas}`
+    }
+  }
+
+  function restartWorkload(name, ns) {
+    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (wl) {
+      wl.age = 'Just now'
+      // Simulate restart by updating SHA
+      const hash = Math.random().toString(16).substring(2, 9)
+      wl.sha = `sha:${hash}`
+    }
+  }
+
+  // === CRUD: NetworkPolicies ===
+  function addNetworkPolicy(np) {
+    networkPolicyList.value.push({ ...np, age: 'Just now' })
+  }
+
+  function updateNetworkPolicy(name, ns, updates) {
+    const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
+    if (idx !== -1) networkPolicyList.value[idx] = { ...networkPolicyList.value[idx], ...updates }
+  }
+
+  function deleteNetworkPolicy(name, ns) {
+    const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
+    if (idx !== -1) networkPolicyList.value.splice(idx, 1)
+  }
+
+  // === CRUD: HPAs ===
+  function addHPA(hpa) {
+    hpaList.value.push({ ...hpa, age: 'Just now' })
+  }
+
+  function updateHPA(name, ns, updates) {
+    const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
+    if (idx !== -1) hpaList.value[idx] = { ...hpaList.value[idx], ...updates }
+  }
+
+  function deleteHPA(name, ns) {
+    const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
+    if (idx !== -1) hpaList.value.splice(idx, 1)
+  }
+
+  // === CRUD: ResourceQuotas ===
+  function addResourceQuota(rq) {
+    resourceQuotaList.value.push({ ...rq, age: 'Just now' })
+  }
+
+  function updateResourceQuota(name, ns, updates) {
+    const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
+    if (idx !== -1) resourceQuotaList.value[idx] = { ...resourceQuotaList.value[idx], ...updates }
+  }
+
+  function deleteResourceQuota(name, ns) {
+    const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
+    if (idx !== -1) resourceQuotaList.value.splice(idx, 1)
+  }
+
+  // === CRUD: LimitRanges ===
+  function addLimitRange(lr) {
+    limitRangeList.value.push({ ...lr, age: 'Just now' })
+  }
+
+  function updateLimitRange(name, ns, updates) {
+    const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
+    if (idx !== -1) limitRangeList.value[idx] = { ...limitRangeList.value[idx], ...updates }
+  }
+
+  function deleteLimitRange(name, ns) {
+    const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
+    if (idx !== -1) limitRangeList.value.splice(idx, 1)
+  }
+
+  // === CRUD: RBAC ===
+  function addRole(role) {
+    roleList.value.push({ ...role, age: 'Just now' })
+  }
+
+  function updateRole(name, ns, updates) {
+    const idx = roleList.value.findIndex(r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns))
+    if (idx !== -1) roleList.value[idx] = { ...roleList.value[idx], ...updates }
+  }
+
+  function deleteRole(name, ns) {
+    const idx = roleList.value.findIndex(r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns))
+    if (idx !== -1) roleList.value.splice(idx, 1)
+  }
+
+  function addServiceAccount(sa) {
+    saList.value.push({ ...sa, age: 'Just now' })
+  }
+
+  function deleteServiceAccount(name, ns) {
+    const idx = saList.value.findIndex(s => s.name === name && s.namespace === ns)
+    if (idx !== -1) saList.value.splice(idx, 1)
+  }
+
+  function addRoleBinding(rb) {
+    roleBindingList.value.push({ ...rb, age: 'Just now' })
+    // Increment role bindings count
+    const role = roleList.value.find(r => r.name === rb.roleName)
+    if (role) role.bindings = (role.bindings || 0) + 1
+  }
+
+  function deleteRoleBinding(name, ns) {
+    const rb = roleBindingList.value.find(r => r.name === name && r.namespace === ns)
+    if (rb) {
+      const role = roleList.value.find(r => r.name === rb.roleName)
+      if (role) role.bindings = Math.max(0, (role.bindings || 0) - 1)
+    }
+    const idx = roleBindingList.value.findIndex(r => r.name === name && r.namespace === ns)
+    if (idx !== -1) roleBindingList.value.splice(idx, 1)
+  }
+
+  // === CRUD: Nodes ===
+  function cordonNode(name) {
+    const node = nodeList.value.find(n => n.name === name)
+    if (node) node.unschedulable = true
+  }
+
+  function uncordonNode(name) {
+    const node = nodeList.value.find(n => n.name === name)
+    if (node) node.unschedulable = false
   }
 
   // === Generate YAML for a resource ===
@@ -359,6 +572,148 @@ spec:
             memory: 512Mi`
     }
 
+    if (type === 'networkpolicy') {
+      const ingressRules = resource.ingressRules?.length
+        ? resource.ingressRules.map(r => `    - from:
+${(r.from || []).map(f => `      - ${f.type || 'podSelector'}:
+${f.matchLabels ? `          matchLabels:\n${Object.entries(f.matchLabels).map(([k,v]) => `            ${k}: ${v}`).join('\n')}` : `{}`}`).join('\n')}`).join('\n')
+        : '    []'
+      const egressRules = resource.egressRules?.length
+        ? resource.egressRules.map(r => `    - to:
+${(r.to || []).map(f => `      - ${f.type || 'podSelector'}:
+${f.matchLabels ? `          matchLabels:\n${Object.entries(f.matchLabels).map(([k,v]) => `            ${k}: ${v}`).join('\n')}` : `{}`}`).join('\n')}`).join('\n')
+        : '    []'
+      return `apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${name}
+  namespace: ${ns}
+spec:
+  podSelector:
+    matchLabels:
+${Object.entries(resource.podSelector || {}).map(([k,v]) => `      ${k}: ${v}`).join('\n') || '      {}'}
+  policyTypes:
+${resource.policyTypes?.map(t => `  - ${t}`).join('\n') || '  - Ingress\n  - Egress'}
+  ingress:
+${ingressRules}
+  egress:
+${egressRules}`
+    }
+
+    if (type === 'hpa') {
+      return `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ${name}
+  namespace: ${ns}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: ${resource.targetKind || 'Deployment'}
+    name: ${resource.targetName || name}
+  minReplicas: ${resource.minReplicas || 1}
+  maxReplicas: ${resource.maxReplicas || 10}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: ${resource.cpuTarget || 80}`
+    }
+
+    if (type === 'resourcequota') {
+      const hardEntries = resource.hard ? Object.entries(resource.hard)
+        .map(([k, v]) => `  ${k}: "${v}"`).join('\n') : ''
+      const usedEntries = resource.used ? Object.entries(resource.used)
+        .map(([k, v]) => `  ${k}: "${v}"`).join('\n') : ''
+      return `apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ${name}
+  namespace: ${ns}
+spec:
+  hard:
+${hardEntries || '  {}'}
+status:
+  hard:
+${hardEntries || '  {}'}
+  used:
+${usedEntries || '  {}'}`
+    }
+
+    if (type === 'limitrange') {
+      return `apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ${name}
+  namespace: ${ns}
+spec:
+  limits:
+  - type: Container
+    default:
+      cpu: "${resource.defaultCPU || '500m'}"
+      memory: "${resource.defaultMemory || '512Mi'}"
+    defaultRequest:
+      cpu: "${resource.defaultRequestCPU || '250m'}"
+      memory: "${resource.defaultRequestMemory || '256Mi'}"
+    max:
+      cpu: "${resource.maxCPU || '2'}"
+      memory: "${resource.maxMemory || '4Gi'}"`
+    }
+
+    if (type === 'role') {
+      return `apiVersion: rbac.authorization.k8s.io/v1
+kind: ${resource.scope === 'Cluster' ? 'ClusterRole' : 'Role'}
+metadata:
+  name: ${name}
+${resource.scope !== 'Cluster' ? `  namespace: ${ns}` : ''}
+rules:
+${resource.rules?.map(r => `- apiGroups: [${(r.apiGroups || ['']).map(g => `"${g}"`).join(', ')}]
+  resources: [${(r.resources || []).map(r => `"${r}"`).join(', ')}]
+  verbs: [${(r.verbs || []).map(v => `"${v}"`).join(', ')}]`).join('\n') || '- apiGroups: [""]\n  resources: ["pods"]\n  verbs: ["get", "list"]'}`
+    }
+
+    if (type === 'serviceaccount') {
+      return `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${name}
+  namespace: ${ns}`
+    }
+
+    if (type === 'rolebinding') {
+      return `apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${name}
+  namespace: ${ns}
+subjects:
+${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
+  name: ${s.name}
+  ${s.namespace ? `namespace: ${s.namespace}` : ''}`).join('\n') || '- kind: User\n  name: default'}
+roleRef:
+  kind: ${resource.roleKind || 'Role'}
+  name: ${resource.roleName || name}
+  apiGroup: rbac.authorization.k8s.io`
+    }
+
+    if (type === 'node') {
+      return `apiVersion: v1
+kind: Node
+metadata:
+  name: ${name}
+  labels:
+    kubernetes.io/role: ${resource.roles || 'worker'}
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+spec:
+  ${resource.unschedulable ? 'unschedulable: true' : 'unschedulable: false'}
+status:
+  conditions:
+${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n    status: "${v}"`).join('\n')}`
+    }
+
     return `# YAML for ${type}/${name}`
   }
 
@@ -367,14 +722,18 @@ spec:
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
     serviceList, ingressList, configMapList, secretList, pvList, pvcList,
     scList, roleList, saList, logEntries, currentNamespace,
+    networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
     nsWorkloads, nsPods, nsServices, nsIngress, nsConfigMaps, nsSecrets,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
+    nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, getPodByName, getNodeByName, getNamespaceByName,
     getServiceByName, getIngressByName, getConfigMapByName, getSecretByName, getPVCByName,
+    getNetworkPolicyByName, getHPAByName, getResourceQuotaByName, getLimitRangeByName,
+    getRoleByName, getServiceAccountByName, getRoleBindingByName, getWorkloadPods,
     // CRUD: Services
     addService, updateService, deleteService,
     // CRUD: Ingress
@@ -386,7 +745,20 @@ spec:
     // CRUD: PVCs
     addPVC, deletePVC,
     // CRUD: Workloads
-    addWorkload, deleteWorkload,
+    addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload,
+    // CRUD: NetworkPolicies
+    addNetworkPolicy, updateNetworkPolicy, deleteNetworkPolicy,
+    // CRUD: HPAs
+    addHPA, updateHPA, deleteHPA,
+    // CRUD: ResourceQuotas
+    addResourceQuota, updateResourceQuota, deleteResourceQuota,
+    // CRUD: LimitRanges
+    addLimitRange, updateLimitRange, deleteLimitRange,
+    // CRUD: RBAC
+    addRole, updateRole, deleteRole, addServiceAccount, deleteServiceAccount,
+    addRoleBinding, deleteRoleBinding,
+    // CRUD: Nodes
+    cordonNode, uncordonNode,
     // YAML generation
     generateYAML,
   }

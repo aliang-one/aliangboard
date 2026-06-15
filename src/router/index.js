@@ -137,6 +137,72 @@ const routes = [
         meta: { title: 'RBAC', icon: 'admin_panel_settings', scope: 'namespace' }
       },
       {
+        path: 'ns/:namespace/rbac/roles/:name',
+        name: 'NsRoleDetail',
+        component: () => import('@/views/NsRoleDetail.vue'),
+        meta: { title: 'Role Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/rbac/serviceaccounts/:name',
+        name: 'NsServiceAccountDetail',
+        component: () => import('@/views/NsServiceAccountDetail.vue'),
+        meta: { title: 'ServiceAccount Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/rbac/rolebindings/:name',
+        name: 'NsRoleBindingDetail',
+        component: () => import('@/views/NsRoleBindingDetail.vue'),
+        meta: { title: 'RoleBinding Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/networkpolicies',
+        name: 'NsNetworkPolicies',
+        component: () => import('@/views/NsNetworkPolicies.vue'),
+        meta: { title: 'NetworkPolicies', icon: 'firewall', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/networkpolicies/:name',
+        name: 'NsNetworkPolicyDetail',
+        component: () => import('@/views/NsNetworkPolicyDetail.vue'),
+        meta: { title: 'NetworkPolicy Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/hpa',
+        name: 'NsHPA',
+        component: () => import('@/views/NsHPA.vue'),
+        meta: { title: 'HPA', icon: 'timeline', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/hpa/:name',
+        name: 'NsHPADetail',
+        component: () => import('@/views/NsHPADetail.vue'),
+        meta: { title: 'HPA Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/resourcequotas',
+        name: 'NsResourceQuotas',
+        component: () => import('@/views/NsResourceQuotas.vue'),
+        meta: { title: 'ResourceQuotas', icon: 'pie_chart', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/resourcequotas/:name',
+        name: 'NsResourceQuotaDetail',
+        component: () => import('@/views/NsResourceQuotaDetail.vue'),
+        meta: { title: 'ResourceQuota Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/limitranges',
+        name: 'NsLimitRanges',
+        component: () => import('@/views/NsLimitRanges.vue'),
+        meta: { title: 'LimitRanges', icon: 'tune', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/limitranges/:name',
+        name: 'NsLimitRangeDetail',
+        component: () => import('@/views/NsLimitRangeDetail.vue'),
+        meta: { title: 'LimitRange Detail', scope: 'namespace' }
+      },
+      {
         path: 'ns/:namespace/deploy',
         name: 'NsDeploy',
         component: () => import('@/views/DeployApp.vue'),
