@@ -705,3 +705,13 @@ export const customResourceDefinitions = [
     ],
   },
 ]
+
+// ── ClusterRoleBinding（集群级角色绑定）─────────────────────
+export const clusterRoleBindings = [
+  { name: 'cluster-admin-binding', roleName: 'admin', roleKind: 'ClusterRole', subjects: [{ kind: 'Group', name: 'system:masters' }], age: '245d' },
+  { name: 'cluster-readonly-binding', roleName: 'view', roleKind: 'ClusterRole', subjects: [{ kind: 'Group', name: 'developers' }, { kind: 'Group', name: 'qa-team' }], age: '120d' },
+  { name: 'cluster-editor-binding', roleName: 'edit', roleKind: 'ClusterRole', subjects: [{ kind: 'User', name: 'ops@kubezen.io' }], age: '90d' },
+  { name: 'prometheus-cluster-binding', roleName: 'view', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'prometheus-sa', namespace: 'monitoring' }], age: '128d' },
+  { name: 'cert-manager-cluster-binding', roleName: 'cert-manager', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'cert-manager-sa', namespace: 'cert-manager' }], age: '180d' },
+  { name: 'fluentd-cluster-binding', roleName: 'fluentd-reader', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'fluentd-sa', namespace: 'kube-system' }], age: '200d' },
+]

@@ -5,7 +5,7 @@ import {
   services, ingresses, configMaps, secrets, persistentVolumes,
   pvcs, storageClasses, roles, serviceAccounts, podLogs,
   networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings,
-  clusters, auditLogs, customResourceDefinitions
+  clusters, auditLogs, customResourceDefinitions, clusterRoleBindings
 } from '@/mock/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -31,6 +31,7 @@ export const useClusterStore = defineStore('cluster', () => {
   const resourceQuotaList = ref(resourceQuotas)
   const limitRangeList = ref(limitRanges)
   const roleBindingList = ref(roleBindings)
+  const clusterRoleBindingList = ref(clusterRoleBindings)
   const clusterList = ref(clusters)
   const auditLogList = ref(auditLogs)
   const crdList = ref(customResourceDefinitions)
@@ -95,7 +96,7 @@ export const useClusterStore = defineStore('cluster', () => {
 
   const nsRoles = computed(() => {
     if (!currentNamespace.value) return []
-    return roleList.value.filter(r => r.namespace === currentNamespace.value || r.scope === 'Cluster')
+    return roleList.value.filter(r => r.namespace === currentNamespace.value && r.scope !== 'Cluster')
   })
 
   const nsServiceAccounts = computed(() => {
@@ -127,6 +128,9 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!currentNamespace.value) return []
     return roleBindingList.value.filter(r => r.namespace === currentNamespace.value)
   })
+
+  // 集群级角色（全局，不按 namespace 过滤）
+  const clusterRoles = computed(() => roleList.value.filter(r => r.scope === 'Cluster'))
 
   const nsEvents = computed(() => {
     if (!currentNamespace.value) return eventList.value
@@ -522,6 +526,16 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) roleBindingList.value.splice(idx, 1)
   }
 
+  // === CRUD: ClusterRoleBindings（集群级）===
+  function addClusterRoleBinding(crb) {
+    clusterRoleBindingList.value.push({ ...crb, age: 'Just now' })
+  }
+
+  function deleteClusterRoleBinding(name) {
+    const idx = clusterRoleBindingList.value.findIndex(r => r.name === name)
+    if (idx !== -1) clusterRoleBindingList.value.splice(idx, 1)
+  }
+
   // === CRUD: Nodes ===
   function cordonNode(name) {
     const node = nodeList.value.find(n => n.name === name)
@@ -847,13 +861,14 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     serviceList, ingressList, configMapList, secretList, pvList, pvcList,
     scList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
+    clusterRoleBindingList,
     clusterList, auditLogList, crdList, currentCluster,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
     nsWorkloads, nsPods, nsServices, nsIngress, nsConfigMaps, nsSecrets,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
-    nsTieredWorkloads, TIER_META,
+    nsTieredWorkloads, TIER_META, clusterRoles,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, getPodByName, getNodeByName, getNamespaceByName,
@@ -886,6 +901,8 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     // CRUD: RBAC
     addRole, updateRole, deleteRole, addServiceAccount, deleteServiceAccount,
     addRoleBinding, deleteRoleBinding,
+    // CRUD: ClusterRoleBindings
+    addClusterRoleBinding, deleteClusterRoleBinding,
     // CRUD: Nodes
     cordonNode, uncordonNode,
     // CRUD: Namespaces
