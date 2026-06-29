@@ -16,6 +16,14 @@ const activeTab = ref('pvc')
 const boundCount = computed(() => store.nsPVCs.filter(p => p.status === 'Bound').length)
 const pendingCount = computed(() => store.nsPVCs.filter(p => p.status === 'Pending').length)
 
+// 搜索过滤
+const searchQuery = ref('')
+const filteredPVCs = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return store.nsPVCs
+  return store.nsPVCs.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
+})
+
 // Create PVC
 const showCreatePVC = ref(false)
 const createForm = ref({
@@ -106,7 +114,17 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         </div>
       </div>
 
-      <div v-if="store.nsPVCs.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+      <!-- 搜索框 -->
+      <div class="flex items-center gap-md mb-lg">
+        <div class="relative flex-1 max-w-md">
+          <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
+          <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或 StorageClass 搜索..." />
+          <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
+        </div>
+        <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ store.nsPVCs.length }}</span>
+      </div>
+
+      <div v-if="filteredPVCs.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -121,7 +139,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="row in store.nsPVCs" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <tr v-for="row in filteredPVCs" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })">
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-primary text-lg">storage</span>

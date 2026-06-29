@@ -16,6 +16,34 @@ const stats = computed(() => store.nsStats)
 
 const recentPods = computed(() => store.nsPods.slice(0, 6))
 const recentWorkloads = computed(() => store.nsWorkloads.slice(0, 5))
+
+// === 微服务分层拓扑 ===
+const tieredGroups = computed(() => store.nsTieredWorkloads)
+
+const colorMap = {
+  primary: { text: 'text-primary', bg: 'bg-primary-container/10', border: 'border-primary/20' },
+  secondary: { text: 'text-secondary', bg: 'bg-secondary-container/10', border: 'border-secondary/20' },
+  tertiary: { text: 'text-tertiary-container', bg: 'bg-tertiary-container/10', border: 'border-tertiary/20' },
+  error: { text: 'text-error', bg: 'bg-error-container/10', border: 'border-error/20' },
+  surface: { text: 'text-on-surface-variant', bg: 'bg-surface-container', border: 'border-outline-variant' },
+}
+function tierMeta(color) { return colorMap[color] || colorMap.surface }
+function tierTextColor(c) { return tierMeta(c).text }
+function tierBg(c) { return tierMeta(c).bg }
+function tierChip(c) { return `${tierMeta(c).bg} ${tierMeta(c).text} ${tierMeta(c).border}` }
+
+function statusDot(status) {
+  return {
+    Running: 'bg-primary animate-pulse-status',
+    Pending: 'bg-tertiary-container',
+    Failed: 'bg-error',
+    Succeeded: 'bg-on-surface-variant',
+  }[status] || 'bg-on-surface-variant'
+}
+
+function goToWorkload(w) {
+  router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: w.type.toLowerCase(), name: w.name } })
+}
 </script>
 
 <template>
@@ -90,6 +118,62 @@ const recentWorkloads = computed(() => store.nsWorkloads.slice(0, 5))
         </div>
         <h3 class="text-headline-lg font-bold text-on-surface">{{ stats.configMaps + stats.secrets }}</h3>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ stats.configMaps }} CM · {{ stats.secrets }} Secrets</p>
+      </div>
+    </div>
+
+    <!-- 微服务分层拓扑（对标 Kuboard）-->
+    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden mb-xl">
+      <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex flex-wrap items-center justify-between gap-md">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary">account_tree</span>
+          <div>
+            <h3 class="text-headline-sm">微服务分层拓扑</h3>
+            <p class="text-body-sm text-on-surface-variant">按业务分层可视化工作负载流向：表现层 → 网关 → 服务 → 中间件 → 持久层</p>
+          </div>
+        </div>
+        <!-- 图例 -->
+        <div class="flex flex-wrap gap-xs">
+          <span v-for="g in tieredGroups" :key="g.tier" class="flex items-center gap-xs px-sm py-xs rounded-full border" :class="tierChip(g.meta.color)">
+            <span class="material-symbols-outlined text-sm">{{ g.meta.icon }}</span>
+            <span class="text-body-sm font-medium">{{ g.meta.label }}</span>
+            <span class="text-body-xs opacity-70">{{ g.workloads.length }}</span>
+          </span>
+        </div>
+      </div>
+
+      <div v-if="tieredGroups.length" class="p-lg flex flex-col">
+        <div v-for="(group, idx) in tieredGroups" :key="group.tier">
+          <!-- 层间流向箭头 -->
+          <div v-if="idx > 0" class="flex justify-center py-xs">
+            <span class="material-symbols-outlined text-on-surface-variant opacity-30">south</span>
+          </div>
+          <div class="flex flex-col md:flex-row gap-md items-stretch">
+            <!-- 层标签 -->
+            <div class="md:w-40 shrink-0 rounded-lg p-md flex items-center gap-sm justify-center md:justify-start" :class="tierBg(group.meta.color)">
+              <span class="material-symbols-outlined text-2xl" :class="tierTextColor(group.meta.color)">{{ group.meta.icon }}</span>
+              <div>
+                <p class="font-semibold text-body-md" :class="tierTextColor(group.meta.color)">{{ group.meta.label }}</p>
+                <p class="text-body-xs opacity-70">{{ group.meta.en }} · {{ group.workloads.length }} 个</p>
+              </div>
+            </div>
+            <!-- workload 节点 -->
+            <div class="flex-1 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-sm">
+              <div v-for="w in group.workloads" :key="w.name" @click="goToWorkload(w)"
+                class="group p-sm rounded-lg border border-outline-variant bg-surface-container-low hover:shadow-card-hover hover:-translate-y-0.5 hover:border-primary transition-all cursor-pointer">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="w-2 h-2 rounded-full shrink-0" :class="statusDot(w.status)"></span>
+                  <span class="text-label-caps text-on-surface-variant opacity-60">{{ w.type }}</span>
+                </div>
+                <p class="font-mono text-code-sm font-semibold text-on-surface truncate">{{ w.name }}</p>
+                <p class="text-body-xs text-on-surface-variant mt-xs">{{ w.replicas }} · {{ w.age }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="p-xl text-center text-on-surface-variant">
+        <span class="material-symbols-outlined text-4xl text-surface-container-high">workspaces</span>
+        <p class="mt-sm">当前 namespace 无工作负载</p>
       </div>
     </div>
 

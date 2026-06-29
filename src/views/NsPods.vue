@@ -1,9 +1,12 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DropdownMenu from '@/components/common/DropdownMenu.vue'
+import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +38,13 @@ const runningCount = computed(() => store.nsPods.filter(p => p.status === 'Runni
 const pendingCount = computed(() => store.nsPods.filter(p => p.status === 'Pending').length)
 const failedCount = computed(() => store.nsPods.filter(p => p.status === 'Failed').length)
 
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(10)
+const paginated = computed(() => filtered.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value))
+// 筛选条件变化时回到第 1 页
+watch([searchQuery, statusFilter, nodeFilter], () => { currentPage.value = 1 })
+
 function cpuPercent(cpu) {
   if (!cpu || cpu === '0/0') return 0
   const parts = cpu.split('/')
@@ -52,6 +62,49 @@ function memPercent(mem) {
   const totalNum = parseFloat(parts[1]) || 1
   return Math.round((usedNum / totalNum) * 100)
 }
+
+// 行操作菜单
+function menuItems(row) {
+  return [
+    { label: '查看详情', icon: 'open_in_new', action: () => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: row.name } }) },
+    { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
+  ]
+}
+
+// 删除 Pod
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+function confirmDelete(row) {
+  deleteTarget.value = row
+  showDeleteModal.value = true
+}
+function handleDelete() {
+  if (deleteTarget.value) {
+    store.deletePod(deleteTarget.value.name, route.params.namespace)
+  }
+  showDeleteModal.value = false
+  deleteTarget.value = null
+}
+
+// 创建 Pod
+const showCreateModal = ref(false)
+const createForm = ref({ name: '', image: '', container: '' })
+function resetCreate() {
+  createForm.value = { name: '', image: '', container: '' }
+}
+function handleCreate() {
+  const f = createForm.value
+  if (!f.name || !f.image) return
+  store.addPod({
+    name: f.name,
+    namespace: route.params.namespace,
+    image: f.image,
+    containers: [f.container || f.name],
+    labels: { app: f.name },
+  })
+  showCreateModal.value = false
+  resetCreate()
+}
 </script>
 
 <template>
@@ -65,7 +118,7 @@ function memPercent(mem) {
         <h2 class="text-display-lg text-on-surface">Pods</h2>
         <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> Create Pod
       </button>
     </div>
@@ -125,7 +178,7 @@ function memPercent(mem) {
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="p in filtered" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
+          <tr v-for="p in paginated" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
             <td class="px-lg py-md">
               <div class="flex items-center gap-sm">
                 <span class="w-2 h-2 rounded-full shrink-0" :class="{
@@ -164,9 +217,7 @@ function memPercent(mem) {
             </td>
             <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
             <td class="px-lg py-md">
-              <button class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" @click.stop>
-                <span class="material-symbols-outlined text-lg">more_vert</span>
-              </button>
+              <DropdownMenu :items="menuItems(p)" />
             </td>
           </tr>
           <tr v-if="!filtered.length">
@@ -177,6 +228,49 @@ function memPercent(mem) {
           </tr>
         </tbody>
       </table>
+      <!-- 分页 -->
+      <div v-if="filtered.length" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination
+          :total="filtered.length"
+          :page-size="pageSize"
+          :current-page="currentPage"
+          show-size-selector
+          @page-change="(p) => currentPage = p"
+          @size-change="(s) => { pageSize = s; currentPage = 1 }"
+        />
+      </div>
     </div>
   </section>
+
+  <!-- 删除确认 -->
+  <Modal v-model="showDeleteModal" title="删除 Pod" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">确定要删除 Pod <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span> 吗？</p>
+    <p class="text-body-sm text-error mt-sm">此操作不可撤销。若 Pod 由工作负载管理，控制器可能会重新创建它。</p>
+    <template #actions>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+    </template>
+  </Modal>
+
+  <!-- 创建 Pod -->
+  <Modal v-model="showCreateModal" title="创建 Pod" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Pod 名称 *</label>
+        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-pod" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">容器镜像 *</label>
+        <input v-model="createForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">容器名称（可选）</label>
+        <input v-model="createForm.container" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="默认使用 Pod 名称" />
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="handleCreate" :disabled="!createForm.name || !createForm.image" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">创建</button>
+    </template>
+  </Modal>
 </template>

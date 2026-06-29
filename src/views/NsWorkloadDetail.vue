@@ -16,6 +16,20 @@ const workload = computed(() => store.getWorkloadByName(route.params.name, route
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('deployment', workload.value))
 
+// 该 Workload 引用的 ConfigMap / Secret（正向依赖）
+const configRefs = computed(() => store.getWorkloadReferences(route.params.name, route.params.namespace))
+
+const refTypeMeta = {
+  envFrom: { label: 'EnvFrom', icon: 'code' },
+  env: { label: 'Env', icon: 'terminal' },
+  volume: { label: 'Volume', icon: 'folder' },
+  imagePullSecrets: { label: 'Image Pull', icon: 'key' },
+}
+function refRoute(ref) {
+  if (ref.kind === 'ConfigMap') return { name: 'NsConfigMapDetail', query: {} }
+  return { name: 'NsSecretDetail', query: {} }
+}
+
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 const showScaleModal = ref(false)
@@ -166,6 +180,44 @@ function saveEdit() {
                 <p class="text-body-sm">250m-500m / 256Mi-512Mi</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Configuration Dependencies -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <div class="flex items-center justify-between mb-md">
+            <h3 class="text-headline-sm">配置依赖 (ConfigMaps &amp; Secrets)</h3>
+            <span class="text-body-sm text-on-surface-variant">{{ configRefs.length }} 个引用</span>
+          </div>
+          <div v-if="configRefs.length" class="flex flex-col gap-sm">
+            <div v-for="(ref, idx) in configRefs" :key="idx"
+              class="flex items-center gap-md p-md bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors cursor-pointer"
+              @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })">
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center"
+                :class="ref.kind === 'ConfigMap' ? 'bg-secondary-container/20' : 'bg-tertiary-container/20'">
+                <span class="material-symbols-outlined" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-sm">
+                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ ref.name }}</span>
+                  <span class="px-1.5 py-0 rounded text-label-caps" :class="ref.kind === 'ConfigMap' ? 'bg-secondary-container/10 text-secondary' : 'bg-tertiary-container/10 text-tertiary'">{{ ref.kind }}</span>
+                </div>
+                <p class="text-body-sm text-on-surface-variant mt-xs">
+                  <span class="inline-flex items-center gap-xs px-1.5 py-0 bg-surface-container rounded text-label-caps mr-xs">
+                    <span class="material-symbols-outlined text-sm">{{ (refTypeMeta[ref.type] || { icon: 'link' }).icon }}</span>{{ (refTypeMeta[ref.type] || { label: ref.type }).label }}
+                  </span>
+                  <span v-if="ref.type === 'volume' && ref.mountPath" class="font-mono text-code-sm text-primary">挂载到 {{ ref.mountPath }}</span>
+                  <span v-else-if="ref.type === 'env' && ref.envName" class="font-mono text-code-sm">{{ ref.envName }} ← {{ ref.kind }}.{{ ref.key }}</span>
+                  <span v-else-if="ref.type === 'envFrom'">所有 Key 注入为环境变量</span>
+                  <span v-else-if="ref.type === 'imagePullSecrets'">拉取镜像时认证</span>
+                </p>
+              </div>
+              <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            </div>
+          </div>
+          <div v-else class="flex items-center gap-sm p-md text-on-surface-variant opacity-70">
+            <span class="material-symbols-outlined">link_off</span>
+            <span class="text-body-sm">此 Workload 未引用任何 ConfigMap / Secret</span>
           </div>
         </div>
       </div>

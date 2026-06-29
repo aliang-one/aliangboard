@@ -13,7 +13,11 @@ const nsSearch = ref('')
 // 全局导航（不需要 Namespace）
 const globalNavItems = [
   { icon: 'dashboard', label: 'Cluster Overview', route: '/cluster' },
+  { icon: 'hub', label: 'Clusters', route: '/clusters' },
   { icon: 'dns', label: 'Nodes', route: '/nodes' },
+  { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
+  { icon: 'extension', label: 'CRDs', route: '/crds' },
+  { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
 ]
 
 // Namespace 作用域导航 - 按 Kuboard 分组
@@ -109,7 +113,11 @@ function goNsRoute(routeKey) {
 }
 
 function isGlobalActive(path) {
-  return route.path.startsWith(path)
+  if (route.path === path) return true
+  // 仅对有子路由的项用前缀匹配（避免 /cluster 误匹配 /clusters）
+  if (path === '/nodes' && route.path.startsWith('/nodes/')) return true
+  if (path === '/crds' && route.path.startsWith('/crds/')) return true
+  return false
 }
 
 function isNsRouteActive(routeKey) {

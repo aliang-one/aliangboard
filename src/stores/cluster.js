@@ -4,7 +4,8 @@ import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, configMaps, secrets, persistentVolumes,
   pvcs, storageClasses, roles, serviceAccounts, podLogs,
-  networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings
+  networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings,
+  clusters, auditLogs, customResourceDefinitions
 } from '@/mock/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -30,9 +31,24 @@ export const useClusterStore = defineStore('cluster', () => {
   const resourceQuotaList = ref(resourceQuotas)
   const limitRangeList = ref(limitRanges)
   const roleBindingList = ref(roleBindings)
+  const clusterList = ref(clusters)
+  const auditLogList = ref(auditLogs)
+  const crdList = ref(customResourceDefinitions)
+  const currentCluster = ref(clusters.find(c => c.current)?.name || clusters[0]?.name || '')
 
   // === 当前选中的 Namespace ===
   const currentNamespace = ref('')
+
+  // === 微服务分层定义（对标 Kuboard tier）===
+  const TIER_META = {
+    web: { label: '表现层', en: 'Web', icon: 'web', color: 'primary', order: 0 },
+    gateway: { label: '网关层', en: 'Gateway', icon: 'dns', color: 'secondary', order: 1 },
+    svc: { label: '服务层', en: 'Service', icon: 'apps', color: 'tertiary', order: 2 },
+    cloud: { label: '中间件层', en: 'Middleware', icon: 'cloud', color: 'tertiary', order: 3 },
+    db: { label: '持久层', en: 'Database', icon: 'database', color: 'error', order: 4 },
+    monitor: { label: '监控层', en: 'Monitor', icon: 'monitoring', color: 'secondary', order: 5 },
+    default: { label: '默认层', en: 'Default', icon: 'workspaces', color: 'surface', order: 6 },
+  }
 
   // === 全局计算属性 ===
   const runningPods = computed(() => podList.value.filter(p => p.status === 'Running').length)
@@ -136,6 +152,21 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   })
 
+  // 微服务分层拓扑：按 tier 分组当前 namespace 的 workloads
+  const nsTieredWorkloads = computed(() => {
+    if (!currentNamespace.value) return []
+    const groups = {}
+    nsWorkloads.value.forEach(w => {
+      const tier = w.tier || 'default'
+      if (!groups[tier]) groups[tier] = []
+      groups[tier].push(w)
+    })
+    return Object.keys(TIER_META)
+      .filter(t => groups[t] && groups[t].length)
+      .sort((a, b) => TIER_META[a].order - TIER_META[b].order)
+      .map(t => ({ tier: t, meta: TIER_META[t], workloads: groups[t] }))
+  })
+
   // === Actions ===
   function setNamespace(ns) {
     currentNamespace.value = ns
@@ -227,6 +258,26 @@ export const useClusterStore = defineStore('cluster', () => {
     const appLabel = wl.labels?.app
     if (!appLabel) return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
     return podList.value.filter(p => p.namespace === namespace && p.labels?.app === appLabel)
+  }
+
+  // 反查：哪些 workload 引用了指定的 ConfigMap / Secret
+  // 返回 [{ workload, reference }]，按引用方式分组
+  function getResourceReferences(kind, name, ns) {
+    const namespace = ns || currentNamespace.value
+    const results = []
+    workloadList.value.forEach(w => {
+      if (w.namespace !== namespace) return
+      const matches = (w.references || []).filter(r => r.kind === kind && r.name === name)
+      matches.forEach(reference => results.push({ workload: w, reference }))
+    })
+    return results
+  }
+
+  // 正查：某个 workload 引用了哪些 ConfigMap / Secret
+  function getWorkloadReferences(workloadName, ns) {
+    const namespace = ns || currentNamespace.value
+    const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
+    return wl?.references || []
   }
 
   // === CRUD: Services ===
@@ -339,6 +390,37 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
+  // === CRUD: Pods ===
+  function addPod(pod) {
+    podList.value.push({
+      status: 'Pending',
+      node: '',
+      ip: '',
+      cpu: '0/0',
+      memory: '0/0',
+      restarts: 0,
+      age: 'Just now',
+      containers: [pod.name],
+      labels: { app: pod.name },
+      annotations: {},
+      ...pod,
+    })
+    const ns = namespaceList.value.find(n => n.name === pod.namespace)
+    if (ns) ns.pods = (ns.pods || 0) + 1
+  }
+
+  function deletePod(name, ns) {
+    const idx = podList.value.findIndex(p => p.name === name && p.namespace === ns)
+    if (idx !== -1) {
+      const pod = podList.value[idx]
+      podList.value.splice(idx, 1)
+      const nsObj = namespaceList.value.find(n => n.name === ns)
+      if (nsObj) nsObj.pods = Math.max(0, (nsObj.pods || 0) - 1)
+      return pod
+    }
+    return null
+  }
+
   // === CRUD: NetworkPolicies ===
   function addNetworkPolicy(np) {
     networkPolicyList.value.push({ ...np, age: 'Just now' })
@@ -449,6 +531,48 @@ export const useClusterStore = defineStore('cluster', () => {
   function uncordonNode(name) {
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = false
+  }
+
+  // === CRUD: Namespaces ===
+  function addNamespace(ns) {
+    if (typeof ns === 'string') {
+      ns = { name: ns, status: 'Active', pods: 0, services: 0, age: 'Just now', labels: {} }
+    }
+    if (!namespaceList.value.find(n => n.name === ns.name)) {
+      namespaceList.value.push({ status: 'Active', pods: 0, services: 0, age: 'Just now', labels: {}, ...ns })
+    }
+  }
+
+  function deleteNamespace(name) {
+    const idx = namespaceList.value.findIndex(n => n.name === name)
+    if (idx !== -1) namespaceList.value.splice(idx, 1)
+  }
+
+  // === 多集群 ===
+  function switchCluster(name) {
+    currentCluster.value = name
+    const c = clusterList.value.find(c => c.name === name)
+    if (c) {
+      cluster.value = { ...cluster.value, name: c.name, version: c.version, apiServer: c.apiServer, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }
+    }
+  }
+
+  function getCurrentCluster() {
+    return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
+  }
+
+  // === CRD ===
+  function getCRDByName(name) {
+    return crdList.value.find(c => c.name === name)
+  }
+
+  // === 审计日志（按用户操作记录）===
+  function logAudit(user, verb, resource, ns) {
+    auditLogList.value.unshift({
+      user, verb, resource, namespace: ns || '',
+      time: 'Just now', timestamp: new Date().toISOString(),
+      ip: '10.0.0.5', code: verb === 'delete' ? 204 : verb === 'create' ? 201 : 200,
+    })
   }
 
   // === Generate YAML for a resource ===
@@ -723,17 +847,20 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     serviceList, ingressList, configMapList, secretList, pvList, pvcList,
     scList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
+    clusterList, auditLogList, crdList, currentCluster,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
     nsWorkloads, nsPods, nsServices, nsIngress, nsConfigMaps, nsSecrets,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
+    nsTieredWorkloads, TIER_META,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, getPodByName, getNodeByName, getNamespaceByName,
     getServiceByName, getIngressByName, getConfigMapByName, getSecretByName, getPVCByName,
     getNetworkPolicyByName, getHPAByName, getResourceQuotaByName, getLimitRangeByName,
     getRoleByName, getServiceAccountByName, getRoleBindingByName, getWorkloadPods,
+    getResourceReferences, getWorkloadReferences,
     // CRUD: Services
     addService, updateService, deleteService,
     // CRUD: Ingress
@@ -746,6 +873,8 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     addPVC, deletePVC,
     // CRUD: Workloads
     addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload,
+    // CRUD: Pods
+    addPod, deletePod,
     // CRUD: NetworkPolicies
     addNetworkPolicy, updateNetworkPolicy, deleteNetworkPolicy,
     // CRUD: HPAs
@@ -759,6 +888,14 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     addRoleBinding, deleteRoleBinding,
     // CRUD: Nodes
     cordonNode, uncordonNode,
+    // CRUD: Namespaces
+    addNamespace, deleteNamespace,
+    // 多集群
+    switchCluster, getCurrentCluster,
+    // CRD
+    getCRDByName,
+    // 审计
+    logAudit,
     // YAML generation
     generateYAML,
   }

@@ -468,3 +468,240 @@ roles.forEach(r => {
   const extra = roleRulesMap[r.name]
   if (extra) Object.assign(r, extra)
 })
+
+// ── Workload 对 ConfigMap/Secret 的引用关系 ─────────────────
+// type: envFrom (整体注入环境变量) / env (单个 key 作为环境变量) / volume (卷挂载) / imagePullSecrets (镜像拉取凭证)
+const workloadReferencesMap = {
+  // production-apps
+  'api-gateway-v2': [
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+    { kind: 'Secret', name: 'api-tls-secret', type: 'volume', mountPath: '/etc/nginx/tls' },
+  ],
+  'frontend-web': [
+    { kind: 'ConfigMap', name: 'nginx-config', type: 'volume', mountPath: '/etc/nginx' },
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+  ],
+  'order-processor': [
+    { kind: 'ConfigMap', name: 'order-config', type: 'envFrom' },
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+    { kind: 'Secret', name: 'db-credentials', type: 'env', key: 'password', envName: 'DB_PASSWORD' },
+  ],
+  'notification-svc': [
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+  ],
+  'payment-gateway': [
+    { kind: 'ConfigMap', name: 'payment-config', type: 'envFrom' },
+    { kind: 'Secret', name: 'payment-stripe-key', type: 'env', key: 'STRIPE_SECRET_KEY', envName: 'STRIPE_SECRET_KEY' },
+  ],
+  'user-service': [
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+    { kind: 'Secret', name: 'db-credentials', type: 'envFrom' },
+  ],
+  'search-engine': [
+    { kind: 'ConfigMap', name: 'app-env-vars', type: 'envFrom' },
+  ],
+  'redis-cache-main': [
+    { kind: 'Secret', name: 'redis-password', type: 'env', key: 'password', envName: 'REDIS_PASSWORD' },
+  ],
+  'postgres-main': [
+    { kind: 'Secret', name: 'db-credentials', type: 'envFrom' },
+  ],
+  'rabbitmq-broker': [
+    { kind: 'Secret', name: 'rabbitmq-credentials', type: 'envFrom' },
+  ],
+
+  // kube-system
+  'coredns': [
+    { kind: 'ConfigMap', name: 'coredns-config', type: 'volume', mountPath: '/etc/coredns' },
+  ],
+  'metrics-server': [
+    { kind: 'Secret', name: 'registry-credentials', type: 'imagePullSecrets' },
+  ],
+  'fluentd-logging': [
+    { kind: 'ConfigMap', name: 'fluentd-config', type: 'volume', mountPath: '/etc/fluent' },
+    { kind: 'Secret', name: 'registry-credentials', type: 'imagePullSecrets' },
+  ],
+  'kube-proxy': [
+    { kind: 'Secret', name: 'registry-credentials', type: 'imagePullSecrets' },
+  ],
+
+  // monitoring
+  'prometheus-server': [
+    { kind: 'ConfigMap', name: 'prometheus-config', type: 'volume', mountPath: '/etc/prometheus' },
+    { kind: 'Secret', name: 'prometheus-tls', type: 'volume', mountPath: '/etc/prometheus/tls' },
+  ],
+  'grafana-dashboard': [
+    { kind: 'ConfigMap', name: 'grafana-dashboards', type: 'volume', mountPath: '/var/lib/grafana/dashboards' },
+    { kind: 'Secret', name: 'grafana-admin', type: 'envFrom' },
+  ],
+
+  // logging
+  'elasticsearch': [
+    { kind: 'ConfigMap', name: 'elasticsearch-config', type: 'volume', mountPath: '/usr/share/elasticsearch/config' },
+    { kind: 'Secret', name: 'elasticsearch-credentials', type: 'envFrom' },
+  ],
+  'kibana-visual': [
+    { kind: 'Secret', name: 'elasticsearch-credentials', type: 'env', key: 'password', envName: 'ELASTICSEARCH_PASSWORD' },
+  ],
+  'logstash-pipeline': [
+    { kind: 'ConfigMap', name: 'logstash-pipeline', type: 'volume', mountPath: '/usr/share/logstash/pipeline' },
+  ],
+
+  // ingress-nginx
+  'ingress-nginx-controller': [
+    { kind: 'ConfigMap', name: 'ingress-nginx-config', type: 'volume', mountPath: '/etc/nginx' },
+  ],
+
+  // cert-manager
+  'cert-manager-controller': [
+    { kind: 'ConfigMap', name: 'cert-manager-config', type: 'envFrom' },
+  ],
+
+  // staging
+  'user-service-staging': [
+    { kind: 'ConfigMap', name: 'staging-env', type: 'envFrom' },
+    { kind: 'Secret', name: 'staging-db-credentials', type: 'envFrom' },
+  ],
+  'payment-staging': [
+    { kind: 'Secret', name: 'staging-api-keys', type: 'env', key: 'API_KEY', envName: 'API_KEY' },
+    { kind: 'ConfigMap', name: 'staging-env', type: 'envFrom' },
+  ],
+  'frontend-staging': [
+    { kind: 'ConfigMap', name: 'staging-env', type: 'envFrom' },
+  ],
+
+  // default
+  'nginx-demo': [
+    { kind: 'ConfigMap', name: 'nginx-conf', type: 'volume', mountPath: '/etc/nginx/conf.d' },
+  ],
+  'hello-app': [
+    { kind: 'ConfigMap', name: 'app-settings', type: 'envFrom' },
+    { kind: 'Secret', name: 'app-db-secret', type: 'env', key: 'password', envName: 'DB_PASSWORD' },
+  ],
+}
+
+// Enrich workloads with their ConfigMap/Secret references
+workloads.forEach(w => {
+  const refs = workloadReferencesMap[w.name]
+  if (refs) w.references = refs
+})
+
+// ── Workload 微服务分层（对标 Kuboard tier）─────────────────
+// web=表现层 gateway=网关层 svc=服务层 cloud=中间件 db=持久层 monitor=监控 default=默认
+const workloadTierMap = {
+  // 表现层 web
+  'frontend-web': 'web', 'kibana-visual': 'web', 'frontend-staging': 'web', 'nginx-demo': 'web', 'hello-app': 'web',
+  // 网关层 gateway
+  'api-gateway-v2': 'gateway', 'ingress-nginx-controller': 'gateway', 'ingress-nginx-defaultbackend': 'gateway', 'api-gateway-staging': 'gateway',
+  // 服务层 svc
+  'order-processor': 'svc', 'notification-svc': 'svc', 'payment-gateway': 'svc', 'user-service': 'svc', 'search-engine': 'svc',
+  'search-indexer': 'svc', 'auth-worker': 'svc', 'logstash-pipeline': 'svc', 'user-service-staging': 'svc', 'payment-staging': 'svc',
+  // 中间件层 cloud
+  'rabbitmq-broker': 'cloud',
+  // 持久层 db
+  'redis-cache-main': 'db', 'postgres-main': 'db', 'elasticsearch': 'db',
+  // 监控层 monitor
+  'metrics-server': 'monitor', 'fluentd-logging': 'monitor', 'prometheus-server': 'monitor', 'grafana-dashboard': 'monitor',
+  'kube-state-metrics': 'monitor', 'alertmanager': 'monitor', 'node-exporter': 'monitor',
+  // 默认层 default（核心组件/任务/未分类）
+  'coredns': 'default', 'nvidia-device-plugin': 'default', 'kube-proxy': 'default', 'backup-job': 'default',
+  'db-migrator': 'default', 'cert-manager-controller': 'default', 'cert-manager-webhook': 'default', 'cert-manager-cainjector': 'default',
+  'db-migrate-staging': 'default',
+}
+workloads.forEach(w => {
+  if (workloadTierMap[w.name]) w.tier = workloadTierMap[w.name]
+})
+
+// ── Events 关联资源（用于事件点击跳转）──────────────────────
+const eventRelationMap = {
+  'ReplicaSet scaled up': { kind: 'Deployment', name: 'frontend-web' },
+  'Node pressure detected': { kind: 'Node', name: 'worker-node-04' },
+  'New Ingress created': { kind: 'Ingress', name: 'api-ingress' },
+  'Configuration updated': { kind: 'ConfigMap', name: 'app-env-vars' },
+  'Pod scheduled': { kind: 'Deployment', name: 'payment-gateway' },
+  'ImagePullBackOff': { kind: 'Pod', name: 'auth-worker-01-9d4e2' },
+  'HorizontalPodAutoscaler': { kind: 'Deployment', name: 'api-gateway-v2' },
+  'Secret updated': { kind: 'Secret', name: 'api-tls-secret' },
+  'Pod started': { kind: 'Pod', name: 'prometheus-server-f7a1' },
+  'Pod pending': { kind: 'Pod', name: 'kibana-visual-5d6e-1' },
+  'Certificate issued': { kind: 'Ingress', name: 'grafana-ingress' },
+  'Deployment created': { kind: 'Deployment', name: 'frontend-staging' },
+  'Pod evicted': { kind: 'Pod', name: 'lease-agent-worker06' },
+  'ConfigMap created': { kind: 'ConfigMap', name: 'staging-env' },
+  'PVC bound': { kind: 'PVC', name: 'prometheus-data' },
+}
+events.forEach(e => {
+  const rel = eventRelationMap[e.reason]
+  if (rel) { e.relatedKind = rel.kind; e.relatedName = rel.name }
+})
+
+// ── 多集群 ──────────────────────────────────────────────────
+export const clusters = [
+  { name: 'Production-Cluster-01', apiServer: 'https://api.prod-cluster.kubezen.io:6443', version: 'k8s v1.28.2', status: 'Healthy', nodeCount: 8, podCount: 247, context: 'prod-context', current: true, distribution: 'kubeadm' },
+  { name: 'Staging-Cluster', apiServer: 'https://api.staging-cluster.kubezen.io:6443', version: 'k8s v1.27.4', status: 'Healthy', nodeCount: 4, podCount: 89, context: 'staging-context', current: false, distribution: 'kubeadm' },
+  { name: 'Dev-Cluster', apiServer: 'https://api.dev-cluster.kubezen.io:6443', version: 'k8s v1.29.0', status: 'Degraded', nodeCount: 3, podCount: 45, context: 'dev-context', current: false, distribution: 'kind' },
+  { name: 'Edge-Cluster-CN', apiServer: 'https://api.edge-cn.kubezen.io:6443', version: 'k8s v1.28.2', status: 'Healthy', nodeCount: 2, podCount: 18, context: 'edge-cn-context', current: false, distribution: 'k3s' },
+]
+
+// ── 审计日志 ────────────────────────────────────────────────
+export const auditLogs = [
+  { user: 'admin@kubezen.io', verb: 'create', resource: 'Deployment/api-gateway-v2', namespace: 'production-apps', time: '5m ago', timestamp: '2024-06-12T14:35:00Z', ip: '10.0.0.5', code: 201 },
+  { user: 'dev1@kubezen.io', verb: 'update', resource: 'ConfigMap/app-env-vars', namespace: 'production-apps', time: '15m ago', timestamp: '2024-06-12T14:25:00Z', ip: '10.0.0.12', code: 200 },
+  { user: 'admin@kubezen.io', verb: 'delete', resource: 'Pod/old-frontend-abc', namespace: 'default', time: '32m ago', timestamp: '2024-06-12T14:08:00Z', ip: '10.0.0.5', code: 204 },
+  { user: 'ci-bot', verb: 'create', resource: 'Deployment/frontend-staging', namespace: 'staging', time: '1h ago', timestamp: '2024-06-12T13:40:00Z', ip: '10.0.0.20', code: 201 },
+  { user: 'admin@kubezen.io', verb: 'patch', resource: 'Deployment/payment-gateway', namespace: 'production-apps', time: '2h ago', timestamp: '2024-06-12T12:50:00Z', ip: '10.0.0.5', code: 200 },
+  { user: 'dev2@kubezen.io', verb: 'create', resource: 'Secret/staging-api-keys', namespace: 'staging', time: '3h ago', timestamp: '2024-06-12T11:30:00Z', ip: '10.0.0.13', code: 201 },
+  { user: 'admin@kubezen.io', verb: 'delete', resource: 'ConfigMap/old-config', namespace: 'production-apps', time: '4h ago', timestamp: '2024-06-12T10:45:00Z', ip: '10.0.0.5', code: 204 },
+  { user: 'ci-bot', verb: 'update', resource: 'Deployment/api-gateway-staging', namespace: 'staging', time: '5h ago', timestamp: '2024-06-12T09:30:00Z', ip: '10.0.0.20', code: 200 },
+  { user: 'dev1@kubezen.io', verb: 'create', resource: 'Ingress/payment-ingress', namespace: 'production-apps', time: '6h ago', timestamp: '2024-06-12T08:15:00Z', ip: '10.0.0.12', code: 201 },
+  { user: 'admin@kubezen.io', verb: 'patch', resource: 'Node/worker-node-04', namespace: '', time: '8h ago', timestamp: '2024-06-12T06:00:00Z', ip: '10.0.0.5', code: 200 },
+  { user: 'monitor-bot', verb: 'get', resource: 'PodList', namespace: '', time: '8h ago', timestamp: '2024-06-12T06:05:00Z', ip: '10.0.0.30', code: 200 },
+  { user: 'dev2@kubezen.io', verb: 'create', resource: 'Service/payment-svc', namespace: 'production-apps', time: '12h ago', timestamp: '2024-06-12T02:00:00Z', ip: '10.0.0.13', code: 201 },
+]
+
+// ── CRD 自定义资源定义 ──────────────────────────────────────
+export const customResourceDefinitions = [
+  {
+    name: 'certificates.cert-manager.io', group: 'cert-manager.io', version: 'v1', kind: 'Certificate', scope: 'Namespaced', namespaced: true, description: '请求并续期 TLS 证书',
+    instances: [
+      { name: 'api-tls-cert', namespace: 'production-apps', status: 'Ready', age: '15d' },
+      { name: 'web-tls-cert', namespace: 'production-apps', status: 'Ready', age: '22d' },
+      { name: 'grafana-tls-cert', namespace: 'monitoring', status: 'Ready', age: '128d' },
+      { name: 'kibana-tls-cert', namespace: 'logging', status: 'Pending', age: '67d' },
+    ],
+  },
+  {
+    name: 'issuers.cert-manager.io', group: 'cert-manager.io', version: 'v1', kind: 'Issuer', scope: 'Namespaced', namespaced: true, description: '命名空间级证书颁发机构',
+    instances: [
+      { name: 'letsencrypt-prod', namespace: 'production-apps', status: 'Ready', age: '98d' },
+      { name: 'self-signed', namespace: 'monitoring', status: 'Ready', age: '128d' },
+    ],
+  },
+  {
+    name: 'clusterissuers.cert-manager.io', group: 'cert-manager.io', version: 'v1', kind: 'ClusterIssuer', scope: 'Cluster', namespaced: false, description: '集群级证书颁发机构',
+    instances: [
+      { name: 'letsencrypt-prod', namespace: '', status: 'Ready', age: '180d' },
+      { name: 'letsencrypt-staging', namespace: '', status: 'Ready', age: '180d' },
+    ],
+  },
+  {
+    name: 'ingressclasses.networking.k8s.io', group: 'networking.k8s.io', version: 'v1', kind: 'IngressClass', scope: 'Cluster', namespaced: false, description: 'Ingress 控制器类别',
+    instances: [
+      { name: 'nginx', namespace: '', status: 'Active', age: '200d' },
+      { name: 'traefik', namespace: '', status: 'Active', age: '90d' },
+    ],
+  },
+  {
+    name: 'horizontalpodautoscalers.autoscaling', group: 'autoscaling', version: 'v2', kind: 'HorizontalPodAutoscaler', scope: 'Namespaced', namespaced: true, description: '工作负载水平自动伸缩',
+    instances: [
+      { name: 'api-gateway-hpa', namespace: 'production-apps', status: 'Ready', age: '30d' },
+      { name: 'payment-hpa', namespace: 'production-apps', status: 'Ready', age: '15d' },
+    ],
+  },
+  {
+    name: 'alertmanagerconfigs.monitoring.coreos.com', group: 'monitoring.coreos.com', version: 'v1', kind: 'AlertmanagerConfig', scope: 'Namespaced', namespaced: true, description: 'Alertmanager 告警路由配置',
+    instances: [
+      { name: 'prod-alerts', namespace: 'monitoring', status: 'Ready', age: '128d' },
+    ],
+  },
+]
