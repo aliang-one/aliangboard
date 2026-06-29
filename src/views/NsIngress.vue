@@ -10,6 +10,14 @@ const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
+// 搜索过滤
+const searchQuery = ref('')
+const filtered = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return store.nsIngress
+  return store.nsIngress.filter(i => i.name.toLowerCase().includes(q) || (i.hosts || '').toLowerCase().includes(q))
+})
+
 // Create Ingress Dialog
 const showCreateModal = ref(false)
 const createForm = ref({
@@ -88,7 +96,17 @@ function handleDelete() {
       </button>
     </div>
 
-    <div v-if="store.nsIngress.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <!-- 搜索框 -->
+    <div class="flex items-center gap-md mb-lg">
+      <div class="relative flex-1 max-w-md">
+        <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或域名搜索..." />
+        <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
+      </div>
+      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsIngress.length }}</span>
+    </div>
+
+    <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -102,7 +120,7 @@ function handleDelete() {
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in store.nsIngress" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
+          <tr v-for="row in filtered" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
             <td class="px-lg py-md">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-lg">language</span>
@@ -134,9 +152,10 @@ function handleDelete() {
       </table>
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">language</span>
-      <p class="text-on-surface-variant mt-md">No ingress rules in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Ingress</button>
+      <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ searchQuery ? 'search_off' : 'language' }}</span>
+      <p class="text-on-surface-variant mt-md">{{ searchQuery ? `没有匹配 "${searchQuery}" 的 Ingress` : 'No ingress rules in this namespace' }}</p>
+      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除搜索</button>
+      <button v-else @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Ingress</button>
     </div>
   </section>
 

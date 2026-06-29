@@ -11,14 +11,25 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
 const typeFilter = ref('All')
+const search = ref('')
 const typeOptions = computed(() => {
   const types = new Set(store.nsSecrets.map(s => s.type))
   return ['All', ...types]
 })
 
 const filtered = computed(() => {
-  if (typeFilter.value === 'All') return store.nsSecrets
-  return store.nsSecrets.filter(s => s.type === typeFilter.value)
+  let list = store.nsSecrets
+  if (typeFilter.value !== 'All') {
+    list = list.filter(s => s.type === typeFilter.value)
+  }
+  const q = search.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter(s => {
+      if (s.name.toLowerCase().includes(q)) return true
+      return Object.keys(s.data || {}).some(k => k.toLowerCase().includes(q))
+    })
+  }
+  return list
 })
 
 // Create Secret
@@ -71,6 +82,25 @@ const typeColor = (type) => {
   if (type.includes('service-account')) return 'bg-tertiary-container/10 text-tertiary border-tertiary/20'
   return 'bg-surface-container text-on-surface-variant border-outline-variant'
 }
+
+// 批量选择
+const selected = ref(new Set())
+function toggleSelect(name) {
+  const s = new Set(selected.value)
+  if (s.has(name)) s.delete(name); else s.add(name)
+  selected.value = s
+}
+const isAllSelected = computed(() => filtered.value.length > 0 && filtered.value.every(r => selected.value.has(r.name)))
+function toggleSelectAll() {
+  selected.value = isAllSelected.value ? new Set() : new Set(filtered.value.map(r => r.name))
+}
+const showBatchModal = ref(false)
+function confirmBatchDelete() { if (selected.value.size) showBatchModal.value = true }
+function handleBatchDelete() {
+  selected.value.forEach(name => store.deleteSecret(name, route.params.namespace))
+  selected.value = new Set()
+  showBatchModal.value = false
+}
 </script>
 
 <template>
@@ -89,19 +119,39 @@ const typeColor = (type) => {
       </button>
     </div>
 
-    <!-- Type Filter -->
-    <div class="flex flex-wrap gap-xs mb-lg">
-      <button v-for="opt in typeOptions" :key="opt" @click="typeFilter = opt"
-        class="px-md py-xs rounded-full text-body-sm font-medium border transition-all"
-        :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
-        {{ opt }}
-      </button>
+    <!-- Type Filter + Search -->
+    <div class="flex flex-wrap items-center gap-md mb-lg">
+      <div class="flex flex-wrap gap-xs">
+        <button v-for="opt in typeOptions" :key="opt" @click="typeFilter = opt"
+          class="px-md py-xs rounded-full text-body-sm font-medium border transition-all"
+          :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
+          {{ opt }}
+        </button>
+      </div>
+      <div class="relative flex-1 min-w-[200px] max-w-md ml-auto">
+        <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
+        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称或数据 key 搜索..." />
+        <button v-if="search" @click="search = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
+          <span class="material-symbols-outlined text-lg">close</span>
+        </button>
+      </div>
+      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsSecrets.length }}</span>
+      <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
+        <span class="text-body-sm font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-body-sm font-semibold hover:opacity-90">
+          <span class="material-symbols-outlined text-sm">delete</span>批量删除
+        </button>
+        <button @click="selected = new Set()" class="text-body-sm text-on-surface-variant hover:text-on-surface">取消</button>
+      </div>
     </div>
 
     <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
+            <th class="px-lg py-md w-10">
+              <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
+            </th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Keys</th>
@@ -112,6 +162,9 @@ const typeColor = (type) => {
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
           <tr v-for="row in filtered" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsSecretDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-lg py-md" @click.stop>
+              <input type="checkbox" :checked="selected.has(row.name)" @change="toggleSelect(row.name)" class="rounded text-primary focus:ring-primary h-4 w-4" />
+            </td>
             <td class="px-lg py-md">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-tertiary text-lg">key</span>
@@ -140,9 +193,10 @@ const typeColor = (type) => {
       </table>
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">key</span>
-      <p class="text-on-surface-variant mt-md">No secrets in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Secret</button>
+      <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ (search || typeFilter !== 'All') ? 'search_off' : 'key' }}</span>
+      <p class="text-on-surface-variant mt-md">{{ (search || typeFilter !== 'All') ? '没有匹配的 Secret' : 'No secrets in this namespace' }}</p>
+      <button v-if="search || typeFilter !== 'All'" @click="search = ''; typeFilter = 'All'" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除筛选</button>
+      <button v-else @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Secret</button>
     </div>
   </section>
 
@@ -190,6 +244,16 @@ const typeColor = (type) => {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- Batch Delete Modal -->
+  <Modal v-model="showBatchModal" title="批量删除 Secret" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">确定要删除选中的 <span class="text-on-surface font-semibold">{{ selected.size }}</span> 个 Secret 吗？</p>
+    <p class="text-body-sm text-error mt-sm">引用这些 Secret 的 Pod 将无法启动。此操作不可撤销。</p>
+    <template #actions>
+      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">全部删除</button>
     </template>
   </Modal>
 </template>

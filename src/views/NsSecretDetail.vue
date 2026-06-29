@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import ResourceReferences from '@/components/common/ResourceReferences.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,6 +78,11 @@ const typeBadge = computed(() => {
   if (t.includes('service-account')) return { color: 'bg-tertiary-container/10 text-tertiary border-tertiary/20', icon: 'person' }
   return { color: 'bg-surface-container text-on-surface-variant border-outline-variant', icon: 'key' }
 })
+
+// 引用此 Secret 的 Workload 数量
+const refCount = computed(() =>
+  store.getResourceReferences('Secret', route.params.name, route.params.namespace).length
+)
 </script>
 
 <template>
@@ -111,10 +117,11 @@ const typeBadge = computed(() => {
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['data', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['data', 'references', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
+        <span v-if="tab === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
       </button>
     </div>
 
@@ -162,6 +169,11 @@ const typeBadge = computed(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- References Tab -->
+    <div v-if="activeTab === 'references'">
+      <ResourceReferences kind="Secret" :name="route.params.name" />
     </div>
 
     <!-- YAML Tab -->

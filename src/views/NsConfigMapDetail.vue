@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import ResourceReferences from '@/components/common/ResourceReferences.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +27,47 @@ const dataEntries = computed(() => {
   if (!cm.value?.data) return []
   return Object.entries(cm.value.data)
 })
+
+// 引用此 ConfigMap 的 Workload 数量
+const refCount = computed(() =>
+  store.getResourceReferences('ConfigMap', route.params.name, route.params.namespace).length
+)
+
+// 配置文件类型识别
+const COLLAPSE_THRESHOLD = 6
+const expandedKeys = ref(new Set())
+
+function detectLang(key) {
+  const k = (key || '').toLowerCase()
+  if (k.endsWith('.yml') || k.endsWith('.yaml')) return { label: 'YAML', icon: 'data_object', color: 'bg-primary-container/10 text-primary' }
+  if (k.endsWith('.json')) return { label: 'JSON', icon: 'data_object', color: 'bg-tertiary-container/10 text-tertiary' }
+  if (k.endsWith('.conf') || k.endsWith('.cfg') || k.endsWith('.cnf')) return { label: 'CONF', icon: 'settings', color: 'bg-secondary-container/10 text-secondary' }
+  if (k.endsWith('.properties')) return { label: 'PROPS', icon: 'list_alt', color: 'bg-secondary-container/10 text-secondary' }
+  if (k.endsWith('.sh') || k.endsWith('.bash')) return { label: 'SHELL', icon: 'terminal', color: 'bg-tertiary-container/10 text-tertiary' }
+  if (k.endsWith('.xml')) return { label: 'XML', icon: 'code', color: 'bg-secondary-container/10 text-secondary' }
+  if (k.endsWith('.env')) return { label: 'ENV', icon: 'code', color: 'bg-primary-container/10 text-primary' }
+  if (k.endsWith('.crt') || k.endsWith('.key') || k.endsWith('.pem') || k.endsWith('.ca')) return { label: 'CERT', icon: 'lock', color: 'bg-error-container/10 text-error' }
+  return { label: 'TEXT', icon: 'description', color: 'bg-surface-container text-on-surface-variant' }
+}
+
+function lineCount(val) {
+  return val ? String(val).split('\n').length : 0
+}
+
+function isCollapsible(key, val) {
+  return lineCount(val) > COLLAPSE_THRESHOLD
+}
+
+function isExpanded(key) {
+  return expandedKeys.value.has(key)
+}
+
+function toggleExpand(key) {
+  const s = new Set(expandedKeys.value)
+  if (s.has(key)) s.delete(key)
+  else s.add(key)
+  expandedKeys.value = s
+}
 
 function handleDelete() {
   store.deleteConfigMap(route.params.name, route.params.namespace)
@@ -93,10 +135,11 @@ function deleteKey(key) {
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['data', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['data', 'references', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
+        <span v-if="tab === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
       </button>
     </div>
 
@@ -112,7 +155,13 @@ function deleteKey(key) {
         <div class="divide-y divide-outline-variant/30">
           <div v-for="([key, val], idx) in dataEntries" :key="idx" class="px-lg py-md">
             <div class="flex items-center justify-between mb-sm">
-              <span class="font-mono text-code-md text-primary font-semibold">{{ key }}</span>
+              <div class="flex items-center gap-sm">
+                <span class="font-mono text-code-md text-primary font-semibold">{{ key }}</span>
+                <span class="inline-flex items-center gap-1 px-1.5 py-0 rounded text-label-caps font-medium" :class="detectLang(key).color">
+                  <span class="material-symbols-outlined text-xs">{{ detectLang(key).icon }}</span>{{ detectLang(key).label }}
+                </span>
+                <span class="text-label-caps text-on-surface-variant">{{ lineCount(val) }} 行</span>
+              </div>
               <div class="flex gap-xs">
                 <button v-if="editingKey !== key" @click="startEdit(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
                   <span class="material-symbols-outlined text-lg">edit</span>
@@ -123,13 +172,20 @@ function deleteKey(key) {
               </div>
             </div>
             <div v-if="editingKey === key" class="flex gap-sm">
-              <textarea v-model="editValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[80px] resize-y focus:ring-2 focus:ring-primary focus:border-primary"></textarea>
+              <textarea v-model="editValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[180px] resize-y focus:ring-2 focus:ring-primary focus:border-primary"></textarea>
               <div class="flex flex-col gap-xs">
                 <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
                 <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
               </div>
             </div>
-            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap max-h-40 overflow-auto">{{ val }}</div>
+            <div v-else>
+              <div class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre overflow-auto transition-all"
+                :class="isCollapsible(key, val) && !isExpanded(key) ? 'max-h-40' : 'max-h-[480px]'">{{ val }}</div>
+              <button v-if="isCollapsible(key, val)" @click="toggleExpand(key)" class="mt-xs flex items-center gap-xs text-body-sm text-primary font-medium hover:underline">
+                <span class="material-symbols-outlined text-base">{{ isExpanded(key) ? 'expand_less' : 'expand_more' }}</span>
+                {{ isExpanded(key) ? '收起' : `展开全部 (${lineCount(val)} 行)` }}
+              </button>
+            </div>
           </div>
           <div v-if="!dataEntries.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">description</span>
@@ -137,6 +193,11 @@ function deleteKey(key) {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- References Tab -->
+    <div v-if="activeTab === 'references'">
+      <ResourceReferences kind="ConfigMap" :name="route.params.name" />
     </div>
 
     <!-- YAML Tab -->

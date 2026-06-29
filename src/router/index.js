@@ -38,6 +38,36 @@ const routes = [
         component: () => import('@/views/Settings.vue'),
         meta: { title: 'Settings', icon: 'tune', scope: 'global' }
       },
+      {
+        path: 'clusters',
+        name: 'Clusters',
+        component: () => import('@/views/Clusters.vue'),
+        meta: { title: 'Clusters', icon: 'hub', scope: 'global' }
+      },
+      {
+        path: 'crds',
+        name: 'CrdList',
+        component: () => import('@/views/CrdList.vue'),
+        meta: { title: 'Custom Resource Definitions', icon: 'extension', scope: 'global' }
+      },
+      {
+        path: 'crds/:name',
+        name: 'CrdDetail',
+        component: () => import('@/views/CrdDetail.vue'),
+        meta: { title: 'CRD Detail', scope: 'global' }
+      },
+      {
+        path: 'audit-logs',
+        name: 'AuditLogs',
+        component: () => import('@/views/AuditLogs.vue'),
+        meta: { title: 'Audit Logs', icon: 'history', scope: 'global' }
+      },
+      {
+        path: 'namespaces',
+        name: 'Namespaces',
+        component: () => import('@/views/Namespaces.vue'),
+        meta: { title: 'Namespaces', icon: 'folder_open', scope: 'global' }
+      },
 
       // === Namespace 作用域页面 ===
       {

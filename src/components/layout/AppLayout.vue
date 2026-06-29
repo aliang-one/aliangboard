@@ -9,9 +9,9 @@ import TopNavBar from './TopNavBar.vue'
     <div class="flex-1 flex flex-col min-w-0 ml-[260px]">
       <TopNavBar />
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
-        <router-view v-slot="{ Component }">
+        <router-view v-slot="{ Component, route }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="route.path" />
           </transition>
         </router-view>
       </main>
