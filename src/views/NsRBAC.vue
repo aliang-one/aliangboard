@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
@@ -30,13 +30,18 @@ const bindingHeaders = [
   { key: 'roleName', label: 'Role' },
   { key: 'subjects', label: 'Subjects' },
   { key: 'age', label: 'Age' },
+  { key: 'actions', label: '', align: 'right' },
 ]
+
+const clusterRoleOptions = computed(() => store.clusterRoles.map(r => r.name))
 
 // Create modals
 const showCreateRoleModal = ref(false)
 const showCreateSAModal = ref(false)
+const showCreateCRBModal = ref(false)
 const newRole = ref({ name: '', scope: 'Namespace', rules: [{ apiGroups: [''], resources: ['pods'], verbs: ['get', 'list'] }] })
 const newSA = ref({ name: '' })
+const newCRB = ref({ name: '', roleName: '', subjectKind: 'User', subjectName: '' })
 
 function createRole() {
   if (!newRole.value.name) return
@@ -59,6 +64,33 @@ function createSA() {
   })
   newSA.value = { name: '' }
   showCreateSAModal.value = false
+}
+
+function createCRB() {
+  if (!newCRB.value.name || !newCRB.value.roleName) return
+  store.addClusterRoleBinding({
+    name: newCRB.value.name,
+    roleName: newCRB.value.roleName,
+    roleKind: 'ClusterRole',
+    subjects: [{ kind: newCRB.value.subjectKind, name: newCRB.value.subjectName }],
+  })
+  newCRB.value = { name: '', roleName: '', subjectKind: 'User', subjectName: '' }
+  showCreateCRBModal.value = false
+}
+
+// 删除（集群级 Role / ClusterRoleBinding）
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+function confirmDelete(item, type) {
+  deleteTarget.value = { name: item.name, type }
+  showDeleteModal.value = true
+}
+function handleDelete() {
+  if (!deleteTarget.value) return
+  if (deleteTarget.value.type === 'clusterrole') store.deleteRole(deleteTarget.value.name, '')
+  else if (deleteTarget.value.type === 'clusterrolebinding') store.deleteClusterRoleBinding(deleteTarget.value.name)
+  showDeleteModal.value = false
+  deleteTarget.value = null
 }
 
 function goToRole(name) {
@@ -91,10 +123,16 @@ function goToBinding(name) {
         </button>
       </div>
     </div>
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex flex-wrap border-b border-outline-variant mb-lg">
       <button @click="activeTab = 'roles'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">Roles</button>
       <button @click="activeTab = 'serviceaccounts'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'serviceaccounts' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">ServiceAccounts</button>
       <button @click="activeTab = 'rolebindings'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'rolebindings' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">RoleBindings</button>
+      <button @click="activeTab = 'clusterroles'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterroles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        <span class="material-symbols-outlined text-sm">public</span>ClusterRoles
+      </button>
+      <button @click="activeTab = 'clusterrolebindings'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterrolebindings' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        <span class="material-symbols-outlined text-sm">public</span>ClusterRoleBindings
+      </button>
     </div>
 
     <!-- Roles Tab -->
@@ -125,27 +163,100 @@ function goToBinding(name) {
     </DataTable>
 
     <!-- RoleBindings Tab -->
-    <DataTable v-if="activeTab === 'rolebindings'" :headers="bindingHeaders" :rows="store.nsRoleBindings">
-      <template #name="{ row }">
-        <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
-          <span class="material-symbols-outlined text-secondary">link</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-        </div>
-      </template>
-      <template #roleName="{ row }">
+    <div v-if="activeTab === 'rolebindings'" class="flex flex-col gap-md">
+      <div class="flex justify-end">
+        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-md py-sm border border-outline-variant font-semibold rounded-lg hover:bg-surface-container transition-colors text-body-sm">
+          <span class="material-symbols-outlined text-sm">add</span> Create RoleBinding
+        </button>
+      </div>
+      <DataTable :headers="bindingHeaders" :rows="store.nsRoleBindings">
+        <template #name="{ row }">
+          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
+            <span class="material-symbols-outlined text-secondary">link</span>
+            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #roleName="{ row }">
+          <div class="flex items-center gap-sm">
+            <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps">{{ row.roleKind }}</span>
+            <span class="font-mono text-code-sm font-medium">{{ row.roleName }}</span>
+          </div>
+        </template>
+        <template #subjects="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="s in (row.subjects || [])" :key="s.name" class="px-2 py-0.5 bg-primary-container/10 text-primary text-body-sm rounded-full">
+              {{ s.kind }}: {{ s.name }}
+            </span>
+          </div>
+        </template>
+      </DataTable>
+    </div>
+
+    <!-- ClusterRoles Tab（集群级）-->
+    <div v-if="activeTab === 'clusterroles'" class="flex flex-col gap-md">
+      <div class="flex items-center justify-between bg-primary-container/5 border border-primary/20 rounded-lg px-md py-sm">
         <div class="flex items-center gap-sm">
-          <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps">{{ row.roleKind }}</span>
-          <span class="font-mono text-code-sm font-medium">{{ row.roleName }}</span>
+          <span class="material-symbols-outlined text-primary">public</span>
+          <p class="text-body-sm text-on-surface">集群级角色（ClusterRole）对所有命名空间生效</p>
         </div>
-      </template>
-      <template #subjects="{ row }">
-        <div class="flex flex-wrap gap-xs">
-          <span v-for="s in (row.subjects || [])" :key="s.name" class="px-2 py-0.5 bg-primary-container/10 text-primary text-body-sm rounded-full">
-            {{ s.kind }}: {{ s.name }}
-          </span>
+        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
+          <span class="material-symbols-outlined text-sm">add</span> Create ClusterRole
+        </button>
+      </div>
+      <DataTable :headers="roleHeaders" :rows="store.clusterRoles">
+        <template #name="{ row }">
+          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
+            <span class="material-symbols-outlined text-primary">shield</span>
+            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #namespace="{ row }">
+          <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded">CLUSTER-WIDE</span>
+        </template>
+        <template #bindings="{ row }">
+          <span class="text-body-md font-semibold text-primary">{{ row.bindings }}</span>
+        </template>
+      </DataTable>
+    </div>
+
+    <!-- ClusterRoleBindings Tab（集群级）-->
+    <div v-if="activeTab === 'clusterrolebindings'" class="flex flex-col gap-md">
+      <div class="flex items-center justify-between bg-primary-container/5 border border-primary/20 rounded-lg px-md py-sm">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary">public</span>
+          <p class="text-body-sm text-on-surface">集群级角色绑定（ClusterRoleBinding）跨命名空间授权</p>
         </div>
-      </template>
-    </DataTable>
+        <button @click="showCreateCRBModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
+          <span class="material-symbols-outlined text-sm">add</span> Create ClusterRoleBinding
+        </button>
+      </div>
+      <DataTable :headers="bindingHeaders" :rows="store.clusterRoleBindingList">
+        <template #name="{ row }">
+          <div class="flex items-center gap-md">
+            <span class="material-symbols-outlined text-primary">link</span>
+            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #roleName="{ row }">
+          <div class="flex items-center gap-sm">
+            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded">ClusterRole</span>
+            <span class="font-mono text-code-sm font-medium">{{ row.roleName }}</span>
+          </div>
+        </template>
+        <template #subjects="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="s in (row.subjects || [])" :key="s.name + s.kind" class="px-2 py-0.5 bg-primary-container/10 text-primary text-body-sm rounded-full">
+              {{ s.kind }}: {{ s.name }}
+            </span>
+          </div>
+        </template>
+        <template #actions="{ row }">
+          <button @click.stop="confirmDelete(row, 'clusterrolebinding')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
+            <span class="material-symbols-outlined text-lg">delete</span>
+          </button>
+        </template>
+      </DataTable>
+    </div>
   </section>
 
   <!-- Create Role Modal -->
@@ -178,6 +289,49 @@ function goToBinding(name) {
     <template #actions>
       <button @click="showCreateSAModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="createSA" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Create</button>
+    </template>
+  </Modal>
+
+  <!-- Create ClusterRoleBinding Modal -->
+  <Modal v-model="showCreateCRBModal" title="Create ClusterRoleBinding" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Binding Name *</label>
+        <input v-model="newCRB.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., my-cluster-binding" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">ClusterRole *</label>
+        <select v-model="newCRB.roleName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+          <option value="" disabled>选择 ClusterRole</option>
+          <option v-for="r in clusterRoleOptions" :key="r" :value="r">{{ r }}</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-3 gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Subject Kind</label>
+          <select v-model="newCRB.subjectKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <option>User</option><option>Group</option><option>ServiceAccount</option>
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Subject Name</label>
+          <input v-model="newCRB.subjectName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., admin@kubezen.io" />
+        </div>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showCreateCRBModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="createCRB" :disabled="!newCRB.name || !newCRB.roleName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+    </template>
+  </Modal>
+
+  <!-- Delete Modal -->
+  <Modal v-model="showDeleteModal" title="删除确认" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">确定要删除 <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span> 吗？</p>
+    <p class="text-body-sm text-error mt-sm">此操作不可撤销。删除集群级绑定将影响所有命名空间的授权。</p>
+    <template #actions>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
     </template>
   </Modal>
 </template>
