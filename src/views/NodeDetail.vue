@@ -16,6 +16,7 @@ const yaml = computed(() => store.generateYAML('node', node.value))
 const activeTab = ref('overview')
 const showCordonModal = ref(false)
 const showDrainModal = ref(false)
+const drainResult = ref(null)
 
 const nodePods = computed(() => store.podList.filter(p => p.node === route.params.name))
 const isCordoned = computed(() => node.value?.unschedulable === true)
@@ -30,7 +31,8 @@ function handleUncordon() {
 }
 
 function handleDrain() {
-  store.cordonNode(route.params.name)
+  const count = store.drainNode(route.params.name)
+  drainResult.value = count
   showDrainModal.value = false
 }
 </script>

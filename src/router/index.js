@@ -63,6 +63,12 @@ const routes = [
         meta: { title: 'Audit Logs', icon: 'history', scope: 'global' }
       },
       {
+        path: 'priorityclasses',
+        name: 'PriorityClasses',
+        component: () => import('@/views/PriorityClasses.vue'),
+        meta: { title: 'PriorityClasses', icon: 'flag', scope: 'global' }
+      },
+      {
         path: 'namespaces',
         name: 'Namespaces',
         component: () => import('@/views/Namespaces.vue'),
@@ -231,6 +237,18 @@ const routes = [
         name: 'NsLimitRangeDetail',
         component: () => import('@/views/NsLimitRangeDetail.vue'),
         meta: { title: 'LimitRange Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/pdbs',
+        name: 'NsPDBs',
+        component: () => import('@/views/NsPDBs.vue'),
+        meta: { title: 'PodDisruptionBudgets', icon: 'shield', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/pdbs/:name',
+        name: 'NsPDBDetail',
+        component: () => import('@/views/NsPDBDetail.vue'),
+        meta: { title: 'PDB Detail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/deploy',
