@@ -19,6 +19,7 @@ const form = ref({
   workloadType: 'Deployment',
   description: '',
   replicas: 1,
+  tier: 'svc',
   // Container
   containerName: '',
   image: '',
@@ -46,12 +47,22 @@ const form = ref({
   // Labels
   labels: [{ key: 'app', value: '' }],
   annotations: [],
+  // Scheduling & Update Strategy
+  nodeSelectors: [],
+  tolerations: [],
+  strategy: 'RollingUpdate',
+  maxSurge: '25%',
+  maxUnavailable: '25%',
+  revisionHistoryLimit: 10,
+  priorityClassName: '',
+  serviceAccountName: '',
 })
 
 const steps = [
   { title: 'Basic Information', icon: 'info' },
   { title: 'Container Config', icon: 'layers' },
   { title: 'Storage & Volumes', icon: 'storage' },
+  { title: 'Scheduling & Update', icon: 'tune' },
   { title: 'Service & Ingress', icon: 'hub' },
   { title: 'Review & Deploy', icon: 'rocket_launch' },
 ]
@@ -68,6 +79,10 @@ function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
 function addAnnotation() { form.value.annotations.push({ key: '', value: '' }) }
 function removeAnnotation(idx) { form.value.annotations.splice(idx, 1) }
+function addNodeSelector() { form.value.nodeSelectors.push({ key: '', value: '' }) }
+function removeNodeSelector(idx) { form.value.nodeSelectors.splice(idx, 1) }
+function addToleration() { form.value.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' }) }
+function removeToleration(idx) { form.value.tolerations.splice(idx, 1) }
 
 function nextStep() { if (currentStep.value < steps.length - 1) currentStep.value++ }
 function prevStep() { if (currentStep.value > 0) currentStep.value-- }
@@ -82,6 +97,18 @@ const canProceed = computed(() => {
 const availableConfigMaps = computed(() => store.nsConfigMaps.map(c => c.name))
 const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
 const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
+const availablePriorityClasses = computed(() => store.priorityClassList.map(p => p.name))
+const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
+
+const tierOptions = [
+  { value: 'web', label: '表现层 Web', icon: 'web' },
+  { value: 'gateway', label: '网关层 Gateway', icon: 'dns' },
+  { value: 'svc', label: '服务层 Service', icon: 'apps' },
+  { value: 'cloud', label: '中间件 Middleware', icon: 'cloud' },
+  { value: 'db', label: '持久层 Database', icon: 'database' },
+  { value: 'monitor', label: '监控层 Monitor', icon: 'monitoring' },
+  { value: 'default', label: '默认层 Default', icon: 'workspaces' },
+]
 
 // Generate YAML preview
 const previewYAML = computed(() => {
@@ -89,6 +116,7 @@ const previewYAML = computed(() => {
   const labels = {}
   f.labels.forEach(l => { if (l.key) labels[l.key] = l.value || f.name })
   labels.app = labels.app || f.name
+  labels.tier = f.tier
 
   const portsYaml = f.ports
     .filter(p => p.containerPort)
@@ -129,7 +157,21 @@ metadata:
   labels:
 ${Object.entries(labels).map(([k, v]) => `    ${k}: ${v}`).join('\n')}
 spec:
-  replicas: ${f.replicas}
+  replicas: ${f.replicas}`
+  if (f.workloadType === 'Deployment' || f.workloadType === 'StatefulSet' || f.workloadType === 'DaemonSet') {
+    yaml += `
+  strategy:
+    type: ${f.strategy}`
+    if (f.strategy === 'RollingUpdate') {
+      yaml += `
+    rollingUpdate:
+      maxSurge: ${f.maxSurge}
+      maxUnavailable: ${f.maxUnavailable}`
+    }
+    yaml += `
+  revisionHistoryLimit: ${f.revisionHistoryLimit}`
+  }
+  yaml += `
   selector:
     matchLabels:
       app: ${f.name}
@@ -137,7 +179,23 @@ spec:
     metadata:
       labels:
 ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
-    spec:
+    spec:`
+  if (f.serviceAccountName) yaml += `\n      serviceAccountName: ${f.serviceAccountName}`
+  if (f.priorityClassName) yaml += `\n      priorityClassName: ${f.priorityClassName}`
+  if (f.nodeSelectors.filter(n => n.key).length) {
+    yaml += `\n      nodeSelector:`
+    f.nodeSelectors.filter(n => n.key).forEach(n => { yaml += `\n        ${n.key}: "${n.value}"` })
+  }
+  if (f.tolerations.filter(t => t.key).length) {
+    yaml += `\n      tolerations:`
+    f.tolerations.filter(t => t.key).forEach(t => {
+      yaml += `\n      - key: "${t.key}"`
+      yaml += `\n        operator: ${t.operator}`
+      if (t.operator === 'Equal') yaml += `\n        value: "${t.value}"`
+      yaml += `\n        effect: ${t.effect}`
+    })
+  }
+  yaml += `
       containers:
       - name: ${f.containerName || f.name}
         image: ${f.image}
@@ -222,7 +280,12 @@ function handleDeploy() {
     replicas: f.replicas + '/' + f.replicas,
     image: f.image,
     sha: 'sha:' + Math.random().toString(16).slice(2, 8),
-    labels: { app: f.name },
+    labels: { app: f.name, tier: f.tier },
+    tier: f.tier,
+    strategy: f.strategy,
+    nodeSelectors: f.nodeSelectors.filter(n => n.key),
+    priorityClassName: f.priorityClassName,
+    serviceAccountName: f.serviceAccountName,
   })
 
   // Add service if requested
@@ -350,6 +413,16 @@ function handleDeploy() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">Description</label>
             <textarea v-model="form.description" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary h-20 resize-none" placeholder="Optional description..."></textarea>
           </div>
+          <div class="md:col-span-2">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier) <span class="text-tertiary-container normal-case">决定在分层拓扑中的归属</span></label>
+            <div class="flex flex-wrap gap-sm">
+              <button v-for="t in tierOptions" :key="t.value" @click="form.tier = t.value"
+                class="flex items-center gap-xs px-md py-sm rounded-lg border text-body-sm font-medium transition-all"
+                :class="form.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
+                <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Labels -->
@@ -467,8 +540,80 @@ function handleDeploy() {
         </div>
       </div>
 
-      <!-- Step 4: Service & Ingress -->
+      <!-- Step 4: Scheduling & Update -->
       <div v-if="currentStep === 3">
+        <h3 class="text-headline-md mb-lg">调度与更新策略</h3>
+
+        <!-- 更新策略 -->
+        <h4 class="text-headline-sm mb-md">更新策略 (Update Strategy)</h4>
+        <div v-if="['Deployment','StatefulSet','DaemonSet'].includes(form.workloadType)" class="flex flex-col gap-md mb-xl">
+          <div class="flex gap-sm">
+            <button v-for="s in ['RollingUpdate','Recreate']" :key="s" @click="form.strategy = s"
+              class="px-lg py-sm rounded-lg border font-medium text-body-md transition-all"
+              :class="form.strategy === s ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">{{ s }}</button>
+          </div>
+          <div v-if="form.strategy === 'RollingUpdate'" class="grid grid-cols-3 gap-md">
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Max Surge</label><input v-model="form.maxSurge" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="25%" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Max Unavailable</label><input v-model="form.maxUnavailable" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="25%" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Revision History</label><input v-model.number="form.revisionHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+          </div>
+        </div>
+        <p v-else class="text-body-sm text-on-surface-variant mb-xl">Job / CronJob 不适用滚动更新策略。</p>
+
+        <!-- 节点调度 -->
+        <h4 class="text-headline-sm mb-md">节点调度 (Node Selector)</h4>
+        <div class="flex flex-col gap-sm mb-xl">
+          <div v-for="(ns, idx) in form.nodeSelectors" :key="idx" class="flex gap-sm items-center">
+            <input v-model="ns.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="label key (e.g. disktype)" />
+            <input v-model="ns.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="value (e.g. ssd)" />
+            <button @click="removeNodeSelector(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          </div>
+          <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined">add</span> Add Node Selector
+          </button>
+        </div>
+
+        <!-- 污点容忍 -->
+        <h4 class="text-headline-sm mb-md">污点容忍 (Tolerations)</h4>
+        <div class="flex flex-col gap-sm mb-xl">
+          <div v-for="(t, idx) in form.tolerations" :key="idx" class="flex gap-sm items-center flex-wrap">
+            <input v-model="t.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
+            <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option>Equal</option><option>Exists</option>
+            </select>
+            <input v-if="t.operator === 'Equal'" v-model="t.value" class="flex-1 min-w-[80px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="value" />
+            <select v-model="t.effect" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option>
+            </select>
+            <button @click="removeToleration(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          </div>
+          <button @click="addToleration" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined">add</span> Add Toleration
+          </button>
+        </div>
+
+        <!-- 优先级与身份 -->
+        <h4 class="text-headline-sm mb-md">优先级与身份</h4>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">PriorityClass</label>
+            <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">None</option>
+              <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">ServiceAccount</label>
+            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">Default</option>
+              <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5: Service & Ingress -->
+      <div v-if="currentStep === 4">
         <h3 class="text-headline-md mb-lg">Service & Ingress</h3>
 
         <div class="flex items-center gap-sm mb-lg">
@@ -505,8 +650,8 @@ function handleDeploy() {
         </div>
       </div>
 
-      <!-- Step 5: Review & Deploy -->
-      <div v-if="currentStep === 4">
+      <!-- Step 6: Review & Deploy -->
+      <div v-if="currentStep === 5">
         <h3 class="text-headline-md mb-lg">Review & Deploy</h3>
 
         <!-- Summary Cards -->

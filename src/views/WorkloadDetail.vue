@@ -8,8 +8,10 @@ import StatusChip from '@/components/common/StatusChip.vue'
 const route = useRoute()
 const store = useClusterStore()
 
-const workload = computed(() => store.getWorkloadByName(route.params.name))
-const pod = computed(() => store.getPodByName(route.params.name))
+const workload = computed(() => store.workloadList.find(
+  (w) => w.name === route.params.name && w.type?.toLowerCase() === route.params.type
+))
+const pod = computed(() => store.podList.find((p) => p.name === route.params.name))
 const displayData = computed(() => pod.value || workload.value)
 </script>
 
@@ -91,7 +93,7 @@ const displayData = computed(() => pod.value || workload.value)
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="(p, idx) in store.podList.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push(`/pods/${p.namespace}/${p.name}`)">
+              <tr v-for="(p, idx) in store.podList.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push({ name: 'NsPodDetail', params: { namespace: p.namespace, name: p.name } })">
                 <td class="px-lg py-md">
                   <span class="font-mono text-code-sm font-medium text-on-surface">{{ p.name }}</span>
                 </td>

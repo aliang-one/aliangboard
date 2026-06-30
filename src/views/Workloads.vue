@@ -49,7 +49,14 @@ function parseReplicas(rep) {
 }
 
 function goDetail(row) {
-  router.push(`/workloads/${row.type.toLowerCase()}/${row.name}`)
+  router.push({
+    name: 'NsWorkloadDetail',
+    params: {
+      namespace: row.namespace,
+      type: row.type.toLowerCase(),
+      name: row.name,
+    },
+  })
 }
 </script>
 
