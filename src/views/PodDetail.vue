@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -30,7 +30,7 @@ function levelColor(level) {
 
 // === 日志下载 / 复制 ===
 function formatLogs() {
-  return store.logEntries.map(l => `${l.timestamp} [${l.level}] ${l.message}`).join('\n')
+  return allLogs.value.map(l => `${l.timestamp} [${l.level}] ${l.message}`).join('\n')
 }
 function downloadLogs() {
   const blob = new Blob([formatLogs()], { type: 'text/plain' })
@@ -46,6 +46,38 @@ async function copyLogs() {
     await navigator.clipboard.writeText(formatLogs())
   } catch (e) { /* clipboard 不可用时静默 */ }
 }
+
+// === 日志实时流（Follow）===
+const followLog = ref(true)
+const liveLogs = ref([])
+let logTimer = null
+const sampleLogMessages = [
+  { level: 'INFO', message: 'GET /api/v1/health - 200 OK (8ms)' },
+  { level: 'INFO', message: 'GET /api/v1/metrics - 200 OK (24ms)' },
+  { level: 'INFO', message: 'POST /api/v1/orders - 201 Created (142ms)' },
+  { level: 'INFO', message: 'Cache hit ratio: 95.3%' },
+  { level: 'WARN', message: 'Slow query detected on /api/v1/search (210ms)' },
+  { level: 'INFO', message: 'GET /api/v1/users - 200 OK (18ms)' },
+  { level: 'INFO', message: 'Scheduled task completed: cleanup-sessions' },
+  { level: 'INFO', message: 'WS heartbeat acknowledged: client-ok' },
+  { level: 'INFO', message: 'DB connection pool: 8/10 active' },
+]
+function pushLog() {
+  const sample = sampleLogMessages[Math.floor(Math.random() * sampleLogMessages.length)]
+  liveLogs.value.push({ timestamp: new Date().toISOString().substr(11, 12), level: sample.level, message: sample.message })
+  if (liveLogs.value.length > 80) liveLogs.value.shift()
+}
+function startFollow() {
+  stopFollow()
+  logTimer = setInterval(pushLog, 1800)
+}
+function stopFollow() {
+  if (logTimer) { clearInterval(logTimer); logTimer = null }
+}
+watch(followLog, (v) => { v ? startFollow() : stopFollow() })
+onMounted(() => { if (followLog.value) startFollow() })
+onUnmounted(stopFollow)
+const allLogs = computed(() => [...store.logEntries, ...liveLogs.value])
 
 // === 事件关联资源跳转 ===
 function goToRelated(event) {
@@ -174,8 +206,11 @@ function triggerUpload() {
             <div class="flex items-center gap-md">
               <span class="text-body-sm text-on-surface-variant font-medium">Container: {{ pod.containers?.[0] || 'main' }}</span>
               <div class="flex items-center gap-2">
-                <input checked type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
+                <input v-model="followLog" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
                 <span class="text-body-sm text-on-surface-variant">Follow</span>
+                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full">
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE
+                </span>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -185,7 +220,7 @@ function triggerUpload() {
           </div>
           <div class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
             <div class="space-y-1">
-              <p v-for="(log, idx) in store.logEntries" :key="idx" class="text-outline-variant">
+              <p v-for="(log, idx) in allLogs" :key="idx" class="text-outline-variant">
                 {{ log.timestamp }} <span :class="levelColor(log.level)">[{{ log.level }}]</span> {{ log.message }}
               </p>
               <div class="w-1.5 h-4 bg-primary inline-block animate-pulse ml-1 align-middle"></div>

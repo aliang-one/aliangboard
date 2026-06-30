@@ -715,3 +715,24 @@ export const clusterRoleBindings = [
   { name: 'cert-manager-cluster-binding', roleName: 'cert-manager', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'cert-manager-sa', namespace: 'cert-manager' }], age: '180d' },
   { name: 'fluentd-cluster-binding', roleName: 'fluentd-reader', roleKind: 'ClusterRole', subjects: [{ kind: 'ServiceAccount', name: 'fluentd-sa', namespace: 'kube-system' }], age: '200d' },
 ]
+
+// ── PodDisruptionBudget（中断预算，命名空间级）──────────────
+export const podDisruptionBudgets = [
+  { name: 'api-gateway-pdb', namespace: 'production-apps', minAvailable: '2', maxUnavailable: '', selector: { app: 'api-gateway' }, allowedDisruptions: 1, currentHealthy: 3, desiredHealthy: 2, age: '30d' },
+  { name: 'frontend-pdb', namespace: 'production-apps', minAvailable: '', maxUnavailable: '1', selector: { app: 'frontend-web' }, allowedDisruptions: 1, currentHealthy: 4, desiredHealthy: 3, age: '20d' },
+  { name: 'payment-pdb', namespace: 'production-apps', minAvailable: '2', maxUnavailable: '', selector: { app: 'payment-gateway' }, allowedDisruptions: 1, currentHealthy: 3, desiredHealthy: 2, age: '15d' },
+  { name: 'postgres-pdb', namespace: 'production-apps', minAvailable: '1', maxUnavailable: '', selector: { app: 'postgres' }, allowedDisruptions: 0, currentHealthy: 1, desiredHealthy: 1, age: '98d' },
+  { name: 'prometheus-pdb', namespace: 'monitoring', minAvailable: '1', maxUnavailable: '', selector: { app: 'prometheus' }, allowedDisruptions: 0, currentHealthy: 1, desiredHealthy: 1, age: '128d' },
+  { name: 'elasticsearch-pdb', namespace: 'logging', minAvailable: '2', maxUnavailable: '', selector: { app: 'elasticsearch' }, allowedDisruptions: 1, currentHealthy: 3, desiredHealthy: 2, age: '67d' },
+  { name: 'staging-frontend-pdb', namespace: 'staging', minAvailable: '', maxUnavailable: '1', selector: { app: 'frontend' }, allowedDisruptions: 1, currentHealthy: 2, desiredHealthy: 1, age: '5d' },
+]
+
+// ── PriorityClass（优先级类，集群级）────────────────────────
+export const priorityClasses = [
+  { name: 'system-node-critical', value: 2000001000, globalDefault: false, description: '用于系统节点关键 Pod（不可被驱逐）', age: '245d' },
+  { name: 'system-cluster-critical', value: 2000000000, globalDefault: false, description: '用于系统集群关键 Pod', age: '245d' },
+  { name: 'prod-high', value: 1000000, globalDefault: false, description: '生产环境高优先级应用（核心服务）', age: '90d' },
+  { name: 'prod-medium', value: 500000, globalDefault: false, description: '生产环境中优先级应用', age: '90d' },
+  { name: 'default-priority', value: 100000, globalDefault: true, description: '默认优先级（无显式指定时使用）', age: '90d' },
+  { name: 'batch-low', value: 10000, globalDefault: false, description: '低优先级批处理任务', age: '60d' },
+]

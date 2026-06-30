@@ -5,7 +5,8 @@ import {
   services, ingresses, configMaps, secrets, persistentVolumes,
   pvcs, storageClasses, roles, serviceAccounts, podLogs,
   networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings,
-  clusters, auditLogs, customResourceDefinitions, clusterRoleBindings
+  clusters, auditLogs, customResourceDefinitions, clusterRoleBindings,
+  podDisruptionBudgets, priorityClasses
 } from '@/mock/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -32,6 +33,8 @@ export const useClusterStore = defineStore('cluster', () => {
   const limitRangeList = ref(limitRanges)
   const roleBindingList = ref(roleBindings)
   const clusterRoleBindingList = ref(clusterRoleBindings)
+  const pdbList = ref(podDisruptionBudgets)
+  const priorityClassList = ref(priorityClasses)
   const clusterList = ref(clusters)
   const auditLogList = ref(auditLogs)
   const crdList = ref(customResourceDefinitions)
@@ -131,6 +134,12 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 集群级角色（全局，不按 namespace 过滤）
   const clusterRoles = computed(() => roleList.value.filter(r => r.scope === 'Cluster'))
+
+  // 命名空间级 PDB
+  const nsPDBs = computed(() => {
+    if (!currentNamespace.value) return []
+    return pdbList.value.filter(p => p.namespace === currentNamespace.value)
+  })
 
   const nsEvents = computed(() => {
     if (!currentNamespace.value) return eventList.value
@@ -536,6 +545,35 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) clusterRoleBindingList.value.splice(idx, 1)
   }
 
+  // === CRUD: PodDisruptionBudget ===
+  function getPDBByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return pdbList.value.find(p => p.name === name && p.namespace === namespace)
+  }
+  function addPDB(pdb) {
+    pdbList.value.push({ allowedDisruptions: 0, currentHealthy: 0, desiredHealthy: 0, ...pdb, age: 'Just now' })
+  }
+  function updatePDB(name, ns, updates) {
+    const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
+    if (idx !== -1) pdbList.value[idx] = { ...pdbList.value[idx], ...updates }
+  }
+  function deletePDB(name, ns) {
+    const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
+    if (idx !== -1) pdbList.value.splice(idx, 1)
+  }
+
+  // === CRUD: PriorityClass（集群级）===
+  function getPriorityClassByName(name) {
+    return priorityClassList.value.find(p => p.name === name)
+  }
+  function addPriorityClass(pc) {
+    priorityClassList.value.push({ ...pc, age: 'Just now' })
+  }
+  function deletePriorityClass(name) {
+    const idx = priorityClassList.value.findIndex(p => p.name === name)
+    if (idx !== -1) priorityClassList.value.splice(idx, 1)
+  }
+
   // === CRUD: Nodes ===
   function cordonNode(name) {
     const node = nodeList.value.find(n => n.name === name)
@@ -545,6 +583,26 @@ export const useClusterStore = defineStore('cluster', () => {
   function uncordonNode(name) {
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = false
+  }
+
+  // Drain：cordon + 驱逐该节点上的业务 Pod（mock 模拟，保留系统命名空间 Pod）
+  function drainNode(name) {
+    cordonNode(name)
+    const systemNs = ['kube-system', 'kube-node-lease', 'kube-public']
+    let count = 0
+    for (let i = podList.value.length - 1; i >= 0; i--) {
+      const p = podList.value[i]
+      if (p.node === name && !systemNs.includes(p.namespace)) {
+        podList.value.splice(i, 1)
+        count++
+      }
+    }
+    // 同步节点 pod 计数
+    const node = nodeList.value.find(n => n.name === name)
+    if (node && typeof node.pods === 'number') {
+      node.pods = podList.value.filter(p => p.node === name).length
+    }
+    return count
   }
 
   // === CRUD: Namespaces ===
@@ -855,20 +913,48 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     return `# YAML for ${type}/${name}`
   }
 
+  // 单独的 YAML 生成（PDB / PriorityClass），避免破坏上面的逻辑
+  function generateExtraYAML(type, resource) {
+    if (!resource) return ''
+    if (type === 'pdb') {
+      const sel = resource.selector ? Object.entries(resource.selector).map(([k, v]) => `      ${k}: ${v}`).join('\n') : '      {}'
+      return `apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${resource.name}
+  namespace: ${resource.namespace}
+spec:
+  ${resource.minAvailable ? `minAvailable: ${resource.minAvailable}` : `maxUnavailable: ${resource.maxUnavailable}`}
+  selector:
+    matchLabels:
+${sel}`
+    }
+    if (type === 'priorityclass') {
+      return `apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ${resource.name}
+value: ${resource.value}
+globalDefault: ${resource.globalDefault}
+description: "${resource.description || ''}"`
+    }
+    return ''
+  }
+
   return {
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
     serviceList, ingressList, configMapList, secretList, pvList, pvcList,
     scList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
-    clusterRoleBindingList,
+    clusterRoleBindingList, pdbList, priorityClassList,
     clusterList, auditLogList, crdList, currentCluster,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
     nsWorkloads, nsPods, nsServices, nsIngress, nsConfigMaps, nsSecrets,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
-    nsTieredWorkloads, TIER_META, clusterRoles,
+    nsTieredWorkloads, TIER_META, clusterRoles, nsPDBs,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, getPodByName, getNodeByName, getNamespaceByName,
@@ -903,8 +989,12 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     addRoleBinding, deleteRoleBinding,
     // CRUD: ClusterRoleBindings
     addClusterRoleBinding, deleteClusterRoleBinding,
+    // CRUD: PDB
+    getPDBByName, addPDB, updatePDB, deletePDB,
+    // CRUD: PriorityClass
+    getPriorityClassByName, addPriorityClass, deletePriorityClass,
     // CRUD: Nodes
-    cordonNode, uncordonNode,
+    cordonNode, uncordonNode, drainNode,
     // CRUD: Namespaces
     addNamespace, deleteNamespace,
     // 多集群
@@ -914,6 +1004,6 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
     // 审计
     logAudit,
     // YAML generation
-    generateYAML,
+    generateYAML, generateExtraYAML,
   }
 })

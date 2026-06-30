@@ -17,6 +17,7 @@ const globalNavItems = [
   { icon: 'dns', label: 'Nodes', route: '/nodes' },
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
   { icon: 'extension', label: 'CRDs', route: '/crds' },
+  { icon: 'flag', label: 'PriorityClasses', route: '/priorityclasses' },
   { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
 ]
 
@@ -70,6 +71,7 @@ const nsNavGroups = [
     items: [
       { icon: 'pie_chart', label: 'ResourceQuota', routeKey: 'resourcequotas' },
       { icon: 'tune', label: 'LimitRange', routeKey: 'limitranges' },
+      { icon: 'shield', label: 'PDB', routeKey: 'pdbs' },
     ]
   },
 ]
@@ -97,6 +99,7 @@ const nsRouteMap = {
   rbac: 'NsRBAC',
   resourcequotas: 'NsResourceQuotas',
   limitranges: 'NsLimitRanges',
+  pdbs: 'NsPDBs',
 }
 
 function selectNamespace(ns) {
@@ -136,6 +139,7 @@ function isNsRouteActive(routeKey) {
   if (name === 'NsHPA' && route.name === 'NsHPADetail') return true
   if (name === 'NsResourceQuotas' && route.name === 'NsResourceQuotaDetail') return true
   if (name === 'NsLimitRanges' && route.name === 'NsLimitRangeDetail') return true
+  if (name === 'NsPDBs' && route.name === 'NsPDBDetail') return true
   return false
 }
 
