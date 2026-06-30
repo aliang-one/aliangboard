@@ -37,6 +37,16 @@ const scaleReplicas = ref(1)
 const showEditModal = ref(false)
 const editForm = ref({})
 
+const tierOptions = [
+  { value: 'web', label: '表现层', icon: 'web' },
+  { value: 'gateway', label: '网关层', icon: 'dns' },
+  { value: 'svc', label: '服务层', icon: 'apps' },
+  { value: 'cloud', label: '中间件', icon: 'cloud' },
+  { value: 'db', label: '持久层', icon: 'database' },
+  { value: 'monitor', label: '监控层', icon: 'monitoring' },
+  { value: 'default', label: '默认层', icon: 'workspaces' },
+]
+
 function handleDelete() {
   store.deleteWorkload(route.params.name, route.params.namespace)
   router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
@@ -63,14 +73,18 @@ function openEdit() {
     image: workload.value.image,
     replicas: workload.value.replicas?.split('/')[1] || '1',
     labels: { ...workload.value.labels },
+    tier: workload.value.tier || 'default',
   }
   showEditModal.value = true
 }
 
 function saveEdit() {
+  const labels = { ...(editForm.value.labels || {}), tier: editForm.value.tier }
   store.updateWorkload(route.params.name, route.params.namespace, {
     image: editForm.value.image,
     replicas: `${editForm.value.replicas}/${editForm.value.replicas}`,
+    tier: editForm.value.tier,
+    labels,
   })
   showEditModal.value = false
 }
@@ -381,6 +395,16 @@ function saveEdit() {
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label>
         <input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier)</label>
+        <div class="flex flex-wrap gap-xs">
+          <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value"
+            class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm font-medium transition-all"
+            :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
+            <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+          </button>
+        </div>
       </div>
     </div>
     <template #actions>

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import { useClusterStore } from '@/stores/cluster'
 
 const routes = [
   {
@@ -31,6 +32,54 @@ const routes = [
         name: 'NodeDetail',
         component: () => import('@/views/NodeDetail.vue'),
         meta: { title: 'Node Detail', scope: 'global' }
+      },
+      {
+        path: 'workloads',
+        name: 'Workloads',
+        component: () => import('@/views/Workloads.vue'),
+        meta: { title: 'Workloads', icon: 'apps', scope: 'global' }
+      },
+      {
+        path: 'workloads/:type/:name',
+        name: 'WorkloadDetail',
+        component: () => import('@/views/WorkloadDetail.vue'),
+        meta: { title: 'Workload Detail', scope: 'global' }
+      },
+      {
+        path: 'pods/:namespace/:name',
+        name: 'PodDetail',
+        component: () => import('@/views/PodDetail.vue'),
+        meta: { title: 'Pod Detail', scope: 'global' }
+      },
+      {
+        path: 'network',
+        name: 'Network',
+        component: () => import('@/views/Network.vue'),
+        meta: { title: 'Network', icon: 'share', scope: 'global' }
+      },
+      {
+        path: 'storage',
+        name: 'Storage',
+        component: () => import('@/views/Storage.vue'),
+        meta: { title: 'Storage', icon: 'storage', scope: 'global' }
+      },
+      {
+        path: 'configuration',
+        name: 'Configuration',
+        component: () => import('@/views/Configuration.vue'),
+        meta: { title: 'Configuration', icon: 'description', scope: 'global' }
+      },
+      {
+        path: 'rbac',
+        name: 'RBAC',
+        component: () => import('@/views/RBAC.vue'),
+        meta: { title: 'RBAC', icon: 'admin_panel_settings', scope: 'global' }
+      },
+      {
+        path: 'deploy',
+        name: 'Deploy',
+        component: () => import('@/views/DeployApp.vue'),
+        meta: { title: 'Deploy', icon: 'rocket_launch', scope: 'global' }
       },
       {
         path: 'settings',
@@ -73,6 +122,12 @@ const routes = [
         name: 'Namespaces',
         component: () => import('@/views/Namespaces.vue'),
         meta: { title: 'Namespaces', icon: 'folder_open', scope: 'global' }
+      },
+      {
+        path: 'namespaces/:name',
+        name: 'NamespaceDetail',
+        component: () => import('@/views/NamespaceDetail.vue'),
+        meta: { title: 'Namespace Detail', scope: 'global' }
       },
 
       // === Namespace 作用域页面 ===
@@ -269,6 +324,18 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach((to) => {
+  const namespaceParam = to.params.namespace
+  const namespace = Array.isArray(namespaceParam) ? namespaceParam[0] : namespaceParam
+
+  if (namespace) {
+    const store = useClusterStore()
+    if (store.currentNamespace !== namespace) {
+      store.setNamespace(namespace)
+    }
+  }
 })
 
 export default router

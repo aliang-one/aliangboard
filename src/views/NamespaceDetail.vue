@@ -120,7 +120,7 @@ const nsServices = computed(() => store.serviceList.filter(s => s.namespace === 
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/50 cursor-pointer" @click="router.push(`/workloads/${w.type.toLowerCase()}/${w.name}`)">
+            <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/50 cursor-pointer" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })">
               <td class="px-lg py-md font-semibold text-on-surface text-body-md">{{ w.name }}</td>
               <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ w.type }}</td>
               <td class="px-lg py-md"><StatusChip :status="w.status" /></td>
