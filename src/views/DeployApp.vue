@@ -65,12 +65,22 @@ const form = ref({
   revisionHistoryLimit: 10,
   priorityClassName: '',
   serviceAccountName: '',
+  // Job 专属
+  jobConfig: { completions: 1, parallelism: 1, backoffLimit: 6, activeDeadlineSeconds: '' },
+  // CronJob 专属
+  cronConfig: { schedule: '*/5 * * * *', concurrencyPolicy: 'Allow', suspend: false, successfulJobsHistoryLimit: 3, failedJobsHistoryLimit: 1 },
+  // 镜像拉取凭证（pod 级）
+  imagePullSecrets: '',
+  // 容器安全上下文
+  securityContext: { enabled: false, runAsUser: '', runAsNonPrivileged: false, readOnlyRootFilesystem: false, addCaps: '', dropCaps: '' },
+  // 生命周期钩子
+  lifecycle: { postStart: '', preStop: '' },
 })
 
 const steps = [
   { title: 'Basic Information', icon: 'info' },
   { title: 'Container Config', icon: 'layers' },
-  { title: 'Storage & Volumes', icon: 'storage' },
+  { title: 'Volumes', icon: 'storage' },
   { title: 'Scheduling & Update', icon: 'tune' },
   { title: 'Service & Ingress', icon: 'hub' },
   { title: 'Review & Deploy', icon: 'rocket_launch' },
@@ -118,14 +128,27 @@ const availablePriorityClasses = computed(() => store.priorityClassList.map(p =>
 const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
 
 const tierOptions = [
-  { value: 'web', label: '表现层 Web', icon: 'web' },
-  { value: 'gateway', label: '网关层 Gateway', icon: 'dns' },
-  { value: 'svc', label: '服务层 Service', icon: 'apps' },
-  { value: 'cloud', label: '中间件 Middleware', icon: 'cloud' },
-  { value: 'db', label: '持久层 Database', icon: 'database' },
-  { value: 'monitor', label: '监控层 Monitor', icon: 'monitoring' },
-  { value: 'default', label: '默认层 Default', icon: 'workspaces' },
+  { value: 'web', label: '表现层 Web', icon: 'web', desc: '前端应用、用户界面' },
+  { value: 'gateway', label: '网关层 Gateway', icon: 'dns', desc: 'API 网关、流量入口' },
+  { value: 'svc', label: '服务层 Service', icon: 'apps', desc: '业务逻辑服务' },
+  { value: 'cloud', label: '中间件 Middleware', icon: 'cloud', desc: '消息队列、缓存等中间件' },
+  { value: 'db', label: '持久层 Database', icon: 'database', desc: '数据库、有状态存储' },
+  { value: 'monitor', label: '监控层 Monitor', icon: 'monitoring', desc: '监控、日志、可观测性' },
+  { value: 'default', label: '默认层 Default', icon: 'workspaces', desc: '未分类或系统组件' },
 ]
+
+const resourcePresets = [
+  { label: '小', cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi' },
+  { label: '中', cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi' },
+  { label: '大', cpuReq: '500m', cpuLim: '1000m', memReq: '512Mi', memLim: '1Gi' },
+  { label: '超大', cpuReq: '1000m', cpuLim: '2000m', memReq: '1Gi', memLim: '2Gi' },
+]
+function applyPreset(p) {
+  form.value.cpuRequest = p.cpuReq
+  form.value.cpuLimit = p.cpuLim
+  form.value.memoryRequest = p.memReq
+  form.value.memoryLimit = p.memLim
+}
 
 // Generate YAML preview
 const previewYAML = computed(() => {
@@ -211,39 +234,67 @@ const previewYAML = computed(() => {
     .filter(Boolean)
     .join('\n')
 
-  let yaml = `apiVersion: apps/v1
+  // apiVersion / kind / spec 头部按类型区分
+  const isBatch = f.workloadType === 'Job'
+  const isCron = f.workloadType === 'CronJob'
+  const apiVersion = isBatch ? 'batch/v1' : isCron ? 'batch/v1' : 'apps/v1'
+  let yaml = `apiVersion: ${apiVersion}
 kind: ${f.workloadType}
 metadata:
   name: ${f.name}
   namespace: ${f.namespace}
   labels:
 ${Object.entries(labels).map(([k, v]) => `    ${k}: ${v}`).join('\n')}
-spec:
-  replicas: ${f.replicas}`
-  if (f.workloadType === 'Deployment' || f.workloadType === 'StatefulSet' || f.workloadType === 'DaemonSet') {
+spec:`
+  if (isCron) {
     yaml += `
+  schedule: "${f.cronConfig.schedule}"
+  concurrencyPolicy: ${f.cronConfig.concurrencyPolicy}
+  suspend: ${f.cronConfig.suspend}
+  successfulJobsHistoryLimit: ${f.cronConfig.successfulJobsHistoryLimit}
+  failedJobsHistoryLimit: ${f.cronConfig.failedJobsHistoryLimit}
+  jobTemplate:
+    spec:
+      backoffLimit: ${f.jobConfig.backoffLimit}` +
+      (f.jobConfig.activeDeadlineSeconds ? `\n      activeDeadlineSeconds: ${f.jobConfig.activeDeadlineSeconds}` : '') + `
+      template:`
+  } else if (isBatch) {
+    yaml += `
+  backoffLimit: ${f.jobConfig.backoffLimit}
+  completions: ${f.jobConfig.completions}
+  parallelism: ${f.jobConfig.parallelism}` +
+    (f.jobConfig.activeDeadlineSeconds ? `\n  activeDeadlineSeconds: ${f.jobConfig.activeDeadlineSeconds}` : '') + `
+  template:`
+  } else {
+    yaml += `
+  replicas: ${f.replicas}`
+    if (f.workloadType === 'Deployment' || f.workloadType === 'StatefulSet' || f.workloadType === 'DaemonSet') {
+      yaml += `
   strategy:
     type: ${f.strategy}`
-    if (f.strategy === 'RollingUpdate') {
-      yaml += `
+      if (f.strategy === 'RollingUpdate') {
+        yaml += `
     rollingUpdate:
       maxSurge: ${f.maxSurge}
       maxUnavailable: ${f.maxUnavailable}`
+      }
+      yaml += `
+  revisionHistoryLimit: ${f.revisionHistoryLimit}`
     }
     yaml += `
-  revisionHistoryLimit: ${f.revisionHistoryLimit}`
-  }
-  yaml += `
   selector:
     matchLabels:
       app: ${f.name}
-  template:
+  template:`
+  }
+  yaml += `
     metadata:
       labels:
 ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
     spec:`
   if (f.serviceAccountName) yaml += `\n      serviceAccountName: ${f.serviceAccountName}`
   if (f.priorityClassName) yaml += `\n      priorityClassName: ${f.priorityClassName}`
+  if (f.imagePullSecrets) yaml += `\n      imagePullSecrets:\n      - name: ${f.imagePullSecrets}`
   if (f.nodeSelectors.filter(n => n.key).length) {
     yaml += `\n      nodeSelector:`
     f.nodeSelectors.filter(n => n.key).forEach(n => { yaml += `\n        ${n.key}: "${n.value}"` })
@@ -275,6 +326,21 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
           limits:
             cpu: ${f.cpuLimit}
             memory: ${f.memoryLimit}`
+  // securityContext
+  if (f.securityContext.enabled) {
+    yaml += `\n        securityContext:`
+    if (f.securityContext.runAsUser) yaml += `\n          runAsUser: ${f.securityContext.runAsUser}`
+    if (f.securityContext.runAsNonPrivileged) yaml += `\n          runAsNonRoot: true`
+    if (f.securityContext.readOnlyRootFilesystem) yaml += `\n          readOnlyRootFilesystem: true`
+    if (f.securityContext.addCaps) yaml += `\n          capabilities:\n            add: [${f.securityContext.addCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
+    else if (f.securityContext.dropCaps) yaml += `\n          capabilities:\n            drop: [${f.securityContext.dropCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
+  }
+  // lifecycle
+  if (f.lifecycle.postStart || f.lifecycle.preStop) {
+    yaml += `\n        lifecycle:`
+    if (f.lifecycle.postStart) yaml += `\n          postStart:\n            exec:\n              command: [${f.lifecycle.postStart.split(' ').map(c => `"${c}"`).join(', ')}]`
+    if (f.lifecycle.preStop) yaml += `\n          preStop:\n            exec:\n              command: [${f.lifecycle.preStop.split(' ').map(c => `"${c}"`).join(', ')}]`
+  }
   if (probesYaml) yaml += '\n' + probesYaml
   if (volumeMountsYaml) yaml += `\n        volumeMounts:\n${volumeMountsYaml}`
   if (extraContainersYaml) yaml += '\n' + extraContainersYaml
@@ -466,9 +532,31 @@ function handleDeploy() {
               >{{ wt }}</button>
             </div>
           </div>
-          <div v-if="form.workloadType !== 'DaemonSet'">
+          <div v-if="!['DaemonSet','Job','CronJob'].includes(form.workloadType)">
             <label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label>
             <input v-model.number="form.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+          </div>
+          <!-- Job 专属配置 -->
+          <div v-if="form.workloadType === 'Job'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-md p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Completions</label><input v-model.number="form.jobConfig.completions" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Parallelism</label><input v-model.number="form.jobConfig.parallelism" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Backoff Limit</label><input v-model.number="form.jobConfig.backoffLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Active Deadline (s)</label><input v-model.number="form.jobConfig.activeDeadlineSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="可选" /></div>
+          </div>
+          <!-- CronJob 专属配置 -->
+          <div v-if="form.workloadType === 'CronJob'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-md p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
+            <div class="md:col-span-2">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Schedule (Cron 表达式)</label>
+              <input v-model="form.cronConfig.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="*/5 * * * *" />
+            </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Concurrency Policy</label>
+              <select v-model="form.cronConfig.concurrencyPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option>Allow</option><option>Forbid</option><option>Replace</option>
+              </select>
+            </div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">成功历史保留</label><input v-model.number="form.cronConfig.successfulJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">失败历史保留</label><input v-model.number="form.cronConfig.failedJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
           </div>
           <div class="md:col-span-2">
             <label class="text-label-caps text-on-surface-variant block mb-xs">Description</label>
@@ -476,11 +564,14 @@ function handleDeploy() {
           </div>
           <div class="md:col-span-2">
             <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier) <span class="text-tertiary-container normal-case">决定在分层拓扑中的归属</span></label>
-            <div class="flex flex-wrap gap-sm">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
               <button v-for="t in tierOptions" :key="t.value" @click="form.tier = t.value"
-                class="flex items-center gap-xs px-md py-sm rounded-lg border text-body-sm font-medium transition-all"
+                class="flex flex-col items-start gap-xs px-md py-sm rounded-lg border text-left transition-all"
                 :class="form.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
-                <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+                <span class="flex items-center gap-xs text-body-sm font-medium">
+                  <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+                </span>
+                <span class="text-body-xs opacity-70">{{ t.desc }}</span>
               </button>
             </div>
           </div>
@@ -526,10 +617,37 @@ function handleDeploy() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">Args (optional)</label>
             <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="--port 8080 --debug" />
           </div>
+          <div class="md:col-span-2">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Image Pull Secrets</label>
+            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">None</option>
+              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Container Ports -->
+        <h4 class="text-headline-sm mt-xl mb-md">Container Ports</h4>
+        <div class="flex flex-col gap-sm mb-xl">
+          <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center">
+            <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Port (e.g. 8080)" />
+            <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option>TCP</option><option>UDP</option>
+            </select>
+            <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          </div>
+          <button @click="addPort" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined">add</span> Add Port
+          </button>
         </div>
 
         <!-- Resources -->
-        <h4 class="text-headline-sm mt-xl mb-md">Resources</h4>
+        <div class="flex items-center justify-between mt-xl mb-md flex-wrap gap-sm">
+          <h4 class="text-headline-sm">Resources</h4>
+          <div class="flex gap-xs">
+            <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-body-xs font-medium rounded border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
+          </div>
+        </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
           <div><label class="text-label-caps text-on-surface-variant block mb-xs">CPU Request</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
           <div><label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
@@ -681,27 +799,43 @@ function handleDeploy() {
             <span class="material-symbols-outlined">add</span> Add Init Container
           </button>
         </div>
-      </div>
 
-      <!-- Step 3: Storage & Volumes -->
-      <div v-if="currentStep === 2">
-        <h3 class="text-headline-md mb-lg">Storage & Network</h3>
-
-        <h4 class="text-headline-sm mb-md">Container Ports</h4>
-        <div class="flex flex-col gap-sm mb-xl">
-          <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center">
-            <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Port (e.g. 8080)" />
-            <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option>TCP</option><option>UDP</option>
-            </select>
-            <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+        <!-- 安全上下文 -->
+        <h4 class="text-headline-sm mt-xl mb-md">Security Context（安全上下文）</h4>
+        <div class="border border-outline-variant rounded-lg mb-xl">
+          <label class="flex items-center justify-between px-md py-sm cursor-pointer">
+            <span class="text-body-md font-medium">启用自定义安全上下文</span>
+            <input type="checkbox" v-model="form.securityContext.enabled" class="rounded text-primary h-4 w-4" />
+          </label>
+          <div v-if="form.securityContext.enabled" class="px-md pb-md grid grid-cols-2 gap-md">
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Run As User</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="1000" /></div>
+            <div class="flex items-center gap-sm pt-xl"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-body-sm">runAsNonRoot（非特权）</label></div>
+            <div class="flex items-center gap-sm"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-body-sm">readOnlyRootFilesystem</label></div>
+            <div></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Add Capabilities</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="NET_BIND_SERVICE" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Drop Capabilities</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ALL" /></div>
           </div>
-          <button @click="addPort" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Port
-          </button>
         </div>
 
-        <h4 class="text-headline-sm mt-xl mb-md">Volume Mounts（数据卷挂载）</h4>
+        <!-- 生命周期钩子 -->
+        <h4 class="text-headline-sm mb-md">Lifecycle Hooks（生命周期钩子）</h4>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">PostStart (exec)</label>
+            <input v-model="form.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/bin/sh -c 'echo started'" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">PreStop (exec)</label>
+            <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/bin/sh -c 'sleep 10'" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Volumes -->
+      <div v-if="currentStep === 2">
+        <h3 class="text-headline-md mb-lg">Volumes（数据卷挂载）</h3>
+
+        <h4 class="text-headline-sm mb-md">Volume Mounts</h4>
         <div class="flex flex-col gap-sm mb-xl">
           <div v-for="(vol, idx) in form.volumeMounts" :key="idx" class="border border-outline-variant rounded-lg p-md">
             <div class="flex gap-sm items-center mb-sm">
