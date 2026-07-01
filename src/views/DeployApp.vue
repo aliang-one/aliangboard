@@ -12,6 +12,7 @@ if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 const currentStep = ref(0)
 const showDeploySuccess = ref(false)
+const showAdvanced = ref(false)
 
 const form = ref({
   name: '',
@@ -714,8 +715,19 @@ function handleDeploy() {
           </div>
         </div>
 
+        <!-- 高级设置（默认折叠）-->
+        <div class="mt-xl border border-outline-variant rounded-xl overflow-hidden">
+          <button type="button" @click="showAdvanced = !showAdvanced" class="w-full flex items-center justify-between px-lg py-md bg-surface-container-low hover:bg-surface-container transition-colors">
+            <span class="flex items-center gap-sm text-body-md font-semibold">
+              <span class="material-symbols-outlined text-on-surface-variant">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</span>
+              高级设置
+              <span class="text-body-xs text-on-surface-variant font-normal opacity-70">探针 · 多容器 · 安全上下文 · 生命周期</span>
+            </span>
+            <span class="text-body-xs text-primary font-medium">{{ showAdvanced ? '收起' : '展开' }}</span>
+          </button>
+          <div v-show="showAdvanced" class="p-lg border-t border-outline-variant">
         <!-- 健康探针 -->
-        <h4 class="text-headline-sm mt-xl mb-md">健康探针 (Health Probes)</h4>
+        <h4 class="text-headline-sm mb-md">健康探针 (Health Probes)</h4>
         <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
           <label class="flex items-center justify-between px-md py-sm cursor-pointer">
             <span class="flex items-center gap-sm text-body-md font-medium capitalize">
@@ -827,6 +839,8 @@ function handleDeploy() {
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">PreStop (exec)</label>
             <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/bin/sh -c 'sleep 10'" />
+          </div>
+        </div>
           </div>
         </div>
       </div>
