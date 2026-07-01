@@ -116,8 +116,13 @@ function nextStep() { if (currentStep.value < steps.length - 1) currentStep.valu
 function prevStep() { if (currentStep.value > 0) currentStep.value-- }
 
 const canProceed = computed(() => {
-  if (currentStep.value === 0) return form.value.name && form.value.namespace
-  if (currentStep.value === 1) return form.value.image
+  const f = form.value
+  if (currentStep.value === 0) return !!(f.name && f.namespace)
+  if (currentStep.value === 1) return !!f.image
+  if (currentStep.value === 4) {
+    if (f.createService && !f.servicePort) return false
+    if (f.createIngress && !f.ingressHost) return false
+  }
   return true
 })
 
@@ -149,6 +154,28 @@ function applyPreset(p) {
   form.value.cpuLimit = p.cpuLim
   form.value.memoryRequest = p.memReq
   form.value.memoryLimit = p.memLim
+}
+
+const quickTemplates = [
+  { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'web' },
+  { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'db' },
+  { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'db' },
+  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'svc' },
+  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'svc' },
+]
+function applyTemplate(t) {
+  form.value.image = t.image
+  form.value.containerName = t.id
+  form.value.ports = [{ containerPort: String(t.port), protocol: 'TCP' }]
+  form.value.cpuRequest = t.cpuReq
+  form.value.cpuLimit = t.cpuLim
+  form.value.memoryRequest = t.memReq
+  form.value.memoryLimit = t.memLim
+  form.value.servicePort = String(t.port)
+  form.value.tier = t.tier
+  if (!form.value.labels.some(l => l.key === 'app')) {
+    form.value.labels = [{ key: 'app', value: t.id }]
+  }
 }
 
 // Generate YAML preview
@@ -510,6 +537,17 @@ function handleDeploy() {
       <!-- Step 1: Basic Info -->
       <div v-if="currentStep === 0">
         <h3 class="text-headline-md mb-lg">Basic Information</h3>
+        <!-- 快速开始模板 -->
+        <div class="mb-lg p-md bg-primary-container/5 border border-primary/20 rounded-lg">
+          <p class="text-body-sm font-medium text-on-surface mb-sm flex items-center gap-xs">
+            <span class="material-symbols-outlined text-primary text-base">bolt</span>快速开始模板（一键填充镜像/端口/资源）
+          </p>
+          <div class="flex flex-wrap gap-sm">
+            <button v-for="t in quickTemplates" :key="t.id" @click="applyTemplate(t)" class="flex items-center gap-xs px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-body-sm font-medium hover:border-primary hover:text-primary transition-colors">
+              <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+            </button>
+          </div>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">App Name *</label>
@@ -623,6 +661,13 @@ function handleDeploy() {
             <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
               <option value="">None</option>
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">ServiceAccount（运行身份）</label>
+            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">Default</option>
+              <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
             </select>
           </div>
         </div>
@@ -959,23 +1004,14 @@ function handleDeploy() {
           </button>
         </div>
 
-        <!-- 优先级与身份 -->
-        <h4 class="text-headline-sm mb-md">优先级与身份</h4>
-        <div class="grid grid-cols-2 gap-md">
-          <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">PriorityClass</label>
-            <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option value="">None</option>
-              <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">ServiceAccount</label>
-            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option value="">Default</option>
-              <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
-            </select>
-          </div>
+        <!-- 优先级 -->
+        <h4 class="text-headline-sm mb-md">优先级 (PriorityClass)</h4>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">PriorityClass</label>
+          <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <option value="">None</option>
+            <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
+          </select>
         </div>
       </div>
 
@@ -1001,6 +1037,12 @@ function handleDeploy() {
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">Service Port</label>
             <input v-model="form.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="80" />
+            <p v-if="form.ports.filter(p => p.containerPort).length" class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">arrow_forward</span>转发到容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span>
+            </p>
+            <p v-else class="text-body-xs text-tertiary-container mt-xs flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">info</span>提示：尚未在第 2 步配置容器端口
+            </p>
           </div>
         </div>
 
