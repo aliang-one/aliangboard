@@ -20,7 +20,7 @@ const form = ref({
   description: '',
   replicas: 1,
   tier: 'svc',
-  // Container
+  // Container（主工作容器）
   containerName: '',
   image: '',
   pullPolicy: 'IfNotPresent',
@@ -33,9 +33,18 @@ const form = ref({
   envVars: [{ key: '', value: '' }],
   envFromConfigMap: '',
   envFromSecret: '',
+  envCMKeys: [],
+  envSecretKeys: [],
+  // 健康探针（容器策略）
+  liveness: { enabled: false, type: 'http', httpPath: '/health', port: 8080, execCommand: '', initialDelaySeconds: 30, periodSeconds: 10 },
+  readiness: { enabled: false, type: 'http', httpPath: '/ready', port: 8080, execCommand: '', initialDelaySeconds: 5, periodSeconds: 10 },
+  startup: { enabled: false, type: 'http', httpPath: '/', port: 8080, execCommand: '', initialDelaySeconds: 0, periodSeconds: 10 },
+  // 额外工作容器（sidecar）与初始容器（init）
+  extraContainers: [],
+  initContainers: [],
   // Storage & Network
   ports: [{ containerPort: '', protocol: 'TCP' }],
-  volumeMounts: [{ name: '', mountPath: '', pvcName: '' }],
+  volumeMounts: [],
   // Service & Ingress
   createService: true,
   serviceType: 'ClusterIP',
@@ -71,9 +80,17 @@ const workloadTypes = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob
 
 function addEnvVar() { form.value.envVars.push({ key: '', value: '' }) }
 function removeEnvVar(idx) { form.value.envVars.splice(idx, 1) }
+function addEnvCMKey() { form.value.envCMKeys.push({ name: '', cmName: '', key: '' }) }
+function removeEnvCMKey(idx) { form.value.envCMKeys.splice(idx, 1) }
+function addEnvSecretKey() { form.value.envSecretKeys.push({ name: '', secretName: '', key: '' }) }
+function removeEnvSecretKey(idx) { form.value.envSecretKeys.splice(idx, 1) }
+function addExtraContainer() { form.value.extraContainers.push({ name: '', image: '', command: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
+function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
 function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' }) }
 function removePort(idx) { form.value.ports.splice(idx, 1) }
-function addVolume() { form.value.volumeMounts.push({ name: '', mountPath: '', pvcName: '' }) }
+function addVolume() { form.value.volumeMounts.push({ name: '', type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
@@ -126,27 +143,72 @@ const previewYAML = computed(() => {
 
   const envYaml = f.envVars
     .filter(e => e.key)
-    .map(e => `        - name: ${e.key}
-          value: "${e.value}"`)
+    .map(e => `        - name: ${e.key}\n          value: "${e.value}"`)
     .join('\n')
 
+  const envCMKeyYaml = f.envCMKeys
+    .filter(e => e.name && e.cmName && e.key)
+    .map(e => `        - name: ${e.name}\n          valueFrom:\n            configMapKeyRef:\n              name: ${e.cmName}\n              key: ${e.key}`)
+    .join('\n')
+
+  const envSecretKeyYaml = f.envSecretKeys
+    .filter(e => e.name && e.secretName && e.key)
+    .map(e => `        - name: ${e.name}\n          valueFrom:\n            secretKeyRef:\n              name: ${e.secretName}\n              key: ${e.key}`)
+    .join('\n')
+
+  const allEnvYaml = [envYaml, envCMKeyYaml, envSecretKeyYaml].filter(Boolean).join('\n')
+
   const envFromYaml = []
-  if (f.envFromConfigMap) envFromYaml.push(`        - configMapRef:
-            name: ${f.envFromConfigMap}`)
-  if (f.envFromSecret) envFromYaml.push(`        - secretRef:
-            name: ${f.envFromSecret}`)
+  if (f.envFromConfigMap) envFromYaml.push(`        - configMapRef:\n            name: ${f.envFromConfigMap}`)
+  if (f.envFromSecret) envFromYaml.push(`        - secretRef:\n            name: ${f.envFromSecret}`)
+
+  // 健康探针生成
+  function probeYaml(name, p) {
+    if (!p.enabled) return ''
+    let s = `        ${name}:`
+    if (p.type === 'http') s += `\n          httpGet:\n            path: ${p.httpPath}\n            port: ${p.port}`
+    else if (p.type === 'tcp') s += `\n          tcpSocket:\n            port: ${p.port}`
+    else if (p.type === 'exec') s += `\n          exec:\n            command: ["${p.execCommand}"]`
+    s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}`
+    return s
+  }
+  const probesYaml = [probeYaml('livenessProbe', f.liveness), probeYaml('readinessProbe', f.readiness), probeYaml('startupProbe', f.startup)].filter(Boolean).join('\n')
+
+  // 额外工作容器（sidecar）
+  const extraContainersYaml = f.extraContainers.filter(c => c.image).map(c =>
+    `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
+    (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
+    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}`
+  ).join('\n')
+
+  // 初始容器（init）
+  const initContainersYaml = f.initContainers.filter(c => c.image).map(c =>
+    `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
+    (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
+    (c.args ? `\n        args: [${c.args.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
+    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}`
+  ).join('\n')
 
   const volumeMountsYaml = f.volumeMounts
     .filter(v => v.name && v.mountPath)
-    .map(v => `        - name: ${v.name}
-          mountPath: ${v.mountPath}`)
+    .map(v => {
+      let m = `        - name: ${v.name}\n          mountPath: ${v.mountPath}`
+      if (v.subPath) m += `\n          subPath: ${v.subPath}`
+      return m
+    })
     .join('\n')
 
   const volumesYaml = f.volumeMounts
-    .filter(v => v.name && v.pvcName)
-    .map(v => `      - name: ${v.name}
-        persistentVolumeClaim:
-          claimName: ${v.pvcName}`)
+    .filter(v => v.name)
+    .map(v => {
+      if (v.type === 'pvc' && v.pvcName) return `      - name: ${v.name}\n        persistentVolumeClaim:\n          claimName: ${v.pvcName}`
+      if (v.type === 'emptyDir') return `      - name: ${v.name}\n        emptyDir: {}`
+      if (v.type === 'hostPath' && v.hostPath) return `      - name: ${v.name}\n        hostPath:\n          path: ${v.hostPath}`
+      if (v.type === 'configMap' && v.cmName) return `      - name: ${v.name}\n        configMap:\n          name: ${v.cmName}`
+      if (v.type === 'secret' && v.secretName) return `      - name: ${v.name}\n        secret:\n          secretName: ${v.secretName}`
+      return null
+    })
+    .filter(Boolean)
     .join('\n')
 
   let yaml = `apiVersion: apps/v1
@@ -202,14 +264,10 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
         imagePullPolicy: ${f.pullPolicy}`
 
   if (f.command) yaml += `\n        command: [${f.command.split(' ').map(c => `"${c}"`).join(', ')}]`
+  if (f.args) yaml += `\n        args: [${f.args.split(' ').map(c => `"${c}"`).join(', ')}]`
   if (portsYaml) yaml += `\n        ports:\n${portsYaml}`
-  if (envYaml || envFromYaml.length) {
-    yaml += `\n        env:`
-    if (envYaml) yaml += `\n${envYaml}`
-    if (envFromYaml.length) {
-      yaml += `\n        envFrom:\n${envFromYaml.join('\n')}`
-    }
-  }
+  if (allEnvYaml) yaml += `\n        env:\n${allEnvYaml}`
+  if (envFromYaml.length) yaml += `\n        envFrom:\n${envFromYaml.join('\n')}`
   yaml += `\n        resources:
           requests:
             cpu: ${f.cpuRequest}
@@ -217,7 +275,10 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
           limits:
             cpu: ${f.cpuLimit}
             memory: ${f.memoryLimit}`
+  if (probesYaml) yaml += '\n' + probesYaml
   if (volumeMountsYaml) yaml += `\n        volumeMounts:\n${volumeMountsYaml}`
+  if (extraContainersYaml) yaml += '\n' + extraContainersYaml
+  if (initContainersYaml) yaml += `\n      initContainers:\n${initContainersYaml}`
   if (volumesYaml) yaml += `\n      volumes:\n${volumesYaml}`
 
   // Service
@@ -461,6 +522,10 @@ function handleDeploy() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">Command (optional)</label>
             <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/bin/sh -c" />
           </div>
+          <div class="md:col-span-2">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Args (optional)</label>
+            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="--port 8080 --debug" />
+          </div>
         </div>
 
         <!-- Resources -->
@@ -487,7 +552,7 @@ function handleDeploy() {
 
         <!-- Env From -->
         <h4 class="text-headline-sm mt-xl mb-md">Env From</h4>
-        <div class="grid grid-cols-2 gap-md">
+        <div class="grid grid-cols-2 gap-md mb-xl">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">From ConfigMap</label>
             <select v-model="form.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
@@ -502,6 +567,119 @@ function handleDeploy() {
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
             </select>
           </div>
+        </div>
+
+        <!-- 单 Key 引用 -->
+        <h4 class="text-headline-sm mt-xl mb-md">单 Key 引用 (ConfigMap / Secret)</h4>
+        <div class="flex flex-col gap-sm mb-xl">
+          <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center">
+            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ENV_NAME" />
+            <select v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">ConfigMap</option>
+              <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
+            </select>
+            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
+            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          </div>
+          <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center">
+            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ENV_NAME" />
+            <select v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="">Secret</option>
+              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+            </select>
+            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
+            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          </div>
+          <div class="flex gap-sm">
+            <button @click="addEnvCMKey" class="flex items-center gap-xs px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span> From ConfigMap</button>
+            <button @click="addEnvSecretKey" class="flex items-center gap-xs px-md py-sm text-tertiary-container font-medium text-body-sm hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span> From Secret</button>
+          </div>
+        </div>
+
+        <!-- 健康探针 -->
+        <h4 class="text-headline-sm mt-xl mb-md">健康探针 (Health Probes)</h4>
+        <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
+          <label class="flex items-center justify-between px-md py-sm cursor-pointer">
+            <span class="flex items-center gap-sm text-body-md font-medium capitalize">
+              <span class="material-symbols-outlined text-primary text-lg">{{ pName === 'liveness' ? 'favorite' : pName === 'readiness' ? 'check_circle' : 'rocket_launch' }}</span>
+              {{ pName }} Probe
+            </span>
+            <input type="checkbox" v-model="form[pName].enabled" class="rounded text-primary h-4 w-4" />
+          </label>
+          <div v-if="form[pName].enabled" class="px-md pb-md grid grid-cols-2 md:grid-cols-4 gap-md">
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">类型</label>
+              <select v-model="form[pName].type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option>
+              </select>
+            </div>
+            <div v-if="form[pName].type === 'http'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">HTTP Path</label>
+              <input v-model="form[pName].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
+            </div>
+            <div v-if="form[pName].type !== 'exec'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Port</label>
+              <input v-model.number="form[pName].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
+            <div v-if="form[pName].type === 'exec'" class="col-span-2">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Exec Command</label>
+              <input v-model="form[pName].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="cat /tmp/ready" />
+            </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Initial Delay (s)</label>
+              <input v-model.number="form[pName].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Period (s)</label>
+              <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 额外工作容器 (Sidecar) -->
+        <h4 class="text-headline-sm mt-xl mb-md">额外工作容器 (Sidecar)</h4>
+        <div class="flex flex-col gap-sm mb-xl">
+          <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
+            <div class="grid grid-cols-2 gap-md mb-sm">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="sidecar name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="image" />
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem limit" />
+            </div>
+            <button @click="removeExtraContainer(idx)" class="mt-sm text-body-sm text-error hover:underline">移除该容器</button>
+          </div>
+          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined">add</span> Add Sidecar Container
+          </button>
+        </div>
+
+        <!-- 初始容器 (Init) -->
+        <h4 class="text-headline-sm mt-xl mb-md">初始容器 (Init Containers)</h4>
+        <div class="flex flex-col gap-sm">
+          <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
+            <div class="grid grid-cols-2 gap-md mb-sm">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="init name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="image" />
+            </div>
+            <div class="grid grid-cols-2 gap-md mb-sm">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="command" />
+              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="args" />
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem limit" />
+            </div>
+            <button @click="removeInitContainer(idx)" class="mt-sm text-body-sm text-error hover:underline">移除该容器</button>
+          </div>
+          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined">add</span> Add Init Container
+          </button>
         </div>
       </div>
 
@@ -523,16 +701,57 @@ function handleDeploy() {
           </button>
         </div>
 
-        <h4 class="text-headline-sm mt-xl mb-md">Volume Mounts (PVC)</h4>
+        <h4 class="text-headline-sm mt-xl mb-md">Volume Mounts（数据卷挂载）</h4>
         <div class="flex flex-col gap-sm mb-xl">
-          <div v-for="(vol, idx) in form.volumeMounts" :key="idx" class="flex gap-sm items-center">
-            <input v-model="vol.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Volume Name" />
-            <input v-model="vol.mountPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/data" />
-            <select v-model="vol.pvcName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option value="">No PVC</option>
-              <option v-for="pvc in availablePVCs" :key="pvc" :value="pvc">{{ pvc }}</option>
-            </select>
-            <button @click="removeVolume(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+          <div v-for="(vol, idx) in form.volumeMounts" :key="idx" class="border border-outline-variant rounded-lg p-md">
+            <div class="flex gap-sm items-center mb-sm">
+              <select v-model="vol.type" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-medium">
+                <option value="pvc">PVC</option>
+                <option value="emptyDir">emptyDir</option>
+                <option value="hostPath">hostPath</option>
+                <option value="configMap">ConfigMap</option>
+                <option value="secret">Secret</option>
+              </select>
+              <input v-model="vol.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="Volume Name" />
+              <button @click="removeVolume(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            </div>
+            <div class="grid grid-cols-2 gap-md mb-sm">
+              <div>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">Mount Path</label>
+                <input v-model="vol.mountPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/data" />
+              </div>
+              <div>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">Sub Path (可选)</label>
+                <input v-model="vol.subPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="" />
+              </div>
+            </div>
+            <!-- 按卷类型显示来源 -->
+            <div v-if="vol.type === 'pvc'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">PVC</label>
+              <select v-model="vol.pvcName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option value="">选择 PVC</option>
+                <option v-for="pvc in availablePVCs" :key="pvc" :value="pvc">{{ pvc }}</option>
+              </select>
+            </div>
+            <div v-else-if="vol.type === 'hostPath'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Host Path</label>
+              <input v-model="vol.hostPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/var/lib/data" />
+            </div>
+            <div v-else-if="vol.type === 'configMap'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">ConfigMap</label>
+              <select v-model="vol.cmName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option value="">选择 ConfigMap</option>
+                <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
+              </select>
+            </div>
+            <div v-else-if="vol.type === 'secret'">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Secret</label>
+              <select v-model="vol.secretName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option value="">选择 Secret</option>
+                <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <p v-else class="text-body-sm text-on-surface-variant">emptyDir：临时空目录，Pod 删除即失效。</p>
           </div>
           <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined">add</span> Add Volume
