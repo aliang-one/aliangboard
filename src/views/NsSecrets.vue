@@ -34,10 +34,24 @@ const filtered = computed(() => {
 
 // Create Secret
 const showCreateModal = ref(false)
-const createForm = ref({ name: '', type: 'Opaque', keys: [{ key: '', value: '' }] })
+const createForm = ref({
+  name: '', type: 'Opaque',
+  keys: [{ key: '', value: '' }],
+  username: '', password: '',
+  registry: '', registryUser: '', registryPassword: '', registryEmail: '',
+  tlsCrt: '', tlsKey: '',
+  sshKey: '',
+})
 
 function resetCreate() {
-  createForm.value = { name: '', type: 'Opaque', keys: [{ key: '', value: '' }] }
+  createForm.value = {
+    name: '', type: 'Opaque',
+    keys: [{ key: '', value: '' }],
+    username: '', password: '',
+    registry: '', registryUser: '', registryPassword: '', registryEmail: '',
+    tlsCrt: '', tlsKey: '',
+    sshKey: '',
+  }
 }
 function addCreateKey() {
   createForm.value.keys.push({ key: '', value: '' })
@@ -48,8 +62,21 @@ function removeCreateKey(idx) {
 
 function handleCreate() {
   const f = createForm.value
-  const data = {}
-  f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  let data = {}
+  if (f.type === 'Opaque') {
+    f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  } else if (f.type === 'kubernetes.io/basic-auth') {
+    data = { username: f.username, password: f.password }
+  } else if (f.type === 'kubernetes.io/dockerconfigjson') {
+    let auth = ''
+    try { auth = btoa(`${f.registryUser}:${f.registryPassword}`) } catch (e) { auth = `${f.registryUser}:${f.registryPassword}` }
+    const cfg = { auths: { [f.registry]: { username: f.registryUser, password: f.registryPassword, email: f.registryEmail, auth } } }
+    data = { '.dockerconfigjson': JSON.stringify(cfg) }
+  } else if (f.type === 'kubernetes.io/tls') {
+    data = { 'tls.crt': f.tlsCrt, 'tls.key': f.tlsKey }
+  } else if (f.type === 'kubernetes.io/ssh-auth') {
+    data = { 'ssh-privatekey': f.sshKey }
+  }
   store.addSecret({
     name: f.name,
     namespace: route.params.namespace,
@@ -210,14 +237,16 @@ function handleBatchDelete() {
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Type</label>
         <select v-model="createForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option>Opaque</option>
-          <option>kubernetes.io/tls</option>
-          <option>kubernetes.io/dockerconfigjson</option>
-          <option>kubernetes.io/basic-auth</option>
-          <option>kubernetes.io/ssh-auth</option>
+          <option value="Opaque">Opaque — 通用键值</option>
+          <option value="kubernetes.io/basic-auth">Basic Auth — 用户名/密码</option>
+          <option value="kubernetes.io/dockerconfigjson">Docker Registry — 镜像仓库凭证</option>
+          <option value="kubernetes.io/tls">TLS — 证书/私钥</option>
+          <option value="kubernetes.io/ssh-auth">SSH Auth — SSH 私钥</option>
         </select>
       </div>
-      <div>
+
+      <!-- Opaque：自由 key-value -->
+      <div v-if="createForm.type === 'Opaque'">
         <label class="text-label-caps text-on-surface-variant block mb-sm">Data Keys</label>
         <div class="flex flex-col gap-sm">
           <div v-for="(kv, idx) in createForm.keys" :key="idx" class="flex gap-sm items-center">
@@ -228,6 +257,62 @@ function handleBatchDelete() {
           <button @click="addCreateKey" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined">add</span> Add Key
           </button>
+        </div>
+      </div>
+
+      <!-- basic-auth -->
+      <div v-else-if="createForm.type === 'kubernetes.io/basic-auth'" class="flex flex-col gap-sm">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">用户名 (username)</label>
+          <input v-model="createForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="admin" />
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">密码 (password)</label>
+          <input v-model="createForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="••••••" />
+        </div>
+        <p class="text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 username / password 两个键</p>
+      </div>
+
+      <!-- dockerconfigjson -->
+      <div v-else-if="createForm.type === 'kubernetes.io/dockerconfigjson'" class="flex flex-col gap-sm">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Registry 地址</label>
+          <input v-model="createForm.registry" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="registry.example.com" />
+        </div>
+        <div class="grid grid-cols-2 gap-sm">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">用户名</label>
+            <input v-model="createForm.registryUser" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">密码</label>
+            <input v-model="createForm.registryPassword" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
+          </div>
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">邮箱（可选）</label>
+          <input v-model="createForm.registryEmail" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="user@example.com" />
+        </div>
+        <p class="text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 .dockerconfigjson（含 base64 认证）</p>
+      </div>
+
+      <!-- tls -->
+      <div v-else-if="createForm.type === 'kubernetes.io/tls'" class="flex flex-col gap-sm">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">TLS 证书 (tls.crt)</label>
+          <textarea v-model="createForm.tlsCrt" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">TLS 私钥 (tls.key)</label>
+          <textarea v-model="createForm.tlsKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+        </div>
+      </div>
+
+      <!-- ssh-auth -->
+      <div v-else-if="createForm.type === 'kubernetes.io/ssh-auth'" class="flex flex-col gap-sm">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">SSH 私钥 (ssh-privatekey)</label>
+          <textarea v-model="createForm.sshKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-32 resize-y" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"></textarea>
         </div>
       </div>
     </div>
