@@ -27,6 +27,9 @@ const form = ref({
   pullPolicy: 'IfNotPresent',
   command: '',
   args: '',
+  workingDir: '',
+  stdin: false,
+  tty: false,
   cpuRequest: '250m',
   cpuLimit: '500m',
   memoryRequest: '256Mi',
@@ -37,9 +40,9 @@ const form = ref({
   envCMKeys: [],
   envSecretKeys: [],
   // 健康探针（容器策略）
-  liveness: { enabled: false, type: 'http', httpPath: '/health', port: 8080, execCommand: '', initialDelaySeconds: 30, periodSeconds: 10 },
-  readiness: { enabled: false, type: 'http', httpPath: '/ready', port: 8080, execCommand: '', initialDelaySeconds: 5, periodSeconds: 10 },
-  startup: { enabled: false, type: 'http', httpPath: '/', port: 8080, execCommand: '', initialDelaySeconds: 0, periodSeconds: 10 },
+  liveness: { enabled: false, type: 'http', httpPath: '/health', port: 8080, execCommand: '', initialDelaySeconds: 30, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
+  readiness: { enabled: false, type: 'http', httpPath: '/ready', port: 8080, execCommand: '', initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
+  startup: { enabled: false, type: 'http', httpPath: '/', port: 8080, execCommand: '', initialDelaySeconds: 0, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
   // 额外工作容器（sidecar）与初始容器（init）
   extraContainers: [],
   initContainers: [],
@@ -73,7 +76,7 @@ const form = ref({
   // 镜像拉取凭证（pod 级）
   imagePullSecrets: '',
   // 容器安全上下文
-  securityContext: { enabled: false, runAsUser: '', runAsNonPrivileged: false, readOnlyRootFilesystem: false, addCaps: '', dropCaps: '' },
+  securityContext: { enabled: false, privileged: false, runAsUser: '', runAsGroup: '', runAsNonPrivileged: false, readOnlyRootFilesystem: false, addCaps: '', dropCaps: '' },
   // 生命周期钩子
   lifecycle: { postStart: '', preStop: '' },
 })
@@ -220,7 +223,7 @@ const previewYAML = computed(() => {
     if (p.type === 'http') s += `\n          httpGet:\n            path: ${p.httpPath}\n            port: ${p.port}`
     else if (p.type === 'tcp') s += `\n          tcpSocket:\n            port: ${p.port}`
     else if (p.type === 'exec') s += `\n          exec:\n            command: ["${p.execCommand}"]`
-    s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}`
+    s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}\n          timeoutSeconds: ${p.timeoutSeconds}\n          failureThreshold: ${p.failureThreshold}\n          successThreshold: ${p.successThreshold}`
     return s
   }
   const probesYaml = [probeYaml('livenessProbe', f.liveness), probeYaml('readinessProbe', f.readiness), probeYaml('startupProbe', f.startup)].filter(Boolean).join('\n')
@@ -344,6 +347,9 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
 
   if (f.command) yaml += `\n        command: [${f.command.split(' ').map(c => `"${c}"`).join(', ')}]`
   if (f.args) yaml += `\n        args: [${f.args.split(' ').map(c => `"${c}"`).join(', ')}]`
+  if (f.workingDir) yaml += `\n        workingDir: ${f.workingDir}`
+  if (f.stdin) yaml += `\n        stdin: true`
+  if (f.tty) yaml += `\n        tty: true`
   if (portsYaml) yaml += `\n        ports:\n${portsYaml}`
   if (allEnvYaml) yaml += `\n        env:\n${allEnvYaml}`
   if (envFromYaml.length) yaml += `\n        envFrom:\n${envFromYaml.join('\n')}`
@@ -357,7 +363,9 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
   // securityContext
   if (f.securityContext.enabled) {
     yaml += `\n        securityContext:`
+    if (f.securityContext.privileged) yaml += `\n          privileged: true`
     if (f.securityContext.runAsUser) yaml += `\n          runAsUser: ${f.securityContext.runAsUser}`
+    if (f.securityContext.runAsGroup) yaml += `\n          runAsGroup: ${f.securityContext.runAsGroup}`
     if (f.securityContext.runAsNonPrivileged) yaml += `\n          runAsNonRoot: true`
     if (f.securityContext.readOnlyRootFilesystem) yaml += `\n          readOnlyRootFilesystem: true`
     if (f.securityContext.addCaps) yaml += `\n          capabilities:\n            add: [${f.securityContext.addCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
@@ -656,6 +664,14 @@ function handleDeploy() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">Args (optional)</label>
             <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="--port 8080 --debug" />
           </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Working Dir</label>
+            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/app" />
+          </div>
+          <div class="flex items-center gap-lg pt-xl">
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-body-sm">stdin</span></label>
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-body-sm">tty（分配 TTY）</span></label>
+          </div>
           <div class="md:col-span-2">
             <label class="text-label-caps text-on-surface-variant block mb-xs">Image Pull Secrets</label>
             <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
@@ -808,6 +824,18 @@ function handleDeploy() {
               <label class="text-label-caps text-on-surface-variant block mb-xs">Period (s)</label>
               <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
             </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Timeout (s)</label>
+              <input v-model.number="form[pName].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Failure Threshold</label>
+              <input v-model.number="form[pName].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Success Threshold</label>
+              <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            </div>
           </div>
         </div>
 
@@ -865,10 +893,14 @@ function handleDeploy() {
             <input type="checkbox" v-model="form.securityContext.enabled" class="rounded text-primary h-4 w-4" />
           </label>
           <div v-if="form.securityContext.enabled" class="px-md pb-md grid grid-cols-2 gap-md">
+            <div class="col-span-2 flex items-center gap-sm px-sm py-sm bg-error-container/10 border border-error/30 rounded-lg">
+              <input type="checkbox" v-model="form.securityContext.privileged" class="rounded text-error h-4 w-4" id="priv" />
+              <label for="priv" class="text-body-sm font-medium text-error flex items-center gap-xs"><span class="material-symbols-outlined text-base">warning</span>privileged（特权模式）— 危险：等同主机 root 权限</label>
+            </div>
             <div><label class="text-label-caps text-on-surface-variant block mb-xs">Run As User</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="1000" /></div>
+            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Run As Group</label><input v-model.number="form.securityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="1000" /></div>
             <div class="flex items-center gap-sm pt-xl"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-body-sm">runAsNonRoot（非特权）</label></div>
-            <div class="flex items-center gap-sm"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-body-sm">readOnlyRootFilesystem</label></div>
-            <div></div>
+            <div class="flex items-center gap-sm pt-xl"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-body-sm">readOnlyRootFilesystem</label></div>
             <div><label class="text-label-caps text-on-surface-variant block mb-xs">Add Capabilities</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="NET_BIND_SERVICE" /></div>
             <div><label class="text-label-caps text-on-surface-variant block mb-xs">Drop Capabilities</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ALL" /></div>
           </div>
