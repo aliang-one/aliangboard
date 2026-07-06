@@ -52,7 +52,8 @@ const form = ref({
   // Service & Ingress
   createService: true,
   serviceType: 'ClusterIP',
-  servicePort: '',
+  servicePorts: [{ name: 'http', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }],
+  externalName: '',
   createIngress: false,
   ingressHost: '',
   ingressPath: '/',
@@ -104,6 +105,8 @@ function addInitContainer() { form.value.initContainers.push({ name: '', image: 
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
 function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' }) }
 function removePort(idx) { form.value.ports.splice(idx, 1) }
+function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
+function removeServicePort(idx) { form.value.servicePorts.splice(idx, 1) }
 function addVolume() { form.value.volumeMounts.push({ name: '', type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
@@ -123,7 +126,10 @@ const canProceed = computed(() => {
   if (currentStep.value === 0) return !!(f.name && f.namespace)
   if (currentStep.value === 1) return !!f.image
   if (currentStep.value === 4) {
-    if (f.createService && !f.servicePort) return false
+    if (f.createService) {
+      if (f.serviceType === 'ExternalName') { if (!f.externalName) return false }
+      else if (!f.servicePorts.some(p => p.port)) return false
+    }
     if (f.createIngress && !f.ingressHost) return false
   }
   return true
@@ -174,7 +180,7 @@ function applyTemplate(t) {
   form.value.cpuLimit = t.cpuLim
   form.value.memoryRequest = t.memReq
   form.value.memoryLimit = t.memLim
-  form.value.servicePort = String(t.port)
+  form.value.servicePorts = [{ name: 'http', port: String(t.port), targetPort: String(t.port), nodePort: '', protocol: 'TCP' }]
   form.value.tier = t.tier
   if (!form.value.labels.some(l => l.key === 'app')) {
     form.value.labels = [{ key: 'app', value: t.id }]
@@ -384,21 +390,30 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
   if (volumesYaml) yaml += `\n      volumes:\n${volumesYaml}`
 
   // Service
-  if (f.createService && f.servicePort) {
-    yaml += `\n---
+  if (f.createService) {
+    const isExternal = f.serviceType === 'ExternalName'
+    const validPorts = f.servicePorts.filter(p => p.port)
+    if (isExternal ? f.externalName : validPorts.length) {
+      yaml += `\n---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${f.name}-svc
   namespace: ${f.namespace}
-spec:
-  type: ${f.serviceType}
-  selector:
-    app: ${f.name}
-  ports:
-    - port: ${f.servicePort}
-      targetPort: ${f.ports[0]?.containerPort || f.servicePort}
-      protocol: TCP`
+spec:`
+      if (isExternal) {
+        yaml += `\n  type: ExternalName\n  externalName: ${f.externalName}`
+      } else {
+        yaml += `\n  type: ${f.serviceType}\n  selector:\n    app: ${f.name}\n  ports:`
+        validPorts.forEach(p => {
+          let line = `\n    - port: ${p.port}`
+          if (p.name) line += `\n      name: ${p.name}`
+          line += `\n      targetPort: ${p.targetPort || p.port}\n      protocol: ${p.protocol}`
+          if (f.serviceType === 'NodePort' && p.nodePort) line += `\n      nodePort: ${p.nodePort}`
+          yaml += line
+        })
+      }
+    }
   }
 
   // Ingress
@@ -425,7 +440,7 @@ spec:${f.enableTLS ? `\n  tls:
           service:
             name: ${f.name}-svc
             port:
-              number: ${f.servicePort || 80}`
+              number: ${f.servicePorts[0]?.port || 80}`
   }
 
   return yaml
@@ -452,16 +467,22 @@ function handleDeploy() {
   })
 
   // Add service if requested
-  if (f.createService && f.servicePort) {
-    store.addService({
-      name: f.name + '-svc',
-      namespace: f.namespace,
-      type: f.serviceType,
-      clusterIP: '10.96.' + Math.floor(Math.random() * 255) + '.' + Math.floor(Math.random() * 255),
-      externalIP: '-',
-      ports: f.servicePort + ':' + (f.ports[0]?.containerPort || f.servicePort) + '/TCP',
-      selector: { app: f.name },
-    })
+  if (f.createService) {
+    const isExt = f.serviceType === 'ExternalName'
+    const validPorts = f.servicePorts.filter(p => p.port)
+    if (isExt ? f.externalName : validPorts.length) {
+      const portsStr = isExt ? '-' : validPorts.map(p => `${p.port}:${p.targetPort || p.port}/${p.protocol}` + (f.serviceType === 'NodePort' && p.nodePort ? `:${p.nodePort}` : '')).join(', ')
+      store.addService({
+        name: f.name + '-svc',
+        namespace: f.namespace,
+        type: f.serviceType,
+        clusterIP: isExt ? '-' : '10.96.' + Math.floor(Math.random() * 255) + '.' + Math.floor(Math.random() * 255),
+        externalIP: '-',
+        ports: portsStr,
+        externalName: isExt ? f.externalName : '',
+        selector: isExt ? {} : { app: f.name },
+      })
+    }
   }
 
   // Add ingress if requested
@@ -471,14 +492,14 @@ function handleDeploy() {
       namespace: f.namespace,
       hosts: f.ingressHost,
       path: f.ingressPath,
-      backend: f.name + '-svc:' + (f.servicePort || 80),
+      backend: f.name + '-svc:' + (f.servicePorts[0]?.port || 80),
       tls: f.enableTLS,
       tlsSecret: f.enableTLS ? f.name + '-tls' : '',
       className: 'nginx',
       annotations: { 'kubernetes.io/ingress.class': 'nginx' },
       rules: [{
         host: f.ingressHost,
-        http: { paths: [{ path: f.ingressPath, pathType: 'Prefix', backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePort) || 80 } }] }
+        http: { paths: [{ path: f.ingressPath, pathType: 'Prefix', backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePorts[0]?.port) || 80 } }] }
       }],
     })
   }
@@ -1056,24 +1077,48 @@ function handleDeploy() {
           <label for="createSvc" class="text-body-md font-medium cursor-pointer">Create Service</label>
         </div>
 
-        <div v-if="form.createService" class="grid grid-cols-1 md:grid-cols-2 gap-lg mb-xl">
-          <div>
+        <div v-if="form.createService" class="mb-xl">
+          <div class="mb-md">
             <label class="text-label-caps text-on-surface-variant block mb-sm">Service Type</label>
-            <div class="flex gap-sm">
-              <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer']" :key="st" @click="form.serviceType = st"
+            <div class="flex flex-wrap gap-sm">
+              <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" @click="form.serviceType = st"
                 class="px-lg py-sm rounded-lg border font-medium text-body-md transition-all"
                 :class="form.serviceType === st ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'"
               >{{ st }}</button>
             </div>
           </div>
-          <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Service Port</label>
-            <input v-model="form.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="80" />
-            <p v-if="form.ports.filter(p => p.containerPort).length" class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">arrow_forward</span>转发到容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span>
+
+          <!-- ExternalName -->
+          <div v-if="form.serviceType === 'ExternalName'">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">External Name</label>
+            <input v-model="form.externalName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="my-service.example.com" />
+            <p class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>ExternalName 把 Service 映射到外部 DNS 名称（无需 selector/ports）</p>
+          </div>
+
+          <!-- 多端口编辑器 -->
+          <div v-else>
+            <label class="text-label-caps text-on-surface-variant block mb-sm">Service Ports（可配多个，如 http + https）</label>
+            <div class="flex flex-col gap-sm">
+              <div v-for="(sp, idx) in form.servicePorts" :key="idx" class="flex flex-wrap gap-xs items-center p-sm bg-surface-container-low rounded-lg border border-outline-variant">
+                <input v-model="sp.name" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="名称" />
+                <input v-model="sp.port" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="port" />
+                <span class="text-on-surface-variant text-body-sm">→</span>
+                <input v-model="sp.targetPort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="targetPort" />
+                <select v-model="sp.protocol" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
+                  <option>TCP</option><option>UDP</option>
+                </select>
+                <input v-if="form.serviceType === 'NodePort'" v-model="sp.nodePort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="nodePort" />
+                <button v-if="form.servicePorts.length > 1" @click="removeServicePort(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+              </div>
+              <button @click="addServicePort" class="self-start flex items-center gap-xs px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> Add Port
+              </button>
+            </div>
+            <p v-if="form.ports.filter(p => p.containerPort).length" class="text-body-xs text-on-surface-variant mt-sm flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">arrow_forward</span>容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span> 可填入 targetPort
             </p>
-            <p v-else class="text-body-xs text-tertiary-container mt-xs flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">info</span>提示：尚未在第 2 步配置容器端口
+            <p v-else-if="form.serviceType === 'NodePort'" class="text-body-xs text-tertiary-container mt-sm flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">info</span>NodePort 可在每行指定 nodePort（留空则自动分配）
             </p>
           </div>
         </div>
