@@ -55,9 +55,8 @@ const form = ref({
   servicePorts: [{ name: 'http', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }],
   externalName: '',
   createIngress: false,
-  ingressHost: '',
-  ingressPath: '/',
-  enableTLS: false,
+  ingressClassName: 'nginx',
+  ingressRules: [{ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }],
   // Labels
   labels: [{ key: 'app', value: '' }],
   annotations: [],
@@ -107,6 +106,10 @@ function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' 
 function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
 function removeServicePort(idx) { form.value.servicePorts.splice(idx, 1) }
+function addIngressRule() { form.value.ingressRules.push({ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }) }
+function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
+function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
+function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
 function addVolume() { form.value.volumeMounts.push({ name: '', type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
@@ -130,7 +133,7 @@ const canProceed = computed(() => {
       if (f.serviceType === 'ExternalName') { if (!f.externalName) return false }
       else if (!f.servicePorts.some(p => p.port)) return false
     }
-    if (f.createIngress && !f.ingressHost) return false
+    if (f.createIngress && !f.ingressRules.some(r => r.host)) return false
   }
   return true
 })
@@ -417,30 +420,30 @@ spec:`
   }
 
   // Ingress
-  if (f.createIngress && f.ingressHost) {
+  if (f.createIngress && f.ingressRules.filter(r => r.host).length) {
+    const validRules = f.ingressRules.filter(r => r.host)
     yaml += `\n---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${f.name}-ingress
   namespace: ${f.namespace}
-  annotations:
-    kubernetes.io/ingress.class: nginx${f.enableTLS ? '\n    cert-manager.io/cluster-issuer: letsencrypt-prod' : ''}
-spec:${f.enableTLS ? `\n  tls:
-  - hosts:
-    - ${f.ingressHost}
-    secretName: ${f.name}-tls` : ''}
-  rules:
-  - host: ${f.ingressHost}
-    http:
-      paths:
-      - path: ${f.ingressPath}
-        pathType: Prefix
-        backend:
-          service:
-            name: ${f.name}-svc
-            port:
-              number: ${f.servicePorts[0]?.port || 80}`
+spec:`
+    if (f.ingressClassName) yaml += `\n  ingressClassName: ${f.ingressClassName}`
+    const tlsRules = validRules.filter(r => r.tls)
+    if (tlsRules.length) {
+      yaml += `\n  tls:`
+      tlsRules.forEach(r => {
+        yaml += `\n  - hosts:\n    - ${r.host}\n    secretName: ${r.tlsSecret || f.name + '-tls'}`
+      })
+    }
+    yaml += `\n  rules:`
+    validRules.forEach(r => {
+      yaml += `\n  - host: ${r.host}\n    http:\n      paths:`
+      r.paths.filter(p => p.path).forEach(p => {
+        yaml += `\n      - path: ${p.path}\n        pathType: ${p.pathType}\n        backend:\n          service:\n            name: ${f.name}-svc\n            port:\n              number: ${f.servicePorts[0]?.port || 80}`
+      })
+    })
   }
 
   return yaml
@@ -486,21 +489,23 @@ function handleDeploy() {
   }
 
   // Add ingress if requested
-  if (f.createIngress && f.ingressHost) {
+  if (f.createIngress && f.ingressRules.filter(r => r.host).length) {
+    const validRules = f.ingressRules.filter(r => r.host)
+    const firstRule = validRules[0]
     store.addIngress({
       name: f.name + '-ingress',
       namespace: f.namespace,
-      hosts: f.ingressHost,
-      path: f.ingressPath,
+      hosts: validRules.map(r => r.host).join(','),
+      path: firstRule.paths[0]?.path || '/',
       backend: f.name + '-svc:' + (f.servicePorts[0]?.port || 80),
-      tls: f.enableTLS,
-      tlsSecret: f.enableTLS ? f.name + '-tls' : '',
-      className: 'nginx',
-      annotations: { 'kubernetes.io/ingress.class': 'nginx' },
-      rules: [{
-        host: f.ingressHost,
-        http: { paths: [{ path: f.ingressPath, pathType: 'Prefix', backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePorts[0]?.port) || 80 } }] }
-      }],
+      tls: validRules.some(r => r.tls),
+      tlsSecret: validRules.find(r => r.tls)?.tlsSecret || (f.name + '-tls'),
+      className: f.ingressClassName,
+      annotations: {},
+      rules: validRules.map(r => ({
+        host: r.host,
+        http: { paths: r.paths.filter(p => p.path).map(p => ({ path: p.path, pathType: p.pathType, backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePorts[0]?.port) || 80 } })) }
+      })),
     })
   }
 
@@ -1128,10 +1133,54 @@ function handleDeploy() {
             <input v-model="form.createIngress" type="checkbox" class="rounded text-primary h-4 w-4" />
             <span class="text-body-md font-medium">Create Ingress</span>
           </label>
-          <div v-if="form.createIngress" class="mt-md grid grid-cols-1 md:grid-cols-2 gap-lg">
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Host</label><input v-model="form.ingressHost" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="app.example.com" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path</label><input v-model="form.ingressPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/" /></div>
-            <div><label class="flex items-center gap-sm cursor-pointer"><input v-model="form.enableTLS" type="checkbox" class="rounded text-primary h-4 w-4" /><span class="text-body-md">Enable TLS/SSL</span></label></div>
+          <div v-if="form.createIngress" class="mt-md">
+            <!-- ingressClassName -->
+            <div class="mb-md">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Ingress Class</label>
+              <select v-model="form.ingressClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                <option value="">None</option>
+                <option>nginx</option>
+                <option>traefik</option>
+                <option>kong</option>
+              </select>
+            </div>
+
+            <!-- 多 Rule 编辑器 -->
+            <label class="text-label-caps text-on-surface-variant block mb-sm">路由规则 Rules（多域名 + 每 host 多 path）</label>
+            <div class="flex flex-col gap-md">
+              <div v-for="(rule, rIdx) in form.ingressRules" :key="rIdx" class="border border-outline-variant rounded-lg p-md bg-surface-container-low">
+                <div class="flex gap-sm items-center mb-sm">
+                  <span class="material-symbols-outlined text-primary text-lg">language</span>
+                  <input v-model="rule.host" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="app.example.com" />
+                  <button v-if="form.ingressRules.length > 1" @click="removeIngressRule(rIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+                </div>
+                <!-- paths -->
+                <div class="flex flex-col gap-xs mb-sm">
+                  <div v-for="(p, pIdx) in rule.paths" :key="pIdx" class="flex gap-xs items-center">
+                    <input v-model="p.path" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="/api" />
+                    <select v-model="p.pathType" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
+                      <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
+                    </select>
+                    <button v-if="rule.paths.length > 1" @click="removeIngressPath(rIdx, pIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">close</span></button>
+                  </div>
+                  <button @click="addIngressPath(rIdx)" class="self-start flex items-center gap-xs px-sm py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded">
+                    <span class="material-symbols-outlined text-sm">add</span> Add Path
+                  </button>
+                </div>
+                <!-- TLS -->
+                <label class="flex items-center gap-sm cursor-pointer mt-xs">
+                  <input type="checkbox" v-model="rule.tls" class="rounded text-primary h-4 w-4" />
+                  <span class="text-body-sm">TLS（HTTPS）</span>
+                  <input v-if="rule.tls" v-model="rule.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="tls secret 名（留空自动生成）" />
+                </label>
+              </div>
+              <button @click="addIngressRule" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> Add Rule（多域名）
+              </button>
+            </div>
+            <p class="text-body-xs text-on-surface-variant mt-sm flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">info</span>每个 Rule 一个域名，可配多个 path 与 pathType（Prefix/Exact），后端统一指向 {{ form.name }}-svc
+            </p>
           </div>
         </div>
       </div>
@@ -1159,7 +1208,7 @@ function handleDeploy() {
           </div>
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
             <span class="material-symbols-outlined text-on-surface-variant text-2xl">language</span>
-            <p class="text-headline-md font-bold mt-sm">{{ form.createIngress ? form.ingressHost || '—' : '—' }}</p>
+            <p class="text-headline-md font-bold mt-sm">{{ form.createIngress ? (form.ingressRules.find(r => r.host)?.host || '—') : '—' }}</p>
             <p class="text-body-sm text-on-surface-variant">{{ form.createIngress ? 'Ingress' : 'No Ingress' }}</p>
           </div>
         </div>
