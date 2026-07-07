@@ -39,6 +39,71 @@ const allAnnotations = computed(() => {
   if (!ing.value?.annotations) return []
   return Object.entries(ing.value.annotations)
 })
+
+const allLabels = computed(() => {
+  if (!ing.value?.labels) return []
+  return Object.entries(ing.value.labels)
+})
+
+// === Annotations 编辑 ===
+const showAddAnnModal = ref(false)
+const newAnnKey = ref('')
+const newAnnValue = ref('')
+const editingAnn = ref(null)
+const editAnnValue = ref('')
+
+function addAnnotation() {
+  if (!newAnnKey.value) return
+  const annotations = { ...(ing.value.annotations || {}) }
+  annotations[newAnnKey.value] = newAnnValue.value
+  store.updateIngress(route.params.name, route.params.namespace, { annotations })
+  newAnnKey.value = ''
+  newAnnValue.value = ''
+  showAddAnnModal.value = false
+}
+function deleteAnnotation(key) {
+  const annotations = { ...ing.value.annotations }
+  delete annotations[key]
+  store.updateIngress(route.params.name, route.params.namespace, { annotations })
+}
+function startEditAnn(key) { editingAnn.value = key; editAnnValue.value = ing.value.annotations[key] }
+function saveEditAnn() {
+  if (editingAnn.value === null) return
+  const annotations = { ...ing.value.annotations }
+  annotations[editingAnn.value] = editAnnValue.value
+  store.updateIngress(route.params.name, route.params.namespace, { annotations })
+  editingAnn.value = null
+}
+
+// === Labels 编辑 ===
+const showAddLabelModal = ref(false)
+const newLabelKey = ref('')
+const newLabelValue = ref('')
+const editingLabel = ref(null)
+const editLabelValue = ref('')
+
+function addLabel() {
+  if (!newLabelKey.value) return
+  const labels = { ...(ing.value.labels || {}) }
+  labels[newLabelKey.value] = newLabelValue.value
+  store.updateIngress(route.params.name, route.params.namespace, { labels })
+  newLabelKey.value = ''
+  newLabelValue.value = ''
+  showAddLabelModal.value = false
+}
+function deleteLabel(key) {
+  const labels = { ...ing.value.labels }
+  delete labels[key]
+  store.updateIngress(route.params.name, route.params.namespace, { labels })
+}
+function startEditLabel(key) { editingLabel.value = key; editLabelValue.value = ing.value.labels[key] }
+function saveEditLabel() {
+  if (editingLabel.value === null) return
+  const labels = { ...ing.value.labels }
+  labels[editingLabel.value] = editLabelValue.value
+  store.updateIngress(route.params.name, route.params.namespace, { labels })
+  editingLabel.value = null
+}
 </script>
 
 <template>
@@ -76,7 +141,7 @@ const allAnnotations = computed(() => {
 
     <!-- Tabs -->
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['overview', 'rules', 'annotations', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['overview', 'rules', 'annotations', 'labels', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
@@ -163,16 +228,72 @@ const allAnnotations = computed(() => {
       </div>
     </div>
 
-    <!-- Annotations Tab -->
+    <!-- Annotations Tab（可编辑）-->
     <div v-if="activeTab === 'annotations'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-        <h3 class="text-headline-sm mb-md">Annotations</h3>
-        <div class="flex flex-col gap-sm">
-          <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="flex items-start gap-md p-md rounded-lg bg-surface-container-low">
-            <span class="font-mono text-code-sm text-primary font-semibold min-w-0 break-all">{{ key }}</span>
-            <span class="text-body-sm text-on-surface-variant flex-1 min-w-0 break-all">{{ val }}</span>
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+          <h3 class="text-headline-sm">Annotations ({{ allAnnotations.length }})</h3>
+          <button @click="showAddAnnModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+            <span class="material-symbols-outlined text-sm">add</span> Add Annotation
+          </button>
+        </div>
+        <div class="divide-y divide-outline-variant/30">
+          <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-lg py-md">
+            <div class="flex items-center justify-between mb-sm">
+              <span class="font-mono text-code-md text-primary font-semibold break-all">{{ key }}</span>
+              <div class="flex gap-xs shrink-0">
+                <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
+                <button @click="deleteAnnotation(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+              </div>
+            </div>
+            <div v-if="editingAnn === key" class="flex gap-sm">
+              <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
+              <div class="flex flex-col gap-xs">
+                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
+                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+              </div>
+            </div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
           </div>
-          <p v-if="!allAnnotations.length" class="text-on-surface-variant text-body-sm text-center py-md">No annotations</p>
+          <div v-if="!allAnnotations.length" class="px-lg py-xl text-center text-on-surface-variant">
+            <span class="material-symbols-outlined text-3xl">label</span>
+            <p class="mt-sm">No annotations</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Labels Tab（可编辑）-->
+    <div v-if="activeTab === 'labels'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+          <h3 class="text-headline-sm">Labels ({{ allLabels.length }})</h3>
+          <button @click="showAddLabelModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+            <span class="material-symbols-outlined text-sm">add</span> Add Label
+          </button>
+        </div>
+        <div class="divide-y divide-outline-variant/30">
+          <div v-for="([key, val], idx) in allLabels" :key="idx" class="px-lg py-md">
+            <div class="flex items-center justify-between mb-sm">
+              <span class="font-mono text-code-md text-secondary font-semibold break-all">{{ key }}</span>
+              <div class="flex gap-xs shrink-0">
+                <button v-if="editingLabel !== key" @click="startEditLabel(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
+                <button @click="deleteLabel(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+              </div>
+            </div>
+            <div v-if="editingLabel === key" class="flex gap-sm">
+              <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+              <div class="flex gap-xs">
+                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
+                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+              </div>
+            </div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant break-all">{{ val }}</div>
+          </div>
+          <div v-if="!allLabels.length" class="px-lg py-xl text-center text-on-surface-variant">
+            <span class="material-symbols-outlined text-3xl">label_off</span>
+            <p class="mt-sm">No labels</p>
+          </div>
         </div>
       </div>
     </div>
@@ -187,6 +308,42 @@ const allAnnotations = computed(() => {
     <h2 class="text-headline-lg text-on-surface mt-md">Ingress Not Found</h2>
     <button @click="router.push({ name: 'NsIngress', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Ingress</button>
   </div>
+
+  <!-- Add Annotation Modal -->
+  <Modal v-model="showAddAnnModal" title="Add Annotation" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Annotation Key</label>
+        <input v-model="newAnnKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="nginx.ingress.kubernetes.io/rewrite-target" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" placeholder="/"></textarea>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+    </template>
+  </Modal>
+
+  <!-- Add Label Modal -->
+  <Modal v-model="showAddLabelModal" title="Add Label" width="max-w-md">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Label Key</label>
+        <input v-model="newLabelKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="app.kubernetes.io/name" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <input v-model="newLabelValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+    </template>
+  </Modal>
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" title="Delete Ingress" width="max-w-md">

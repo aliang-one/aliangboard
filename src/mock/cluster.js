@@ -287,6 +287,9 @@ export const ingresses = [
   { name: 'nginx-demo-ingress', namespace: 'default', hosts: 'demo.kubezen.io', path: '/', backend: 'nginx-demo-svc:80', tls: false, tlsSecret: '', age: '30d', className: 'nginx', annotations: { 'kubernetes.io/ingress.class': 'nginx', 'nginx.ingress.kubernetes.io/rewrite-target': '/' }, rules: [{ host: 'demo.kubezen.io', http: { paths: [{ path: '/', pathType: 'Prefix', backend: { serviceName: 'nginx-demo-svc', servicePort: 80 } }] } }] },
 ]
 
+// 给 Ingress 补默认 labels
+ingresses.forEach(i => { if (!i.labels) i.labels = { 'app.kubernetes.io/name': i.name.replace(/-ingress$/, ''), 'app.kubernetes.io/managed-by': 'aliangboard' } })
+
 // ── ConfigMaps ───────────────────────────────────────────────
 export const configMaps = [
   { name: 'app-env-vars', namespace: 'production-apps', keys: 8, age: '45d', data: { DB_HOST: 'postgres-main-svc', DB_PORT: '5432', REDIS_URL: 'redis://redis-svc:6379', LOG_LEVEL: 'info', MAX_CONNECTIONS: '100', CACHE_TTL: '300', API_RATE_LIMIT: '1000', ENABLE_CORS: 'true' } },
