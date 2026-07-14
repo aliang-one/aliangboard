@@ -11,7 +11,11 @@ import TopNavBar from './TopNavBar.vue'
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
         <router-view v-slot="{ Component, route }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" :key="route.path" />
+            <!-- 用单根 div 包裹，避免页面组件为多根节点（fragment）时
+                 <transition mode="out-in"> 无法动画化导致新页面不挂载（详情页点击空白） -->
+            <div :key="route.path">
+              <component :is="Component" />
+            </div>
           </transition>
         </router-view>
       </main>
