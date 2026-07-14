@@ -292,11 +292,11 @@ ingresses.forEach(i => { if (!i.labels) i.labels = { 'app.kubernetes.io/name': i
 
 // ── ConfigMaps ───────────────────────────────────────────────
 export const configMaps = [
-  { name: 'app-env-vars', namespace: 'production-apps', keys: 8, age: '45d', data: { DB_HOST: 'postgres-main-svc', DB_PORT: '5432', REDIS_URL: 'redis://redis-svc:6379', LOG_LEVEL: 'info', MAX_CONNECTIONS: '100', CACHE_TTL: '300', API_RATE_LIMIT: '1000', ENABLE_CORS: 'true' } },
-  { name: 'nginx-config', namespace: 'production-apps', keys: 2, age: '22d', data: { 'nginx.conf': 'worker_processes auto; ...' } },
+  { name: 'app-env-vars', namespace: 'production-apps', keys: 8, age: '45d', labels: { app: 'api-gateway', 'app.kubernetes.io/managed-by': 'helm', environment: 'production' }, annotations: { 'kubectl.kubernetes.io/last-applied-configuration': '{"kind":"ConfigMap","apiVersion":"v1"}', 'helm.sh/hook': 'pre-install' }, data: { DB_HOST: 'postgres-main-svc', DB_PORT: '5432', REDIS_URL: 'redis://redis-svc:6379', LOG_LEVEL: 'info', MAX_CONNECTIONS: '100', CACHE_TTL: '300', API_RATE_LIMIT: '1000', ENABLE_CORS: 'true' } },
+  { name: 'nginx-config', namespace: 'production-apps', keys: 2, age: '22d', labels: { app: 'frontend-web' }, annotations: { 'app.kubernetes.io/name': 'nginx-config', 'config.kubernetes.io/version': '1.25' }, data: { 'nginx.conf': 'worker_processes auto; ...' } },
   { name: 'payment-config', namespace: 'production-apps', keys: 4, age: '15d', data: { PROVIDER: 'stripe', CURRENCY: 'USD', TIMEOUT_MS: '5000', RETRY_COUNT: '3' } },
   { name: 'order-config', namespace: 'production-apps', keys: 3, age: '35d', data: { BATCH_SIZE: '50', PROCESSOR_THREADS: '4', QUEUE_PREFETCH: '100' } },
-  { name: 'prometheus-config', namespace: 'monitoring', keys: 1, age: '128d', data: { 'prometheus.yml': 'global: ...' } },
+  { name: 'prometheus-config', namespace: 'monitoring', keys: 1, age: '128d', labels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/part-of': 'monitoring-stack' }, annotations: {}, data: { 'prometheus.yml': 'global: ...' } },
   { name: 'grafana-dashboards', namespace: 'monitoring', keys: 5, age: '128d', data: { 'k8s-cluster.json': '...', 'node-metrics.json': '...', 'pod-metrics.json': '...' } },
   { name: 'alertmanager-config', namespace: 'monitoring', keys: 1, age: '128d', data: { 'alertmanager.yml': 'global: ...' } },
   { name: 'fluentd-config', namespace: 'kube-system', keys: 3, age: '200d', data: { 'fluent.conf': '...', 'kubernetes.conf': '...' } },
