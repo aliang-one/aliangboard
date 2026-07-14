@@ -700,13 +700,30 @@ spec:
     }
 
     if (type === 'configmap') {
+      const scalar = v => {
+        const s = String(v ?? '')
+        if (s.includes('\n')) return '|-\n' + s.split('\n').map(l => '      ' + l).join('\n')
+        if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s)) {
+          return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
+        }
+        return s
+      }
+      const fmtMap = obj => obj && Object.keys(obj).length
+        ? Object.entries(obj).map(([k, v]) => `    ${k}: ${scalar(v)}`).join('\n')
+        : ''
+      const labelsYaml = fmtMap(resource.labels)
+      const annYaml = fmtMap(resource.annotations)
+      const metaExtra = [
+        labelsYaml && '  labels:\n' + labelsYaml,
+        annYaml && '  annotations:\n' + annYaml,
+      ].filter(Boolean).join('\n')
       const dataEntries = resource.data ? Object.entries(resource.data)
         .map(([k, v]) => `  ${k}: "${v}"`).join('\n') : ''
       return `apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${name}
-  namespace: ${ns}
+  namespace: ${ns}${metaExtra ? '\n' + metaExtra : ''}
 data:
 ${dataEntries || '  {}'}`
     }
