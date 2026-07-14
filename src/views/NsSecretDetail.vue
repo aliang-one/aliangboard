@@ -24,6 +24,10 @@ const editingKey = ref(null)
 const editValue = ref('')
 const revealedKeys = ref(new Set())
 
+// Secret.data 存的是 base64；展示/编辑时解码，回写时由 store 重新编码
+const decode = (v) => store.decodeBase64(v)
+const decodedData = (d) => Object.fromEntries(Object.entries(d || {}).map(([k, v]) => [k, decode(v)]))
+
 const dataEntries = computed(() => {
   if (!secret.value?.data) return []
   return Object.entries(secret.value.data)
@@ -43,7 +47,7 @@ function handleDelete() {
 
 function addKey() {
   if (!newKey.value) return
-  const data = { ...(secret.value.data || {}) }
+  const data = decodedData(secret.value.data)
   data[newKey.value] = newValue.value
   store.updateSecret(route.params.name, route.params.namespace, { data, keys: Object.keys(data).length })
   newKey.value = ''
@@ -53,12 +57,12 @@ function addKey() {
 
 function startEdit(key) {
   editingKey.value = key
-  editValue.value = secret.value.data[key]
+  editValue.value = decode(secret.value.data[key])
 }
 
 function saveEdit() {
   if (editingKey.value === null) return
-  const data = { ...secret.value.data }
+  const data = decodedData(secret.value.data)
   data[editingKey.value] = editValue.value
   store.updateSecret(route.params.name, route.params.namespace, { data })
   editingKey.value = null
@@ -66,7 +70,7 @@ function saveEdit() {
 }
 
 function deleteKey(key) {
-  const data = { ...secret.value.data }
+  const data = decodedData(secret.value.data)
   delete data[key]
   store.updateSecret(route.params.name, route.params.namespace, { data, keys: Object.keys(data).length })
 }
@@ -160,7 +164,7 @@ const refCount = computed(() =>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm" :class="revealedKeys.has(key) ? 'text-on-surface' : 'text-on-surface-variant'">
-              {{ revealedKeys.has(key) ? val : '••••••••••••••••' }}
+              {{ revealedKeys.has(key) ? decode(val) : '••••••••••••••••' }}
             </div>
           </div>
           <div v-if="!dataEntries.length" class="px-lg py-xl text-center text-on-surface-variant">

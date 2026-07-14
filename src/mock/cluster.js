@@ -320,33 +320,39 @@ export const configMaps = [
 ]
 
 // ── Secrets ─────────────────────────────────────────────────
+// 注意：data 中的值一律以「明文」书写（相当于 K8s 的 stringData），
+// cluster store 在加载时会统一 base64 编码进真实的 data 字段，
+// 详情页 reveal/编辑时再解码 —— 与真实 K8s Secret 语义保持一致。
+const DEMO_CERT = '-----BEGIN CERTIFICATE-----\nMIICazCCAWQCCQC...(demo certificate data)\n-----END CERTIFICATE-----'
+const DEMO_KEY = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...(demo private key data)\n-----END RSA PRIVATE KEY-----'
+const DEMO_TOKEN = 'eyJhbGciOiJSUzI1NiIsImtpZCI6IkRFNTQ3QkU...(demo service-account JWT)'
 export const secrets = [
-  { name: 'api-tls-secret', namespace: 'production-apps', type: 'kubernetes.io/tls', keys: 2, age: '15d', data: { 'tls.crt': 'LS0tLS1CRUdJTi...', 'tls.key': 'LS0tLS1CRUdJTi...' } },
+  { name: 'api-tls-secret', namespace: 'production-apps', type: 'kubernetes.io/tls', keys: 2, age: '15d', data: { 'tls.crt': DEMO_CERT, 'tls.key': DEMO_KEY } },
   { name: 'db-credentials', namespace: 'production-apps', type: 'Opaque', keys: 3, age: '98d', data: { username: 'postgres_admin', password: 'P@ssw0rd!2024#Prod', host: 'postgres-main-svc' } },
   { name: 'redis-password', namespace: 'production-apps', type: 'Opaque', keys: 1, age: '30d', data: { password: 'r3d1s_pr0d_s3cr3t!' } },
   { name: 'payment-stripe-key', namespace: 'production-apps', type: 'Opaque', keys: 2, age: '15d', data: { 'STRIPE_PUBLIC_KEY': 'pk_live_xxxxxxxxxxxx', 'STRIPE_SECRET_KEY': 'sk_live_xxxxxxxxxxxx' } },
   { name: 'rabbitmq-credentials', namespace: 'production-apps', type: 'Opaque', keys: 2, age: '60d', data: { username: 'rabbitmq_admin', password: 'r4bb1t_pr0d!' } },
   { name: 'registry-credentials', namespace: 'kube-system', type: 'kubernetes.io/dockerconfigjson', keys: 1, age: '245d', data: { '.dockerconfigjson': '{"auths":{"registry.kubezen.io":{"username":"admin","password":"***"}}}' } },
-  { name: 'service-account-token', namespace: 'kube-system', type: 'kubernetes.io/service-account-token', keys: 3, age: '245d', data: { token: 'eyJhbGciOiJSUzI1NiIs...', 'ca.crt': 'LS0tLS1CRUdJTi...', namespace: 'kube-system' } },
+  { name: 'service-account-token', namespace: 'kube-system', type: 'kubernetes.io/service-account-token', keys: 3, age: '245d', data: { token: DEMO_TOKEN, 'ca.crt': DEMO_CERT, namespace: 'kube-system' } },
   { name: 'grafana-admin', namespace: 'monitoring', type: 'Opaque', keys: 2, age: '128d', data: { 'admin-user': 'admin', 'admin-password': 'gr4f4n4_pr0d!' } },
-  { name: 'prometheus-tls', namespace: 'monitoring', type: 'kubernetes.io/tls', keys: 2, age: '128d', data: { 'tls.crt': 'LS0tLS1CRUdJTi...', 'tls.key': 'LS0tLS1CRUdJTi...' } },
+  { name: 'prometheus-tls', namespace: 'monitoring', type: 'kubernetes.io/tls', keys: 2, age: '128d', data: { 'tls.crt': DEMO_CERT, 'tls.key': DEMO_KEY } },
   { name: 'elasticsearch-credentials', namespace: 'logging', type: 'Opaque', keys: 2, age: '67d', data: { username: 'elastic', password: '3l4st1c_s3cr3t!' } },
-  { name: 'ingress-nginx-admission', namespace: 'ingress-nginx', type: 'Opaque', keys: 2, age: '200d', data: { 'tls.crt': 'LS0tLS1...', 'tls.key': 'LS0tLS1...' } },
-  { name: 'cert-manager-webhook-ca', namespace: 'cert-manager', type: 'kubernetes.io/tls', keys: 3, age: '180d', data: { 'ca.crt': 'LS0tLS1...', 'tls.crt': 'LS0tLS1...', 'tls.key': 'LS0tLS1...' } },
-  { name: 'letsencrypt-account', namespace: 'cert-manager', type: 'Opaque', keys: 1, age: '180d', data: { 'account.key': 'LS0tLS1CRUdJTi...' } },
+  { name: 'ingress-nginx-admission', namespace: 'ingress-nginx', type: 'Opaque', keys: 2, age: '200d', data: { 'tls.crt': DEMO_CERT, 'tls.key': DEMO_KEY } },
+  { name: 'cert-manager-webhook-ca', namespace: 'cert-manager', type: 'kubernetes.io/tls', keys: 3, age: '180d', data: { 'ca.crt': DEMO_CERT, 'tls.crt': DEMO_CERT, 'tls.key': DEMO_KEY } },
+  { name: 'letsencrypt-account', namespace: 'cert-manager', type: 'Opaque', keys: 1, age: '180d', data: { 'account.key': DEMO_KEY } },
   { name: 'staging-db-credentials', namespace: 'staging', type: 'Opaque', keys: 2, age: '5d', data: { username: 'staging_user', password: 'st4g1ng_db_p4ss!' } },
   { name: 'staging-api-keys', namespace: 'staging', type: 'Opaque', keys: 3, age: '3d', data: { 'API_KEY': 'sk_staging_xxxxxxxx', 'API_SECRET': 'stg_s3cr3t_k3y', 'ENCRYPTION_KEY': 'aes256-stg-key' } },
 
   // default namespace
-  { name: 'default-token', namespace: 'default', type: 'kubernetes.io/service-account-token', keys: 3, age: '245d', data: { token: 'eyJhbGciOiJSUzI1NiIs...', 'ca.crt': 'LS0tLS1CRUdJTi...', namespace: 'default' } },
+  { name: 'default-token', namespace: 'default', type: 'kubernetes.io/service-account-token', keys: 3, age: '245d', data: { token: DEMO_TOKEN, 'ca.crt': DEMO_CERT, namespace: 'default' } },
   { name: 'app-db-secret', namespace: 'default', type: 'Opaque', keys: 3, age: '15d', data: { username: 'app_user', password: '4pp_s3cr3t_p4ss!', host: 'db.internal.default.svc' } },
-  { name: 'tls-demo-cert', namespace: 'default', type: 'kubernetes.io/tls', keys: 2, age: '30d', data: { 'tls.crt': 'LS0tLS1CRUdJTi...', 'tls.key': 'LS0tLS1CRUdJTi...' } },
+  { name: 'tls-demo-cert', namespace: 'default', type: 'kubernetes.io/tls', keys: 2, age: '30d', data: { 'tls.crt': DEMO_CERT, 'tls.key': DEMO_KEY } },
 
   // kube-public
   { name: 'public-info-token', namespace: 'kube-public', type: 'Opaque', keys: 1, age: '245d', data: { token: 'pub_t0k3n_f0r_clust3r_inf0' } },
 
   // kube-node-lease
-  { name: 'lease-agent-token', namespace: 'kube-node-lease', type: 'kubernetes.io/service-account-token', keys: 2, age: '245d', data: { token: 'eyJhbGciOiJSUzI1NiIs...', 'ca.crt': 'LS0tLS1CRUdJTi...' } },
+  { name: 'lease-agent-token', namespace: 'kube-node-lease', type: 'kubernetes.io/service-account-token', keys: 2, age: '245d', data: { token: DEMO_TOKEN, 'ca.crt': DEMO_CERT } },
 ]
 
 // ── Persistent Volumes ──────────────────────────────────────

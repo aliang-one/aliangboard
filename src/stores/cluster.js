@@ -10,6 +10,25 @@ import {
 } from '@/mock/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
+  // === Base64（Secret data 编解码，UTF-8 安全）===
+  // K8s 的 Secret.data 一律 base64 编码；mock 里以明文（stringData）书写，
+  // 这里在存储层统一编码、展示层（详情页 reveal / 编辑）再解码，
+  // 保持与真实 K8s 语义一致。
+  function encodeBase64(str) {
+    try { return btoa(unescape(encodeURIComponent(String(str ?? '')))) }
+    catch { return String(str ?? '') }
+  }
+  function decodeBase64(str) {
+    try { return decodeURIComponent(escape(atob(String(str ?? '')))) }
+    catch { return String(str ?? '') }
+  }
+  const encodeSecretData = (data) => {
+    if (!data) return {}
+    const out = {}
+    for (const k in data) out[k] = encodeBase64(data[k])
+    return out
+  }
+
   // === 基础数据 ===
   const cluster = ref(clusterInfo)
   const nodeList = ref(nodes)
@@ -20,7 +39,7 @@ export const useClusterStore = defineStore('cluster', () => {
   const serviceList = ref(services)
   const ingressList = ref(ingresses)
   const configMapList = ref(configMaps)
-  const secretList = ref(secrets)
+  const secretList = ref(secrets.map(s => ({ ...s, data: encodeSecretData(s.data) })))
   const pvList = ref(persistentVolumes)
   const pvcList = ref(pvcs)
   const scList = ref(storageClasses)
@@ -345,12 +364,17 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: Secrets ===
   function addSecret(sec) {
-    secretList.value.push({ ...sec, age: 'Just now' })
+    secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
   }
 
   function updateSecret(name, ns, updates) {
     const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx !== -1) secretList.value[idx] = { ...secretList.value[idx], ...updates }
+    if (idx !== -1) {
+      // data 来自表单（明文），统一编码后再入库
+      const next = { ...updates }
+      if (next.data) next.data = encodeSecretData(next.data)
+      secretList.value[idx] = { ...secretList.value[idx], ...next }
+    }
   }
 
   function deleteSecret(name, ns) {
@@ -729,6 +753,9 @@ ${dataEntries || '  {}'}`
     }
 
     if (type === 'secret') {
+      const dataEntries = resource.data
+        ? Object.entries(resource.data).map(([k, v]) => `  ${k}: "${String(v ?? '')}"`).join('\n')
+        : ''
       return `apiVersion: v1
 kind: Secret
 metadata:
@@ -736,8 +763,7 @@ metadata:
   namespace: ${ns}
 type: ${resource.type || 'Opaque'}
 data:
-  # Base64-encoded values (hidden for security)
-  ${resource.data ? Object.keys(resource.data).map(k => k + ': "***"').join('\n  ') : '{}'}`
+${dataEntries || '  {}'}`
     }
 
     if (type === 'pvc') {
@@ -987,6 +1013,7 @@ description: "${resource.description || ''}"`
     addConfigMap, updateConfigMap, deleteConfigMap,
     // CRUD: Secrets
     addSecret, updateSecret, deleteSecret,
+    decodeBase64,
     // CRUD: PVCs
     addPVC, deletePVC,
     // CRUD: Workloads
