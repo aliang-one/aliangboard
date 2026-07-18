@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -10,6 +11,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
@@ -36,6 +38,17 @@ const showScaleModal = ref(false)
 const scaleReplicas = ref(1)
 const showEditModal = ref(false)
 const editForm = ref({})
+
+// 仅 Deployment / StatefulSet 可按 replicas 扩缩容；DaemonSet 按节点调度，Job/CronJob 为批处理
+const isScalable = computed(() => ['Deployment', 'StatefulSet'].includes(workload.value?.type))
+const replicasLabel = computed(() => {
+  const t = workload.value?.type
+  if (t === 'DaemonSet') return 'SCHEDULED'
+  if (t === 'Job') return 'COMPLETIONS'
+  if (t === 'CronJob') return 'ACTIVE'
+  return 'REPLICAS'
+})
+const isCronJob = computed(() => workload.value?.type === 'CronJob')
 
 const tierOptions = [
   { value: 'web', label: '表现层', icon: 'web' },
@@ -72,6 +85,7 @@ function openEdit() {
   editForm.value = {
     image: workload.value.image,
     replicas: workload.value.replicas?.split('/')[1] || '1',
+    schedule: workload.value.schedule || '',
     labels: { ...workload.value.labels },
     tier: workload.value.tier || 'default',
   }
@@ -80,12 +94,20 @@ function openEdit() {
 
 function saveEdit() {
   const labels = { ...(editForm.value.labels || {}), tier: editForm.value.tier }
-  store.updateWorkload(route.params.name, route.params.namespace, {
+  const updates = {
     image: editForm.value.image,
-    replicas: `${editForm.value.replicas}/${editForm.value.replicas}`,
     tier: editForm.value.tier,
     labels,
-  })
+  }
+  // 仅可扩缩容的类型才回写 replicas，避免覆盖 DaemonSet/Job 的调度或完成状态
+  if (isScalable.value) {
+    updates.replicas = `${editForm.value.replicas}/${editForm.value.replicas}`
+  }
+  // CronJob 的 schedule 可编辑
+  if (isCronJob.value) {
+    updates.schedule = editForm.value.schedule
+  }
+  store.updateWorkload(route.params.name, route.params.namespace, updates)
   showEditModal.value = false
 }
 </script>
@@ -119,7 +141,7 @@ function saveEdit() {
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
         </button>
-        <button @click="openScale" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
+        <button v-if="isScalable" @click="openScale" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">height</span> Scale
         </button>
         <button @click="handleRestart" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
@@ -159,7 +181,7 @@ function saveEdit() {
               <p class="font-mono text-code-sm text-primary">{{ workload.image }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">REPLICAS</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ replicasLabel }}</p>
               <p class="text-body-lg font-semibold">{{ workload.replicas }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
@@ -169,6 +191,10 @@ function saveEdit() {
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">REVISION</p>
               <p class="font-mono text-code-sm">{{ workload.sha }}</p>
+            </div>
+            <div v-if="isCronJob" class="p-md rounded-lg bg-surface-container-low">
+              <p class="text-label-caps text-on-surface-variant mb-xs">SCHEDULE</p>
+              <p class="font-mono text-code-sm text-primary">{{ workload.schedule }}</p>
             </div>
           </div>
         </div>
@@ -312,7 +338,7 @@ function saveEdit() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
 
     <!-- Events Tab -->
@@ -392,9 +418,13 @@ function saveEdit() {
         <label class="text-label-caps text-on-surface-variant block mb-xs">Container Image</label>
         <input v-model="editForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
       </div>
-      <div>
+      <div v-if="isScalable">
         <label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label>
         <input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+      </div>
+      <div v-if="isCronJob">
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Schedule (Cron)</label>
+        <input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="*/5 * * * *" />
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier)</label>

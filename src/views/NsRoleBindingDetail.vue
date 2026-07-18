@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -9,6 +10,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const rb = computed(() => store.getRoleBindingByName(route.params.name, route.params.namespace))
@@ -26,6 +28,37 @@ const referencedRole = computed(() => {
 function handleDelete() {
   store.deleteRoleBinding(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
+}
+
+// === 结构化编辑 ===
+const showEditModal = ref(false)
+const editSubjects = ref([])
+const editRoleName = ref('')
+const editRoleKind = ref('Role')
+
+function openEdit() {
+  editSubjects.value = (rb.value?.subjects || []).map(s => ({ kind: s.kind, name: s.name, namespace: s.namespace || '' }))
+  editRoleName.value = rb.value?.roleName || ''
+  editRoleKind.value = rb.value?.roleKind || 'Role'
+  showEditModal.value = true
+}
+function addSubject() {
+  editSubjects.value.push({ kind: 'User', name: '', namespace: '' })
+}
+function removeSubject(idx) {
+  editSubjects.value.splice(idx, 1)
+}
+function saveEdit() {
+  store.updateRoleBinding(route.params.name, route.params.namespace, {
+    subjects: editSubjects.value.map(s => {
+      const o = { kind: s.kind, name: s.name }
+      if (s.kind === 'ServiceAccount' && s.namespace) o.namespace = s.namespace
+      return o
+    }),
+    roleName: editRoleName.value,
+    roleKind: editRoleKind.value,
+  })
+  showEditModal.value = false
 }
 </script>
 
@@ -53,6 +86,9 @@ function handleDelete() {
         </div>
       </div>
       <div class="flex gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+          <span class="material-symbols-outlined">edit</span> Edit
+        </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
         </button>
@@ -185,7 +221,7 @@ function handleDelete() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
   </div>
 
@@ -204,6 +240,72 @@ function handleDelete() {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- Edit Modal -->
+  <Modal v-model="showEditModal" title="Edit RoleBinding" width="max-w-2xl">
+    <div class="flex flex-col gap-lg">
+      <!-- RoleRef -->
+      <div class="flex flex-col gap-md">
+        <h4 class="text-label-caps text-on-surface-variant">Role Reference</h4>
+        <div class="grid grid-cols-3 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Kind</label>
+            <select v-model="editRoleKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+              <option value="Role">Role</option>
+              <option value="ClusterRole">ClusterRole</option>
+            </select>
+          </div>
+          <div class="col-span-2">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Name</label>
+            <input v-model="editRoleName" list="rb-role-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="role-name" />
+            <datalist id="rb-role-list">
+              <option v-for="r in store.roleList" :key="r.name" :value="r.name" />
+            </datalist>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subjects -->
+      <div class="flex flex-col gap-md">
+        <div class="flex items-center justify-between">
+          <h4 class="text-label-caps text-on-surface-variant">Subjects</h4>
+          <button @click="addSubject" class="flex items-center gap-xs px-md py-xs bg-primary-container/10 text-primary text-body-sm font-semibold rounded-lg hover:bg-primary-container/20 transition-colors">
+            <span class="material-symbols-outlined text-base">add</span> Add Subject
+          </button>
+        </div>
+        <div v-if="editSubjects.length" class="flex flex-col gap-sm divide-y divide-outline-variant/30">
+          <div v-for="(s, idx) in editSubjects" :key="idx" class="flex items-end gap-sm pt-sm first:pt-0">
+            <div>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Kind</label>
+              <select v-model="s.kind" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+                <option value="User">User</option>
+                <option value="Group">Group</option>
+                <option value="ServiceAccount">ServiceAccount</option>
+              </select>
+            </div>
+            <div class="flex-1">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Name</label>
+              <input v-model="s.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="name" />
+            </div>
+            <div v-if="s.kind === 'ServiceAccount'" class="flex-1">
+              <label class="text-label-caps text-on-surface-variant block mb-xs">Namespace</label>
+              <input v-model="s.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="namespace" />
+            </div>
+            <button @click="removeSubject(idx)" class="flex items-center justify-center w-10 h-10 mb-px border border-error/30 text-error rounded-lg hover:bg-error-container/10 transition-colors">
+              <span class="material-symbols-outlined">delete</span>
+            </button>
+          </div>
+        </div>
+        <div v-else class="p-md text-center text-body-sm text-on-surface-variant bg-surface-container-low rounded-lg">
+          No subjects defined.
+        </div>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
     </template>
   </Modal>
 </template>

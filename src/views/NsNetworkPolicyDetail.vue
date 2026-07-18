@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -9,6 +10,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const np = computed(() => store.getNetworkPolicyByName(route.params.name, route.params.namespace))
@@ -40,6 +42,41 @@ function handleDelete() {
   store.deleteNetworkPolicy(route.params.name, route.params.namespace)
   router.push({ name: 'NsNetworkPolicies', params: { namespace: route.params.namespace } })
 }
+
+// === 结构化编辑 ===
+const showEditModal = ref(false)
+const editPodSelector = ref([])
+const editIngress = ref(false)
+const editEgress = ref(false)
+
+function openEdit() {
+  editPodSelector.value = Object.entries(np.value.podSelector || {}).map(([key, value]) => ({ key, value }))
+  editIngress.value = (np.value.policyTypes || []).includes('Ingress')
+  editEgress.value = (np.value.policyTypes || []).includes('Egress')
+  showEditModal.value = true
+}
+
+function addPodSelectorRow() {
+  editPodSelector.value.push({ key: '', value: '' })
+}
+
+function removePodSelectorRow(idx) {
+  editPodSelector.value.splice(idx, 1)
+}
+
+function saveEdit() {
+  const podSelector = {}
+  for (const entry of editPodSelector.value) {
+    if (entry.key.trim()) {
+      podSelector[entry.key.trim()] = entry.value
+    }
+  }
+  const policyTypes = []
+  if (editIngress.value) policyTypes.push('Ingress')
+  if (editEgress.value) policyTypes.push('Egress')
+  store.updateNetworkPolicy(route.params.name, route.params.namespace, { podSelector, policyTypes })
+  showEditModal.value = false
+}
 </script>
 
 <template>
@@ -66,6 +103,9 @@ function handleDelete() {
         </div>
       </div>
       <div class="flex gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+          <span class="material-symbols-outlined">edit</span> Edit
+        </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
         </button>
@@ -234,7 +274,7 @@ function handleDelete() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
 
   </div>
@@ -254,6 +294,63 @@ function handleDelete() {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- Edit Modal -->
+  <Modal v-model="showEditModal" title="Edit NetworkPolicy" width="max-w-xl">
+    <div class="flex flex-col gap-lg">
+      <!-- Pod Selector -->
+      <div>
+        <div class="flex items-center justify-between mb-xs">
+          <label class="text-label-caps text-on-surface-variant">Pod Selector</label>
+          <span class="text-body-xs text-on-surface-variant">空表示所有 Pod</span>
+        </div>
+        <div class="flex flex-col gap-sm">
+          <div v-for="(entry, idx) in editPodSelector" :key="idx" class="flex items-center gap-sm">
+            <input v-model="entry.key" placeholder="label-key"
+              class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+            <span class="text-on-surface-variant">=</span>
+            <input v-model="entry.value" placeholder="label-value"
+              class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+            <button @click="removePodSelectorRow(idx)"
+              class="flex items-center justify-center w-9 h-9 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-error-container/10 hover:text-error hover:border-error/30 transition-colors">
+              <span class="material-symbols-outlined">remove</span>
+            </button>
+          </div>
+          <div v-if="editPodSelector.length === 0" class="text-body-sm text-on-surface-variant italic py-sm">
+            无标签 — 策略将应用于该命名空间下的所有 Pod
+          </div>
+        </div>
+        <button @click="addPodSelectorRow"
+          class="mt-sm flex items-center gap-xs px-md py-xs border border-outline-variant rounded-lg text-body-sm text-primary hover:bg-primary-container/10 transition-colors">
+          <span class="material-symbols-outlined text-base">add</span> Add Label
+        </button>
+      </div>
+
+      <!-- Policy Types -->
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Policy Types</label>
+        <div class="flex gap-md">
+          <label class="flex-1 flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg cursor-pointer">
+            <input type="checkbox" v-model="editIngress" class="w-4 h-4 accent-primary" />
+            <span class="text-body-md text-on-surface">Ingress</span>
+          </label>
+          <label class="flex-1 flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg cursor-pointer">
+            <input type="checkbox" v-model="editEgress" class="w-4 h-4 accent-primary" />
+            <span class="text-body-md text-on-surface">Egress</span>
+          </label>
+        </div>
+      </div>
+
+      <p class="text-body-sm text-on-surface-variant">
+        <span class="material-symbols-outlined text-sm align-middle mr-xs">info</span>
+        Ingress/Egress 规则请在 YAML 标签页编辑
+      </p>
+    </div>
+    <template #actions>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
     </template>
   </Modal>
 </template>

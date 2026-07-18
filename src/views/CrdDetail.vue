@@ -226,7 +226,7 @@ spec:
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="staticYaml" :readonly="false" height="560px" @save="() => {}" />
+      <YamlEditor :model-value="staticYaml" :readonly="true" height="560px" />
     </div>
   </div>
 

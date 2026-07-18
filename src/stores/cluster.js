@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { load as yamlLoad } from 'js-yaml'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, configMaps, secrets, persistentVolumes,
@@ -387,6 +388,11 @@ export const useClusterStore = defineStore('cluster', () => {
     pvcList.value.push({ ...pvc, age: 'Just now' })
   }
 
+  function updatePVC(name, ns, updates) {
+    const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
+    if (idx !== -1) pvcList.value[idx] = { ...pvcList.value[idx], ...updates }
+  }
+
   function deletePVC(name, ns) {
     const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
     if (idx !== -1) pvcList.value.splice(idx, 1)
@@ -537,6 +543,11 @@ export const useClusterStore = defineStore('cluster', () => {
     saList.value.push({ ...sa, age: 'Just now' })
   }
 
+  function updateServiceAccount(name, ns, updates) {
+    const idx = saList.value.findIndex(s => s.name === name && s.namespace === ns)
+    if (idx !== -1) saList.value[idx] = { ...saList.value[idx], ...updates }
+  }
+
   function deleteServiceAccount(name, ns) {
     const idx = saList.value.findIndex(s => s.name === name && s.namespace === ns)
     if (idx !== -1) saList.value.splice(idx, 1)
@@ -547,6 +558,11 @@ export const useClusterStore = defineStore('cluster', () => {
     // Increment role bindings count
     const role = roleList.value.find(r => r.name === rb.roleName)
     if (role) role.bindings = (role.bindings || 0) + 1
+  }
+
+  function updateRoleBinding(name, ns, updates) {
+    const idx = roleBindingList.value.findIndex(r => r.name === name && r.namespace === ns)
+    if (idx !== -1) roleBindingList.value[idx] = { ...roleBindingList.value[idx], ...updates }
   }
 
   function deleteRoleBinding(name, ns) {
@@ -560,8 +576,17 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: ClusterRoleBindings（集群级）===
+  function getClusterRoleBindingByName(name) {
+    return clusterRoleBindingList.value.find(r => r.name === name)
+  }
+
   function addClusterRoleBinding(crb) {
     clusterRoleBindingList.value.push({ ...crb, age: 'Just now' })
+  }
+
+  function updateClusterRoleBinding(name, updates) {
+    const idx = clusterRoleBindingList.value.findIndex(r => r.name === name)
+    if (idx !== -1) clusterRoleBindingList.value[idx] = { ...clusterRoleBindingList.value[idx], ...updates }
   }
 
   function deleteClusterRoleBinding(name) {
@@ -592,6 +617,10 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   function addPriorityClass(pc) {
     priorityClassList.value.push({ ...pc, age: 'Just now' })
+  }
+  function updatePriorityClass(name, updates) {
+    const idx = priorityClassList.value.findIndex(p => p.name === name)
+    if (idx !== -1) priorityClassList.value[idx] = { ...priorityClassList.value[idx], ...updates }
   }
   function deletePriorityClass(name) {
     const idx = priorityClassList.value.findIndex(p => p.name === name)
@@ -644,6 +673,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) namespaceList.value.splice(idx, 1)
   }
 
+  function updateNamespace(name, updates) {
+    const idx = namespaceList.value.findIndex(n => n.name === name)
+    if (idx !== -1) namespaceList.value[idx] = { ...namespaceList.value[idx], ...updates }
+  }
+
   // === 多集群 ===
   function switchCluster(name) {
     currentCluster.value = name
@@ -676,62 +710,89 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!resource) return ''
     const ns = resource.namespace || currentNamespace.value
     const name = resource.name
+    // 标量序列化：含换行走 block scalar(|-)，含特殊字符走双引号转义，否则裸值。
+    // ConfigMap data / Secret stringData 等任意用户值都应走它，避免 " 或换行破坏 YAML。
+    const scalar = v => {
+      const s = String(v ?? '')
+      if (s.includes('\n')) return '|-\n' + s.split('\n').map(l => '      ' + l).join('\n')
+      if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s)) {
+        return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
+      }
+      return s
+    }
 
     if (type === 'service') {
+      // 从扁平 ports 字符串（如 "80:8080/TCP,443:8443/TCP"）还原多端口，保证回写无损
+      const portsYaml = (resource.ports || '80:80/TCP').split(',').filter(Boolean).map(p => {
+        const m = String(p).trim().match(/^(\d+)\s*:\s*([^/]+?)\s*\/?\s*(\w+)?$/) || [, 80, 80, 'TCP']
+        const port = m[1]
+        const target = m[2]
+        const proto = m[3] || 'TCP'
+        return `    - port: ${port}
+      targetPort: ${isNaN(target) ? target : Number(target)}
+      protocol: ${proto}`
+      }).join('\n')
+      const selEntries = resource.selector && Object.keys(resource.selector).length
+        ? Object.entries(resource.selector).map(([k, v]) => `    ${k}: ${v}`).join('\n')
+        : `    app: ${name}`
+      const lbExtra = resource.type === 'LoadBalancer' ? '\n  externalTrafficPolicy: Cluster' : ''
       return `apiVersion: v1
 kind: Service
 metadata:
   name: ${name}
   namespace: ${ns}
-  labels:
-    app: ${resource.selector?.app || name}
 spec:
   type: ${resource.type || 'ClusterIP'}
   selector:
-    app: ${resource.selector?.app || name}
+${selEntries}
   ports:
-    - port: ${resource.ports?.split(':')[0] || 80}
-      targetPort: ${resource.ports?.split(/[:/]/)[1] || 8080}
-      protocol: TCP
-  ${resource.type === 'LoadBalancer' ? 'externalTrafficPolicy: Cluster\n  allocateLoadBalancerNodePorts: true' : ''}`
+${portsYaml}${lbExtra}`
     }
 
     if (type === 'ingress') {
+      // 优先从规范 rules 数组生成，保证多 host/多 path 回写无损
+      const rules = (resource.rules && resource.rules.length) ? resource.rules : [{
+        host: resource.hosts,
+        http: { paths: [{ path: resource.path || '/', pathType: 'Prefix', backend: { serviceName: resource.backend?.split(':')[0], servicePort: Number(resource.backend?.split(':')[1]) || 80 } }] },
+      }]
+      const firstHost = rules[0]?.host || resource.hosts || ''
+      const tlsBlock = resource.tls ? `\n  tls:\n  - hosts:\n    - ${firstHost}\n    secretName: ${resource.tlsSecret || name + '-tls'}` : ''
+      const rulesYaml = rules.map(r => {
+        const pathsYaml = (r.http?.paths || []).map(p => {
+          const be = p.backend?.service || p.backend
+          const svcName = be?.name ?? be?.serviceName
+          const portNum = be?.port?.number ?? be?.servicePort ?? be?.port
+          return `      - path: ${p.path || '/'}
+        pathType: ${p.pathType || 'Prefix'}
+        backend:
+          service:
+            name: ${svcName || name + '-svc'}
+            port:
+              number: ${portNum || 80}`
+        }).join('\n')
+        return `  - host: ${r.host}
+    http:
+      paths:
+${pathsYaml}`
+      }).join('\n')
+      const labelsYaml = resource.labels && Object.keys(resource.labels).length
+        ? '\n  labels:\n' + Object.entries(resource.labels).map(([k, v]) => `    ${k}: "${v}"`).join('\n')
+        : ''
+      const annYaml = resource.annotations && Object.keys(resource.annotations).length
+        ? '\n  annotations:\n' + Object.entries(resource.annotations).map(([k, v]) => `    ${k}: "${v}"`).join('\n')
+        : ''
       return `apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${name}
-  namespace: ${ns}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    ${resource.tls ? 'cert-manager.io/cluster-issuer: letsencrypt-prod' : ''}
+  namespace: ${ns}${labelsYaml}${annYaml}
 spec:
-  ${resource.tls ? `tls:
-  - hosts:
-    - ${resource.hosts}
-    secretName: ${name}-tls` : ''}
+  ingressClassName: ${resource.className || 'nginx'}${tlsBlock}
   rules:
-  - host: ${resource.hosts}
-    http:
-      paths:
-      - path: ${resource.path || '/'}
-        pathType: Prefix
-        backend:
-          service:
-            name: ${resource.backend?.split(':')[0] || name + '-svc'}
-            port:
-              number: ${resource.backend?.split(':')[1] || 80}`
+${rulesYaml}`
     }
 
     if (type === 'configmap') {
-      const scalar = v => {
-        const s = String(v ?? '')
-        if (s.includes('\n')) return '|-\n' + s.split('\n').map(l => '      ' + l).join('\n')
-        if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s)) {
-          return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
-        }
-        return s
-      }
       const fmtMap = obj => obj && Object.keys(obj).length
         ? Object.entries(obj).map(([k, v]) => `    ${k}: ${scalar(v)}`).join('\n')
         : ''
@@ -742,7 +803,7 @@ spec:
         annYaml && '  annotations:\n' + annYaml,
       ].filter(Boolean).join('\n')
       const dataEntries = resource.data ? Object.entries(resource.data)
-        .map(([k, v]) => `  ${k}: "${v}"`).join('\n') : ''
+        .map(([k, v]) => `  ${k}: ${scalar(v)}`).join('\n') : ''
       return `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -753,8 +814,9 @@ ${dataEntries || '  {}'}`
     }
 
     if (type === 'secret') {
+      // 展示为 stringData（明文）以便直接编辑；回写时由 applyResourceYaml 重新 base64 编码
       const dataEntries = resource.data
-        ? Object.entries(resource.data).map(([k, v]) => `  ${k}: "${String(v ?? '')}"`).join('\n')
+        ? Object.entries(resource.data).map(([k, v]) => `  ${k}: ${scalar(decodeBase64(v))}`).join('\n')
         : ''
       return `apiVersion: v1
 kind: Secret
@@ -762,11 +824,14 @@ metadata:
   name: ${name}
   namespace: ${ns}
 type: ${resource.type || 'Opaque'}
-data:
+stringData:
 ${dataEntries || '  {}'}`
     }
 
     if (type === 'pvc') {
+      const ACCESS_MODES = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
+      const accessMode = ACCESS_MODES[resource.accessModes] || resource.accessModes || 'ReadWriteOnce'
+      const volumeName = resource.volume ? `\n  volumeName: ${resource.volume}` : ''
       return `apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -774,34 +839,25 @@ metadata:
   namespace: ${ns}
 spec:
   accessModes:
-    - ${resource.accessModes || 'ReadWriteOnce'}
+    - ${accessMode}
   resources:
     requests:
       storage: ${resource.capacity || '10Gi'}
-  storageClassName: ${resource.storageClass || 'standard'}`
+  storageClassName: ${resource.storageClass || 'standard'}${volumeName}`
     }
 
     if (type === 'deployment') {
-      return `apiVersion: apps/v1
-kind: ${resource.type || 'Deployment'}
-metadata:
-  name: ${name}
-  namespace: ${ns}
-  labels:
-    app: ${name}
-spec:
-  replicas: ${resource.replicas?.split('/')[1] || 1}
-  selector:
-    matchLabels:
-      app: ${name}
-  template:
-    metadata:
+      const kind = resource.type || 'Deployment'
+      const img = resource.image || 'nginx:latest'
+      const desired = resource.replicas?.split('/')[1] || 1
+      // Pod 模板（各工作负载共用）
+      const podTemplate = `    metadata:
       labels:
         app: ${name}
     spec:
       containers:
       - name: ${resource.name}
-        image: ${resource.image || 'nginx:latest'}
+        image: ${img}
         resources:
           requests:
             cpu: 250m
@@ -809,18 +865,95 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi`
+
+      // CronJob：batch/v1，schedule + jobTemplate，无 replicas
+      if (kind === 'CronJob') {
+        const tpl = podTemplate.split('\n').map(l => '    ' + l).join('\n')
+        return `apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${name}
+  namespace: ${ns}
+  labels:
+    app: ${name}
+spec:
+  schedule: "${resource.schedule || '*/5 * * * *'}"
+  jobTemplate:
+    spec:
+      template:
+${tpl}`
+      }
+
+      // Job：batch/v1，completions/parallelism/backoffLimit，无 replicas
+      if (kind === 'Job') {
+        return `apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${name}
+  namespace: ${ns}
+  labels:
+    app: ${name}
+spec:
+  backoffLimit: 6
+  completions: ${resource.completions || 1}
+  parallelism: 1
+  template:
+${podTemplate}`
+      }
+
+      // DaemonSet：apps/v1，按节点调度，无 replicas，用 updateStrategy
+      if (kind === 'DaemonSet') {
+        return `apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ${name}
+  namespace: ${ns}
+  labels:
+    app: ${name}
+spec:
+  selector:
+    matchLabels:
+      app: ${name}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+${podTemplate}`
+      }
+
+      // Deployment / StatefulSet
+      return `apiVersion: apps/v1
+kind: ${kind}
+metadata:
+  name: ${name}
+  namespace: ${ns}
+  labels:
+    app: ${name}
+spec:
+  replicas: ${desired}
+  selector:
+    matchLabels:
+      app: ${name}
+  template:
+${podTemplate}`
     }
 
     if (type === 'networkpolicy') {
+      const peerYaml = f => {
+        const t = f.type || 'podSelector'
+        if (t === 'ipBlock') return `      - ipBlock:\n          cidr: ${f.cidr || '0.0.0.0/0'}`
+        const entries = f.matchLabels ? Object.entries(f.matchLabels) : []
+        if (!entries.length) return `      - ${t}: {}`
+        return `      - ${t}:
+          matchLabels:
+${entries.map(([k, v]) => `            ${k}: ${v}`).join('\n')}`
+      }
       const ingressRules = resource.ingressRules?.length
-        ? resource.ingressRules.map(r => `    - from:
-${(r.from || []).map(f => `      - ${f.type || 'podSelector'}:
-${f.matchLabels ? `          matchLabels:\n${Object.entries(f.matchLabels).map(([k,v]) => `            ${k}: ${v}`).join('\n')}` : `{}`}`).join('\n')}`).join('\n')
+        ? resource.ingressRules.map(r => `    - from:\n${(r.from || []).map(peerYaml).join('\n')}`).join('\n')
         : '    []'
       const egressRules = resource.egressRules?.length
-        ? resource.egressRules.map(r => `    - to:
-${(r.to || []).map(f => `      - ${f.type || 'podSelector'}:
-${f.matchLabels ? `          matchLabels:\n${Object.entries(f.matchLabels).map(([k,v]) => `            ${k}: ${v}`).join('\n')}` : `{}`}`).join('\n')}`).join('\n')
+        ? resource.egressRules.map(r => `    - to:\n${(r.to || []).map(peerYaml).join('\n')}`).join('\n')
         : '    []'
       return `apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -858,7 +991,13 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: ${resource.cpuTarget || 80}`
+        averageUtilization: ${resource.cpuTarget || 80}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: ${resource.memoryTarget || 80}`
     }
 
     if (type === 'resourcequota') {
@@ -898,7 +1037,10 @@ spec:
       memory: "${resource.defaultRequestMemory || '256Mi'}"
     max:
       cpu: "${resource.maxCPU || '2'}"
-      memory: "${resource.maxMemory || '4Gi'}"`
+      memory: "${resource.maxMemory || '4Gi'}"
+    min:
+      cpu: "${resource.minCPU || '50m'}"
+      memory: "${resource.minMemory || '64Mi'}"`
     }
 
     if (type === 'role') {
@@ -984,6 +1126,193 @@ description: "${resource.description || ''}"`
     return ''
   }
 
+  // === 通用 YAML 应用（kubectl edit / apply 语义）===
+  // 解析编辑后的 YAML → 按 kind 转换为 mock 扁平字段 → 调用对应 updateXxx。
+  // 这样所有资源都具备与真实 K8s 一致的「编辑 YAML 即生效」能力。
+  const ACCESS_MODE_TO_CODE = { ReadWriteOnce: 'RWO', ReadWriteMany: 'RWM', ReadOnlyMany: 'ROM', ReadWriteOncePod: 'RWOP' }
+  const CODE_TO_ACCESS_MODE = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
+
+  // canonical NetworkPolicy peer → mock peer 结构
+  const toPeer = (p) => {
+    if (p.podSelector) return { type: 'podSelector', matchLabels: p.podSelector.matchLabels || {} }
+    if (p.namespaceSelector) return { type: 'namespaceSelector', matchLabels: p.namespaceSelector.matchLabels || {} }
+    if (p.ipBlock) return { type: 'ipBlock', cidr: p.ipBlock.cidr }
+    return { type: 'podSelector', matchLabels: {} }
+  }
+
+  function applyResourceYaml(yamlStr) {
+    let obj
+    try {
+      obj = yamlLoad(yamlStr)
+    } catch (e) {
+      return { ok: false, error: 'YAML 解析失败：' + (e.message || String(e)) }
+    }
+    if (!obj || !obj.kind || !obj.metadata?.name) {
+      return { ok: false, error: '无效的 Kubernetes 资源 YAML（缺少 kind 或 metadata.name）' }
+    }
+    const kind = obj.kind
+    const name = obj.metadata.name
+    const ns = obj.metadata.namespace || currentNamespace.value
+    const labels = obj.metadata.labels
+    const annotations = obj.metadata.annotations
+    const spec = obj.spec || {}
+    const updates = {}
+    const set = (k, v) => { if (v !== undefined && v !== null) updates[k] = v }
+
+    switch (kind) {
+      case 'ConfigMap':
+        if (obj.data !== undefined) { updates.data = obj.data || {}; updates.keys = Object.keys(updates.data).length }
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateConfigMap(name, ns, updates)
+        break
+      case 'Secret':
+        // 优先 stringData（明文）；否则 data 为 base64，先解码再交给 updateSecret 重新编码，避免双重编码
+        if (obj.stringData) updates.data = obj.stringData
+        else if (obj.data) { const dec = {}; for (const k in obj.data) dec[k] = decodeBase64(obj.data[k]); updates.data = dec }
+        set('type', obj.type)
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateSecret(name, ns, updates)
+        break
+      case 'Service':
+        set('type', spec.type)
+        if (spec.selector) updates.selector = spec.selector
+        if (Array.isArray(spec.ports)) {
+          updates.ports = spec.ports.map(p => {
+            const port = p.port ?? ''
+            const target = p.targetPort ?? p.port ?? ''
+            const proto = p.protocol || 'TCP'
+            return `${port}:${target}/${proto}`
+          }).join(',')
+        }
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateService(name, ns, updates)
+        break
+      case 'Ingress': {
+        const rules = Array.isArray(spec.rules) ? spec.rules : []
+        if (rules.length) {
+          updates.rules = rules
+          updates.hosts = rules.map(r => r.host).filter(Boolean).join(',')
+          const first = rules[0]?.http?.paths?.[0]
+          if (first) {
+            set('path', first.path || '/')
+            const be = first.backend?.service || first.backend
+            if (be) set('backend', `${be.name}:${be.port?.number ?? be.port?.name ?? ''}`)
+          }
+        }
+        if (Array.isArray(spec.tls)) { updates.tls = spec.tls.length > 0; updates.tlsSecret = spec.tls[0]?.secretName || '' }
+        else if (spec.tls !== undefined) { updates.tls = false; updates.tlsSecret = '' }
+        set('className', spec.ingressClassName)
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateIngress(name, ns, updates)
+        break
+      }
+      case 'PersistentVolumeClaim':
+        if (Array.isArray(spec.accessModes) && spec.accessModes.length) updates.accessModes = ACCESS_MODE_TO_CODE[spec.accessModes[0]] || spec.accessModes[0]
+        set('capacity', spec.resources?.requests?.storage)
+        if (spec.storageClassName !== undefined) updates.storageClass = spec.storageClassName || ''
+        set('volume', spec.volumeName)
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updatePVC(name, ns, updates)
+        break
+      case 'NetworkPolicy':
+        updates.podSelector = spec.podSelector?.matchLabels || {}
+        if (Array.isArray(spec.policyTypes)) updates.policyTypes = spec.policyTypes
+        updates.ingressRules = (spec.ingress || []).map(r => ({ from: (r.from || []).map(toPeer), ports: r.ports || [] }))
+        updates.egressRules = (spec.egress || []).map(r => ({ to: (r.to || []).map(toPeer), ports: r.ports || [] }))
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateNetworkPolicy(name, ns, updates)
+        break
+      case 'HorizontalPodAutoscaler': {
+        set('minReplicas', spec.minReplicas)
+        set('maxReplicas', spec.maxReplicas)
+        const metrics = spec.metrics || []
+        const cpu = metrics.find(m => m.resource?.name === 'cpu')
+        const mem = metrics.find(m => m.resource?.name === 'memory')
+        if (cpu) set('cpuTarget', cpu.resource?.target?.averageUtilization)
+        if (mem) set('memoryTarget', mem.resource?.target?.averageUtilization)
+        updateHPA(name, ns, updates)
+        break
+      }
+      case 'ResourceQuota':
+        if (spec.hard) updateResourceQuota(name, ns, { hard: spec.hard })
+        break
+      case 'LimitRange': {
+        const l = (spec.limits || []).find(x => x.type === 'Container') || spec.limits?.[0]
+        if (l) {
+          const pick = {
+            defaultCPU: l.default?.cpu, defaultMemory: l.default?.memory,
+            defaultRequestCPU: l.defaultRequest?.cpu, defaultRequestMemory: l.defaultRequest?.memory,
+            maxCPU: l.max?.cpu, maxMemory: l.max?.memory,
+            minCPU: l.min?.cpu, minMemory: l.min?.memory,
+          }
+          Object.keys(pick).forEach(k => pick[k] === undefined && delete pick[k])
+          if (Object.keys(pick).length) updateLimitRange(name, ns, pick)
+        }
+        break
+      }
+      case 'Role':
+      case 'ClusterRole':
+        if (Array.isArray(obj.rules)) updateRole(name, ns, { rules: obj.rules })
+        break
+      case 'RoleBinding':
+        if (obj.roleRef) { updates.roleName = obj.roleRef.name; updates.roleKind = obj.roleRef.kind }
+        if (Array.isArray(obj.subjects)) updates.subjects = obj.subjects
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateRoleBinding(name, ns, updates)
+        break
+      case 'ClusterRoleBinding':
+        if (obj.roleRef) { updates.roleName = obj.roleRef.name; updates.roleKind = obj.roleRef.kind }
+        if (Array.isArray(obj.subjects)) updates.subjects = obj.subjects
+        updateClusterRoleBinding(name, updates)
+        break
+      case 'ServiceAccount':
+        if (Array.isArray(obj.imagePullSecrets)) updates.imagePullSecrets = obj.imagePullSecrets
+        set('automountServiceAccountToken', obj.automountServiceAccountToken)
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateServiceAccount(name, ns, updates)
+        break
+      case 'Deployment':
+      case 'StatefulSet':
+      case 'DaemonSet':
+      case 'Job':
+      case 'CronJob': {
+        const c = spec.template?.spec?.containers?.[0]
+        if (c?.image) updates.image = c.image
+        if (spec.replicas !== undefined) {
+          const desired = parseInt(spec.replicas) || 1
+          updates.replicas = `${desired}/${desired}`
+        }
+        if (kind === 'CronJob' && spec.schedule !== undefined) updates.schedule = spec.schedule
+        if (labels) updates.labels = labels
+        if (annotations) updates.annotations = annotations
+        updateWorkload(name, ns, updates)
+        break
+      }
+      case 'Namespace':
+        if (labels) updateNamespace(name, { labels })
+        break
+      case 'PodDisruptionBudget': {
+        const u = {}
+        if (spec.minAvailable !== undefined) u.minAvailable = String(spec.minAvailable)
+        if (spec.maxUnavailable !== undefined) u.maxUnavailable = String(spec.maxUnavailable)
+        if (spec.selector?.matchLabels) u.selector = spec.selector.matchLabels
+        if (Object.keys(u).length) updatePDB(name, ns, u)
+        break
+      }
+      default:
+        return { ok: false, error: `暂不支持通过 YAML 编辑 ${kind}` }
+    }
+    return { ok: true, kind, name, namespace: ns }
+  }
+
   return {
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
@@ -1015,7 +1344,7 @@ description: "${resource.description || ''}"`
     addSecret, updateSecret, deleteSecret,
     decodeBase64,
     // CRUD: PVCs
-    addPVC, deletePVC,
+    addPVC, updatePVC, deletePVC,
     // CRUD: Workloads
     addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload,
     // CRUD: Pods
@@ -1029,18 +1358,18 @@ description: "${resource.description || ''}"`
     // CRUD: LimitRanges
     addLimitRange, updateLimitRange, deleteLimitRange,
     // CRUD: RBAC
-    addRole, updateRole, deleteRole, addServiceAccount, deleteServiceAccount,
-    addRoleBinding, deleteRoleBinding,
+    addRole, updateRole, deleteRole, addServiceAccount, updateServiceAccount, deleteServiceAccount,
+    addRoleBinding, updateRoleBinding, deleteRoleBinding,
     // CRUD: ClusterRoleBindings
-    addClusterRoleBinding, deleteClusterRoleBinding,
+    getClusterRoleBindingByName, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     // CRUD: PDB
     getPDBByName, addPDB, updatePDB, deletePDB,
     // CRUD: PriorityClass
-    getPriorityClassByName, addPriorityClass, deletePriorityClass,
+    getPriorityClassByName, addPriorityClass, updatePriorityClass, deletePriorityClass,
     // CRUD: Nodes
     cordonNode, uncordonNode, drainNode,
     // CRUD: Namespaces
-    addNamespace, deleteNamespace,
+    addNamespace, updateNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster,
     // CRD
@@ -1048,6 +1377,6 @@ description: "${resource.description || ''}"`
     // 审计
     logAudit,
     // YAML generation
-    generateYAML, generateExtraYAML,
+    generateYAML, generateExtraYAML, applyResourceYaml,
   }
 })

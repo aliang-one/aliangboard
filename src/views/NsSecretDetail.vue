@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -10,6 +11,7 @@ import ResourceReferences from '@/components/common/ResourceReferences.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const secret = computed(() => store.getSecretByName(route.params.name, route.params.namespace))
@@ -75,6 +77,71 @@ function deleteKey(key) {
   store.updateSecret(route.params.name, route.params.namespace, { data, keys: Object.keys(data).length })
 }
 
+const allAnnotations = computed(() => {
+  if (!secret.value?.annotations) return []
+  return Object.entries(secret.value.annotations)
+})
+const allLabels = computed(() => {
+  if (!secret.value?.labels) return []
+  return Object.entries(secret.value.labels)
+})
+
+// === Annotations 编辑 ===
+const showAddAnnModal = ref(false)
+const newAnnKey = ref('')
+const newAnnValue = ref('')
+const editingAnn = ref(null)
+const editAnnValue = ref('')
+
+function addAnnotation() {
+  if (!newAnnKey.value) return
+  const annotations = { ...(secret.value.annotations || {}) }
+  annotations[newAnnKey.value] = newAnnValue.value
+  store.updateSecret(route.params.name, route.params.namespace, { annotations })
+  newAnnKey.value = ''; newAnnValue.value = ''; showAddAnnModal.value = false
+}
+function deleteAnnotation(key) {
+  const annotations = { ...secret.value.annotations }
+  delete annotations[key]
+  store.updateSecret(route.params.name, route.params.namespace, { annotations })
+}
+function startEditAnn(key) { editingAnn.value = key; editAnnValue.value = secret.value.annotations[key] }
+function saveEditAnn() {
+  if (editingAnn.value === null) return
+  const annotations = { ...secret.value.annotations }
+  annotations[editingAnn.value] = editAnnValue.value
+  store.updateSecret(route.params.name, route.params.namespace, { annotations })
+  editingAnn.value = null
+}
+
+// === Labels 编辑 ===
+const showAddLabelModal = ref(false)
+const newLabelKey = ref('')
+const newLabelValue = ref('')
+const editingLabel = ref(null)
+const editLabelValue = ref('')
+
+function addLabel() {
+  if (!newLabelKey.value) return
+  const labels = { ...(secret.value.labels || {}) }
+  labels[newLabelKey.value] = newLabelValue.value
+  store.updateSecret(route.params.name, route.params.namespace, { labels })
+  newLabelKey.value = ''; newLabelValue.value = ''; showAddLabelModal.value = false
+}
+function deleteLabel(key) {
+  const labels = { ...secret.value.labels }
+  delete labels[key]
+  store.updateSecret(route.params.name, route.params.namespace, { labels })
+}
+function startEditLabel(key) { editingLabel.value = key; editLabelValue.value = secret.value.labels[key] }
+function saveEditLabel() {
+  if (editingLabel.value === null) return
+  const labels = { ...secret.value.labels }
+  labels[editingLabel.value] = editLabelValue.value
+  store.updateSecret(route.params.name, route.params.namespace, { labels })
+  editingLabel.value = null
+}
+
 const typeBadge = computed(() => {
   const t = secret.value?.type || ''
   if (t.includes('tls')) return { color: 'bg-primary-container/10 text-primary border-primary/20', icon: 'lock' }
@@ -121,7 +188,7 @@ const refCount = computed(() =>
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['data', 'references', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['data', 'references', 'annotations', 'labels', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
@@ -180,9 +247,79 @@ const refCount = computed(() =>
       <ResourceReferences kind="Secret" :name="route.params.name" />
     </div>
 
+    <!-- Annotations Tab（可编辑）-->
+    <div v-if="activeTab === 'annotations'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+          <h3 class="text-headline-sm">Annotations ({{ allAnnotations.length }})</h3>
+          <button @click="showAddAnnModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+            <span class="material-symbols-outlined text-sm">add</span> Add Annotation
+          </button>
+        </div>
+        <div class="divide-y divide-outline-variant/30">
+          <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-lg py-md">
+            <div class="flex items-center justify-between mb-sm">
+              <span class="font-mono text-code-md text-primary font-semibold break-all">{{ key }}</span>
+              <div class="flex gap-xs shrink-0">
+                <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
+                <button @click="deleteAnnotation(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+              </div>
+            </div>
+            <div v-if="editingAnn === key" class="flex gap-sm">
+              <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
+              <div class="flex flex-col gap-xs">
+                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
+                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+              </div>
+            </div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
+          </div>
+          <div v-if="!allAnnotations.length" class="px-lg py-xl text-center text-on-surface-variant">
+            <span class="material-symbols-outlined text-3xl">label</span>
+            <p class="mt-sm">No annotations</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Labels Tab（可编辑）-->
+    <div v-if="activeTab === 'labels'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+          <h3 class="text-headline-sm">Labels ({{ allLabels.length }})</h3>
+          <button @click="showAddLabelModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+            <span class="material-symbols-outlined text-sm">add</span> Add Label
+          </button>
+        </div>
+        <div class="divide-y divide-outline-variant/30">
+          <div v-for="([key, val], idx) in allLabels" :key="idx" class="px-lg py-md">
+            <div class="flex items-center justify-between mb-sm">
+              <span class="font-mono text-code-md text-secondary font-semibold break-all">{{ key }}</span>
+              <div class="flex gap-xs shrink-0">
+                <button v-if="editingLabel !== key" @click="startEditLabel(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
+                <button @click="deleteLabel(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+              </div>
+            </div>
+            <div v-if="editingLabel === key" class="flex gap-sm">
+              <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+              <div class="flex gap-xs">
+                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
+                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+              </div>
+            </div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant break-all">{{ val }}</div>
+          </div>
+          <div v-if="!allLabels.length" class="px-lg py-xl text-center text-on-surface-variant">
+            <span class="material-symbols-outlined text-3xl">label_off</span>
+            <p class="mt-sm">No labels</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
@@ -214,6 +351,40 @@ const refCount = computed(() =>
     <template #actions>
       <button @click="showAddKeyModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="addKey" :disabled="!newKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+    </template>
+  </Modal>
+
+  <Modal v-model="showAddAnnModal" title="Add Annotation" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Annotation Key</label>
+        <input v-model="newAnnKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="kubectl.kubernetes.io/last-applied-configuration" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" placeholder="{}"></textarea>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+    </template>
+  </Modal>
+
+  <Modal v-model="showAddLabelModal" title="Add Label" width="max-w-md">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Label Key</label>
+        <input v-model="newLabelKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="app.kubernetes.io/name" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <input v-model="newLabelValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
     </template>
   </Modal>
 </template>

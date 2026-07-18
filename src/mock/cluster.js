@@ -57,8 +57,8 @@ export const workloads = [
   { name: 'redis-cache-main', type: 'StatefulSet', namespace: 'production-apps', status: 'Pending', replicas: '1/2', image: 'redis:7.2-alpine', sha: 'sha:a921bc1', age: '30d', labels: { app: 'redis-cache' } },
   { name: 'postgres-main', type: 'StatefulSet', namespace: 'production-apps', status: 'Running', replicas: '1/1', image: 'postgres:15.4', sha: 'sha:9c1b22e', age: '98d', labels: { app: 'postgres' } },
   { name: 'rabbitmq-broker', type: 'StatefulSet', namespace: 'production-apps', status: 'Running', replicas: '3/3', image: 'rabbitmq:3.12-management', sha: 'sha:5d3e8f1', age: '60d', labels: { app: 'rabbitmq' } },
-  { name: 'search-indexer', type: 'CronJob', namespace: 'production-apps', status: 'Succeeded', replicas: '0/0', image: 'kubezen/search-index:2.1', sha: 'sha:1a9d4e7', age: '40d', labels: { app: 'search-indexer' } },
-  { name: 'db-migrator', type: 'Job', namespace: 'production-apps', status: 'Succeeded', replicas: '0/1', image: 'kubezen/migrate:v5', sha: 'sha:7f2a8c3', age: '3d', labels: { app: 'db-migrator' } },
+  { name: 'search-indexer', type: 'CronJob', schedule: '0 2 * * *', namespace: 'production-apps', status: 'Succeeded', replicas: '0/0', image: 'kubezen/search-index:2.1', sha: 'sha:1a9d4e7', age: '40d', labels: { app: 'search-indexer' } },
+  { name: 'db-migrator', type: 'Job', completions: 1, namespace: 'production-apps', status: 'Succeeded', replicas: '0/1', image: 'kubezen/migrate:v5', sha: 'sha:7f2a8c3', age: '3d', labels: { app: 'db-migrator' } },
 
   // kube-system
   { name: 'coredns', type: 'Deployment', namespace: 'kube-system', status: 'Running', replicas: '2/2', image: 'coredns/coredns:1.11', sha: 'sha:6e2f88a', age: '245d', labels: { 'k8s-app': 'coredns' } },
@@ -67,7 +67,7 @@ export const workloads = [
   { name: 'nvidia-device-plugin', type: 'DaemonSet', namespace: 'kube-system', status: 'Running', replicas: '1/1', image: 'nvidia/k8s-device-plugin:v0.14', sha: 'sha:b2c3d4e', age: '90d', labels: { 'k8s-app': 'nvidia-device-plugin' } },
   { name: 'auth-worker-01', type: 'Deployment', namespace: 'kube-system', status: 'Failed', replicas: '0/1', image: 'kubezen/auth-worker:1.3.0', sha: 'sha:c12d44e', age: '12d', labels: { app: 'auth-worker' } },
   { name: 'kube-proxy', type: 'DaemonSet', namespace: 'kube-system', status: 'Running', replicas: '8/8', image: 'k8s.gcr.io/kube-proxy:v1.28.2', sha: 'sha:e1a2b3c', age: '245d', labels: { 'k8s-app': 'kube-proxy' } },
-  { name: 'backup-job', type: 'Job', namespace: 'kube-system', status: 'Running', replicas: '1/1', image: 'kubezen/backup:v3', sha: 'sha:5c8b2f3', age: '2h', labels: { app: 'backup' } },
+  { name: 'backup-job', type: 'Job', completions: 1, namespace: 'kube-system', status: 'Running', replicas: '1/1', image: 'kubezen/backup:v3', sha: 'sha:5c8b2f3', age: '2h', labels: { app: 'backup' } },
 
   // monitoring
   { name: 'prometheus-server', type: 'Deployment', namespace: 'monitoring', status: 'Running', replicas: '1/1', image: 'prom/prometheus:v2.48.0', sha: 'sha:e22b10a', age: '128d', labels: { app: 'prometheus' } },
@@ -240,7 +240,7 @@ export const events = [
   { type: 'normal', reason: 'Deployment created', message: 'frontend-staging deployed with image dev-67.', time: '1h ago', icon: 'rocket_launch', color: 'primary', namespace: 'staging' },
   { type: 'warning', reason: 'Pod evicted', message: 'lease-agent-worker06 evicted due to MemoryPressure.', time: '1h ago', icon: 'eject', color: 'error', namespace: 'kube-node-lease' },
   { type: 'normal', reason: 'ConfigMap created', message: 'staging-env ConfigMap created with 5 keys.', time: '5d ago', icon: 'description', color: 'primary', namespace: 'staging' },
-  { type: 'normal', reason: 'PVC bound', message: 'prometheus-data bound to pv-prometheus-data (50Gi).', time: '128d ago', icon: 'storage', color: 'primary', namespace: 'monitoring' },
+  { type: 'normal', reason: 'PVC bound', message: 'prometheus-data-prometheus-server-f7a1 bound to pv-prometheus-data (50Gi).', time: '128d ago', icon: 'storage', color: 'primary', namespace: 'monitoring' },
 ]
 
 // ── Services ────────────────────────────────────────────────
@@ -378,7 +378,7 @@ export const pvcs = [
   { name: 'redis-data-redis-cache-main-0', namespace: 'production-apps', status: 'Bound', capacity: '20Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-redis-data', age: '30d' },
   { name: 'rabbitmq-data-rabbitmq-broker-0', namespace: 'production-apps', status: 'Bound', capacity: '10Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-rabbitmq-data', age: '60d' },
   { name: 'data-elasticsearch-0', namespace: 'logging', status: 'Bound', capacity: '100Gi', accessModes: 'RWO', storageClass: 'hdd-standard', volume: 'pv-elasticsearch-data', age: '67d' },
-  { name: 'prometheus-data', namespace: 'monitoring', status: 'Bound', capacity: '50Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-prometheus-data', age: '128d' },
+  { name: 'prometheus-data-prometheus-server-f7a1', namespace: 'monitoring', status: 'Bound', capacity: '50Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-prometheus-data', age: '128d' },
   { name: 'backup-storage', namespace: 'kube-system', status: 'Pending', capacity: '200Gi', accessModes: 'RWO', storageClass: 'hdd-standard', volume: '', age: '2h' },
   { name: 'nginx-data', namespace: 'default', status: 'Bound', capacity: '5Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-nginx-data', age: '30d' },
   { name: 'hello-app-data', namespace: 'default', status: 'Bound', capacity: '2Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-hello-app-data', age: '15d' },
@@ -637,7 +637,7 @@ const eventRelationMap = {
   'Deployment created': { kind: 'Deployment', name: 'frontend-staging' },
   'Pod evicted': { kind: 'Pod', name: 'lease-agent-worker06' },
   'ConfigMap created': { kind: 'ConfigMap', name: 'staging-env' },
-  'PVC bound': { kind: 'PVC', name: 'prometheus-data' },
+  'PVC bound': { kind: 'PVC', name: 'prometheus-data-prometheus-server-f7a1' },
 }
 events.forEach(e => {
   const rel = eventRelationMap[e.reason]
