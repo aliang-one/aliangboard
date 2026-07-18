@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -10,6 +11,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const pvc = computed(() => store.getPVCByName(route.params.name, route.params.namespace))
@@ -23,6 +25,27 @@ const showDeleteModal = ref(false)
 function handleDelete() {
   store.deletePVC(route.params.name, route.params.namespace)
   router.push({ name: 'NsStorage', params: { namespace: route.params.namespace } })
+}
+
+// === 结构化编辑 ===
+const showEditModal = ref(false)
+const editCapacity = ref('')
+const editAccessModes = ref('RWO')
+const editStorageClass = ref('')
+
+function openEdit() {
+  editCapacity.value = pvc.value?.capacity || ''
+  editAccessModes.value = pvc.value?.accessModes || 'RWO'
+  editStorageClass.value = pvc.value?.storageClass || ''
+  showEditModal.value = true
+}
+function saveEdit() {
+  store.updatePVC(route.params.name, route.params.namespace, {
+    capacity: editCapacity.value,
+    accessModes: editAccessModes.value,
+    storageClass: editStorageClass.value,
+  })
+  showEditModal.value = false
 }
 </script>
 
@@ -49,6 +72,9 @@ function handleDelete() {
         </div>
       </div>
       <div class="flex gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+          <span class="material-symbols-outlined">edit</span> Edit
+        </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
         </button>
@@ -134,7 +160,7 @@ function handleDelete() {
     </div>
 
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
@@ -149,6 +175,35 @@ function handleDelete() {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <Modal v-model="showEditModal" title="Edit PVC" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity</label>
+        <input v-model="editCapacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="50Gi" />
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+        <select v-model="editAccessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+          <option value="RWO">RWO (ReadWriteOnce)</option>
+          <option value="RWM">RWM (ReadWriteMany)</option>
+          <option value="ROM">ROM (ReadOnlyMany)</option>
+          <option value="RWOP">RWOP (ReadWriteOncePod)</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
+        <input v-model="editStorageClass" list="pvc-sc-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="ssd-standard" />
+        <datalist id="pvc-sc-list">
+          <option v-for="s in store.scList" :key="s.name" :value="s.name" />
+        </datalist>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
     </template>
   </Modal>
 </template>

@@ -1,9 +1,12 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import Modal from '@/components/common/Modal.vue'
 
+const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('pvc')
 
@@ -40,6 +43,33 @@ const scHeaders = [
   { key: 'default', label: 'Default' },
   { key: 'age', label: 'Age' },
 ]
+
+// Create PVC（集群页跨 namespace，需选择目标 namespace）
+const showCreatePVC = ref(false)
+const createForm = ref({ name: '', namespace: 'default', capacity: '10Gi', accessModes: 'RWO', storageClass: '' })
+function resetCreate() {
+  createForm.value = { name: '', namespace: 'default', capacity: '10Gi', accessModes: 'RWO', storageClass: '' }
+}
+function handleCreatePVC() {
+  const f = createForm.value
+  if (!f.name || !f.namespace) return
+  store.addPVC({
+    name: f.name,
+    namespace: f.namespace,
+    status: 'Pending',
+    capacity: f.capacity,
+    accessModes: f.accessModes,
+    storageClass: f.storageClass || store.scList.find(s => s.default)?.name || 'standard',
+    volume: '',
+    age: 'Just now',
+  })
+  showCreatePVC.value = false
+  resetCreate()
+}
+
+function openPVC(row) {
+  router.push({ name: 'NsPVCDetail', params: { namespace: row.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -49,7 +79,7 @@ const scHeaders = [
         <h2 class="text-display-lg text-on-surface">Storage</h2>
         <p class="text-on-surface-variant text-body-md mt-1">Manage persistent storage, volumes, and storage classes.</p>
       </div>
-      <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
+      <button @click="showCreatePVC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
         <span class="material-symbols-outlined">add</span> New PVC
       </button>
     </div>
@@ -66,7 +96,7 @@ const scHeaders = [
     </div>
 
     <!-- PVC Tab -->
-    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="store.pvcList">
+    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="store.pvcList" @row-click="openPVC">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -103,5 +133,48 @@ const scHeaders = [
         <span class="material-symbols-outlined" :class="row.default ? 'text-primary' : 'text-outline-variant'">{{ row.default ? 'check_circle' : 'radio_button_unchecked' }}</span>
       </template>
     </DataTable>
+
+    <!-- Create PVC Modal -->
+    <Modal v-model="showCreatePVC" title="Create PVC" width="max-w-lg">
+      <div class="flex flex-col gap-md">
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">PVC Name *</label>
+            <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-pvc" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Namespace *</label>
+            <select v-model="createForm.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option v-for="ns in store.namespaceList" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity *</label>
+            <input v-model="createForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="10Gi" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+            <select v-model="createForm.accessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <option value="RWO">ReadWriteOnce</option>
+              <option value="RWM">ReadWriteMany</option>
+              <option value="ROM">ReadOnlyMany</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
+          <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <option value="">Default</option>
+            <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
+          </select>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+        <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      </template>
+    </Modal>
   </section>
 </template>

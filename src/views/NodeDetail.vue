@@ -184,7 +184,7 @@ function handleDrain() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="true" height="500px" />
     </div>
   </div>
 

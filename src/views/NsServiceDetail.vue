@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -10,6 +11,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const svc = computed(() => store.getServiceByName(route.params.name, route.params.namespace))
@@ -35,20 +37,26 @@ function handleDelete() {
 
 // Edit form
 const editForm = ref({})
+const editSelector = ref([]) // [{ key, value }]
 function openEdit() {
   if (!svc.value) return
   editForm.value = {
     type: svc.value.type,
     clusterIP: svc.value.clusterIP,
     ports: svc.value.ports,
-    selector: { ...svc.value.selector },
   }
+  editSelector.value = Object.entries(svc.value.selector || {}).map(([key, value]) => ({ key, value }))
   showEditModal.value = true
 }
+function addSelectorRow() { editSelector.value.push({ key: '', value: '' }) }
+function removeSelectorRow(idx) { editSelector.value.splice(idx, 1) }
 function saveEdit() {
+  const selector = {}
+  editSelector.value.forEach(r => { if (r.key.trim()) selector[r.key.trim()] = r.value })
   store.updateService(route.params.name, route.params.namespace, {
     type: editForm.value.type,
     ports: editForm.value.ports,
+    selector,
   })
   showEditModal.value = false
 }
@@ -196,7 +204,7 @@ function saveEdit() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
 
     <!-- Not Found -->
@@ -229,7 +237,26 @@ function saveEdit() {
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Ports</label>
-        <input v-model="editForm.ports" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
+        <input v-model="editForm.ports" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="80:8080/TCP,443:8443/TCP" />
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-xs">
+          <label class="text-label-caps text-on-surface-variant">Selector</label>
+          <button @click="addSelectorRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
+            <span class="material-symbols-outlined text-sm">add</span> Add
+          </button>
+        </div>
+        <div class="flex flex-col gap-xs">
+          <div v-for="(row, idx) in editSelector" :key="idx" class="flex gap-xs items-center">
+            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="app" />
+            <span class="text-on-surface-variant">=</span>
+            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
+            <button @click="removeSelectorRow(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg">
+              <span class="material-symbols-outlined text-lg">remove</span>
+            </button>
+          </div>
+          <p v-if="!editSelector.length" class="text-body-sm text-on-surface-variant italic">No selector (ExternalName or headless)</p>
+        </div>
       </div>
     </div>
     <template #actions>

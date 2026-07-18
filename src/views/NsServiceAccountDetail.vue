@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -9,6 +10,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const sa = computed(() => store.getServiceAccountByName(route.params.name, route.params.namespace))
@@ -37,6 +39,24 @@ function handleDelete() {
   store.deleteServiceAccount(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
 }
+
+// === 结构化编辑 ===
+const showEditModal = ref(false)
+const editAutomount = ref(true)
+const editImagePullSecrets = ref('')
+
+function openEdit() {
+  editAutomount.value = sa.value?.automountServiceAccountToken === undefined ? true : sa.value.automountServiceAccountToken
+  editImagePullSecrets.value = (sa.value?.imagePullSecrets || []).map(s => s.name).join(', ')
+  showEditModal.value = true
+}
+function saveEdit() {
+  store.updateServiceAccount(route.params.name, route.params.namespace, {
+    automountServiceAccountToken: editAutomount.value,
+    imagePullSecrets: editImagePullSecrets.value.split(',').map(s => s.trim()).filter(Boolean).map(n => ({ name: n })),
+  })
+  showEditModal.value = false
+}
 </script>
 
 <template>
@@ -63,6 +83,9 @@ function handleDelete() {
         </div>
       </div>
       <div class="flex gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+          <span class="material-symbols-outlined">edit</span> Edit
+        </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
         </button>
@@ -99,8 +122,16 @@ function handleDelete() {
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Automount Token</p>
               <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-lg text-primary">check_circle</span>
-                <span class="text-body-md text-on-surface">Enabled</span>
+                <span class="material-symbols-outlined text-lg" :class="(sa.automountServiceAccountToken === undefined ? true : sa.automountServiceAccountToken) ? 'text-primary' : 'text-on-surface-variant'">{{ (sa.automountServiceAccountToken === undefined ? true : sa.automountServiceAccountToken) ? 'check_circle' : 'cancel' }}</span>
+                <span class="text-body-md text-on-surface">{{ (sa.automountServiceAccountToken === undefined ? true : sa.automountServiceAccountToken) ? 'Enabled' : 'Disabled' }}</span>
+              </div>
+            </div>
+            <div v-if="sa.imagePullSecrets && sa.imagePullSecrets.length" class="p-md rounded-lg bg-surface-container-low col-span-2">
+              <p class="text-label-caps text-on-surface-variant mb-xs">Image Pull Secrets</p>
+              <div class="flex flex-wrap gap-sm">
+                <span v-for="ips in sa.imagePullSecrets" :key="ips.name" class="flex items-center gap-xs px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded-full font-medium">
+                  {{ ips.name }}
+                </span>
               </div>
             </div>
           </div>
@@ -168,7 +199,7 @@ function handleDelete() {
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="() => {}" />
+      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
   </div>
 
@@ -187,6 +218,25 @@ function handleDelete() {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- Edit Modal -->
+  <Modal v-model="showEditModal" title="Edit ServiceAccount" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <label class="flex items-center gap-sm cursor-pointer">
+        <input type="checkbox" v-model="editAutomount" class="w-4 h-4 accent-primary" />
+        <span class="text-body-md text-on-surface">Automount Service Account Token</span>
+      </label>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Image Pull Secrets</label>
+        <input v-model="editImagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-secret, docker-registry-key" />
+        <p class="text-body-sm text-on-surface-variant mt-xs">comma-separated</p>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
     </template>
   </Modal>
 </template>
