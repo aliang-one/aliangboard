@@ -18,6 +18,8 @@ const globalNavItems = [
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
   { icon: 'extension', label: 'CRDs', route: '/crds' },
   { icon: 'flag', label: 'PriorityClasses', route: '/priorityclasses' },
+  { icon: 'language', label: 'IngressClasses', route: '/ingressclasses' },
+  { icon: 'memory', label: 'RuntimeClasses', route: '/runtimeclasses' },
   { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
 ]
 
@@ -45,6 +47,7 @@ const nsNavGroups = [
     icon: 'share',
     items: [
       { icon: 'hub', label: 'Services', routeKey: 'services' },
+      { icon: 'hub', label: 'Endpoints', routeKey: 'endpoints' },
       { icon: 'language', label: 'Ingress', routeKey: 'ingress' },
       { icon: 'firewall', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
     ]
@@ -91,6 +94,7 @@ const nsRouteMap = {
   pods: 'NsPods',
   hpa: 'NsHPA',
   services: 'NsServices',
+  endpoints: 'NsEndpoints',
   ingress: 'NsIngress',
   networkpolicies: 'NsNetworkPolicies',
   storage: 'NsStorage',

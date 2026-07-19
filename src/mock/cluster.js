@@ -290,6 +290,20 @@ export const ingresses = [
 // 给 Ingress 补默认 labels
 ingresses.forEach(i => { if (!i.labels) i.labels = { 'app.kubernetes.io/name': i.name.replace(/-ingress$/, ''), 'app.kubernetes.io/managed-by': 'aliangboard' } })
 
+// ── Endpoints（Service 后端端点）─────────────────────────────
+export const endpoints = [
+  { name: 'api-gateway-svc', namespace: 'production-apps', addresses: ['10.244.1.5', '10.244.2.3', '10.244.3.7'], notReadyAddresses: [], ports: [{ port: 8080, protocol: 'TCP' }], age: '45d' },
+  { name: 'frontend-web-svc', namespace: 'production-apps', addresses: ['10.244.1.8', '10.244.2.9'], notReadyAddresses: [], ports: [{ port: 8443, protocol: 'TCP' }], age: '22d' },
+  { name: 'redis-svc', namespace: 'production-apps', addresses: ['10.244.4.2'], notReadyAddresses: [], ports: [{ port: 6379, protocol: 'TCP' }], age: '30d' },
+  { name: 'payment-svc', namespace: 'production-apps', addresses: ['10.244.1.12', '10.244.3.4'], notReadyAddresses: ['10.244.5.9'], ports: [{ port: 8080, protocol: 'TCP' }], age: '15d' },
+  { name: 'kubernetes', namespace: 'default', addresses: ['10.0.0.1'], notReadyAddresses: [], ports: [{ port: 6443, protocol: 'TCP' }], age: '245d' },
+  { name: 'nginx-demo-svc', namespace: 'default', addresses: ['10.244.6.3'], notReadyAddresses: [], ports: [{ port: 80, protocol: 'TCP' }], age: '30d' },
+  { name: 'prometheus-svc', namespace: 'monitoring', addresses: ['10.244.7.2'], notReadyAddresses: [], ports: [{ port: 9090, protocol: 'TCP' }], age: '128d' },
+  { name: 'grafana-svc', namespace: 'monitoring', addresses: ['10.244.7.5'], notReadyAddresses: [], ports: [{ port: 3000, protocol: 'TCP' }], age: '128d' },
+  { name: 'elasticsearch-svc', namespace: 'logging', addresses: ['10.244.8.1', '10.244.8.2', '10.244.8.3'], notReadyAddresses: [], ports: [{ port: 9200, protocol: 'TCP' }, { port: 9300, protocol: 'TCP' }], age: '67d' },
+  { name: 'staging-frontend-svc', namespace: 'staging', addresses: [], notReadyAddresses: ['10.244.9.1'], ports: [{ port: 80, protocol: 'TCP' }], age: '1d' },
+]
+
 // ── ConfigMaps ───────────────────────────────────────────────
 export const configMaps = [
   { name: 'app-env-vars', namespace: 'production-apps', keys: 8, age: '45d', labels: { app: 'api-gateway', 'app.kubernetes.io/managed-by': 'helm', environment: 'production' }, annotations: { 'kubectl.kubernetes.io/last-applied-configuration': '{"kind":"ConfigMap","apiVersion":"v1"}', 'helm.sh/hook': 'pre-install' }, data: { DB_HOST: 'postgres-main-svc', DB_PORT: '5432', REDIS_URL: 'redis://redis-svc:6379', LOG_LEVEL: 'info', MAX_CONNECTIONS: '100', CACHE_TTL: '300', API_RATE_LIMIT: '1000', ENABLE_CORS: 'true' } },
@@ -373,6 +387,18 @@ export const storageClasses = [
   { name: 'local-ssd', provisioner: 'kubernetes.io/local-volume', parameters: 'type=local', reclaimPolicy: 'Delete', age: '180d', default: false },
 ]
 
+export const ingressClasses = [
+  { name: 'nginx', controller: 'k8s.io/ingress-nginx', isDefault: true, age: '200d' },
+  { name: 'traefik', controller: 'traefik.io/ingress-controller', isDefault: false, age: '120d' },
+  { name: 'gce', controller: 'k8s.io/gce', isDefault: false, age: '245d' },
+]
+
+export const runtimeClasses = [
+  { name: 'runc', handler: 'runc', age: '245d' },
+  { name: 'kata-containers', handler: 'kata', age: '90d' },
+  { name: 'gvisor', handler: 'runsc', age: '60d' },
+]
+
 export const pvcs = [
   { name: 'postgres-data-postgres-main-0', namespace: 'production-apps', status: 'Bound', capacity: '50Gi', accessModes: 'RWO', storageClass: 'ssd-premium', volume: 'pv-postgres-data', age: '98d' },
   { name: 'redis-data-redis-cache-main-0', namespace: 'production-apps', status: 'Bound', capacity: '20Gi', accessModes: 'RWO', storageClass: 'ssd-standard', volume: 'pv-redis-data', age: '30d' },
@@ -386,9 +412,9 @@ export const pvcs = [
 
 // ── RBAC ────────────────────────────────────────────────────
 export const roles = [
-  { name: 'admin', namespace: '', scope: 'Cluster', bindings: 3 },
-  { name: 'edit', namespace: '', scope: 'Cluster', bindings: 5 },
-  { name: 'view', namespace: '', scope: 'Cluster', bindings: 8 },
+  { name: 'admin', namespace: '', scope: 'Cluster', bindings: 3, rules: [{ apiGroups: ['*'], resources: ['*'], verbs: ['*'] }] },
+  { name: 'edit', namespace: '', scope: 'Cluster', bindings: 5, rules: [{ apiGroups: ['*'], resources: ['pods', 'services', 'deployments', 'statefulsets', 'daemonsets', 'configmaps', 'secrets'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] }] },
+  { name: 'view', namespace: '', scope: 'Cluster', bindings: 8, rules: [{ apiGroups: ['*'], resources: ['pods', 'services', 'deployments', 'configmaps', 'secrets'], verbs: ['get', 'list', 'watch'] }] },
   { name: 'prometheus-k8s', namespace: 'monitoring', scope: 'Namespace', bindings: 2 },
   { name: 'fluentd-reader', namespace: 'kube-system', scope: 'Namespace', bindings: 1 },
   { name: 'cert-manager', namespace: 'cert-manager', scope: 'Namespace', bindings: 1 },

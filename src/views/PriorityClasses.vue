@@ -156,6 +156,13 @@ function handleDelete() {
               <td class="px-lg py-md text-right" @click.stop>
                 <div class="flex justify-end gap-1">
                   <button
+                    @click="$router.push({ name: 'PriorityClassDetail', params: { name: row.name } })"
+                    class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
+                    title="详情"
+                  >
+                    <span class="material-symbols-outlined text-lg">open_in_new</span>
+                  </button>
+                  <button
                     @click="toggleExpand(row.name)"
                     class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
                     title="查看 YAML"

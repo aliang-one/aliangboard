@@ -3,8 +3,8 @@ import { ref, computed } from 'vue'
 import { load as yamlLoad } from 'js-yaml'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
-  services, ingresses, configMaps, secrets, persistentVolumes,
-  pvcs, storageClasses, roles, serviceAccounts, podLogs,
+  services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
+  pvcs, storageClasses, ingressClasses, runtimeClasses, roles, serviceAccounts, podLogs,
   networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings,
   clusters, auditLogs, customResourceDefinitions, clusterRoleBindings,
   podDisruptionBudgets, priorityClasses
@@ -39,11 +39,14 @@ export const useClusterStore = defineStore('cluster', () => {
   const eventList = ref(events)
   const serviceList = ref(services)
   const ingressList = ref(ingresses)
+  const endpointsList = ref(endpoints)
   const configMapList = ref(configMaps)
   const secretList = ref(secrets.map(s => ({ ...s, data: encodeSecretData(s.data) })))
   const pvList = ref(persistentVolumes)
   const pvcList = ref(pvcs)
   const scList = ref(storageClasses)
+  const ingressClassList = ref(ingressClasses)
+  const runtimeClassList = ref(runtimeClasses)
   const roleList = ref(roles)
   const saList = ref(serviceAccounts)
   const logEntries = ref(podLogs)
@@ -100,6 +103,11 @@ export const useClusterStore = defineStore('cluster', () => {
   const nsIngress = computed(() => {
     if (!currentNamespace.value) return []
     return ingressList.value.filter(s => s.namespace === currentNamespace.value)
+  })
+
+  const nsEndpoints = computed(() => {
+    if (!currentNamespace.value) return []
+    return endpointsList.value.filter(e => e.namespace === currentNamespace.value)
   })
 
   const nsConfigMaps = computed(() => {
@@ -398,6 +406,50 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) pvcList.value.splice(idx, 1)
   }
 
+  // === CRUD: PersistentVolumes（集群级）===
+  function getPVByName(name) {
+    return pvList.value.find(p => p.name === name)
+  }
+  function updatePV(name, updates) {
+    const idx = pvList.value.findIndex(p => p.name === name)
+    if (idx !== -1) pvList.value[idx] = { ...pvList.value[idx], ...updates }
+  }
+
+  // === CRUD: StorageClasses（集群级）===
+  function getSCByName(name) {
+    return scList.value.find(s => s.name === name)
+  }
+  function updateStorageClass(name, updates) {
+    const idx = scList.value.findIndex(s => s.name === name)
+    if (idx !== -1) scList.value[idx] = { ...scList.value[idx], ...updates }
+  }
+
+  // === CRUD: Endpoints ===
+  function getEndpointsByName(name, ns) {
+    const namespace = ns || currentNamespace.value
+    return endpointsList.value.find(e => e.name === name && e.namespace === namespace)
+  }
+  function updateEndpoints(name, ns, updates) {
+    const idx = endpointsList.value.findIndex(e => e.name === name && e.namespace === ns)
+    if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
+  }
+
+  // === CRUD: IngressClass / RuntimeClass（集群级）===
+  function getIngressClassByName(name) {
+    return ingressClassList.value.find(c => c.name === name)
+  }
+  function updateIngressClass(name, updates) {
+    const idx = ingressClassList.value.findIndex(c => c.name === name)
+    if (idx !== -1) ingressClassList.value[idx] = { ...ingressClassList.value[idx], ...updates }
+  }
+  function getRuntimeClassByName(name) {
+    return runtimeClassList.value.find(r => r.name === name)
+  }
+  function updateRuntimeClass(name, updates) {
+    const idx = runtimeClassList.value.findIndex(r => r.name === name)
+    if (idx !== -1) runtimeClassList.value[idx] = { ...runtimeClassList.value[idx], ...updates }
+  }
+
   // === CRUD: Workloads (for Deploy) ===
   function addWorkload(wl) {
     workloadList.value.push({ ...wl, age: 'Just now' })
@@ -576,6 +628,9 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: ClusterRoleBindings（集群级）===
+  function getClusterRoleByName(name) {
+    return roleList.value.find(r => r.name === name && r.scope === 'Cluster')
+  }
   function getClusterRoleBindingByName(name) {
     return clusterRoleBindingList.value.find(r => r.name === name)
   }
@@ -846,6 +901,42 @@ spec:
   storageClassName: ${resource.storageClass || 'standard'}${volumeName}`
     }
 
+    if (type === 'pv') {
+      const ACCESS_MODES = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
+      const accessMode = ACCESS_MODES[resource.accessModes] || resource.accessModes || 'ReadWriteOnce'
+      const [claimNs, claimName] = (resource.claim || '').split('/')
+      const claimRef = claimName ? `\n  claimRef:\n    name: ${claimName}\n    namespace: ${claimNs || 'default'}` : ''
+      return `apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${name}
+spec:
+  capacity:
+    storage: ${resource.capacity || '10Gi'}
+  accessModes:
+    - ${accessMode}
+  persistentVolumeReclaimPolicy: ${resource.reclaimPolicy || 'Retain'}
+  storageClassName: ${resource.storageClass || 'standard'}${claimRef}`
+    }
+
+    if (type === 'storageclass') {
+      const paramMap = Object.fromEntries(
+        String(resource.parameters || '').split(',').map(kv => kv.split('=')).filter(([k]) => k).map(([k, v]) => [k.trim(), (v || '').trim()])
+      )
+      const paramsYaml = Object.keys(paramMap).length
+        ? Object.entries(paramMap).map(([k, v]) => `    ${k}: ${v}`).join('\n')
+        : '    {}'
+      return `apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${name}
+provisioner: ${resource.provisioner || 'kubernetes.io/no-provisioner'}
+reclaimPolicy: ${resource.reclaimPolicy || 'Delete'}
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+${paramsYaml}`
+    }
+
     if (type === 'deployment') {
       const kind = resource.type || 'Deployment'
       const img = resource.image || 'nginx:latest'
@@ -1079,6 +1170,58 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io`
     }
 
+    if (type === 'clusterrolebinding') {
+      return `apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ${name}
+subjects:
+${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
+  name: ${s.name}${s.namespace ? `\n  namespace: ${s.namespace}` : ''}`).join('\n') || '- kind: User\n  name: default'}
+roleRef:
+  kind: ${resource.roleKind || 'ClusterRole'}
+  name: ${resource.roleName || name}
+  apiGroup: rbac.authorization.k8s.io`
+    }
+
+    if (type === 'ingressclass') {
+      const def = resource.isDefault ? '\n  annotations:\n    ingressclass.kubernetes.io/is-default-class: "true"' : ''
+      return `apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: ${name}${def}
+spec:
+  controller: ${resource.controller || 'k8s.io/ingress-nginx'}`
+    }
+
+    if (type === 'runtimeclass') {
+      return `apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: ${name}
+spec:
+  handler: ${resource.handler || 'runc'}`
+    }
+
+    if (type === 'endpoints') {
+      const addresses = resource.addresses || []
+      const notReady = resource.notReadyAddresses || []
+      const ports = resource.ports || []
+      const addrYaml = addresses.length ? addresses.map(a => `  - ip: ${a}`).join('\n') : '  []'
+      const notReadyYaml = notReady.length ? `\n  notReadyAddresses:\n${notReady.map(a => `  - ip: ${a}`).join('\n')}` : ''
+      const portsYaml = ports.length ? ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : '  []'
+      return `apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ${name}
+  namespace: ${ns}
+subsets:
+- addresses:
+${addrYaml}${notReadyYaml}
+  ports:
+${portsYaml}`
+    }
+
     if (type === 'node') {
       return `apiVersion: v1
 kind: Node
@@ -1307,6 +1450,57 @@ description: "${resource.description || ''}"`
         if (Object.keys(u).length) updatePDB(name, ns, u)
         break
       }
+      case 'PersistentVolume': {
+        if (spec.capacity?.storage) updates.capacity = spec.capacity.storage
+        if (Array.isArray(spec.accessModes) && spec.accessModes.length) updates.accessModes = ACCESS_MODE_TO_CODE[spec.accessModes[0]] || spec.accessModes[0]
+        set('reclaimPolicy', spec.persistentVolumeReclaimPolicy)
+        if (spec.storageClassName !== undefined) updates.storageClass = spec.storageClassName || ''
+        if (spec.claimRef?.name) updates.claim = `${spec.claimRef.namespace || 'default'}/${spec.claimRef.name}`
+        if (Object.keys(updates).length) updatePV(name, updates)
+        break
+      }
+      case 'StorageClass': {
+        set('provisioner', obj.provisioner)
+        set('reclaimPolicy', obj.reclaimPolicy)
+        if (obj.parameters) updates.parameters = Object.entries(obj.parameters).map(([k, v]) => `${k}=${v}`).join(',')
+        if (Object.keys(updates).length) updateStorageClass(name, updates)
+        break
+      }
+      case 'PriorityClass': {
+        set('value', obj.value)
+        set('globalDefault', obj.globalDefault)
+        set('description', obj.description)
+        if (Object.keys(updates).length) updatePriorityClass(name, updates)
+        break
+      }
+      case 'Endpoints': {
+        const subsets = Array.isArray(obj.subsets) ? obj.subsets : []
+        const addresses = []
+        const notReadyAddresses = []
+        const ports = []
+        subsets.forEach(s => {
+          ;(s.addresses || []).forEach(a => a.ip && addresses.push(a.ip))
+          ;(s.notReadyAddresses || []).forEach(a => a.ip && notReadyAddresses.push(a.ip))
+          ;(s.ports || []).forEach(p => ports.push({ port: p.port, protocol: p.protocol || 'TCP' }))
+        })
+        if (addresses.length) updates.addresses = addresses
+        if (notReadyAddresses.length) updates.notReadyAddresses = notReadyAddresses
+        if (ports.length) updates.ports = ports
+        if (labels) updates.labels = labels
+        if (Object.keys(updates).length) updateEndpoints(name, ns, updates)
+        break
+      }
+      case 'IngressClass': {
+        set('controller', spec.controller)
+        if (obj.metadata?.annotations?.['ingressclass.kubernetes.io/is-default-class'] === 'true') updates.isDefault = true
+        if (Object.keys(updates).length) updateIngressClass(name, updates)
+        break
+      }
+      case 'RuntimeClass': {
+        set('handler', spec.handler)
+        if (Object.keys(updates).length) updateRuntimeClass(name, updates)
+        break
+      }
       default:
         return { ok: false, error: `暂不支持通过 YAML 编辑 ${kind}` }
     }
@@ -1316,15 +1510,15 @@ description: "${resource.description || ''}"`
   return {
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
-    serviceList, ingressList, configMapList, secretList, pvList, pvcList,
-    scList, roleList, saList, logEntries, currentNamespace,
+    serviceList, ingressList, endpointsList, configMapList, secretList, pvList, pvcList,
+    scList, ingressClassList, runtimeClassList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
     clusterRoleBindingList, pdbList, priorityClassList,
     clusterList, auditLogList, crdList, currentCluster,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
-    nsWorkloads, nsPods, nsServices, nsIngress, nsConfigMaps, nsSecrets,
+    nsWorkloads, nsPods, nsServices, nsIngress, nsEndpoints, nsConfigMaps, nsSecrets,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
     nsTieredWorkloads, TIER_META, clusterRoles, nsPDBs,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
@@ -1345,6 +1539,12 @@ description: "${resource.description || ''}"`
     decodeBase64,
     // CRUD: PVCs
     addPVC, updatePVC, deletePVC,
+    // CRUD: PersistentVolumes / StorageClasses（集群级）
+    getPVByName, updatePV, getSCByName, updateStorageClass,
+    // CRUD: Endpoints
+    getEndpointsByName, updateEndpoints,
+    // CRUD: IngressClass / RuntimeClass（集群级）
+    getIngressClassByName, updateIngressClass, getRuntimeClassByName, updateRuntimeClass,
     // CRUD: Workloads
     addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload,
     // CRUD: Pods
@@ -1361,7 +1561,7 @@ description: "${resource.description || ''}"`
     addRole, updateRole, deleteRole, addServiceAccount, updateServiceAccount, deleteServiceAccount,
     addRoleBinding, updateRoleBinding, deleteRoleBinding,
     // CRUD: ClusterRoleBindings
-    getClusterRoleBindingByName, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
+    getClusterRoleByName, getClusterRoleBindingByName, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     // CRUD: PDB
     getPDBByName, addPDB, updatePDB, deletePDB,
     // CRUD: PriorityClass

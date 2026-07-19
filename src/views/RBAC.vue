@@ -1,13 +1,16 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 
+const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('roles')
 
 const tabs = [
   { key: 'roles', label: 'Roles' },
+  { key: 'clusterrolebindings', label: 'ClusterRoleBindings' },
   { key: 'serviceaccounts', label: 'ServiceAccounts' },
 ]
 
@@ -19,12 +22,30 @@ const roleHeaders = [
   { key: 'actions', label: 'Actions', align: 'right' },
 ]
 
+const crbHeaders = [
+  { key: 'name', label: 'Name' },
+  { key: 'roleName', label: 'Role' },
+  { key: 'subjects', label: 'Subjects' },
+  { key: 'age', label: 'Age' },
+]
+
 const saHeaders = [
   { key: 'name', label: 'Name' },
   { key: 'namespace', label: 'Namespace' },
   { key: 'age', label: 'Age' },
   { key: 'actions', label: 'Actions', align: 'right' },
 ]
+
+function openRole(row) {
+  if (row.scope === 'Cluster') router.push({ name: 'ClusterRoleDetail', params: { name: row.name } })
+  else router.push({ name: 'NsRoleDetail', params: { namespace: row.namespace, name: row.name } })
+}
+function openCRB(row) {
+  router.push({ name: 'ClusterRoleBindingDetail', params: { name: row.name } })
+}
+function openSA(row) {
+  router.push({ name: 'NsServiceAccountDetail', params: { namespace: row.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -46,7 +67,7 @@ const saHeaders = [
       >{{ tab.label }}</button>
     </div>
 
-    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="store.roleList">
+    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="store.roleList" @row-click="openRole">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
@@ -71,7 +92,22 @@ const saHeaders = [
       </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="store.saList">
+    <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="store.clusterRoleBindingList" @row-click="openCRB">
+      <template #name="{ row }">
+        <div class="flex items-center gap-md">
+          <span class="material-symbols-outlined text-tertiary-container">share</span>
+          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #roleName="{ row }">
+        <span class="font-mono text-code-sm text-primary">{{ row.roleName }}</span>
+      </template>
+      <template #subjects="{ row }">
+        <span class="text-body-sm text-on-surface-variant">{{ row.subjects?.length || 0 }} subject(s)</span>
+      </template>
+    </DataTable>
+
+    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="store.saList" @row-click="openSA">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">person</span>

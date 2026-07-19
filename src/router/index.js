@@ -118,6 +118,48 @@ const routes = [
         meta: { title: 'PriorityClasses', icon: 'flag', scope: 'global' }
       },
       {
+        path: 'ingressclasses',
+        name: 'IngressClasses',
+        component: () => import('@/views/IngressClasses.vue'),
+        meta: { title: 'IngressClasses', icon: 'language', scope: 'global' }
+      },
+      {
+        path: 'runtimeclasses',
+        name: 'RuntimeClasses',
+        component: () => import('@/views/RuntimeClasses.vue'),
+        meta: { title: 'RuntimeClasses', icon: 'memory', scope: 'global' }
+      },
+      {
+        path: 'priorityclasses/:name',
+        name: 'PriorityClassDetail',
+        component: () => import('@/views/PriorityClassDetail.vue'),
+        meta: { title: 'PriorityClass Detail', scope: 'global' }
+      },
+      {
+        path: 'pv/:name',
+        name: 'PVDetail',
+        component: () => import('@/views/PVDetail.vue'),
+        meta: { title: 'PersistentVolume Detail', scope: 'global' }
+      },
+      {
+        path: 'storageclass/:name',
+        name: 'StorageClassDetail',
+        component: () => import('@/views/StorageClassDetail.vue'),
+        meta: { title: 'StorageClass Detail', scope: 'global' }
+      },
+      {
+        path: 'clusterrole/:name',
+        name: 'ClusterRoleDetail',
+        component: () => import('@/views/ClusterRoleDetail.vue'),
+        meta: { title: 'ClusterRole Detail', scope: 'global' }
+      },
+      {
+        path: 'clusterrolebinding/:name',
+        name: 'ClusterRoleBindingDetail',
+        component: () => import('@/views/ClusterRoleBindingDetail.vue'),
+        meta: { title: 'ClusterRoleBinding Detail', scope: 'global' }
+      },
+      {
         path: 'namespaces',
         name: 'Namespaces',
         component: () => import('@/views/Namespaces.vue'),
@@ -172,6 +214,12 @@ const routes = [
         name: 'NsServiceDetail',
         component: () => import('@/views/NsServiceDetail.vue'),
         meta: { title: 'Service Detail', scope: 'namespace' }
+      },
+      {
+        path: 'ns/:namespace/endpoints',
+        name: 'NsEndpoints',
+        component: () => import('@/views/NsEndpoints.vue'),
+        meta: { title: 'Endpoints', icon: 'hub', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/ingress',
