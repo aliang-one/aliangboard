@@ -190,7 +190,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="sc in store.scList" :key="sc.name" class="hover:bg-surface-container-low/50 transition-colors">
+            <tr v-for="sc in store.scList" :key="sc.name" class="hover:bg-surface-container-low/50 transition-colors cursor-pointer" @click="router.push({ name: 'StorageClassDetail', params: { name: sc.name } })">
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-secondary text-lg">database</span>

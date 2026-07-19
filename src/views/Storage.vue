@@ -70,6 +70,12 @@ function handleCreatePVC() {
 function openPVC(row) {
   router.push({ name: 'NsPVCDetail', params: { namespace: row.namespace, name: row.name } })
 }
+function openPV(row) {
+  router.push({ name: 'PVDetail', params: { name: row.name } })
+}
+function openSC(row) {
+  router.push({ name: 'StorageClassDetail', params: { name: row.name } })
+}
 </script>
 
 <template>
@@ -109,7 +115,7 @@ function openPVC(row) {
     </DataTable>
 
     <!-- PV Tab -->
-    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="store.pvList">
+    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="store.pvList" @row-click="openPV">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -122,7 +128,7 @@ function openPVC(row) {
     </DataTable>
 
     <!-- SC Tab -->
-    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="store.scList">
+    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="store.scList" @row-click="openSC">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
