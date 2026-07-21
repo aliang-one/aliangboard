@@ -1283,6 +1283,29 @@ description: "${resource.description || ''}"`
     return { type: 'podSelector', matchLabels: {} }
   }
 
+  // 自定义资源（CR）的 YAML 生成：CRD 的 group/version/kind + 实例元数据；
+  // spec 用按 kind 的模板填充（实例本身只存 name/namespace/status/age）。
+  const CR_SPEC_TEMPLATES = {
+    Certificate: inst => `  secretName: ${inst.name}-tls\n  issuerRef:\n    name: letsencrypt-prod\n    kind: Issuer\n  dnsNames:\n  - ${inst.name}.kubezen.io`,
+    Issuer: () => '  acme:\n    server: https://acme-v02.api.letsencrypt.org/directory\n    email: admin@kubezen.io\n    privateKeySecretRef:\n      name: letsencrypt-prod',
+    ClusterIssuer: () => '  acme:\n    server: https://acme-v02.api.letsencrypt.org/directory\n    email: admin@kubezen.io',
+    AlertmanagerConfig: () => '  route:\n    receiver: default\n    group_by: ["alertname"]\n  receivers:\n  - name: default',
+  }
+  function generateCRYaml(crd, inst) {
+    if (!crd || !inst) return ''
+    const meta = crd.namespaced && inst.namespace
+      ? `metadata:\n  name: ${inst.name}\n  namespace: ${inst.namespace}`
+      : `metadata:\n  name: ${inst.name}`
+    const specBody = CR_SPEC_TEMPLATES[crd.kind] ? CR_SPEC_TEMPLATES[crd.kind](inst) : '  {}'
+    return `apiVersion: ${crd.group}/${crd.version}
+kind: ${crd.kind}
+${meta}
+spec:
+${specBody}
+status:
+  phase: ${inst.status || 'Ready'}`
+  }
+
   function applyResourceYaml(yamlStr) {
     let obj
     try {
@@ -1501,8 +1524,21 @@ description: "${resource.description || ''}"`
         if (Object.keys(updates).length) updateRuntimeClass(name, updates)
         break
       }
-      default:
+      default: {
+        // 自定义资源（CR）：按 kind 匹配 CRD，更新对应实例的 spec/labels/annotations
+        const crd = crdList.value.find(c => c.kind === kind)
+        if (crd) {
+          const inst = (crd.instances || []).find(i => i.name === name && (!crd.namespaced || i.namespace === ns))
+          if (inst) {
+            if (obj.spec) inst.spec = obj.spec
+            if (labels) inst.labels = labels
+            if (annotations) inst.annotations = annotations
+            return { ok: true, kind, name, namespace: ns }
+          }
+          return { ok: false, error: `未找到 ${kind}/${name}` }
+        }
         return { ok: false, error: `暂不支持通过 YAML 编辑 ${kind}` }
+      }
     }
     return { ok: true, kind, name, namespace: ns }
   }
@@ -1577,6 +1613,6 @@ description: "${resource.description || ''}"`
     // 审计
     logAudit,
     // YAML generation
-    generateYAML, generateExtraYAML, applyResourceYaml,
+    generateYAML, generateExtraYAML, generateCRYaml, applyResourceYaml,
   }
 })
