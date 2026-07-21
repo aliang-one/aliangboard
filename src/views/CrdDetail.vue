@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import { useResourceApply } from '@/composables/useResourceApply'
 
 const route = useRoute()
 const router = useRouter()
@@ -54,6 +55,17 @@ spec:
               x-kubernetes-preserve-unknown-fields: true
 `
 })
+
+const { applyYaml } = useResourceApply()
+const expandedInst = ref(new Set())
+const instKey = (inst) => inst.name + (inst.namespace || '')
+function toggleInst(inst) {
+  const s = new Set(expandedInst.value)
+  const k = instKey(inst)
+  if (s.has(k)) s.delete(k); else s.add(k)
+  expandedInst.value = s
+}
+const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
 </script>
 
 <template>
@@ -190,31 +202,40 @@ spec:
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">NAMESPACE</th>
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">STATUS</th>
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">AGE</th>
+              <th class="text-right px-md py-sm text-label-caps text-on-surface-variant w-16">YAML</th>
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="inst in crd.instances"
-              :key="inst.name + (inst.namespace || '')"
-              class="border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-low transition-colors"
-            >
-              <td class="px-md py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-on-surface-variant text-lg">deployed_code</span>
-                  <span class="font-mono text-code-md text-on-surface font-semibold">{{ inst.name }}</span>
-                </div>
-              </td>
-              <td class="px-md py-md">
-                <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-sm text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
-                <span v-else class="text-on-surface-variant text-body-sm">-</span>
-              </td>
-              <td class="px-md py-md">
-                <StatusChip :status="inst.status || 'Unknown'" />
-              </td>
-              <td class="px-md py-md">
-                <span class="text-body-sm text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
-              </td>
-            </tr>
+            <template v-for="inst in crd.instances" :key="inst.name + (inst.namespace || '')">
+              <tr class="border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-low transition-colors">
+                <td class="px-md py-md">
+                  <div class="flex items-center gap-sm">
+                    <span class="material-symbols-outlined text-on-surface-variant text-lg">deployed_code</span>
+                    <span class="font-mono text-code-md text-on-surface font-semibold">{{ inst.name }}</span>
+                  </div>
+                </td>
+                <td class="px-md py-md">
+                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-sm text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
+                  <span v-else class="text-on-surface-variant text-body-sm">-</span>
+                </td>
+                <td class="px-md py-md">
+                  <StatusChip :status="inst.status || 'Unknown'" />
+                </td>
+                <td class="px-md py-md">
+                  <span class="text-body-sm text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
+                </td>
+                <td class="px-md py-md text-right">
+                  <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? '收起' : '查看 / 编辑 YAML'">
+                    <span class="material-symbols-outlined text-lg transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="expandedInst.has(instKey(inst))">
+                <td colspan="5" class="px-md py-md bg-surface-container-low">
+                  <YamlEditor :model-value="crYamlOf(inst)" :readonly="false" height="360px" @save="applyYaml" />
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
         <div v-else class="px-md py-xxl text-center">
