@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { api, clearSession } from '@/api/client'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -32,6 +33,12 @@ function closeClusterDropdown() {
 function goClusters() {
   showClusterDropdown.value = false
   router.push('/clusters')
+}
+
+async function logout() {
+  try { await api.logout() } catch { /* 会话已失效时仍清理本地状态 */ }
+  clearSession()
+  router.push('/login')
 }
 </script>
 
@@ -119,11 +126,11 @@ function goClusters() {
         <span class="material-symbols-outlined">settings</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
-      <div class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors">
+      <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" title="退出登录">
         <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">A</div>
         <span class="text-body-sm font-semibold">Admin</span>
-        <span class="material-symbols-outlined text-on-surface-variant text-body-sm">expand_more</span>
-      </div>
+        <span class="material-symbols-outlined text-on-surface-variant text-body-sm">logout</span>
+      </button>
     </div>
   </header>
   <!-- 点击外部关闭集群下拉 -->

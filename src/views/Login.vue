@@ -1,8 +1,11 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { api, saveSession } from '@/api/client'
+import { useClusterStore } from '@/stores/cluster'
 
 const router = useRouter()
+const store = useClusterStore()
 
 const form = ref({
   apiServer: 'https://api.prod-cluster.kubezen.io:6443',
@@ -14,13 +17,28 @@ const form = ref({
 })
 
 const loading = ref(false)
+const errorMessage = ref('')
 
 async function handleLogin() {
   loading.value = true
-  // Simulate login delay
-  await new Promise(r => setTimeout(r, 800))
-  loading.value = false
-  router.push('/cluster')
+  errorMessage.value = ''
+  try {
+    const result = await api.connect({
+      apiServer: form.value.apiServer,
+      authMethod: form.value.authMethod,
+      token: form.value.token,
+      username: form.value.username,
+      password: form.value.password,
+    })
+    saveSession(result.token, form.value.remember)
+    store.setConnectedCluster(result.cluster)
+    await store.hydrateCoreResources()
+    router.push('/cluster')
+  } catch (error) {
+    errorMessage.value = error.message || '连接集群失败'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -110,6 +128,10 @@ async function handleLogin() {
             </div>
           </div>
         </template>
+
+        <div v-if="errorMessage" class="mb-md rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-body-sm text-error">
+          {{ errorMessage }}
+        </div>
 
         <!-- Remember -->
         <label class="flex items-center gap-sm mb-lg cursor-pointer">

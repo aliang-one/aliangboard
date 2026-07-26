@@ -7,6 +7,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,12 @@ const yaml = computed(() => store.generateYAML('service', svc.value))
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 const showEditModal = ref(false)
+const showPortForward = ref(false)
+// Service 的可转发端口（取每个端口条目的 service port）
+const forwardPorts = computed(() => {
+  if (!svc.value?.ports) return []
+  return svc.value.ports.split(',').map(p => parseInt(String(p).split(':')[0])).filter(n => !isNaN(n))
+})
 
 // Endpoints — pods matching this service's selector
 const endpoints = computed(() => {
@@ -88,6 +95,9 @@ function saveEdit() {
       <div class="flex gap-sm">
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
           <span class="material-symbols-outlined">delete</span> Delete
+        </button>
+        <button @click="showPortForward = true" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined">cable</span> Port Forward
         </button>
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">edit</span> Edit
@@ -264,4 +274,7 @@ function saveEdit() {
       <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
     </template>
   </Modal>
+
+  <!-- Port Forward Panel -->
+  <PortForwardPanel v-model="showPortForward" kind="Service" :name="route.params.name" :namespace="route.params.namespace" :suggested-ports="forwardPorts" />
 </template>

@@ -1,7 +1,7 @@
 <script setup>
-import { useResourceApply } from '@/composables/useResourceApply'
+import { useToast } from '@/composables/useToast'
 
-const { toast, dismissToast } = useResourceApply()
+const { toast, dismissToast } = useToast()
 </script>
 
 <template>

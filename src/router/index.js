@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { api, clearSession, getSession } from '@/api/client'
 
 const routes = [
   {
@@ -74,6 +75,12 @@ const routes = [
         name: 'RBAC',
         component: () => import('@/views/RBAC.vue'),
         meta: { title: 'RBAC', icon: 'admin_panel_settings', scope: 'global' }
+      },
+      {
+        path: 'rbac/can-i',
+        name: 'RbacCanI',
+        component: () => import('@/views/RbacCanI.vue'),
+        meta: { title: '权限模拟 (can-i)', icon: 'verified_user', scope: 'global' }
       },
       {
         path: 'deploy',
@@ -374,12 +381,22 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  const store = useClusterStore()
+  if (to.name !== 'Login' && getSession() && !store.remoteMode) {
+    try {
+      const result = await api.session()
+      store.setConnectedCluster(result.cluster)
+      await store.hydrateCoreResources()
+    } catch {
+      clearSession()
+      return { name: 'Login' }
+    }
+  }
   const namespaceParam = to.params.namespace
   const namespace = Array.isArray(namespaceParam) ? namespaceParam[0] : namespaceParam
 
   if (namespace) {
-    const store = useClusterStore()
     if (store.currentNamespace !== namespace) {
       store.setNamespace(namespace)
     }

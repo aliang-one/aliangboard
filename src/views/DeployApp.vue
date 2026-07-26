@@ -13,6 +13,8 @@ if (route.params.namespace) store.setNamespace(route.params.namespace)
 const currentStep = ref(0)
 const showDeploySuccess = ref(false)
 const showAdvanced = ref(false)
+const deployLoading = ref(false)
+const deployError = ref('')
 
 const form = ref({
   name: '',
@@ -450,8 +452,20 @@ spec:`
 })
 
 // Deploy action
-function handleDeploy() {
+async function handleDeploy() {
   const f = form.value
+  deployLoading.value = true
+  deployError.value = ''
+  if (store.remoteMode) {
+    const result = await store.applyResourceYaml(previewYAML.value)
+    deployLoading.value = false
+    if (!result.ok) {
+      deployError.value = result.error || '部署失败'
+      return
+    }
+    showDeploySuccess.value = true
+    return
+  }
   // Add workload to mock data
   store.addWorkload({
     name: f.name,
@@ -510,6 +524,7 @@ function handleDeploy() {
   }
 
   showDeploySuccess.value = true
+  deployLoading.value = false
 }
 </script>
 
@@ -1230,12 +1245,14 @@ function handleDeploy() {
             class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
             Next <span class="material-symbols-outlined">arrow_forward</span>
           </button>
-          <button v-else @click="handleDeploy"
-            class="flex items-center gap-sm px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 active:scale-95 transition-all">
-            <span class="material-symbols-outlined">rocket_launch</span> Deploy
+          <button v-else @click="handleDeploy" :disabled="deployLoading"
+            class="flex items-center gap-sm px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50">
+            <span class="material-symbols-outlined" :class="deployLoading ? 'animate-spin' : ''">{{ deployLoading ? 'progress_activity' : 'rocket_launch' }}</span>
+            {{ deployLoading ? 'Deploying...' : 'Deploy' }}
           </button>
         </div>
       </div>
+      <p v-if="deployError" class="mt-md rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-body-sm text-error">{{ deployError }}</p>
     </div>
   </div>
 </template>

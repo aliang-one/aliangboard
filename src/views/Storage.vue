@@ -34,6 +34,7 @@ const pvHeaders = [
   { key: 'status', label: 'Status' },
   { key: 'claim', label: 'Claim' },
   { key: 'storageClass', label: 'StorageClass' },
+  { key: 'actions', label: 'Actions', align: 'right' },
 ]
 
 const scHeaders = [
@@ -42,6 +43,7 @@ const scHeaders = [
   { key: 'reclaimPolicy', label: 'Reclaim Policy' },
   { key: 'default', label: 'Default' },
   { key: 'age', label: 'Age' },
+  { key: 'actions', label: 'Actions', align: 'right' },
 ]
 
 // Create PVC（集群页跨 namespace，需选择目标 namespace）
@@ -67,6 +69,47 @@ function handleCreatePVC() {
   resetCreate()
 }
 
+// Create PersistentVolume
+const showCreatePV = ref(false)
+const createPVForm = ref({ name: '', capacity: '50Gi', accessModes: 'RWO', reclaimPolicy: 'Retain', storageClass: '' })
+function resetCreatePV() {
+  createPVForm.value = { name: '', capacity: '50Gi', accessModes: 'RWO', reclaimPolicy: 'Retain', storageClass: '' }
+}
+function handleCreatePV() {
+  const f = createPVForm.value
+  if (!f.name) return
+  store.addPV({
+    name: f.name,
+    capacity: f.capacity,
+    accessModes: f.accessModes,
+    reclaimPolicy: f.reclaimPolicy,
+    storageClass: f.storageClass,
+    status: 'Available',
+  })
+  showCreatePV.value = false
+  resetCreatePV()
+}
+
+// Create StorageClass
+const showCreateSC = ref(false)
+const createSCForm = ref({ name: '', provisioner: '', parameters: '', reclaimPolicy: 'Retain', default: false })
+function resetCreateSC() {
+  createSCForm.value = { name: '', provisioner: '', parameters: '', reclaimPolicy: 'Retain', default: false }
+}
+function handleCreateSC() {
+  const f = createSCForm.value
+  if (!f.name) return
+  store.addStorageClass({
+    name: f.name,
+    provisioner: f.provisioner,
+    parameters: f.parameters,
+    reclaimPolicy: f.reclaimPolicy,
+    default: f.default,
+  })
+  showCreateSC.value = false
+  resetCreateSC()
+}
+
 function openPVC(row) {
   router.push({ name: 'NsPVCDetail', params: { namespace: row.namespace, name: row.name } })
 }
@@ -85,8 +128,14 @@ function openSC(row) {
         <h2 class="text-display-lg text-on-surface">Storage</h2>
         <p class="text-on-surface-variant text-body-md mt-1">Manage persistent storage, volumes, and storage classes.</p>
       </div>
-      <button @click="showCreatePVC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
+      <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> New PVC
+      </button>
+      <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
+        <span class="material-symbols-outlined">add</span> New PV
+      </button>
+      <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
+        <span class="material-symbols-outlined">add</span> New StorageClass
       </button>
     </div>
 
@@ -125,6 +174,11 @@ function openSC(row) {
       <template #claim="{ row }">
         <span class="font-mono text-code-sm text-primary">{{ row.claim || '-' }}</span>
       </template>
+      <template #actions="{ row }">
+        <button @click.stop="store.deletePV(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
+          <span class="material-symbols-outlined text-lg">delete</span>
+        </button>
+      </template>
     </DataTable>
 
     <!-- SC Tab -->
@@ -137,6 +191,11 @@ function openSC(row) {
       </template>
       <template #default="{ row }">
         <span class="material-symbols-outlined" :class="row.default ? 'text-primary' : 'text-outline-variant'">{{ row.default ? 'check_circle' : 'radio_button_unchecked' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <button @click.stop="store.deleteStorageClass(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
+          <span class="material-symbols-outlined text-lg">delete</span>
+        </button>
       </template>
     </DataTable>
 
@@ -180,6 +239,84 @@ function openSC(row) {
       <template #actions>
         <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
         <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      </template>
+    </Modal>
+
+    <!-- Create PersistentVolume Modal -->
+    <Modal v-model="showCreatePV" title="Create PersistentVolume" width="max-w-lg">
+      <div class="flex flex-col gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">PV Name *</label>
+          <input v-model="createPVForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="pv-ssd-001" />
+        </div>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity *</label>
+            <input v-model="createPVForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="50Gi" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+            <select v-model="createPVForm.accessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+              <option value="RWO">ReadWriteOnce</option>
+              <option value="RWM">ReadWriteMany</option>
+              <option value="ROM">ReadOnlyMany</option>
+              <option value="RWOP">ReadWriteOncePod</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
+            <select v-model="createPVForm.reclaimPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+              <option value="Retain">Retain</option>
+              <option value="Delete">Delete</option>
+              <option value="Recycle">Recycle</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
+            <input v-model="createPVForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="ssd-premium" />
+          </div>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="showCreatePV = false; resetCreatePV()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+        <button @click="handleCreatePV" :disabled="!createPVForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      </template>
+    </Modal>
+
+    <!-- Create StorageClass Modal -->
+    <Modal v-model="showCreateSC" title="Create StorageClass" width="max-w-lg">
+      <div class="flex flex-col gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass Name *</label>
+          <input v-model="createSCForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="fast-ssd" />
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Provisioner</label>
+          <input v-model="createSCForm.provisioner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="pd.csi.storage.gke.io" />
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Parameters</label>
+          <input v-model="createSCForm.parameters" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="type=pd-ssd" />
+        </div>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
+            <select v-model="createSCForm.reclaimPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+              <option value="Retain">Retain</option>
+              <option value="Delete">Delete</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-sm pt-lg">
+            <input type="checkbox" id="sc-default" v-model="createSCForm.default" class="w-4 h-4 accent-primary" />
+            <label for="sc-default" class="text-body-md text-on-surface cursor-pointer">Set as default StorageClass</label>
+          </div>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="showCreateSC = false; resetCreateSC()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+        <button @click="handleCreateSC" :disabled="!createSCForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
       </template>
     </Modal>
   </section>
