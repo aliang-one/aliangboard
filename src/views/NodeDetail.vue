@@ -21,17 +21,17 @@ const drainResult = ref(null)
 const nodePods = computed(() => store.podList.filter(p => p.node === route.params.name))
 const isCordoned = computed(() => node.value?.unschedulable === true)
 
-function handleCordon() {
-  store.cordonNode(route.params.name)
+async function handleCordon() {
+  await store.cordonNode(route.params.name)
   showCordonModal.value = false
 }
 
-function handleUncordon() {
-  store.uncordonNode(route.params.name)
+async function handleUncordon() {
+  await store.uncordonNode(route.params.name)
 }
 
-function handleDrain() {
-  const count = store.drainNode(route.params.name)
+async function handleDrain() {
+  const count = await store.drainNode(route.params.name)
   drainResult.value = count
   showDrainModal.value = false
 }

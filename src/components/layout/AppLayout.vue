@@ -1,6 +1,9 @@
 <script setup>
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
+import { useClusterStore } from '@/stores/cluster'
+
+const store = useClusterStore()
 </script>
 
 <template>
@@ -24,16 +27,16 @@ import TopNavBar from './TopNavBar.vue'
         <div class="flex items-center gap-lg">
           <div class="flex items-center gap-sm">
             <span class="w-2 h-2 bg-primary-container rounded-full animate-pulse-status"></span>
-            <span class="text-body-sm text-on-surface-variant">Control Plane: Healthy</span>
+            <span class="text-body-sm text-on-surface-variant">Control Plane: {{ store.cluster.status }}</span>
           </div>
           <div class="flex items-center gap-sm">
             <span class="w-2 h-2 bg-primary-container rounded-full"></span>
-            <span class="text-body-sm text-on-surface-variant">Nodes: 12 Online</span>
+            <span class="text-body-sm text-on-surface-variant">Nodes: {{ store.healthyNodes }}/{{ store.totalNodes }} Online</span>
           </div>
         </div>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
           <span>Last Updated: {{ new Date().toLocaleTimeString() }}</span>
-          <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">v1.28.2</span>
+          <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>
       </footer>
     </div>

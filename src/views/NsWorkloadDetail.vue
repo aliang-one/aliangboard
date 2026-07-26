@@ -49,6 +49,26 @@ const replicasLabel = computed(() => {
   return 'REPLICAS'
 })
 const isCronJob = computed(() => workload.value?.type === 'CronJob')
+// 仅 Deployment/StatefulSet/DaemonSet 支持 rollout 历史与回滚
+const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
+const revisions = computed(() => workload.value?.revisions || [])
+
+const showRollbackModal = ref(false)
+const rollbackTarget = ref(null)
+function confirmRollback(rev) {
+  rollbackTarget.value = rev
+  showRollbackModal.value = true
+}
+async function handleRollback() {
+  if (rollbackTarget.value == null) return
+  try {
+    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
+    showRollbackModal.value = false
+    rollbackTarget.value = null
+  } catch (e) {
+    alert(e.message || '回滚失败')
+  }
+}
 
 const tierOptions = [
   { value: 'web', label: '表现层', icon: 'web' },
@@ -155,7 +175,7 @@ function saveEdit() {
 
     <!-- Tabs -->
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['overview', 'pods', 'yaml', 'events']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in (isRolloutType ? ['overview', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
@@ -336,6 +356,46 @@ function saveEdit() {
       </div>
     </div>
 
+    <!-- Revisions Tab（滚动发布历史 + 一键回滚）-->
+    <div v-if="activeTab === 'revisions'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+          <h3 class="text-headline-sm">Revision History ({{ revisions.length }})</h3>
+          <span class="text-body-sm text-on-surface-variant">kubectl rollout undo</span>
+        </div>
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-surface-container-low border-b border-outline-variant">
+              <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Revision</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Image</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">SHA</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Reason</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant w-32"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-outline-variant/30">
+            <tr v-for="r in revisions" :key="r.rev" class="hover:bg-surface-container-low/50 transition-colors">
+              <td class="px-lg py-md">
+                <span class="font-mono text-code-sm font-semibold" :class="r.current ? 'text-primary' : 'text-on-surface'">rev-{{ r.rev }}</span>
+                <span v-if="r.current" class="ml-xs px-1.5 py-0 bg-primary-container/10 text-primary text-label-caps rounded">CURRENT</span>
+              </td>
+              <td class="px-lg py-md font-mono text-code-sm text-primary">{{ r.image }}</td>
+              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ r.sha }}</td>
+              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ r.reason }}</td>
+              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ r.age }}</td>
+              <td class="px-lg py-md text-right">
+                <button v-if="!r.current" @click="confirmRollback(r.rev)" class="flex items-center gap-xs ml-auto px-md py-xs border border-outline-variant text-on-surface rounded-lg text-body-sm font-semibold hover:bg-surface-container-high transition-colors">
+                  <span class="material-symbols-outlined text-sm">undo</span> Rollback
+                </button>
+                <span v-else class="text-body-sm text-on-surface-variant italic">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
       <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
@@ -440,6 +500,16 @@ function saveEdit() {
     <template #actions>
       <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+    </template>
+  </Modal>
+
+  <!-- Rollback Modal -->
+  <Modal v-model="showRollbackModal" title="Rollback Workload" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">将 <span class="text-on-surface font-semibold">{{ route.params.name }}</span> 回滚到 <span class="font-mono text-primary font-semibold">rev-{{ rollbackTarget }}</span>？</p>
+    <p class="text-body-sm text-on-surface-variant mt-sm">等同于 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl rollout undo --to-revision={{ rollbackTarget }}</code>，将触发一次新的滚动发布。</p>
+    <template #actions>
+      <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Rollback</button>
     </template>
   </Modal>
 </template>

@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { load as yamlLoad } from 'js-yaml'
+import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
+import { api } from '@/api/client'
+import { notify } from '@/composables/useToast'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -34,6 +36,22 @@ export const useClusterStore = defineStore('cluster', () => {
   const cluster = ref(clusterInfo)
   const nodeList = ref(nodes)
   const workloadList = ref(workloads)
+  // 为每个工作负载播种「滚动发布历史」（revision history），支持一键回滚（kubectl rollout undo 语义）
+  function bumpImageTag(img, delta) {
+    const m = String(img || '').match(/^(.*:v?)(\d+)\.(\d+)\.(\d+)$/)
+    if (!m) return img
+    const patch = Math.max(0, Number(m[4]) + delta)
+    return `${m[1]}${m[2]}.${m[3]}.${patch}`
+  }
+  const randSha = () => 'sha:' + Math.random().toString(16).substring(2, 9)
+  workloadList.value.forEach(wl => {
+    if (wl.revisions && wl.revisions.length) return
+    wl.revisions = [
+      { rev: 3, image: wl.image, sha: wl.sha || randSha(), age: wl.age || 'Just now', current: true, reason: '初始部署' },
+      { rev: 2, image: bumpImageTag(wl.image, -1), sha: randSha(), age: '2h ago', reason: '镜像更新' },
+      { rev: 1, image: bumpImageTag(wl.image, -2), sha: randSha(), age: '1d ago', reason: '镜像更新' },
+    ]
+  })
   const podList = ref(pods)
   const namespaceList = ref(namespaces)
   const eventList = ref(events)
@@ -62,6 +80,8 @@ export const useClusterStore = defineStore('cluster', () => {
   const auditLogList = ref(auditLogs)
   const crdList = ref(customResourceDefinitions)
   const currentCluster = ref(clusters.find(c => c.current)?.name || clusters[0]?.name || '')
+  const remoteMode = ref(false)
+  const connectionState = ref('mock')
 
   // === 当前选中的 Namespace ===
   const currentNamespace = ref('')
@@ -321,8 +341,57 @@ export const useClusterStore = defineStore('cluster', () => {
     return wl?.references || []
   }
 
+  // 远端删除 + 本地列表同步：乐观先移除，API 失败则回滚并全局提示，保证 UI 与集群一致
+  async function remoteDelete(path, list, matchFn, label = '资源') {
+    const idx = list.value.findIndex(matchFn)
+    const backup = idx !== -1 ? list.value[idx] : null
+    if (idx !== -1) list.value.splice(idx, 1)
+    try {
+      await api.k8s(path, { method: 'DELETE' })
+    } catch (e) {
+      if (backup) list.value.splice(idx, 0, backup)
+      notify('error', `${label}删除失败：${e.message || '权限不足或资源不存在'}`)
+    }
+  }
+
+  // 远端创建：用 generateYAML 生成清单 → server-side apply → 刷新对应列表
+  async function remoteCreate(yamlStr, label, refreshFn) {
+    try {
+      await api.applyYaml(yamlStr)
+      if (refreshFn) await refreshFn()
+      notify('success', `${label} 已创建`)
+      return { ok: true }
+    } catch (e) {
+      notify('error', `${label}创建失败：${e.message || '请检查 YAML 与权限'}`)
+      return { ok: false }
+    }
+  }
+
+  // 重新拉取某类资源列表（集群范围），创建后用于回填真实状态
+  async function refetch(path, list, mapper) {
+    try {
+      const data = await api.k8s(`${path}?limit=500`)
+      list.value = (data.items || []).map(mapper)
+    } catch { /* 忽略刷新失败（如该类资源无权限） */ }
+  }
+
+  // roleList 同时承载 Role 与 ClusterRole，刷新时需合并两类
+  async function refetchRoles() {
+    try {
+      const [r, cr] = await Promise.all([
+        api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
+        api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
+      ])
+      roleList.value = [
+        ...((r.items) || []).map(x => mapRole(x, 'Namespace')),
+        ...((cr.items) || []).map(x => mapRole(x, 'Cluster')),
+      ]
+    } catch { /* 忽略 */ }
+  }
+
   // === CRUD: Services ===
-  function addService(svc) {
+  async function addService(svc) {
+    if (remoteMode.value) return remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
     serviceList.value.push({ ...svc, age: 'Just now' })
     // Update namespace service count
     const ns = namespaceList.value.find(n => n.name === svc.namespace)
@@ -334,7 +403,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) serviceList.value[idx] = { ...serviceList.value[idx], ...updates }
   }
 
-  function deleteService(name, ns) {
+  async function deleteService(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`, serviceList, s => s.name === name && s.namespace === ns)
+      return
+    }
     const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
     if (idx !== -1) serviceList.value.splice(idx, 1)
     const nsObj = namespaceList.value.find(n => n.name === ns)
@@ -342,7 +415,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: Ingress ===
-  function addIngress(ing) {
+  async function addIngress(ing) {
+    if (remoteMode.value) return remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
     ingressList.value.push({ ...ing, age: 'Just now' })
   }
 
@@ -351,13 +425,18 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) ingressList.value[idx] = { ...ingressList.value[idx], ...updates }
   }
 
-  function deleteIngress(name, ns) {
+  async function deleteIngress(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, ingressList, i => i.name === name && i.namespace === ns)
+      return
+    }
     const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
     if (idx !== -1) ingressList.value.splice(idx, 1)
   }
 
   // === CRUD: ConfigMaps ===
-  function addConfigMap(cm) {
+  async function addConfigMap(cm) {
+    if (remoteMode.value) return remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
     configMapList.value.push({ ...cm, age: 'Just now' })
   }
 
@@ -366,13 +445,21 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) configMapList.value[idx] = { ...configMapList.value[idx], ...updates }
   }
 
-  function deleteConfigMap(name, ns) {
+  async function deleteConfigMap(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`, configMapList, c => c.name === name && c.namespace === ns)
+      return
+    }
     const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
     if (idx !== -1) configMapList.value.splice(idx, 1)
   }
 
   // === CRUD: Secrets ===
-  function addSecret(sec) {
+  async function addSecret(sec) {
+    if (remoteMode.value) {
+      // 表单 data 为明文；先 base64 编码再交给 generateYAML，其内部 decodeBase64 会还原为 stringData 明文
+      return remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
+    }
     secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
   }
 
@@ -386,13 +473,18 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
-  function deleteSecret(name, ns) {
+  async function deleteSecret(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`, secretList, s => s.name === name && s.namespace === ns)
+      return
+    }
     const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
     if (idx !== -1) secretList.value.splice(idx, 1)
   }
 
   // === CRUD: PVCs ===
-  function addPVC(pvc) {
+  async function addPVC(pvc) {
+    if (remoteMode.value) return remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
     pvcList.value.push({ ...pvc, age: 'Just now' })
   }
 
@@ -401,7 +493,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) pvcList.value[idx] = { ...pvcList.value[idx], ...updates }
   }
 
-  function deletePVC(name, ns) {
+  async function deletePVC(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`, pvcList, p => p.name === name && p.namespace === ns)
+      return
+    }
     const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
     if (idx !== -1) pvcList.value.splice(idx, 1)
   }
@@ -410,18 +506,42 @@ export const useClusterStore = defineStore('cluster', () => {
   function getPVByName(name) {
     return pvList.value.find(p => p.name === name)
   }
+  async function addPV(pv) {
+    if (remoteMode.value) return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => refetch('/api/v1/persistentvolumes', pvList, mapPV))
+    pvList.value.push({ status: 'Available', age: 'Just now', ...pv })
+  }
   function updatePV(name, updates) {
     const idx = pvList.value.findIndex(p => p.name === name)
     if (idx !== -1) pvList.value[idx] = { ...pvList.value[idx], ...updates }
+  }
+  async function deletePV(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, pvList, p => p.name === name)
+      return
+    }
+    const idx = pvList.value.findIndex(p => p.name === name)
+    if (idx !== -1) pvList.value.splice(idx, 1)
   }
 
   // === CRUD: StorageClasses（集群级）===
   function getSCByName(name) {
     return scList.value.find(s => s.name === name)
   }
+  async function addStorageClass(sc) {
+    if (remoteMode.value) return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => refetch('/apis/storage.k8s.io/v1/storageclasses', scList, mapStorageClass))
+    scList.value.push({ age: 'Just now', ...sc })
+  }
   function updateStorageClass(name, updates) {
     const idx = scList.value.findIndex(s => s.name === name)
     if (idx !== -1) scList.value[idx] = { ...scList.value[idx], ...updates }
+  }
+  async function deleteStorageClass(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, scList, s => s.name === name)
+      return
+    }
+    const idx = scList.value.findIndex(s => s.name === name)
+    if (idx !== -1) scList.value.splice(idx, 1)
   }
 
   // === CRUD: Endpoints ===
@@ -438,16 +558,40 @@ export const useClusterStore = defineStore('cluster', () => {
   function getIngressClassByName(name) {
     return ingressClassList.value.find(c => c.name === name)
   }
+  async function addIngressClass(ic) {
+    if (remoteMode.value) return remoteCreate(generateYAML('ingressclass', ic), `IngressClass/${ic.name}`, () => refetch('/apis/networking.k8s.io/v1/ingressclasses', ingressClassList, mapIngressClass))
+    ingressClassList.value.push({ age: 'Just now', ...ic })
+  }
   function updateIngressClass(name, updates) {
     const idx = ingressClassList.value.findIndex(c => c.name === name)
     if (idx !== -1) ingressClassList.value[idx] = { ...ingressClassList.value[idx], ...updates }
   }
+  async function deleteIngressClass(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/networking.k8s.io/v1/ingressclasses/${encodeURIComponent(name)}`, ingressClassList, c => c.name === name)
+      return
+    }
+    const idx = ingressClassList.value.findIndex(c => c.name === name)
+    if (idx !== -1) ingressClassList.value.splice(idx, 1)
+  }
   function getRuntimeClassByName(name) {
     return runtimeClassList.value.find(r => r.name === name)
+  }
+  async function addRuntimeClass(rc) {
+    if (remoteMode.value) return remoteCreate(generateYAML('runtimeclass', rc), `RuntimeClass/${rc.name}`, () => refetch('/apis/node.k8s.io/v1/runtimeclasses', runtimeClassList, mapRuntimeClass))
+    runtimeClassList.value.push({ age: 'Just now', ...rc })
   }
   function updateRuntimeClass(name, updates) {
     const idx = runtimeClassList.value.findIndex(r => r.name === name)
     if (idx !== -1) runtimeClassList.value[idx] = { ...runtimeClassList.value[idx], ...updates }
+  }
+  async function deleteRuntimeClass(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/node.k8s.io/v1/runtimeclasses/${encodeURIComponent(name)}`, runtimeClassList, r => r.name === name)
+      return
+    }
+    const idx = runtimeClassList.value.findIndex(r => r.name === name)
+    if (idx !== -1) runtimeClassList.value.splice(idx, 1)
   }
 
   // === CRUD: Workloads (for Deploy) ===
@@ -457,7 +601,13 @@ export const useClusterStore = defineStore('cluster', () => {
     if (ns) ns.pods += parseInt(wl.replicas?.split('/')[1] || '1')
   }
 
-  function deleteWorkload(name, ns) {
+  async function deleteWorkload(name, ns) {
+    if (remoteMode.value) {
+      const workload = workloadList.value.find(w => w.name === name && w.namespace === ns)
+      const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[workload?.type]
+      if (!plural) throw new Error(`暂不支持删除 ${workload?.type || '该工作负载'}`)
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    }
     const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
     if (idx !== -1) workloadList.value.splice(idx, 1)
   }
@@ -467,22 +617,71 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) workloadList.value[idx] = { ...workloadList.value[idx], ...updates }
   }
 
-  function scaleWorkload(name, ns, replicas) {
+  async function scaleWorkload(name, ns, replicas) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (remoteMode.value) {
+      const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets' }[wl?.type]
+      if (!plural) throw new Error(`${wl?.type || '该工作负载'} 不支持副本扩缩容`)
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}/scale`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { replicas: Number(replicas) } }),
+      })
+    }
     if (wl) {
       const current = parseInt(wl.replicas?.split('/')[1] || '1')
       wl.replicas = `${Math.min(replicas, current)}/${replicas}`
     }
   }
 
-  function restartWorkload(name, ns) {
+  async function restartWorkload(name, ns) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (remoteMode.value) {
+      const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
+      if (!plural) throw new Error(`暂不支持重启 ${wl?.type || '该工作负载'}`)
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() } } } } }),
+      })
+    }
     if (wl) {
       wl.age = 'Just now'
       // Simulate restart by updating SHA
       const hash = Math.random().toString(16).substring(2, 9)
       wl.sha = `sha:${hash}`
+      // 滚动重启产生新版本
+      if (Array.isArray(wl.revisions)) {
+        wl.revisions.forEach(r => r.current = false)
+        const nextRev = (wl.revisions[0]?.rev || 0) + 1
+        wl.revisions = [{ rev: nextRev, image: wl.image, sha: wl.sha, age: 'Just now', current: true, reason: '滚动重启' }, ...wl.revisions]
+      }
     }
+  }
+
+  // 一键回滚到指定 revision（kubectl rollout undo --to-revision=N 语义）
+  async function rollbackWorkload(name, ns, revNumber) {
+    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (!wl) throw new Error('工作负载不存在')
+    const target = (wl.revisions || []).find(r => r.rev === revNumber)
+    if (!target) throw new Error(`未找到版本 rev-${revNumber}`)
+    if (remoteMode.value) {
+      const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
+      if (plural) {
+        await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/merge-patch+json' },
+          body: JSON.stringify({ spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } } }),
+        })
+      }
+    }
+    // mock：恢复目标镜像/sha，标记旧版本为非当前，并新增一条「回滚到 revN」的当前版本
+    wl.revisions.forEach(r => r.current = false)
+    const nextRev = Math.max(0, ...(wl.revisions.map(r => r.rev))) + 1
+    wl.image = target.image
+    wl.sha = target.sha
+    wl.age = 'Just now'
+    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: `回滚到 rev-${revNumber}` }, ...wl.revisions]
   }
 
   // === CRUD: Pods ===
@@ -504,7 +703,10 @@ export const useClusterStore = defineStore('cluster', () => {
     if (ns) ns.pods = (ns.pods || 0) + 1
   }
 
-  function deletePod(name, ns) {
+  async function deletePod(name, ns) {
+    if (remoteMode.value) {
+      await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    }
     const idx = podList.value.findIndex(p => p.name === name && p.namespace === ns)
     if (idx !== -1) {
       const pod = podList.value[idx]
@@ -517,7 +719,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: NetworkPolicies ===
-  function addNetworkPolicy(np) {
+  async function addNetworkPolicy(np) {
+    if (remoteMode.value) return remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
     networkPolicyList.value.push({ ...np, age: 'Just now' })
   }
 
@@ -526,13 +729,18 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) networkPolicyList.value[idx] = { ...networkPolicyList.value[idx], ...updates }
   }
 
-  function deleteNetworkPolicy(name, ns) {
+  async function deleteNetworkPolicy(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`, networkPolicyList, n => n.name === name && n.namespace === ns)
+      return
+    }
     const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
     if (idx !== -1) networkPolicyList.value.splice(idx, 1)
   }
 
   // === CRUD: HPAs ===
-  function addHPA(hpa) {
+  async function addHPA(hpa) {
+    if (remoteMode.value) return remoteCreate(generateYAML('hpa', hpa), `HPA/${hpa.name}`, () => refetch('/apis/autoscaling/v2/horizontalpodautoscalers', hpaList, mapHPA))
     hpaList.value.push({ ...hpa, age: 'Just now' })
   }
 
@@ -541,13 +749,18 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) hpaList.value[idx] = { ...hpaList.value[idx], ...updates }
   }
 
-  function deleteHPA(name, ns) {
+  async function deleteHPA(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, hpaList, h => h.name === name && h.namespace === ns)
+      return
+    }
     const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
     if (idx !== -1) hpaList.value.splice(idx, 1)
   }
 
   // === CRUD: ResourceQuotas ===
-  function addResourceQuota(rq) {
+  async function addResourceQuota(rq) {
+    if (remoteMode.value) return remoteCreate(generateYAML('resourcequota', rq), `ResourceQuota/${rq.name}`, () => refetch('/api/v1/resourcequotas', resourceQuotaList, mapResourceQuota))
     resourceQuotaList.value.push({ ...rq, age: 'Just now' })
   }
 
@@ -556,13 +769,18 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) resourceQuotaList.value[idx] = { ...resourceQuotaList.value[idx], ...updates }
   }
 
-  function deleteResourceQuota(name, ns) {
+  async function deleteResourceQuota(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/resourcequotas/${encodeURIComponent(name)}`, resourceQuotaList, r => r.name === name && r.namespace === ns)
+      return
+    }
     const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
     if (idx !== -1) resourceQuotaList.value.splice(idx, 1)
   }
 
   // === CRUD: LimitRanges ===
-  function addLimitRange(lr) {
+  async function addLimitRange(lr) {
+    if (remoteMode.value) return remoteCreate(generateYAML('limitrange', lr), `LimitRange/${lr.name}`, () => refetch('/api/v1/limitranges', limitRangeList, mapLimitRange))
     limitRangeList.value.push({ ...lr, age: 'Just now' })
   }
 
@@ -571,13 +789,18 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) limitRangeList.value[idx] = { ...limitRangeList.value[idx], ...updates }
   }
 
-  function deleteLimitRange(name, ns) {
+  async function deleteLimitRange(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/limitranges/${encodeURIComponent(name)}`, limitRangeList, l => l.name === name && l.namespace === ns)
+      return
+    }
     const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
     if (idx !== -1) limitRangeList.value.splice(idx, 1)
   }
 
   // === CRUD: RBAC ===
-  function addRole(role) {
+  async function addRole(role) {
+    if (remoteMode.value) return remoteCreate(generateYAML('role', role), `${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'}/${role.name}`, refetchRoles)
     roleList.value.push({ ...role, age: 'Just now' })
   }
 
@@ -586,12 +809,22 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) roleList.value[idx] = { ...roleList.value[idx], ...updates }
   }
 
-  function deleteRole(name, ns) {
-    const idx = roleList.value.findIndex(r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns))
+  async function deleteRole(name, ns) {
+    const matchFn = r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns)
+    if (remoteMode.value) {
+      const role = roleList.value.find(matchFn)
+      const path = role?.scope === 'Cluster'
+        ? `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(name)}`
+        : `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/roles/${encodeURIComponent(name)}`
+      await remoteDelete(path, roleList, matchFn)
+      return
+    }
+    const idx = roleList.value.findIndex(matchFn)
     if (idx !== -1) roleList.value.splice(idx, 1)
   }
 
-  function addServiceAccount(sa) {
+  async function addServiceAccount(sa) {
+    if (remoteMode.value) return remoteCreate(generateYAML('serviceaccount', sa), `ServiceAccount/${sa.name}`, () => refetch('/api/v1/serviceaccounts', saList, mapServiceAccount))
     saList.value.push({ ...sa, age: 'Just now' })
   }
 
@@ -600,12 +833,17 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) saList.value[idx] = { ...saList.value[idx], ...updates }
   }
 
-  function deleteServiceAccount(name, ns) {
+  async function deleteServiceAccount(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`, saList, s => s.name === name && s.namespace === ns)
+      return
+    }
     const idx = saList.value.findIndex(s => s.name === name && s.namespace === ns)
     if (idx !== -1) saList.value.splice(idx, 1)
   }
 
-  function addRoleBinding(rb) {
+  async function addRoleBinding(rb) {
+    if (remoteMode.value) return remoteCreate(generateYAML('rolebinding', rb), `RoleBinding/${rb.name}`, () => refetch('/apis/rbac.authorization.k8s.io/v1/rolebindings', roleBindingList, mapRoleBinding))
     roleBindingList.value.push({ ...rb, age: 'Just now' })
     // Increment role bindings count
     const role = roleList.value.find(r => r.name === rb.roleName)
@@ -617,7 +855,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) roleBindingList.value[idx] = { ...roleBindingList.value[idx], ...updates }
   }
 
-  function deleteRoleBinding(name, ns) {
+  async function deleteRoleBinding(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/rolebindings/${encodeURIComponent(name)}`, roleBindingList, r => r.name === name && r.namespace === ns)
+      return
+    }
     const rb = roleBindingList.value.find(r => r.name === name && r.namespace === ns)
     if (rb) {
       const role = roleList.value.find(r => r.name === rb.roleName)
@@ -635,7 +877,8 @@ export const useClusterStore = defineStore('cluster', () => {
     return clusterRoleBindingList.value.find(r => r.name === name)
   }
 
-  function addClusterRoleBinding(crb) {
+  async function addClusterRoleBinding(crb) {
+    if (remoteMode.value) return remoteCreate(generateYAML('clusterrolebinding', crb), `ClusterRoleBinding/${crb.name}`, () => refetch('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings', clusterRoleBindingList, mapRoleBinding))
     clusterRoleBindingList.value.push({ ...crb, age: 'Just now' })
   }
 
@@ -644,7 +887,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) clusterRoleBindingList.value[idx] = { ...clusterRoleBindingList.value[idx], ...updates }
   }
 
-  function deleteClusterRoleBinding(name) {
+  async function deleteClusterRoleBinding(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${encodeURIComponent(name)}`, clusterRoleBindingList, r => r.name === name)
+      return
+    }
     const idx = clusterRoleBindingList.value.findIndex(r => r.name === name)
     if (idx !== -1) clusterRoleBindingList.value.splice(idx, 1)
   }
@@ -654,14 +901,19 @@ export const useClusterStore = defineStore('cluster', () => {
     const namespace = ns || currentNamespace.value
     return pdbList.value.find(p => p.name === name && p.namespace === namespace)
   }
-  function addPDB(pdb) {
+  async function addPDB(pdb) {
+    if (remoteMode.value) return remoteCreate(generateExtraYAML('pdb', pdb), `PDB/${pdb.name}`, () => refetch('/apis/policy/v1/poddisruptionbudgets', pdbList, mapPDB))
     pdbList.value.push({ allowedDisruptions: 0, currentHealthy: 0, desiredHealthy: 0, ...pdb, age: 'Just now' })
   }
   function updatePDB(name, ns, updates) {
     const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
     if (idx !== -1) pdbList.value[idx] = { ...pdbList.value[idx], ...updates }
   }
-  function deletePDB(name, ns) {
+  async function deletePDB(name, ns) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`, pdbList, p => p.name === name && p.namespace === ns)
+      return
+    }
     const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
     if (idx !== -1) pdbList.value.splice(idx, 1)
   }
@@ -670,32 +922,72 @@ export const useClusterStore = defineStore('cluster', () => {
   function getPriorityClassByName(name) {
     return priorityClassList.value.find(p => p.name === name)
   }
-  function addPriorityClass(pc) {
+  async function addPriorityClass(pc) {
+    if (remoteMode.value) return remoteCreate(generateExtraYAML('priorityclass', pc), `PriorityClass/${pc.name}`, () => refetch('/apis/scheduling.k8s.io/v1/priorityclasses', priorityClassList, mapPriorityClass))
     priorityClassList.value.push({ ...pc, age: 'Just now' })
   }
   function updatePriorityClass(name, updates) {
     const idx = priorityClassList.value.findIndex(p => p.name === name)
     if (idx !== -1) priorityClassList.value[idx] = { ...priorityClassList.value[idx], ...updates }
   }
-  function deletePriorityClass(name) {
+  async function deletePriorityClass(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`, priorityClassList, p => p.name === name)
+      return
+    }
     const idx = priorityClassList.value.findIndex(p => p.name === name)
     if (idx !== -1) priorityClassList.value.splice(idx, 1)
   }
 
   // === CRUD: Nodes ===
-  function cordonNode(name) {
+  async function cordonNode(name) {
+    if (remoteMode.value) {
+      await api.k8s(`/api/v1/nodes/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { unschedulable: true } }),
+      })
+    }
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = true
   }
 
-  function uncordonNode(name) {
+  async function uncordonNode(name) {
+    if (remoteMode.value) {
+      await api.k8s(`/api/v1/nodes/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { unschedulable: false } }),
+      })
+    }
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = false
   }
 
   // Drain：cordon + 驱逐该节点上的业务 Pod（mock 模拟，保留系统命名空间 Pod）
-  function drainNode(name) {
-    cordonNode(name)
+  async function drainNode(name) {
+    await cordonNode(name)
+    if (remoteMode.value) {
+      const data = await api.k8s(`/api/v1/pods?fieldSelector=${encodeURIComponent(`spec.nodeName=${name}`)}`)
+      const evictable = (data.items || []).filter(item => {
+        const owners = item.metadata?.ownerReferences || []
+        const isDaemonSet = owners.some(owner => owner.kind === 'DaemonSet')
+        const isMirrorPod = Boolean(item.metadata?.annotations?.['kubernetes.io/config.mirror'])
+        return !isDaemonSet && !isMirrorPod
+      })
+      for (const item of evictable) {
+        await api.k8s(`/api/v1/namespaces/${encodeURIComponent(item.metadata.namespace)}/pods/${encodeURIComponent(item.metadata.name)}/eviction`, {
+          method: 'POST',
+          body: JSON.stringify({
+            apiVersion: 'policy/v1',
+            kind: 'Eviction',
+            metadata: { name: item.metadata.name, namespace: item.metadata.namespace },
+          }),
+        })
+      }
+      await hydrateCoreResources()
+      return evictable.length
+    }
     const systemNs = ['kube-system', 'kube-node-lease', 'kube-public']
     let count = 0
     for (let i = podList.value.length - 1; i >= 0; i--) {
@@ -714,16 +1006,33 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: Namespaces ===
-  function addNamespace(ns) {
-    if (typeof ns === 'string') {
-      ns = { name: ns, status: 'Active', pods: 0, services: 0, age: 'Just now', labels: {} }
+  async function addNamespace(ns) {
+    if (typeof ns === 'string') ns = { name: ns, labels: {} }
+    if (remoteMode.value) {
+      const labelsYaml = ns.labels && Object.keys(ns.labels).length
+        ? '\n  labels:\n' + Object.entries(ns.labels).map(([k, v]) => `    ${k}: "${v}"`).join('\n')
+        : ''
+      const yaml = `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${ns.name}${labelsYaml}`
+      const refresh = () => refetch('/api/v1/namespaces', namespaceList, item => ({
+        name: item.metadata?.name,
+        status: item.status?.phase || 'Unknown',
+        pods: podList.value.filter(p => p.namespace === item.metadata?.name).length,
+        services: serviceList.value.filter(s => s.namespace === item.metadata?.name).length,
+        age: ageOf(item.metadata?.creationTimestamp),
+        labels: item.metadata?.labels || {},
+      }))
+      return remoteCreate(yaml, `Namespace/${ns.name}`, refresh)
     }
     if (!namespaceList.value.find(n => n.name === ns.name)) {
       namespaceList.value.push({ status: 'Active', pods: 0, services: 0, age: 'Just now', labels: {}, ...ns })
     }
   }
 
-  function deleteNamespace(name) {
+  async function deleteNamespace(name) {
+    if (remoteMode.value) {
+      await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(name)}`, namespaceList, n => n.name === name)
+      return
+    }
     const idx = namespaceList.value.findIndex(n => n.name === name)
     if (idx !== -1) namespaceList.value.splice(idx, 1)
   }
@@ -740,6 +1049,516 @@ export const useClusterStore = defineStore('cluster', () => {
     if (c) {
       cluster.value = { ...cluster.value, name: c.name, version: c.version, apiServer: c.apiServer, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }
     }
+  }
+
+  // 远端连接时清空所有资源列表（mock 种子），随后由水合用真实集群数据回填
+  function clearMockSeeds() {
+    nodeList.value = []
+    podList.value = []
+    namespaceList.value = []
+    workloadList.value = []
+    serviceList.value = []
+    ingressList.value = []
+    eventList.value = []
+    configMapList.value = []
+    secretList.value = []
+    pvcList.value = []
+    pvList.value = []
+    scList.value = []
+    endpointsList.value = []
+    ingressClassList.value = []
+    runtimeClassList.value = []
+    roleList.value = []
+    saList.value = []
+    roleBindingList.value = []
+    clusterRoleBindingList.value = []
+    networkPolicyList.value = []
+    hpaList.value = []
+    resourceQuotaList.value = []
+    limitRangeList.value = []
+    pdbList.value = []
+    priorityClassList.value = []
+    crdList.value = []
+  }
+
+  function setConnectedCluster(info) {
+    remoteMode.value = true
+    connectionState.value = 'loading'
+    // 远端模式下清空 mock 种子：水合会用真实数据回填，避免失败时仍展示假数据
+    clearMockSeeds()
+    const name = info.name || new URL(info.apiServer).hostname
+    currentCluster.value = name
+    cluster.value = {
+      ...cluster.value,
+      name,
+      apiServer: info.apiServer,
+      version: info.version || cluster.value.version,
+      status: 'Healthy',
+    }
+    clusterList.value = [{
+      name,
+      apiServer: info.apiServer,
+      version: info.version || 'unknown',
+      status: 'Healthy',
+      current: true,
+      context: name,
+      distribution: 'Kubernetes',
+    }]
+  }
+
+  const ageOf = timestamp => {
+    if (!timestamp) return '—'
+    const seconds = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000))
+    if (seconds < 60) return `${seconds}s`
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+    return `${Math.floor(seconds / 86400)}d`
+  }
+
+  function mapNode(item) {
+    const ready = item.status?.conditions?.find(c => c.type === 'Ready')
+    return {
+      name: item.metadata?.name,
+      status: ready?.status === 'True' ? 'Ready' : 'NotReady',
+      roles: Object.keys(item.metadata?.labels || {}).filter(k => k.startsWith('node-role.kubernetes.io/')).map(k => k.split('/')[1]).join(',') || 'worker',
+      version: item.status?.nodeInfo?.kubeletVersion || '—',
+      os: item.status?.nodeInfo?.osImage || '—',
+      kernel: item.status?.nodeInfo?.kernelVersion || '—',
+      ip: item.status?.addresses?.find(a => a.type === 'InternalIP')?.address || '—',
+      age: ageOf(item.metadata?.creationTimestamp),
+      unschedulable: Boolean(item.spec?.unschedulable),
+      conditions: Object.fromEntries((item.status?.conditions || []).map(c => [c.type, c.status === 'True'])),
+    }
+  }
+
+  function mapPod(item) {
+    const statuses = item.status?.containerStatuses || []
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      status: item.status?.phase || 'Unknown',
+      node: item.spec?.nodeName || '',
+      ip: item.status?.podIP || '',
+      restarts: statuses.reduce((sum, s) => sum + (s.restartCount || 0), 0),
+      age: ageOf(item.metadata?.creationTimestamp),
+      containers: (item.spec?.containers || []).map(c => c.name),
+      image: item.spec?.containers?.[0]?.image || '',
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+    }
+  }
+
+  function mapWorkload(item, type) {
+    const desired = item.spec?.replicas ?? (type === 'DaemonSet' ? item.status?.desiredNumberScheduled : 1)
+    const ready = item.status?.readyReplicas ?? item.status?.numberReady ?? item.status?.availableReplicas ?? 0
+    const image = item.spec?.template?.spec?.containers?.[0]?.image || ''
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      type,
+      status: ready >= desired ? 'Running' : ready > 0 ? 'Degraded' : 'Pending',
+      replicas: `${ready}/${desired}`,
+      image,
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+      raw: item,
+    }
+  }
+
+  // === 远端资源映射（K8s API 对象 → 前端扁平结构，字段与 mock 保持一致）===
+  // 视图按 mock 形状渲染，这里把真实集群返回的对象映射成相同结构，
+  // 这样所有列表/详情页在远端模式下都能正确展示。
+  const AM = { ReadWriteOnce: 'RWO', ReadWriteMany: 'RWM', ReadOnlyMany: 'ROM', ReadWriteOncePod: 'RWOP' }
+  const mapConfigMap = item => {
+    const data = item.data || {}
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      keys: Object.keys(data).length,
+      data,
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapSecret = item => {
+    const data = item.data || {}
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      type: item.type || 'Opaque',
+      keys: Object.keys(data).length,
+      // K8s 返回的 data 已是 base64，与 store 内 Secret 语义一致（reveal 时再解码）
+      data,
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapPVC = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    status: item.status?.phase || 'Pending',
+    capacity: item.spec?.resources?.requests?.storage || item.status?.capacity?.storage || '—',
+    accessModes: AM[item.spec?.accessModes?.[0]] || item.spec?.accessModes?.[0] || 'RWO',
+    storageClass: item.spec?.storageClassName || '',
+    volume: item.spec?.volumeName || '',
+    labels: item.metadata?.labels || {},
+    annotations: item.metadata?.annotations || {},
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapPV = item => {
+    const claim = item.spec?.claimRef
+    return {
+      name: item.metadata?.name,
+      capacity: item.spec?.capacity?.storage || '—',
+      accessModes: AM[item.spec?.accessModes?.[0]] || item.spec?.accessModes?.[0] || 'RWO',
+      reclaimPolicy: item.spec?.persistentVolumeReclaimPolicy || 'Retain',
+      status: item.status?.phase || 'Available',
+      claim: claim ? `${claim.namespace || 'default'}/${claim.name}` : '',
+      storageClass: item.spec?.storageClassName || '',
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapStorageClass = item => {
+    const ann = item.metadata?.annotations || {}
+    const isDefault = ann['storageclass.kubernetes.io/is-default-class'] === 'true'
+      || ann['storageclass.beta.kubernetes.io/is-default-class'] === 'true'
+    return {
+      name: item.metadata?.name,
+      provisioner: item.provisioner || '',
+      parameters: Object.entries(item.parameters || {}).map(([k, v]) => `${k}=${v}`).join(','),
+      reclaimPolicy: item.reclaimPolicy || 'Delete',
+      default: isDefault,
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapEndpoints = item => {
+    const addresses = [], notReadyAddresses = [], ports = []
+    ;(item.subsets || []).forEach(s => {
+      ;(s.addresses || []).forEach(a => a.ip && addresses.push(a.ip))
+      ;(s.notReadyAddresses || []).forEach(a => a.ip && notReadyAddresses.push(a.ip))
+      ;(s.ports || []).forEach(p => ports.push({ port: p.port, protocol: p.protocol || 'TCP' }))
+    })
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      addresses, notReadyAddresses, ports,
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapIngressClass = item => ({
+    name: item.metadata?.name,
+    controller: item.spec?.controller || '',
+    isDefault: item.metadata?.annotations?.['ingressclass.kubernetes.io/is-default-class'] === 'true',
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapRuntimeClass = item => ({
+    name: item.metadata?.name,
+    handler: item.spec?.handler || '',
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapPriorityClass = item => ({
+    name: item.metadata?.name,
+    value: item.value,
+    globalDefault: Boolean(item.globalDefault),
+    description: item.description || '',
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapService = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    type: item.spec?.type || 'ClusterIP',
+    clusterIP: item.spec?.clusterIP || 'None',
+    externalIP: (item.status?.loadBalancer?.ingress || []).map(i => i.ip || i.hostname).join(',') || '-',
+    externalName: item.spec?.externalName || '',
+    ports: (item.spec?.ports || []).map(p => `${p.port}:${p.targetPort ?? p.port}/${p.protocol || 'TCP'}`).join(','),
+    selector: item.spec?.selector || {},
+    age: ageOf(item.metadata?.creationTimestamp),
+    labels: item.metadata?.labels || {},
+    annotations: item.metadata?.annotations || {},
+  })
+  const mapIngress = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    className: item.spec?.ingressClassName || '',
+    hosts: (item.spec?.rules || []).map(r => r.host).filter(Boolean).join(','),
+    rules: item.spec?.rules || [],
+    tls: Boolean(item.spec?.tls?.length),
+    tlsSecret: item.spec?.tls?.[0]?.secretName || '',
+    age: ageOf(item.metadata?.creationTimestamp),
+    labels: item.metadata?.labels || {},
+    annotations: item.metadata?.annotations || {},
+  })
+  // canonical peer → mock peer（NetworkPolicy ingress/egress 的对端）
+  const peerFromSpec = p => {
+    if (p.ipBlock) return { type: 'ipBlock', cidr: p.ipBlock.cidr }
+    if (p.namespaceSelector) return { type: 'namespaceSelector', matchLabels: p.namespaceSelector.matchLabels || {} }
+    if (p.podSelector) return { type: 'podSelector', matchLabels: p.podSelector.matchLabels || {} }
+    return { type: 'podSelector', matchLabels: {} }
+  }
+  const mapNetworkPolicy = item => {
+    const spec = item.spec || {}
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      podSelector: spec.podSelector?.matchLabels || {},
+      policyTypes: spec.policyTypes || [],
+      ingressRules: (spec.ingress || []).map(r => ({ from: (r.from || []).map(peerFromSpec), ports: r.ports || [] })),
+      egressRules: (spec.egress || []).map(r => ({ to: (r.to || []).map(peerFromSpec), ports: r.ports || [] })),
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapHPA = item => {
+    const spec = item.spec || {}, status = item.status || {}
+    const metrics = spec.metrics || []
+    const cpu = metrics.find(m => m.resource?.name === 'cpu')
+    const mem = metrics.find(m => m.resource?.name === 'memory')
+    const curCpu = (status.currentMetrics || []).find(m => m.resource?.name === 'cpu')
+    const curMem = (status.currentMetrics || []).find(m => m.resource?.name === 'memory')
+    const limited = (status.conditions || []).some(c => c.type === 'ScalingLimited' && c.status === 'True')
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      targetName: spec.scaleTargetRef?.name || '',
+      targetKind: spec.scaleTargetRef?.kind || 'Deployment',
+      minReplicas: spec.minReplicas ?? 1,
+      maxReplicas: spec.maxReplicas ?? 1,
+      currentReplicas: status.currentReplicas ?? spec.minReplicas ?? 0,
+      cpuTarget: cpu?.resource?.target?.averageUtilization,
+      memoryTarget: mem?.resource?.target?.averageUtilization,
+      currentCPU: curCpu?.resource?.current?.averageUtilization,
+      currentMemory: curMem?.resource?.current?.averageUtilization,
+      status: limited ? 'Limited' : (status.currentReplicas > (spec.minReplicas ?? 1) ? 'Scaling' : 'Ok'),
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapResourceQuota = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    hard: item.spec?.hard || {},
+    used: item.status?.used || {},
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapLimitRange = item => {
+    const l = (item.spec?.limits || []).find(x => x.type === 'Container') || item.spec?.limits?.[0] || {}
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      defaultCPU: l.default?.cpu,
+      defaultMemory: l.default?.memory,
+      defaultRequestCPU: l.defaultRequest?.cpu,
+      defaultRequestMemory: l.defaultRequest?.memory,
+      maxCPU: l.max?.cpu,
+      maxMemory: l.max?.memory,
+      minCPU: l.min?.cpu,
+      minMemory: l.min?.memory,
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+  const mapRole = (item, scope) => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace || '',
+    scope,
+    rules: item.rules || [],
+    bindings: 0,
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapServiceAccount = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    age: ageOf(item.metadata?.creationTimestamp),
+    labels: item.metadata?.labels || {},
+    annotations: item.metadata?.annotations || {},
+  })
+  const mapRoleBinding = item => ({
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    roleName: item.roleRef?.name || '',
+    roleKind: item.roleRef?.kind || 'Role',
+    subjects: item.subjects || [],
+    age: ageOf(item.metadata?.creationTimestamp),
+  })
+  const mapPDB = item => {
+    const spec = item.spec || {}, status = item.status || {}
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      minAvailable: spec.minAvailable != null ? String(spec.minAvailable) : '',
+      maxUnavailable: spec.maxUnavailable != null ? String(spec.maxUnavailable) : '',
+      selector: spec.selector?.matchLabels || {},
+      allowedDisruptions: status.disruptionsAllowed ?? 0,
+      currentHealthy: status.currentHealthy ?? 0,
+      desiredHealthy: status.desiredHealthy ?? 0,
+      age: ageOf(item.metadata?.creationTimestamp),
+    }
+  }
+
+  async function hydrateCoreResources() {
+    if (!remoteMode.value) return
+    connectionState.value = 'loading'
+    const requests = await Promise.allSettled([
+      api.k8s('/api/v1/nodes'),
+      api.k8s('/api/v1/pods?limit=1000'),
+      api.k8s('/api/v1/namespaces'),
+      api.k8s('/apis/apps/v1/deployments?limit=1000'),
+      api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
+      api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
+      api.k8s('/api/v1/services?limit=1000'),
+      api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'),
+      api.k8s('/api/v1/events?limit=1000'),
+    ])
+    const valueAt = index => requests[index].status === 'fulfilled' ? requests[index].value : null
+    const nodeData = valueAt(0)
+    const podData = valueAt(1)
+    const namespaceData = valueAt(2)
+    const deploymentData = valueAt(3)
+    const statefulSetData = valueAt(4)
+    const daemonSetData = valueAt(5)
+    const serviceData = valueAt(6)
+    const ingressData = valueAt(7)
+    const eventData = valueAt(8)
+    if (!namespaceData) {
+      connectionState.value = 'error'
+      const failure = requests[2].status === 'rejected' ? requests[2].reason : null
+      throw new Error(failure?.message || '无法读取 Namespace，请检查 Kubernetes RBAC 权限')
+    }
+    if (nodeData?.items) nodeList.value = nodeData.items.map(mapNode)
+    if (podData?.items) podList.value = podData.items.map(mapPod)
+    if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
+      name: item.metadata?.name,
+      status: item.status?.phase || 'Unknown',
+      pods: podList.value.filter(p => p.namespace === item.metadata?.name).length,
+      services: serviceData?.items?.filter(s => s.metadata?.namespace === item.metadata?.name).length || 0,
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+    }))
+    if (deploymentData || statefulSetData || daemonSetData) {
+      workloadList.value = [
+        ...(deploymentData?.items || []).map(item => mapWorkload(item, 'Deployment')),
+        ...(statefulSetData?.items || []).map(item => mapWorkload(item, 'StatefulSet')),
+        ...(daemonSetData?.items || []).map(item => mapWorkload(item, 'DaemonSet')),
+      ]
+    }
+    if (serviceData?.items) serviceList.value = serviceData.items.map(mapService)
+    if (ingressData?.items) ingressList.value = ingressData.items.map(mapIngress)
+    if (eventData?.items) eventList.value = eventData.items.map(item => ({
+      type: item.type || 'Normal',
+      reason: item.reason || '',
+      message: item.message || '',
+      object: `${item.involvedObject?.kind || ''}/${item.involvedObject?.name || ''}`,
+      namespace: item.metadata?.namespace || '',
+      age: ageOf(item.lastTimestamp || item.eventTime || item.metadata?.creationTimestamp),
+    }))
+    cluster.value = {
+      ...cluster.value,
+      nodeCount: nodeList.value.length,
+      podCount: podList.value.length,
+      activeEvents: eventList.value.length,
+    }
+    // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
+    try { await hydrateExtendedResources() } catch { /* 容错：部分资源无权限时忽略 */ }
+    connectionState.value = 'connected'
+    // CRD 及其实例可能较多，异步拉取不阻塞首屏
+    hydrateCRDs().catch(() => {})
+    return { failed: requests.filter(r => r.status === 'rejected').length }
+  }
+
+  // 拉取所有非核心资源（集群范围 list，容忍 RBAC 403）。对应列表会被真实数据覆盖。
+  async function hydrateExtendedResources() {
+    if (!remoteMode.value) return
+    const reqs = await Promise.allSettled([
+      api.k8s('/api/v1/configmaps?limit=5000'),
+      api.k8s('/api/v1/secrets?limit=5000'),
+      api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
+      api.k8s('/api/v1/endpoints?limit=5000'),
+      api.k8s('/api/v1/serviceaccounts?limit=5000'),
+      api.k8s('/api/v1/resourcequotas?limit=5000'),
+      api.k8s('/api/v1/limitranges?limit=5000'),
+      api.k8s('/api/v1/persistentvolumes?limit=5000'),
+      api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
+      api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
+      api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=5000'),
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
+      api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
+      api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'),
+      api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'),
+      api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'),
+    ])
+    const items = i => (reqs[i].status === 'fulfilled' ? reqs[i].value?.items : null) || []
+    configMapList.value = items(0).map(mapConfigMap)
+    secretList.value = items(1).map(mapSecret)
+    pvcList.value = items(2).map(mapPVC)
+    endpointsList.value = items(3).map(mapEndpoints)
+    saList.value = items(4).map(mapServiceAccount)
+    resourceQuotaList.value = items(5).map(mapResourceQuota)
+    limitRangeList.value = items(6).map(mapLimitRange)
+    pvList.value = items(7).map(mapPV)
+    networkPolicyList.value = items(8).map(mapNetworkPolicy)
+    hpaList.value = items(9).map(mapHPA)
+    pdbList.value = items(10).map(mapPDB)
+    // roles 列表同时承载命名空间级 Role 与集群级 ClusterRole（用 scope 区分）
+    roleList.value = [
+      ...items(11).map(r => mapRole(r, 'Namespace')),
+      ...items(13).map(r => mapRole(r, 'Cluster')),
+    ]
+    roleBindingList.value = items(12).map(mapRoleBinding)
+    clusterRoleBindingList.value = items(14).map(mapRoleBinding)
+    scList.value = items(15).map(mapStorageClass)
+    ingressClassList.value = items(16).map(mapIngressClass)
+    runtimeClassList.value = items(17).map(mapRuntimeClass)
+    priorityClassList.value = items(18).map(mapPriorityClass)
+    return { failed: reqs.filter(r => r.status === 'rejected').length }
+  }
+
+  // 拉取 CRD 列表，并对每个 CRD 并发拉取其实例（容忍失败）
+  async function hydrateCRDs() {
+    if (!remoteMode.value) return
+    let crdData
+    try {
+      crdData = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500')
+    } catch {
+      crdList.value = []
+      return
+    }
+    const crds = (crdData.items || []).map(item => {
+      const names = item.spec?.names || {}
+      const versions = item.spec?.versions || []
+      const served = versions.find(v => v.served && v.storage) || versions.find(v => v.served) || versions[0]
+      return {
+        name: item.metadata?.name,
+        group: item.spec?.group || '',
+        version: served?.name || '',
+        kind: names.kind || '',
+        scope: item.spec?.scope || 'Namespaced',
+        namespaced: item.spec?.scope === 'Namespaced',
+        description: names.list || names.kind || '',
+        instances: [],
+        _plural: names.plural || item.metadata?.name?.split('.')[0] || '',
+      }
+    })
+    const results = await Promise.allSettled(crds.map(c => api.k8s(`/apis/${c.group}/${c.version}/${c._plural}?limit=500`)))
+    crds.forEach((c, i) => {
+      if (results[i].status === 'fulfilled') {
+        c.instances = (results[i].value?.items || []).map(it => ({
+          name: it.metadata?.name,
+          namespace: it.metadata?.namespace || '',
+          status: it.status?.phase || it.status?.conditions?.find(x => x.type === 'Ready')?.status || 'Ready',
+          age: ageOf(it.metadata?.creationTimestamp),
+          spec: it.spec,
+          labels: it.metadata?.labels || {},
+          annotations: it.metadata?.annotations || {},
+        }))
+      }
+      delete c._plural
+    })
+    crdList.value = crds
   }
 
   function getCurrentCluster() {
@@ -1306,7 +2125,24 @@ status:
   phase: ${inst.status || 'Ready'}`
   }
 
-  function applyResourceYaml(yamlStr) {
+  async function applyResourceYaml(yamlStr) {
+    if (remoteMode.value) {
+      try {
+        let object = null
+        yamlLoadAll(yamlStr, document => { if (!object && document) object = document })
+        const result = await api.applyYaml(yamlStr)
+        const resource = result?.resources?.[0]
+        await hydrateCoreResources()
+        return {
+          ok: true,
+          kind: resource?.kind || object?.kind,
+          name: resource?.metadata?.name || object?.metadata?.name,
+          namespace: resource?.metadata?.namespace || object?.metadata?.namespace || '',
+        }
+      } catch (error) {
+        return { ok: false, error: error.message || '应用 YAML 失败' }
+      }
+    }
     let obj
     try {
       obj = yamlLoad(yamlStr)
@@ -1543,6 +2379,71 @@ status:
     return { ok: true, kind, name, namespace: ns }
   }
 
+  // === 端口转发（KuboardProxy 语义，纯前端 mock）===
+  // 模拟 kubectl port-forward：把 Service/Pod 的端口映射到一个本地端口，便于浏览器直接访问。
+  const portForwards = ref([])
+  let pfIdSeq = 1
+  function addPortForward({ kind, name, namespace, port, localPort }) {
+    const lf = localPort || (7000 + portForwards.value.length * 7)
+    const pf = { id: pfIdSeq++, kind, name, namespace, port, localPort: lf, status: 'Forwarding' }
+    portForwards.value.push(pf)
+    return pf
+  }
+  function removePortForward(id) {
+    const idx = portForwards.value.findIndex(p => p.id === id)
+    if (idx !== -1) portForwards.value.splice(idx, 1)
+  }
+
+  // === RBAC 权限模拟（kubectl auth can-i 语义）===
+  // 根据 subject 匹配的 RoleBinding/ClusterRoleBinding → Role/ClusterRole 的 rules，
+  // 判断该 subject 能否对指定 resource 执行指定 verb。纯前端基于 mock 数据推演。
+  const RESOURCE_TO_APIGROUP = {
+    pods: '', services: '', configmaps: '', secrets: '', endpoints: '', namespaces: '', nodes: '',
+    persistentvolumeclaims: '', persistentvolumes: '',
+    deployments: 'apps', statefulsets: 'apps', daemonsets: 'apps', replicasets: 'apps',
+    ingresses: 'networking.k8s.io', networkpolicies: 'networking.k8s.io',
+    roles: 'rbac.authorization.k8s.io', rolebindings: 'rbac.authorization.k8s.io',
+    clusterroles: 'rbac.authorization.k8s.io', clusterrolebindings: 'rbac.authorization.k8s.io',
+    jobs: 'batch', cronjobs: 'batch', horizontalpodautoscalers: 'autoscaling',
+    serviceaccounts: '', persistentvolumeclaims2: '',
+  }
+  function checkAccess({ subjectKind, subjectName, verb, resource, namespace }) {
+    const group = RESOURCE_TO_APIGROUP[resource] ?? ''
+    // 命名空间级 RoleBinding 仅在所属 ns 生效；ClusterRoleBinding 全局生效
+    const bindings = [
+      ...roleBindingList.value.filter(b => !namespace || b.namespace === namespace).map(b => ({ ...b, bindingKind: 'RoleBinding' })),
+      ...clusterRoleBindingList.value.map(b => ({ ...b, bindingKind: 'ClusterRoleBinding' })),
+    ]
+    for (const b of bindings) {
+      const subs = b.subjects || []
+      // 精确匹配 subject 名称（subjectName 为空表示通配查询）；类型一致或未指定
+      const hit = subs.some(s => {
+        if (subjectName && s.name !== subjectName) return false
+        if (subjectKind && s.kind && s.kind !== subjectKind) return false
+        return true
+      })
+      if (!hit) continue
+      const role = roleList.value.find(r => r.name === b.roleName)
+      if (!role) continue
+      for (const rule of (role.rules || [])) {
+        const groups = rule.apiGroups || ['']
+        const resources = rule.resources || []
+        const verbs = rule.verbs || []
+        const groupOk = groups.includes('*') || groups.includes(group)
+        const resOk = resources.includes('*') || resources.includes(resource)
+        const verbOk = verbs.includes('*') || verbs.includes(verb)
+        if (groupOk && resOk && verbOk) {
+          return {
+            allowed: true,
+            matchedBy: `${b.bindingKind} "${b.name}" → ${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'} "${role.name}"`,
+            rule,
+          }
+        }
+      }
+    }
+    return { allowed: false, matchedBy: null, rule: null }
+  }
+
   return {
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
@@ -1550,7 +2451,7 @@ status:
     scList, ingressClassList, runtimeClassList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
     clusterRoleBindingList, pdbList, priorityClassList,
-    clusterList, auditLogList, crdList, currentCluster,
+    clusterList, auditLogList, crdList, currentCluster, remoteMode, connectionState,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
@@ -1576,13 +2477,13 @@ status:
     // CRUD: PVCs
     addPVC, updatePVC, deletePVC,
     // CRUD: PersistentVolumes / StorageClasses（集群级）
-    getPVByName, updatePV, getSCByName, updateStorageClass,
+    getPVByName, addPV, updatePV, deletePV, getSCByName, addStorageClass, updateStorageClass, deleteStorageClass,
     // CRUD: Endpoints
     getEndpointsByName, updateEndpoints,
     // CRUD: IngressClass / RuntimeClass（集群级）
-    getIngressClassByName, updateIngressClass, getRuntimeClassByName, updateRuntimeClass,
+    getIngressClassByName, addIngressClass, updateIngressClass, deleteIngressClass, getRuntimeClassByName, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
-    addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload,
+    addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload, rollbackWorkload,
     // CRUD: Pods
     addPod, deletePod,
     // CRUD: NetworkPolicies
@@ -1607,12 +2508,16 @@ status:
     // CRUD: Namespaces
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
-    switchCluster, getCurrentCluster,
+    switchCluster, getCurrentCluster, setConnectedCluster, hydrateCoreResources,
     // CRD
     getCRDByName,
     // 审计
     logAudit,
     // YAML generation
     generateYAML, generateExtraYAML, generateCRYaml, applyResourceYaml,
+    // 端口转发
+    portForwards, addPortForward, removePortForward,
+    // RBAC 权限模拟
+    checkAccess,
   }
 })

@@ -55,9 +55,14 @@ function openSA(row) {
         <h2 class="text-display-lg text-on-surface">RBAC</h2>
         <p class="text-on-surface-variant text-body-md mt-1">Manage Role-Based Access Control: Roles, RoleBindings, and ServiceAccounts.</p>
       </div>
-      <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
-        <span class="material-symbols-outlined">add</span> Create Role
-      </button>
+      <div class="flex gap-sm">
+        <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined">verified_user</span> 权限模拟
+        </button>
+        <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
+          <span class="material-symbols-outlined">add</span> Create Role
+        </button>
+      </div>
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">

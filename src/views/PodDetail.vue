@@ -6,6 +6,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
+import { api } from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +15,11 @@ if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 const pod = computed(() => store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
+
+// 多容器 Pod：可选择查看哪个容器的日志 / exec 进哪个容器
+const containers = computed(() => (pod.value?.containers?.length ? pod.value.containers : ['main']))
+const selectedContainer = ref('')
+watch(pod, (p) => { if (p && !selectedContainer.value) selectedContainer.value = (p.containers?.[0] || 'main') }, { immediate: true })
 
 const tabs = [
   { key: 'logs', label: 'Logs', icon: 'terminal' },
@@ -67,17 +73,42 @@ function pushLog() {
   liveLogs.value.push({ timestamp: new Date().toISOString().substr(11, 12), level: sample.level, message: sample.message })
   if (liveLogs.value.length > 80) liveLogs.value.shift()
 }
+async function loadRemoteLogs() {
+  if (!pod.value) return
+  try {
+    const container = selectedContainer.value || pod.value.containers?.[0]
+    const query = new URLSearchParams({ timestamps: 'true', tailLines: '500' })
+    if (container) query.set('container', container)
+    const text = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${query}`)
+    liveLogs.value = String(text || '').split('\n').filter(Boolean).map(line => {
+      const match = line.match(/^(\S+)\s(.*)$/)
+      const timestamp = match?.[1] || ''
+      const message = match?.[2] || line
+      const level = /\berror\b/i.test(message) ? 'ERROR' : /\bwarn(?:ing)?\b/i.test(message) ? 'WARN' : 'INFO'
+      return { timestamp, level, message }
+    })
+  } catch (error) {
+    liveLogs.value = [{ timestamp: new Date().toISOString(), level: 'ERROR', message: error.message || '日志读取失败' }]
+  }
+}
 function startFollow() {
   stopFollow()
-  logTimer = setInterval(pushLog, 1800)
+  if (store.remoteMode) {
+    loadRemoteLogs()
+    logTimer = setInterval(loadRemoteLogs, 5000)
+  } else {
+    logTimer = setInterval(pushLog, 1800)
+  }
 }
 function stopFollow() {
   if (logTimer) { clearInterval(logTimer); logTimer = null }
 }
 watch(followLog, (v) => { v ? startFollow() : stopFollow() })
-onMounted(() => { if (followLog.value) startFollow() })
+// 切换容器时，远程模式重新拉取该容器日志
+watch(selectedContainer, () => { if (store.remoteMode) loadRemoteLogs() })
+onMounted(() => { if (followLog.value) startFollow(); else if (store.remoteMode) loadRemoteLogs() })
 onUnmounted(stopFollow)
-const allLogs = computed(() => [...store.logEntries, ...liveLogs.value])
+const allLogs = computed(() => store.remoteMode ? liveLogs.value : [...store.logEntries, ...liveLogs.value])
 
 // === 事件关联资源跳转 ===
 function goToRelated(event) {
@@ -204,7 +235,12 @@ function triggerUpload() {
         <div v-if="activeTab === 'logs'" class="flex-1 flex flex-col">
           <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between border-b border-outline-variant">
             <div class="flex items-center gap-md">
-              <span class="text-body-sm text-on-surface-variant font-medium">Container: {{ pod.containers?.[0] || 'main' }}</span>
+              <div class="flex items-center gap-xs">
+                <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
+                <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+                  <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </div>
               <div class="flex items-center gap-2">
                 <input v-model="followLog" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
                 <span class="text-body-sm text-on-surface-variant">Follow</span>
@@ -288,7 +324,16 @@ spec:
 
         <!-- Terminal View -->
         <div v-if="activeTab === 'terminal'" class="flex-1">
-          <InteractiveTerminal :pod-name="pod.name" :namespace="pod.namespace" :container="pod.containers?.[0] || 'main'" />
+          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center gap-md border-b border-outline-variant">
+            <div class="flex items-center gap-xs">
+              <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
+              <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+                <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <span class="text-body-xs text-on-surface-variant">exec 进入所选容器</span>
+          </div>
+          <InteractiveTerminal :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" />
         </div>
 
         <!-- Files View（文件浏览器 / kubectl cp）-->

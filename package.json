@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.mjs",
+    "dev:server": "npm run server",
     "build": "vite build",
     "preview": "vite preview"
   },
