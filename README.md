@@ -21,6 +21,7 @@ AliangBoard 是一个 Vue 3 Kubernetes 管理面板。项目同时包含前端�
 - Events 实时推送（events?watch=true）与按 involvedObject 过滤；审计页以集群 Events 作为活动记录
 - CronJob 手动触发（kubectl create job --from）；通用资源导出 YAML（kubectl get -o yaml）
 - 顶栏全局搜索：跨资源 / 跨命名空间检索并跳转
+- Namespace 应用分层：按 展现层 / 网关 / 微服务层(业务·支持服务·杂项) / 中间件 / 持久层 / 存储 / 监控层 归类工作负载·Service·Ingress（默认启发式，可用 label `layer.aliangboard.io` 精确覆盖）
 - 多集群：已连接集群持久化，可一键切换（重新水合）或移除
 - API Discovery 驱动的 Server-Side Apply（kubectl edit / apply 语义）
 - 部署向导支持一次应用多份 YAML 文档

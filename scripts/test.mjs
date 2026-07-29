@@ -9,6 +9,7 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { classifyResource, groupByLayer } from '../src/composables/useLayering.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -92,6 +93,40 @@ test('K8s 资源量解析：CPU→毫核、内存→Ki（覆盖各后缀与裸�
   assert.equal(memToKi('1024Ki'), 1024)
   assert.equal(memToKi('1048576'), 1024)      // 无后缀视为裸字节
   assert.equal(memToKi(''), 0)
+})
+
+// --- Namespace 应用分层：归类契约（label 权威 > 名称/镜像启发式 > 默认）---
+test('应用分层 classifyResource：label 覆盖、启发式、默认（业务/杂项）', () => {
+  // label 权威覆盖
+  assert.equal(classifyResource({ name: 'anything', labels: { 'layer.aliangboard.io': 'storage' } }), 'storage')
+  assert.equal(classifyResource({ name: 'x', annotations: { 'layer.aliangboard.io': 'microservice/support' } }), 'microservice/support')
+  assert.equal(classifyResource({ name: 'x', labels: { layer: 'gateway' } }), 'gateway')
+  // 启发式：名称 / 镜像
+  assert.equal(classifyResource({ name: 'api-gateway', image: 'nginx:1.25' }), 'gateway')
+  assert.equal(classifyResource({ name: 'redis-cache', image: 'redis:7' }), 'middleware')
+  assert.equal(classifyResource({ name: 'mysql-primary', image: 'mysql:8' }), 'persistence')
+  assert.equal(classifyResource({ name: 'prometheus-server' }), 'monitoring')
+  assert.equal(classifyResource({ name: 'frontend-web', image: 'node:18' }), 'presentation')
+  // 默认：普通工作负载 → 业务；Job/CronJob → 杂项
+  assert.equal(classifyResource({ name: 'order-service', type: 'Deployment' }), 'microservice/business')
+  assert.equal(classifyResource({ name: 'cleanup-job', type: 'CronJob' }), 'microservice/misc')
+  // 未知 label 值 → 未分类
+  assert.equal(classifyResource({ name: 'x', labels: { 'layer.aliangboard.io': 'galaxy' } }), 'unclassified')
+})
+
+test('应用分层 groupByLayer：microservice 展开为子层、空层被过滤', () => {
+  const groups = groupByLayer([
+    { name: 'order-service', type: 'Deployment' },
+    { name: 'cleanup-job', type: 'CronJob' },
+    { name: 'redis', image: 'redis:7' },
+  ])
+  const keys = groups.map(g => g.key)
+  assert.ok(keys.includes('middleware') && keys.includes('microservice'), '应含中间件与微服务层')
+  const ms = groups.find(g => g.key === 'microservice')
+  const subKeys = ms.children.map(c => c.key)
+  assert.ok(subKeys.includes('microservice/business') && subKeys.includes('microservice/misc'), '微服务层应含业务与杂项子层')
+  assert.equal(ms.children.find(c => c.key === 'microservice/business').items.length, 1)
+  assert.ok(!keys.includes('storage'), '无资源的层不应出现')
 })
 
 // --- 汇总 ---

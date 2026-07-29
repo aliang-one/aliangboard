@@ -193,6 +193,12 @@ const routes = [
         meta: { title: 'Workloads', icon: 'apps', scope: 'namespace' }
       },
       {
+        path: 'ns/:namespace/layers',
+        name: 'NsLayers',
+        component: () => import('@/views/NsLayers.vue'),
+        meta: { title: '应用分层', icon: 'layers', scope: 'namespace' }
+      },
+      {
         path: 'ns/:namespace/workloads/:type/:name',
         name: 'NsWorkloadDetail',
         component: () => import('@/views/NsWorkloadDetail.vue'),
