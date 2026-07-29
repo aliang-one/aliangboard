@@ -129,6 +129,27 @@ test('应用分层 groupByLayer：microservice 展开为子层、空层被过滤
   assert.ok(!keys.includes('storage'), '无资源的层不应出现')
 })
 
+// --- Ingress 创建：性能参数 → nginx 注解契约（镜像 NsIngress.buildAnnotations）---
+test('Ingress 性能参数注解：非空写入 nginx.ingress.kubernetes.io/*、空值忽略、自定义合并', () => {
+  const PERF = [{ fields: [{ key: 'proxy-read-timeout' }, { key: 'limit-rps' }] }]
+  const adv = { 'proxy-read-timeout': '60', 'limit-rps': '  ' }
+  const custom = [{ key: 'nginx.ingress.kubernetes.io/rewrite-target', value: '/$1' }, { key: '', value: 'x' }]
+  const build = () => {
+    const ann = {}
+    for (const g of PERF) for (const f of g.fields) {
+      const v = String(adv[f.key] ?? '').trim()
+      if (v) ann[`nginx.ingress.kubernetes.io/${f.key}`] = v
+    }
+    for (const a of custom) { const k = (a.key || '').trim(); if (k) ann[k] = String(a.value || '').trim() }
+    return ann
+  }
+  const ann = build()
+  assert.equal(ann['nginx.ingress.kubernetes.io/proxy-read-timeout'], '60')
+  assert.ok(!('nginx.ingress.kubernetes.io/limit-rps' in ann), '空值不应写入')
+  assert.equal(ann['nginx.ingress.kubernetes.io/rewrite-target'], '/$1')
+  assert.equal(Object.keys(ann).length, 2)
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
