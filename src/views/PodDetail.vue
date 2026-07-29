@@ -26,6 +26,7 @@ const containers = computed(() => {
   const base = pod.value?.containers?.length ? pod.value.containers : ['main']
   return [...new Set([...base, ...debugContainers.value])]
 })
+const termMode = ref('exec')   // 'exec' 开新 shell | 'attach' 连主进程 stdio
 const selectedContainer = ref('')
 watch(pod, (p) => { if (p && !selectedContainer.value) selectedContainer.value = (p.containers?.[0] || 'main') }, { immediate: true })
 
@@ -506,12 +507,16 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
                 <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
-            <span class="text-body-xs text-on-surface-variant">exec 进入所选容器</span>
+            <span class="text-body-xs text-on-surface-variant">{{ termMode === 'attach' ? 'attach 连接主进程 stdio' : 'exec 进入所选容器' }}</span>
+            <div v-if="store.remoteMode" class="flex items-center gap-xs">
+              <button @click="termMode = 'exec'" :class="termMode === 'exec' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-body-xs font-medium border transition-colors">Exec</button>
+              <button @click="termMode = 'attach'" :class="termMode === 'attach' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-body-xs font-medium border transition-colors" title="attach 到容器主进程（PID 1）的 stdio">Attach</button>
+            </div>
             <button v-if="store.remoteMode" @click="openDebug" title="注入临时调试容器（kubectl debug，用于无 shell / distroless 镜像）" class="ml-auto flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-low transition-colors">
               <span class="material-symbols-outlined text-body-md">bug_report</span> kubectl debug
             </button>
           </div>
-          <InteractiveTerminal :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" />
+          <InteractiveTerminal :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" :attach="termMode === 'attach'" />
         </div>
 
         <!-- Files View（文件浏览器 / kubectl cp）-->

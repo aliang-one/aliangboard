@@ -97,16 +97,22 @@ export const podDebugApi = {
   attach: payload => request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
+// 手动触发 CronJob（kubectl create job --from）。仅远端模式。
+export const cronJobApi = {
+  trigger: payload => request('/api/cronjob/trigger', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。
-export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, onStdout, onStderr, onExit, onError, onClose } = {}) {
+export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, attach = false, onStdout, onStderr, onExit, onError, onClose } = {}) {
   const token = getSessionToken()
   const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
   const host = globalThis.location?.host || '127.0.0.1:8787'
   const params = new URLSearchParams({ namespace, pod, tty: tty ? 'true' : 'false' })
   if (container) params.set('container', container)
-  if (command) params.set('command', command)
+  if (attach) params.set('mode', 'attach')          // kubectl attach：连主进程 stdio
+  else if (command) params.set('command', command)
   if (token) params.set('session', token)
   const ws = new WebSocket(`${proto}://${host}/api/exec?${params}`)
   ws.binaryType = 'arraybuffer'

@@ -127,6 +127,12 @@ try {
   const dbgBad = await http('/api/pod/debug', { method: 'POST', headers: auth, body: JSON.stringify({ namespace: 'ns', pod: 'p' }) })
   dbgBad.status === 400 ? ok('pod/debug 缺 image 返回 400') : bad('pod/debug 缺 image 应 400', new Error('status=' + dbgBad.status))
 
+  // 6d) CronJob 手动触发 鉴权 / 参数校验（triggerCronJob 之前即拒绝）
+  const trigNoAuth = await http('/api/cronjob/trigger', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ namespace: 'ns', name: 'cj' }) })
+  trigNoAuth.status === 401 ? ok('cronjob/trigger 无 session 返回 401') : bad('cronjob/trigger 无 session 应 401', new Error('status=' + trigNoAuth.status))
+  const trigBad = await http('/api/cronjob/trigger', { method: 'POST', headers: auth, body: JSON.stringify({ namespace: 'ns' }) })
+  trigBad.status === 400 ? ok('cronjob/trigger 缺 name 返回 400') : bad('cronjob/trigger 缺 name 应 400', new Error('status=' + trigBad.status))
+
   // 7) 二进制帧编解码契约（与 server WsSink / client execStream 保持一致）
   const encode = (type, data) => Buffer.concat([Buffer.from([type]), Buffer.from(data, 'utf8')])
   const decode = buf => ({ type: buf[0], payload: buf.subarray(1).toString('utf8') })
