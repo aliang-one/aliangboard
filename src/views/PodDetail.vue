@@ -8,6 +8,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import ResourceTopology from '@/components/common/ResourceTopology.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { api, k8sStream, podFileApi, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -641,7 +642,8 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
             </div>
             <div>
               <h4 class="text-label-caps text-on-surface-variant mb-2">OWNER REFERENCES</h4>
-              <div class="flex items-center gap-2 p-sm bg-surface-container-low rounded border border-outline-variant cursor-pointer hover:border-primary transition-colors">
+              <ResourceTopology v-if="store.remoteMode" :namespace="pod.namespace" kind="Pod" :name="pod.name" api-version="v1" />
+              <div v-else class="flex items-center gap-2 p-sm bg-surface-container-low rounded border border-outline-variant">
                 <span class="material-symbols-outlined text-primary">account_tree</span>
                 <span class="text-body-sm font-medium">ReplicaSet/{{ pod.name }}</span>
               </div>
