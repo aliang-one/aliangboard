@@ -14,6 +14,7 @@ const props = defineProps({
   namespace: { type: String, default: '' },
   container: { type: String, default: '' },
   command: { type: String, default: '/bin/sh' },
+  attach: { type: Boolean, default: false },   // true = kubectl attach（连主进程 stdio），否则 exec 开新 shell
 })
 
 const store = useClusterStore()
@@ -63,12 +64,13 @@ async function connect() {
   setStatus('connecting')
   await nextTick()          // 等待 <div ref="root"> 挂载，xterm 才能 open
   initTerm()
-  term.writeln(`\x1b[36m连接 ${props.namespace}/${props.podName}（${props.container || '默认容器'}）…\x1b[0m`)
+  term.writeln(`\x1b[36m${props.attach ? 'attach' : 'exec'} ${props.namespace}/${props.podName}（${props.container || '默认容器'}）…\x1b[0m`)
   stream = execStream({
     namespace: props.namespace,
     pod: props.podName,
     container: props.container,
     command: props.command,
+    attach: props.attach,
     onStdout: d => term.write(d),
     onStderr: d => term.write(d),
     onExit: s => {
@@ -95,8 +97,9 @@ async function connect() {
 onMounted(() => { /* 等待用户点击 Connect */ })
 onUnmounted(teardown)
 
-// 已连接时切换容器 → 重连
+// 已连接时切换容器 / 模式 → 重连
 watch(() => props.container, () => { if (stream || status.value === 'open') connect() })
+watch(() => props.attach, () => { if (stream || status.value === 'open') connect() })
 </script>
 
 <template>

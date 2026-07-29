@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { cronJobApi } from '@/api/client'
+import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -87,6 +89,20 @@ function handleDelete() {
 
 function handleRestart() {
   store.restartWorkload(route.params.name, route.params.namespace)
+}
+
+// CronJob 手动触发（kubectl create job --from）
+const triggering = ref(false)
+async function triggerCron() {
+  triggering.value = true
+  try {
+    const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
+    notify(`已触发 Job：${res.job || route.params.name}`, 'success')
+  } catch (e) {
+    notify(e.message || '触发失败', 'error')
+  } finally {
+    triggering.value = false
+  }
 }
 
 function openScale() {
@@ -235,6 +251,9 @@ async function saveTemplate() {
         </button>
         <button @click="handleRestart" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">refresh</span> Restart
+        </button>
+        <button v-if="isCronJob && store.remoteMode" @click="triggerCron" :disabled="triggering" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50" title="手动触发一次（kubectl create job --from）">
+          <span class="material-symbols-outlined">{{ triggering ? 'progress_activity' : 'play_arrow' }}</span> Trigger
         </button>
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
           <span class="material-symbols-outlined">edit</span> Edit

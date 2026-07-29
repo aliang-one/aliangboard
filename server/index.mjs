@@ -179,12 +179,12 @@ async function handleExec(ws, session, url) {
   const pod = url.searchParams.get('pod')
   if (!namespace || !pod) { wsSend(ws, CH_ERROR, '缺少 namespace / pod 参数'); return ws.close() }
   const container = url.searchParams.get('container') || ''
+  const mode = url.searchParams.get('mode')   // 'attach' = 连接主进程 stdio；否则 exec 开新 shell
   const command = (url.searchParams.get('command') || '/bin/sh').trim().split(/\s+/)
   const tty = url.searchParams.get('tty') !== 'false'
 
-  const { KubeConfig, Exec } = await k8sClient()
+  const { KubeConfig, Exec, Attach } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
-  const exec = new Exec(kc)
 
   const stdout = new WsSink(CH_STDOUT, ws)
   const stderr = new WsSink(CH_STDERR, ws)
@@ -192,11 +192,16 @@ async function handleExec(ws, session, url) {
   let conn = null
 
   try {
-    conn = await exec.exec(namespace, pod, container, command, stdout, stderr, stdin, tty, status => {
-      wsSend(ws, CH_EXIT, JSON.stringify({ status: status?.status || 'Success', code: status?.code ?? null }))
-    })
+    if (mode === 'attach') {
+      // kubectl attach：连接容器主进程（PID 1）的 stdio，不开新 shell
+      conn = await new Attach(kc).attach(namespace, pod, container, stdout, stderr, stdin, tty)
+    } else {
+      conn = await new Exec(kc).exec(namespace, pod, container, command, stdout, stderr, stdin, tty, status => {
+        wsSend(ws, CH_EXIT, JSON.stringify({ status: status?.status || 'Success', code: status?.code ?? null }))
+      })
+    }
   } catch (error) {
-    wsSend(ws, CH_ERROR, error?.message || 'exec 会话建立失败（可能镜像内无 shell，或容器未就绪）')
+    wsSend(ws, CH_ERROR, error?.message || `${mode === 'attach' ? 'attach' : 'exec'} 会话建立失败（容器可能未就绪或镜像内无 shell）`)
     return ws.close()
   }
 
@@ -251,6 +256,28 @@ async function attachEphemeral(session, namespace, pod, spec) {
   list.push(container)
   const body = { kind: 'EphemeralContainers', apiVersion: 'v1', metadata: { name: pod, namespace }, spec: { ephemeralContainers: list } }
   return (await requestKubernetes(session, subPath, { method: 'PUT', body: JSON.stringify(body) })).body
+}
+
+// 手动触发 CronJob（kubectl create job --from 语义）：读 jobTemplate 创建一个 Job，
+// 带 cronjob.kubernetes.io/instantiate=manual 注解 + ownerReference 指向 CronJob。
+async function triggerCronJob(session, namespace, name, jobName) {
+  const cj = (await requestKubernetes(session, `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/cronjobs/${encodeURIComponent(name)}`)).body
+  const template = cj?.spec?.jobTemplate
+  if (!template?.spec) throw Object.assign(new Error('CronJob 缺少 jobTemplate.spec'), { status: 422 })
+  const uid = cj?.metadata?.uid
+  const job = {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: {
+      namespace,
+      ...(jobName ? { name: jobName } : { generateName: `${name}-` }),
+      labels: template.metadata?.labels || {},
+      annotations: { ...(template.metadata?.annotations || {}), 'cronjob.kubernetes.io/instantiate': 'manual' },
+      ...(uid ? { ownerReferences: [{ apiVersion: 'batch/v1', kind: 'CronJob', name, uid, controller: true }] } : {}),
+    },
+    spec: template.spec,
+  }
+  return (await requestKubernetes(session, `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/jobs`, { method: 'POST', body: JSON.stringify(job) })).body
 }
 
 // === 端口转发 ===
@@ -483,6 +510,20 @@ async function handle(req, res) {
       return sendJson(res, 200, { ok: true, container: name })
     } catch (error) {
       return sendJson(res, error.status || 422, { message: error?.message || '注入临时容器失败（集群可能未启用 EphemeralContainers，需 K8s 1.25+）' })
+    }
+  }
+
+  // 手动触发 CronJob（kubectl create job --from）
+  if (req.method === 'POST' && url.pathname === '/api/cronjob/trigger') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    try {
+      const input = await readBody(req)
+      if (!input.namespace || !input.name) return sendJson(res, 400, { message: '缺少 namespace / name' })
+      const job = await triggerCronJob(session, input.namespace, input.name, input.jobName)
+      return sendJson(res, 200, { ok: true, job: job?.metadata?.name || '' })
+    } catch (error) {
+      return sendJson(res, error.status || 422, { message: error?.message || '触发 CronJob 失败' })
     }
   }
 
