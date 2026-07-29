@@ -91,6 +91,7 @@ async function logout() {
           @keydown="onSearchKeydown"
           class="w-full bg-surface-container-low border border-outline-variant rounded-full py-1.5 pl-10 pr-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
           placeholder="搜索资源（Pod / 工作负载 / Service …，回车跳首个）..."
+          aria-label="搜索资源"
           type="text"
         />
         <!-- 全局搜索结果 -->
@@ -163,14 +164,14 @@ async function logout() {
       </div>
     </div>
     <div class="flex items-center gap-md">
-      <button class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors relative">
+      <button aria-label="通知" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors relative">
         <span class="material-symbols-outlined">notifications</span>
         <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full"></span>
       </button>
-      <button class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+      <button aria-label="帮助" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">help</span>
       </button>
-      <button class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+      <button aria-label="设置" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">settings</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>

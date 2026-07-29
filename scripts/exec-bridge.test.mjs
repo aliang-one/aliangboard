@@ -133,6 +133,12 @@ try {
   const trigBad = await http('/api/cronjob/trigger', { method: 'POST', headers: auth, body: JSON.stringify({ namespace: 'ns' }) })
   trigBad.status === 400 ? ok('cronjob/trigger 缺 name 返回 400') : bad('cronjob/trigger 缺 name 应 400', new Error('status=' + trigBad.status))
 
+  // 6e) 资源归属拓扑 鉴权 / 参数校验（resolveOwnerTree 之前即拒绝）
+  const treeNoAuth = await http('/api/resource/tree?namespace=ns&kind=Pod&name=p')
+  treeNoAuth.status === 401 ? ok('resource/tree 无 session 返回 401') : bad('resource/tree 无 session 应 401', new Error('status=' + treeNoAuth.status))
+  const treeBad = await http('/api/resource/tree?kind=Pod&name=p', { headers: { authorization: `Bearer ${token}` } })
+  treeBad.status === 400 ? ok('resource/tree 缺 namespace 返回 400') : bad('resource/tree 缺 namespace 应 400', new Error('status=' + treeBad.status))
+
   // 7) 二进制帧编解码契约（与 server WsSink / client execStream 保持一致）
   const encode = (type, data) => Buffer.concat([Buffer.from([type]), Buffer.from(data, 'utf8')])
   const decode = buf => ({ type: buf[0], payload: buf.subarray(1).toString('utf8') })
