@@ -236,6 +236,23 @@ async function execCapture(session, namespace, pod, container, command) {
 const PODFILE_PREVIEW_LIMIT = 256 * 1024   // 预览最多 256KB
 const PODFILE_DOWNLOAD_LIMIT = 16 * 1024 * 1024  // 下载最多 16MB（超出请用终端）
 
+// 注入 Ephemeral Container（kubectl debug 语义）：向 pods/ephemeralcontainers 子资源
+// 先 GET 已有列表再 PUT 追加，避免覆盖同名临时容器。需集群启用 EphemeralContainers（1.25+ 默认开启）。
+async function attachEphemeral(session, namespace, pod, spec) {
+  const subPath = `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}/ephemeralcontainers`
+  let existing = null
+  try { existing = (await requestKubernetes(session, subPath)).body } catch (e) {
+    if (e.status !== 404 && e.status !== 405) throw e   // 404/405 = 尚无临时容器，从空列表开始
+  }
+  const list = existing?.spec?.ephemeralContainers || []
+  if (list.some(c => c.name === spec.name)) throw Object.assign(new Error(`已存在同名临时容器 ${spec.name}`), { status: 409 })
+  const container = { name: spec.name, image: spec.image, command: spec.command, stdin: spec.stdin !== false, tty: spec.tty !== false }
+  if (spec.targetContainerName) container.targetContainerName = spec.targetContainerName
+  list.push(container)
+  const body = { kind: 'EphemeralContainers', apiVersion: 'v1', metadata: { name: pod, namespace }, spec: { ephemeralContainers: list } }
+  return (await requestKubernetes(session, subPath, { method: 'PUT', body: JSON.stringify(body) })).body
+}
+
 // === 端口转发 ===
 // 在网关主机开本地 TCP 监听，每个进入的 TCP 连接经 client-node portForward 转发到 Pod；
 // 语义等同 kubectl port-forward（默认绑 127.0.0.1，浏览器需能访问该地址）。
@@ -444,6 +461,28 @@ async function handle(req, res) {
       return sendJson(res, 404, { message: `未知 podfile 操作：${action}` })
     } catch (error) {
       return sendJson(res, error.status || 502, { message: error?.message || 'Pod 文件操作失败' })
+    }
+  }
+
+  // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
+  if (req.method === 'POST' && url.pathname === '/api/pod/debug') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    try {
+      const input = await readBody(req)
+      if (!input.namespace || !input.pod || !input.image) return sendJson(res, 400, { message: '缺少 namespace / pod / image' })
+      const name = input.name || 'debugger'
+      await attachEphemeral(session, input.namespace, input.pod, {
+        name,
+        image: input.image,
+        command: Array.isArray(input.command) ? input.command : (input.command ? String(input.command).split(/\s+/) : ['sh']),
+        targetContainerName: input.targetContainer || '',
+        tty: input.tty !== false,
+        stdin: input.stdin !== false,
+      })
+      return sendJson(res, 200, { ok: true, container: name })
+    } catch (error) {
+      return sendJson(res, error.status || 422, { message: error?.message || '注入临时容器失败（集群可能未启用 EphemeralContainers，需 K8s 1.25+）' })
     }
   }
 
