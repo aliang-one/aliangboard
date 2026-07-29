@@ -12,6 +12,46 @@ const showClusterDropdown = ref(false)
 
 const currentClusterObj = computed(() => store.getCurrentCluster())
 
+// === 全局搜索：聚合已同步资源，按名称跨命名空间匹配，点击跳转详情 ===
+const WL_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
+const ICON_FOR = { Pod: 'deployed_code', Deployment: 'work', StatefulSet: 'work', DaemonSet: 'work', Job: 'work', CronJob: 'work', Service: 'share', Ingress: 'alt_route', ConfigMap: 'description', Secret: 'lock', PVC: 'storage', Node: 'dns', Namespace: 'folder' }
+function searchIndex() {
+  const push = (kind, name, namespace) => name && items.push({ kind, name, namespace })
+  const items = []
+  for (const p of store.podList || []) push('Pod', p.name, p.namespace)
+  for (const w of store.workloadList || []) push(w.type, w.name, w.namespace)
+  for (const s of store.serviceList || []) push('Service', s.name, s.namespace)
+  for (const ing of store.ingressList || []) push('Ingress', ing.name, ing.namespace)
+  for (const cm of store.configMapList || []) push('ConfigMap', cm.name, cm.namespace)
+  for (const sec of store.secretList || []) push('Secret', sec.name, sec.namespace)
+  for (const pvc of store.pvcList || []) push('PVC', pvc.name, pvc.namespace)
+  for (const n of store.nodeList || []) push('Node', n.name, '')
+  for (const ns of store.namespaceList || []) push('Namespace', ns.name, '')
+  return items
+}
+const searchResults = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return []
+  return searchIndex().filter(it => it.name.toLowerCase().includes(q)).slice(0, 12)
+})
+function goResult(it) {
+  if (!it) return
+  searchQuery.value = ''
+  if (it.kind === 'Pod') router.push({ name: 'NsPodDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (WL_KINDS.includes(it.kind)) router.push({ name: 'NsWorkloadDetail', params: { namespace: it.namespace, type: it.kind.toLowerCase(), name: it.name } })
+  else if (it.kind === 'Service') router.push({ name: 'NsServiceDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (it.kind === 'Ingress') router.push({ name: 'NsIngressDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (it.kind === 'ConfigMap') router.push({ name: 'NsConfigMapDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (it.kind === 'Secret') router.push({ name: 'NsSecretDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (it.kind === 'PVC') router.push({ name: 'NsPVCDetail', params: { namespace: it.namespace, name: it.name } })
+  else if (it.kind === 'Node') router.push(`/nodes/${it.name}`)
+  else if (it.kind === 'Namespace') router.push({ name: 'NamespaceDetail', params: { name: it.name } })
+}
+function onSearchKeydown(e) {
+  if (e.key === 'Enter' && searchResults.value.length) { e.preventDefault(); goResult(searchResults.value[0]) }
+  else if (e.key === 'Escape') searchQuery.value = ''
+}
+
 // 集群状态 → 圆点颜色
 function clusterStatusColor(status) {
   if (status === 'Healthy') return 'bg-primary'
@@ -46,13 +86,22 @@ async function logout() {
   <header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface h-16 border-b border-outline-variant shrink-0">
     <div class="flex items-center gap-lg flex-1">
       <div class="relative max-w-md w-full">
-        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">search</span>
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
         <input
           v-model="searchQuery"
+          @keydown="onSearchKeydown"
           class="w-full bg-surface-container-low border border-outline-variant rounded-full py-1.5 pl-10 pr-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          placeholder="Search resources..."
+          placeholder="搜索资源（Pod / 工作负载 / Service …，回车跳首个）..."
           type="text"
         />
+        <!-- 全局搜索结果 -->
+        <div v-if="searchResults.length" class="absolute top-full left-0 mt-1 w-full bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-y-auto max-h-96">
+          <button v-for="(it, i) in searchResults" :key="i" @click="goResult(it)" class="flex items-center gap-sm w-full px-md py-sm hover:bg-surface-container-low text-left transition-colors border-b border-outline-variant/30 last:border-0">
+            <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ ICON_FOR[it.kind] || 'circle' }}</span>
+            <span class="font-mono text-code-sm text-on-surface truncate">{{ it.name }}</span>
+            <span class="ml-auto text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
+          </button>
+        </div>
       </div>
 
       <!-- 集群切换 -->
