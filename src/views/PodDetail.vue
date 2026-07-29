@@ -9,7 +9,7 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
-import { api, k8sStream, podFileApi, podDebugApi } from '@/api/client'
+import { api, k8sStream, podFileApi, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 
 const route = useRoute()
@@ -183,6 +183,13 @@ const confirmAction = ref(null)   // null | { mode: 'delete' | 'restart' }
 const confirmOpen = computed({ get: () => !!confirmAction.value, set: v => { if (!v) confirmAction.value = null } })
 function askDelete() { confirmAction.value = { mode: 'delete' } }
 function askRestart() { confirmAction.value = { mode: 'restart' } }
+async function exportPod() {
+  if (!pod.value) return
+  try {
+    await exportYaml(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}`, `${pod.value.name}.yaml`)
+    notify('已导出 YAML', 'success')
+  } catch (e) { notify(e.message || '导出失败', 'error') }
+}
 async function doConfirmed() {
   const mode = confirmAction.value?.mode
   confirmAction.value = null
@@ -254,6 +261,9 @@ async function doAttachDebug() {
   }
 }
 watch(() => pod.value?.name, () => { debugContainers.value = [] })   // 切换 Pod 时清空本会话调试容器
+
+// === 事件：远端按 involvedObject 过滤该 Pod 的事件；演示模式回退全量 nsEvents ===
+const podEvents = computed(() => store.remoteMode ? store.eventsFor('Pod', pod.value?.name, pod.value?.namespace) : store.nsEvents)
 
 // === 事件关联资源跳转 ===
 function goToRelated(event) {
@@ -398,6 +408,10 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
         </div>
       </div>
       <div class="flex gap-2">
+        <button v-if="store.remoteMode" @click="exportPod" title="导出真实 YAML（kubectl get -o yaml）" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined">download</span>
+          <span class="font-medium text-body-md">Export</span>
+        </button>
         <button @click="askDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-error">delete</span>
           <span class="font-medium text-body-md">Delete</span>
@@ -564,7 +578,7 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
         <!-- Events View（可跳转关联资源）-->
         <div v-if="activeTab === 'events'" class="flex-1 p-lg overflow-y-auto max-h-[600px]">
           <div class="flex flex-col gap-md">
-            <div v-for="(event, idx) in store.eventList" :key="idx"
+            <div v-for="(event, idx) in podEvents" :key="idx"
               class="flex gap-md border-b border-outline-variant pb-md"
               :class="event.relatedKind ? 'cursor-pointer hover:bg-surface-container-low/50 rounded-lg -mx-sm px-sm py-xs transition-colors' : ''"
               @click="goToRelated(event)">

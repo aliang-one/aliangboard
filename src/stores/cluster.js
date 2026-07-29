@@ -1169,6 +1169,8 @@ export const useClusterStore = defineStore('cluster', () => {
     pdbList.value = []
     priorityClassList.value = []
     crdList.value = []
+    stopEventWatch()
+    eventWatchRv = ''
   }
 
   function setConnectedCluster(info) {
@@ -1350,10 +1352,74 @@ export const useClusterStore = defineStore('cluster', () => {
     if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
   }
 
+  // === Events 实时监听（watch）+ 按对象过滤 ===
+  let eventWatchHandle = null
+  let eventWatchRv = ''
+  const eventWatchLive = ref(false)
+  function applyEventWatchEvent(evt) {
+    const mapped = mapEvent(evt.object)
+    if (!mapped.uid) return
+    const idx = eventList.value.findIndex(e => e.uid === mapped.uid)
+    if (evt.type === 'DELETED') { if (idx !== -1) eventList.value.splice(idx, 1) }
+    else if (idx !== -1) eventList.value[idx] = mapped
+    else { eventList.value.unshift(mapped); if (eventList.value.length > 1000) eventList.value.length = 1000 }
+  }
+  function startEventWatch() {
+    if (!remoteMode.value || eventWatchHandle) return
+    const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
+    eventWatchLive.value = true
+    eventWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
+          applyEventWatchEvent(evt)
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopEventWatch,
+      onClose: stopEventWatch,
+    })
+  }
+  function stopEventWatch() {
+    eventWatchLive.value = false
+    if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
+  }
+  // 详情页用：返回关联到指定资源（involvedObject）的事件
+  function eventsFor(kind, name, namespace) {
+    return eventList.value.filter(e => e.relatedKind === kind && e.relatedName === name && (!namespace || e.relatedNamespace === namespace))
+  }
+
   // === 远端资源映射（K8s API 对象 → 前端扁平结构，字段与 mock 保持一致）===
   // 视图按 mock 形状渲染，这里把真实集群返回的对象映射成相同结构，
   // 这样所有列表/详情页在远端模式下都能正确展示。
   const AM = { ReadWriteOnce: 'RWO', ReadWriteMany: 'RWM', ReadOnlyMany: 'ROM', ReadWriteOncePod: 'RWOP' }
+
+  // Event 规范化：统一 type(小写)/time/icon/color，并从 involvedObject 抽出关联资源，供详情页按对象过滤与跳转
+  function eventIconColor(type, reason) {
+    const t = String(type || '').toLowerCase()
+    if (t === 'warning') return { icon: 'warning', color: 'tertiary' }
+    if (/fail|error|backoff|evict|unhealthy|deadline|exceed/i.test(reason || '')) return { icon: 'error', color: 'error' }
+    if (/pull|creat|schedul|scal|start|bound|issu|updat|delet|read/i.test(reason || '')) return { icon: 'check_circle', color: 'primary' }
+    return { icon: 'info', color: 'surface' }
+  }
+  function mapEvent(item) {
+    const io = item.involvedObject || {}
+    const ts = item.lastTimestamp || item.eventTime || item.metadata?.creationTimestamp
+    const { icon, color } = eventIconColor(item.type, item.reason)
+    return {
+      uid: item.metadata?.uid || '',
+      type: String(item.type || 'Normal').toLowerCase(),   // normal | warning
+      reason: item.reason || '',
+      message: item.message || '',
+      namespace: item.metadata?.namespace || io.namespace || '',
+      time: ageOf(ts),
+      icon, color,
+      relatedKind: io.kind || '',
+      relatedName: io.name || '',
+      relatedNamespace: io.namespace || '',
+      _ts: ts ? new Date(ts).getTime() : 0,
+    }
+  }
   const mapConfigMap = item => {
     const data = item.data || {}
     return {
@@ -1657,14 +1723,10 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     if (serviceData?.items) serviceList.value = serviceData.items.map(mapService)
     if (ingressData?.items) ingressList.value = ingressData.items.map(mapIngress)
-    if (eventData?.items) eventList.value = eventData.items.map(item => ({
-      type: item.type || 'Normal',
-      reason: item.reason || '',
-      message: item.message || '',
-      object: `${item.involvedObject?.kind || ''}/${item.involvedObject?.name || ''}`,
-      namespace: item.metadata?.namespace || '',
-      age: ageOf(item.lastTimestamp || item.eventTime || item.metadata?.creationTimestamp),
-    }))
+    if (eventData?.items) {
+      eventList.value = eventData.items.map(mapEvent).sort((a, b) => (b._ts || 0) - (a._ts || 0))
+      if (eventData.metadata?.resourceVersion) eventWatchRv = eventData.metadata.resourceVersion
+    }
     // 集群级 CPU/内存：按节点用量 / allocatable 汇总；与上次水合对比得出趋势
     let cpuUsage = null, memoryUsage = null
     if (metricsAvailable) {
@@ -2767,6 +2829,7 @@ status:
     switchCluster, getCurrentCluster, setConnectedCluster, hydrateCoreResources,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
+    eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
     // CRD
     getCRDByName,
     // 审计

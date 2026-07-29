@@ -1,5 +1,24 @@
+import { dump as yamlDump } from 'js-yaml'
+
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const sessionKey = 'aliangboard.session'
+
+// 导出任意资源的真实 YAML（kubectl get -o yaml）：拉取 live 对象 → 去 managedFields → dump → 下载
+export async function exportYaml(k8sPath, filename = 'resource.yaml') {
+  const obj = await request(`/api/k8s${k8sPath}`)
+  const clone = JSON.parse(JSON.stringify(obj || {}))
+  if (clone?.metadata) delete clone.metadata.managedFields   // 去掉冗长的 managedFields
+  const text = yamlDump(clone)
+  const blob = new Blob([text], { type: 'text/yaml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return text
+}
+
 
 function getSessionToken() {
   return sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey) || ''
