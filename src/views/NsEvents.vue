@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -18,6 +18,10 @@ const filtered = computed(() => {
   if (q) list = list.filter(e => (e.reason || '').toLowerCase().includes(q) || (e.message || '').toLowerCase().includes(q))
   return list
 })
+
+// 远端模式进入页面即开启 Events 实时监听，离开时停止
+onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onUnmounted(() => store.stopEventWatch())
 </script>
 
 <template>
@@ -45,6 +49,9 @@ const filtered = computed(() => {
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索原因或消息..." />
       </div>
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsEvents.length }}</span>
+      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full" title="events?watch=true 实时推送（Gateway 流式 pipe）">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE · 流式
+      </span>
     </div>
 
     <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
