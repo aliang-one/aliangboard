@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 
 const props = defineProps({
@@ -22,40 +23,53 @@ const open = computed({
 
 const selPort = ref('')
 const localPort = ref('')
+const forwarding = ref(false)
 
 function suggestedPortOptions() {
   return props.suggestedPorts.length ? props.suggestedPorts : [80, 8080, 443, 9090]
 }
 
-function doForward() {
+// 打开时同步后端真实活动转发（远端模式）
+watch(open, v => { if (v && store.remoteMode) store.refreshPortForwards() })
+
+async function doForward() {
   const port = parseInt(selPort.value || suggestedPortOptions()[0])
-  const pf = store.addPortForward({
-    kind: props.kind,
-    name: props.name,
-    namespace: props.namespace,
-    port,
-    localPort: localPort.value ? parseInt(localPort.value) : undefined,
-  })
-  selPort.value = ''
-  localPort.value = ''
-  return pf
+  forwarding.value = true
+  try {
+    await store.addPortForward({
+      kind: props.kind,
+      name: props.name,
+      namespace: props.namespace,
+      port,
+      localPort: localPort.value ? parseInt(localPort.value) : undefined,
+    })
+    selPort.value = ''
+    localPort.value = ''
+    notify(`已转发 ${props.kind}/${props.name} :${port}`, 'success')
+  } catch (e) {
+    notify(e?.message || '端口转发建立失败', 'error')
+  } finally {
+    forwarding.value = false
+  }
 }
 
 function openInBrowser(pf) {
+  // 默认绑 127.0.0.1：仅当网关运行在本机时，浏览器 localhost 才可达（同 kubectl port-forward）。
   window.open(`http://localhost:${pf.localPort}`, '_blank', 'noopener')
 }
-function stopForward(id) {
-  store.removePortForward(id)
+async function stopForward(id) {
+  try { await store.removePortForward(id) } catch { /* 忽略 */ }
 }
 </script>
 
 <template>
   <Modal v-model="open" :title="`端口转发 / Port Forward`" width="max-w-2xl">
     <p class="text-body-sm text-on-surface-variant mb-md">
-      模拟 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl port-forward</code>：将
+      等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl port-forward</code>：将
       <span class="font-mono text-primary">{{ kind }}/{{ name }}</span>
       <span v-if="namespace" class="text-on-surface-variant"> ({{ namespace }})</span>
-      的端口映射到本地端口，便于浏览器直接访问（无需 NodePort / Ingress）。
+      的端口映射到网关本机端口（Service/Deployment 会自动经 endpoints 解析到后端 Pod）。
+      <span v-if="store.remoteMode" class="text-tertiary-container">默认监听 127.0.0.1（网关须运行在本机，否则浏览器无法直达）。</span>
     </p>
 
     <!-- 新建转发 -->
@@ -71,8 +85,8 @@ function stopForward(id) {
         <label class="text-label-caps text-on-surface-variant block mb-xs">本地端口（可选）</label>
         <input v-model="localPort" type="number" class="w-32 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="自动分配" />
       </div>
-      <button @click="doForward" :disabled="!name" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40">
-        <span class="material-symbols-outlined text-sm">bolt</span> Forward
+      <button @click="doForward" :disabled="!name || forwarding" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40">
+        <span class="material-symbols-outlined text-sm">{{ forwarding ? 'progress_activity' : 'bolt' }}</span> Forward
       </button>
     </div>
 

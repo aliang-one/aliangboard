@@ -12,6 +12,9 @@ AliangBoard 是一个 Vue 3 Kubernetes 管理面板。项目同时包含前端�
 - Pod 删除与真实日志读取（支持多容器选择）
 - Deployment / StatefulSet 扩缩容、滚动重启、回滚（kubectl rollout undo）
 - Node Cordon、Uncordon 和基于 `policy/v1 Eviction` 的 Drain
+- Pod Exec 终端（kubectl exec，xterm.js 实时双向，终端尺寸自适应）—— 浏览器 WebSocket ↔ Gateway ↔ K8s（`@kubernetes/client-node` 处理 SPDY/WS 协议升级）
+- 端口转发（kubectl port-forward）：Service / Deployment 自动经 endpoints 解析到后端 Pod，在网关本机开本地监听
+- Pod 文件浏览（kubectl cp 语义：列目录 / 预览 / 下载 / 上传），基于一次性 exec 落地真实容器文件
 - API Discovery 驱动的 Server-Side Apply（kubectl edit / apply 语义）
 - 部署向导支持一次应用多份 YAML 文档
 - 连接真实集群后自动清除 Mock 数据，确保只展示集群真实状态；未连接时仍保留 Mock 数据，便于界面开发
@@ -57,6 +60,7 @@ npm run build
 | `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API 请求超时，单位毫秒 |
 | `K8S_ALLOWED_HOSTS` | 空 | 逗号分隔的 API Server 主机允许列表 |
 | `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | 是否跳过集群证书验证，只应用于开发环境 |
+| `PORT_FORWARD_HOST` | `127.0.0.1` | 端口转发本地监听地址（同 kubectl port-forward；仅本机可达，浏览器需能访问） |
 
 前端环境变量：
 
@@ -82,14 +86,15 @@ K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 - Pod 日志的 `get`
 - Pod eviction 的 `create`
 - Node 运维需要的 `patch`
+- Pod Exec 终端的 `pods/exec`（`create`）
+- 端口转发的 `pods/portforward`（`get` / `create`）
 
 API Gateway 只在内存中保存集群凭据和会话，重启后所有登录会话都会失效。生产环境若需要多实例部署，应将会话和加密后的集群凭据迁移到专用存储。
 
 ## 当前边界
 
-- Pod Terminal 仍是界面模拟，真实 Exec 需要增加 WebSocket/SPDY 流代理。
-- 指标图仍使用现有展示模型，尚未接入 Metrics Server 或 Prometheus。
+- Pod Exec 终端、端口转发、文件浏览仅在连接真实集群时生效（演示数据模式下为模拟 / 只读）。
+- 端口转发在网关本机开本地 TCP 监听（默认 `127.0.0.1`，同 kubectl port-forward）；当 Dashboard 部署在远端主机时，浏览器无法直接访问该端口，需自行 SSH 端口转发等。
+- Exec 终端默认执行 `/bin/sh`（可通过组件 `command` 属性调整）；distroless 等无 shell 镜像无法进入。
 - Helm、GitOps、告警和持久化审计尚未接入。
-- 列表刷新依赖进入页面 / 操作触发的水合；尚未实现全局 Watch 实时推送。
 - HPA / PDB 等依赖特定 API 版本（如 autoscaling/v2、policy/v1），低版本集群上对应创建会失败并以 toast 提示。
-- 工作负载「滚动发布历史 / 回滚」在远端模式下仅展示当前版本（真实 revision 历史需查询 ReplicaSet，尚未接入）。

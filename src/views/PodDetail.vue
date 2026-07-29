@@ -6,7 +6,8 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
-import { api } from '@/api/client'
+import { api, k8sStream, podFileApi } from '@/api/client'
+import { notify } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,6 +58,19 @@ async function copyLogs() {
 const followLog = ref(true)
 const liveLogs = ref([])
 let logTimer = null
+let logStream = null    // 真流式（log follow）的句柄，stopFollow 时 abort
+// 日志查询选项（kubectl logs 语义：--tail / --since / --previous）
+const logLines = ref(500)
+const logSince = ref('')            // 空字符串 = 不限时间；否则为 sinceSeconds
+const logPrevious = ref(false)      // --previous：上一容器（崩溃前）日志
+const lineOptions = [100, 500, 1000, 5000]
+const sinceOptions = [
+  { label: '全部', value: '' },
+  { label: '近 5 分钟', value: '300' },
+  { label: '近 15 分钟', value: '900' },
+  { label: '近 1 小时', value: '3600' },
+  { label: '近 6 小时', value: '21600' },
+]
 const sampleLogMessages = [
   { level: 'INFO', message: 'GET /api/v1/health - 200 OK (8ms)' },
   { level: 'INFO', message: 'GET /api/v1/metrics - 200 OK (24ms)' },
@@ -73,20 +87,31 @@ function pushLog() {
   liveLogs.value.push({ timestamp: new Date().toISOString().substr(11, 12), level: sample.level, message: sample.message })
   if (liveLogs.value.length > 80) liveLogs.value.shift()
 }
+function logQuery(follow = false) {
+  const container = selectedContainer.value || pod.value.containers?.[0]
+  const query = new URLSearchParams({ timestamps: 'true', tailLines: String(logLines.value) })
+  if (container) query.set('container', container)
+  if (logPrevious.value) query.set('previous', 'true')            // --previous
+  if (logSince.value) query.set('sinceSeconds', String(logSince.value)) // --since
+  if (follow) query.set('follow', 'true')
+  return query
+}
+function parseLogLine(line) {
+  const match = String(line).match(/^(\S+)\s(.*)$/)
+  const timestamp = match?.[1] || ''
+  const message = match?.[2] || line
+  const level = /\berror\b/i.test(message) ? 'ERROR' : /\bwarn(?:ing)?\b/i.test(message) ? 'WARN' : 'INFO'
+  return { timestamp, level, message }
+}
+function pushParsed(line) {
+  liveLogs.value.push(parseLogLine(line))
+  if (liveLogs.value.length > 300) liveLogs.value.splice(0, liveLogs.value.length - 300)
+}
 async function loadRemoteLogs() {
   if (!pod.value) return
   try {
-    const container = selectedContainer.value || pod.value.containers?.[0]
-    const query = new URLSearchParams({ timestamps: 'true', tailLines: '500' })
-    if (container) query.set('container', container)
-    const text = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${query}`)
-    liveLogs.value = String(text || '').split('\n').filter(Boolean).map(line => {
-      const match = line.match(/^(\S+)\s(.*)$/)
-      const timestamp = match?.[1] || ''
-      const message = match?.[2] || line
-      const level = /\berror\b/i.test(message) ? 'ERROR' : /\bwarn(?:ing)?\b/i.test(message) ? 'WARN' : 'INFO'
-      return { timestamp, level, message }
-    })
+    const text = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery()}`)
+    liveLogs.value = String(text || '').split('\n').filter(Boolean).map(parseLogLine)
   } catch (error) {
     liveLogs.value = [{ timestamp: new Date().toISOString(), level: 'ERROR', message: error.message || '日志读取失败' }]
   }
@@ -94,21 +119,57 @@ async function loadRemoteLogs() {
 function startFollow() {
   stopFollow()
   if (store.remoteMode) {
-    loadRemoteLogs()
-    logTimer = setInterval(loadRemoteLogs, 5000)
+    // 真流式：log?follow=true，逐行增量追加（Gateway 已对 follow 请求 pipe 透传）
+    const path = `/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery(true)}`
+    liveLogs.value = []
+    logStream = k8sStream(path, {
+      onMessage: pushParsed,
+      onError: e => { liveLogs.value.push({ timestamp: new Date().toISOString(), level: 'ERROR', message: e.message || '日志流中断' }) },
+    })
   } else {
     logTimer = setInterval(pushLog, 1800)
   }
 }
 function stopFollow() {
   if (logTimer) { clearInterval(logTimer); logTimer = null }
+  if (logStream) { logStream.abort(); logStream = null }
 }
 watch(followLog, (v) => { v ? startFollow() : stopFollow() })
-// 切换容器时，远程模式重新拉取该容器日志
-watch(selectedContainer, () => { if (store.remoteMode) loadRemoteLogs() })
+// 切换容器时，远程模式重新拉取该容器日志（follow 开则重启流）
+watch(selectedContainer, () => {
+  if (!store.remoteMode) return
+  if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
+})
+// 切换 tail / since / previous 时重启流或重拉；previous 为崩溃前静态日志，开启时关闭 follow
+watch([logLines, logSince, logPrevious], () => {
+  if (logPrevious.value) followLog.value = false
+  if (!store.remoteMode) return
+  if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
+})
 onMounted(() => { if (followLog.value) startFollow(); else if (store.remoteMode) loadRemoteLogs() })
 onUnmounted(stopFollow)
 const allLogs = computed(() => store.remoteMode ? liveLogs.value : [...store.logEntries, ...liveLogs.value])
+
+// 资源用量百分比：优先用远端数值字段，缺失时回退解析 "used/total" 字符串（兼容 mock）
+function pctFromRatio(str) {
+  if (!str || str === '0/0') return null
+  const parts = String(str).split('/')
+  if (parts.length !== 2) return null
+  const used = parseFloat(parts[0])
+  const total = parseFloat(parts[1])
+  if (!total) return null
+  return Math.min(100, Math.round((used / total) * 100))
+}
+const cpuPct = computed(() => {
+  const p = pod.value
+  if (p?.usedCpu != null && p?.reqCpu) return Math.min(100, Math.round((p.usedCpu / p.reqCpu) * 100))
+  return pctFromRatio(p?.cpu)
+})
+const memPct = computed(() => {
+  const p = pod.value
+  if (p?.usedMem != null && p?.reqMem) return Math.min(100, Math.round((p.usedMem / p.reqMem) * 100))
+  return pctFromRatio(p?.memory)
+})
 
 // === 事件关联资源跳转 ===
 function goToRelated(event) {
@@ -126,7 +187,8 @@ function goToRelated(event) {
   else if (k === 'Secret') router.push({ name: 'NsSecretDetail', params: { namespace: ns, name } })
 }
 
-// === 文件浏览器（模拟 kubectl cp）===
+// === 文件浏览器（kubectl cp 语义，基于 exec 的 ls / cat / 写入）===
+// 远端模式调用网关 exec 落地真实容器文件；演示数据模式回退到 fakeFs。
 const fakeFs = {
   '/': [{ n: 'app', t: 'dir' }, { n: 'etc', t: 'dir' }, { n: 'var', t: 'dir' }, { n: 'tmp', t: 'dir' }],
   '/app': [{ n: 'src', t: 'dir' }, { n: 'config', t: 'dir' }, { n: 'node_modules', t: 'dir' }, { n: 'package.json', t: 'file', s: '1.2 KB', m: '12d ago' }, { n: 'Dockerfile', t: 'file', s: '420 B', m: '45d ago' }, { n: '.env', t: 'file', s: '128 B', m: '5d ago' }],
@@ -144,44 +206,95 @@ const fakeFileContent = {
 const currentPath = ref('/app')
 const selectedFile = ref(null)
 const uploadInfo = ref('')
+const fileInput = ref(null)
+const fileLoading = ref(false)
+const fileError = ref('')
+const entries = ref([])
 
-const currentEntries = computed(() => fakeFs[currentPath.value] || [])
+const currentEntries = computed(() => store.remoteMode ? entries.value.map(e => ({ n: e.name, t: e.type })) : (fakeFs[currentPath.value] || []))
 const breadcrumbs_path = computed(() => {
   const parts = currentPath.value.split('/').filter(Boolean)
   return [{ n: '/', p: '/' }, ...parts.map((part, i) => ({ n: part, p: '/' + parts.slice(0, i + 1).join('/') }))]
 })
-function navigateTo(path) {
+function joinPath(dir, name) { return dir.endsWith('/') ? dir + name : dir + '/' + name }
+async function loadDir(path) {
   currentPath.value = path
   selectedFile.value = null
-}
-function openEntry(entry) {
-  if (entry.t === 'dir') {
-    navigateTo(currentPath.value === '/' ? `/${entry.n}` : `${currentPath.value}/${entry.n}`)
-  } else {
-    const fp = currentPath.value === '/' ? `/${entry.n}` : `${currentPath.value}/${entry.n}`
-    selectedFile.value = { name: entry.n, path: fp, content: fakeFileContent[fp] || `# ${entry.n}\n# (二进制文件或内容不可预览)`, size: entry.s }
+  fileError.value = ''
+  if (!store.remoteMode) return
+  fileLoading.value = true
+  try {
+    const res = await podFileApi.list({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path })
+    entries.value = (res.entries || []).slice().sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+  } catch (e) {
+    fileError.value = e.message || '读取目录失败'
+    entries.value = []
+  } finally {
+    fileLoading.value = false
   }
 }
+function navigateTo(path) { loadDir(path) }
 function goUp() {
   if (currentPath.value === '/') return
   const parts = currentPath.value.split('/').filter(Boolean)
   parts.pop()
   navigateTo(parts.length ? '/' + parts.join('/') : '/')
 }
-function downloadFile() {
+async function openEntry(entry) {
+  const fp = joinPath(currentPath.value, entry.n)
+  if (entry.t === 'dir') return navigateTo(fp)
+  if (!store.remoteMode) {
+    selectedFile.value = { name: entry.n, path: fp, content: fakeFileContent[fp] || `# ${entry.n}\n# (二进制文件或内容不可预览)`, size: entry.s }
+    return
+  }
+  try {
+    const res = await podFileApi.read({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: fp })
+    selectedFile.value = { name: entry.n, path: res.path, content: res.content, truncated: res.truncated, binary: res.binary }
+  } catch (e) {
+    notify(e.message || '读取文件失败', 'error')
+  }
+}
+async function downloadFile() {
   if (!selectedFile.value) return
-  const blob = new Blob([selectedFile.value.content], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = selectedFile.value.name
-  a.click()
-  URL.revokeObjectURL(url)
+  if (!store.remoteMode) {
+    const blob = new Blob([selectedFile.value.content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = selectedFile.value.name; a.click(); URL.revokeObjectURL(url)
+    return
+  }
+  try {
+    const blob = await podFileApi.download({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: selectedFile.value.path })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = selectedFile.value.name; a.click(); URL.revokeObjectURL(url)
+  } catch (e) {
+    notify(e.message || '下载失败', 'error')
+  }
 }
-function triggerUpload() {
-  uploadInfo.value = '已模拟上传文件到 ' + currentPath.value + '（演示环境，实际需后端支持）'
-  setTimeout(() => { uploadInfo.value = '' }, 3000)
+function triggerUpload() { fileInput.value?.click() }
+async function onUploadPicked(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const targetPath = joinPath(currentPath.value, file.name)
+  if (!store.remoteMode) {
+    uploadInfo.value = `已模拟上传 ${file.name} 到 ${currentPath.value}（演示环境）`
+    setTimeout(() => { uploadInfo.value = '' }, 3000); e.target.value = ''; return
+  }
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+    await podFileApi.write({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: targetPath, data: btoa(binary) })
+    uploadInfo.value = `已上传 ${file.name} → ${targetPath}（${file.size} 字节）`
+    notify('上传成功', 'success')
+    loadDir(currentPath.value)
+  } catch (err) {
+    notify(err.message || '上传失败', 'error')
+  } finally {
+    setTimeout(() => { uploadInfo.value = '' }, 3000); e.target.value = ''
+  }
 }
+watch(activeTab, t => { if (t === 'files' && store.remoteMode && !entries.value.length) loadDir(currentPath.value) })
+watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remoteMode) loadDir(currentPath.value) })
 </script>
 
 <template>
@@ -234,18 +347,34 @@ function triggerUpload() {
         <!-- Logs View -->
         <div v-if="activeTab === 'logs'" class="flex-1 flex flex-col">
           <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between border-b border-outline-variant">
-            <div class="flex items-center gap-md">
+            <div class="flex flex-wrap items-center gap-md">
               <div class="flex items-center gap-xs">
                 <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
                 <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
                   <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
                 </select>
               </div>
+              <div class="flex items-center gap-xs">
+                <span class="text-body-sm text-on-surface-variant font-medium">Lines:</span>
+                <select v-model="logLines" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+                  <option v-for="n in lineOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-xs">
+                <span class="text-body-sm text-on-surface-variant font-medium">Since:</span>
+                <select v-model="logSince" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+                  <option v-for="o in sinceOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-1 cursor-pointer select-none" :class="logPrevious ? 'text-tertiary-container font-medium' : 'text-on-surface-variant'" title="显示上一（已终止）容器的日志，等同 --previous">
+                <input v-model="logPrevious" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
+                <span class="text-body-sm font-medium">Previous</span>
+              </label>
               <div class="flex items-center gap-2">
-                <input v-model="followLog" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
-                <span class="text-body-sm text-on-surface-variant">Follow</span>
-                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full">
-                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE
+                <input v-model="followLog" type="checkbox" :disabled="logPrevious" class="rounded text-primary focus:ring-primary h-4 w-4" />
+                <span class="text-body-sm" :class="logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant'">Follow</span>
+                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full" :title="store.remoteMode ? '实时流式（follow=true 经 Gateway pipe 透传）' : '模拟实时'">
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ store.remoteMode ? 'LIVE · 流式' : 'LIVE' }}
                 </span>
               </div>
             </div>
@@ -338,7 +467,7 @@ spec:
 
         <!-- Files View（文件浏览器 / kubectl cp）-->
         <div v-if="activeTab === 'files'" class="flex-1 flex flex-col">
-          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between border-b border-outline-variant">
+          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between gap-md border-b border-outline-variant">
             <div class="flex items-center gap-xs text-body-sm min-w-0">
               <button @click="goUp" :disabled="currentPath === '/'" class="p-xs hover:bg-surface-container-low rounded disabled:opacity-30"><span class="material-symbols-outlined text-lg">arrow_upward</span></button>
               <span class="font-mono text-code-sm text-on-surface-variant truncate">
@@ -346,31 +475,46 @@ spec:
               </span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
+              <div v-if="store.remoteMode" class="flex items-center gap-xs">
+                <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-xs font-mono focus:ring-2 focus:ring-primary">
+                  <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
+                </select>
+                <button @click="loadDir(currentPath)" title="刷新" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">refresh</span></button>
+              </div>
               <button @click="triggerUpload" title="上传文件" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">upload</span></button>
               <button @click="downloadFile" :disabled="!selectedFile" title="下载文件" class="p-1 hover:bg-surface-container-low rounded disabled:opacity-30"><span class="material-symbols-outlined text-body-md">download</span></button>
             </div>
           </div>
+          <input ref="fileInput" type="file" class="hidden" @change="onUploadPicked" />
           <p v-if="uploadInfo" class="px-md py-xs bg-primary-container/10 text-primary text-body-sm">{{ uploadInfo }}</p>
+          <p v-if="fileError" class="px-md py-xs bg-error-container/20 text-error text-body-sm">{{ fileError }}</p>
           <div class="flex-1 grid grid-cols-12 overflow-hidden">
             <!-- 文件列表 -->
             <div class="col-span-7 border-r border-outline-variant overflow-y-auto max-h-[560px]">
-              <div v-for="entry in currentEntries" :key="entry.n" @click="openEntry(entry)"
-                class="flex items-center gap-sm px-lg py-sm hover:bg-surface-container-low cursor-pointer border-b border-outline-variant/30">
-                <span class="material-symbols-outlined text-lg" :class="entry.t === 'dir' ? 'text-secondary' : 'text-on-surface-variant'">{{ entry.t === 'dir' ? 'folder' : 'description' }}</span>
-                <span class="flex-1 text-body-sm font-medium text-on-surface truncate">{{ entry.n }}</span>
-                <span v-if="entry.t === 'file'" class="text-body-xs text-on-surface-variant w-16 text-right">{{ entry.m }}</span>
-                <span v-else class="text-body-xs text-on-surface-variant">目录</span>
+              <div v-if="fileLoading" class="px-lg py-md text-body-sm text-on-surface-variant">读取中…</div>
+              <div v-else>
+                <div v-for="entry in currentEntries" :key="entry.n" @click="openEntry(entry)"
+                  class="flex items-center gap-sm px-lg py-sm hover:bg-surface-container-low cursor-pointer border-b border-outline-variant/30">
+                  <span class="material-symbols-outlined text-lg" :class="entry.t === 'dir' ? 'text-secondary' : 'text-on-surface-variant'">{{ entry.t === 'dir' ? 'folder' : 'description' }}</span>
+                  <span class="flex-1 text-body-sm font-medium text-on-surface truncate">{{ entry.n }}</span>
+                  <span v-if="entry.t === 'file'" class="text-body-xs text-on-surface-variant w-16 text-right">{{ entry.m }}</span>
+                  <span v-else class="text-body-xs text-on-surface-variant">目录</span>
+                </div>
+                <p v-if="!currentEntries.length" class="px-lg py-md text-body-sm text-on-surface-variant">空目录</p>
               </div>
-              <p v-if="!currentEntries.length" class="px-lg py-md text-body-sm text-on-surface-variant">空目录</p>
             </div>
             <!-- 文件预览 -->
             <div class="col-span-5 flex flex-col">
               <div v-if="selectedFile" class="flex-1 flex flex-col">
                 <div class="px-md py-xs bg-surface-container-low border-b border-outline-variant flex items-center justify-between">
                   <span class="font-mono text-code-sm font-semibold text-primary truncate">{{ selectedFile.name }}</span>
-                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ selectedFile.size }}</span>
+                  <span class="text-body-xs text-on-surface-variant shrink-0">
+                    <span v-if="selectedFile.binary">二进制</span>
+                    <span v-else-if="selectedFile.truncated">已截断预览</span>
+                    <span v-else>{{ selectedFile.size }}</span>
+                  </span>
                 </div>
-                <pre class="flex-1 bg-[#1a1c1e] p-md font-mono text-code-sm text-surface-variant overflow-auto max-h-[520px] whitespace-pre">{{ selectedFile.content }}</pre>
+                <pre class="flex-1 bg-[#1a1c1e] p-md font-mono text-code-sm text-surface-variant overflow-auto max-h-[520px] whitespace-pre">{{ selectedFile.binary ? '（二进制文件，内容不可预览，请下载查看）' : selectedFile.content }}</pre>
               </div>
               <div v-else class="flex-1 flex items-center justify-center text-on-surface-variant">
                 <div class="text-center">
@@ -416,10 +560,10 @@ spec:
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
           <h3 class="text-headline-sm mb-md">Resource Utilization</h3>
           <div class="space-y-md">
-            <ProgressBar :value="25" show-label label="CPU Usage" />
-            <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.cpu }}</p>
-            <ProgressBar :value="35" show-label label="Memory Usage" />
-            <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.memory }}</p>
+            <ProgressBar :value="cpuPct || 0" show-label label="CPU Usage" />
+            <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.cpu || '—' }}</p>
+            <ProgressBar :value="memPct || 0" show-label label="Memory Usage" />
+            <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.memory || '—' }}</p>
           </div>
         </div>
 

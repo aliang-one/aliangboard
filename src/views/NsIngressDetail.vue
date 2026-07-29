@@ -27,15 +27,42 @@ function handleDelete() {
 const allRules = computed(() => {
   if (!ing.value?.rules) return []
   return ing.value.rules.flatMap(r =>
-    (r.http?.paths || []).map(p => ({
-      host: r.host,
-      path: p.path,
-      pathType: p.pathType,
-      serviceName: p.backend?.serviceName,
-      servicePort: p.backend?.servicePort,
-    }))
+    (r.http?.paths || []).map(p => {
+      const svc = p.backend?.service || p.backend
+      return {
+        host: r.host,
+        path: p.path,
+        pathType: p.pathType,
+        serviceName: svc?.name ?? svc?.serviceName ?? '',
+        servicePort: svc?.port?.number ?? svc?.port?.name ?? svc?.servicePort ?? '',
+      }
+    })
   )
 })
+
+// === Rules 结构化编辑（远端 PATCH spec.rules）===
+const showRulesModal = ref(false)
+const editRules = ref([])
+const pathTypeOptions = ['Prefix', 'Exact', 'ImplementationSpecific']
+function openRulesEditor() {
+  editRules.value = allRules.value.map(r => ({ ...r, servicePort: String(r.servicePort ?? '') }))
+  if (!editRules.value.length) editRules.value = [{ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }]
+  showRulesModal.value = true
+}
+function addRule() {
+  editRules.value.push({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' })
+}
+function removeRule(idx) {
+  editRules.value.splice(idx, 1)
+}
+async function saveRules() {
+  try {
+    await store.updateIngressRules(route.params.name, route.params.namespace, editRules.value)
+    showRulesModal.value = false
+  } catch (e) {
+    alert(e.message || '保存规则失败')
+  }
+}
 
 const allAnnotations = computed(() => {
   if (!ing.value?.annotations) return []
@@ -202,8 +229,11 @@ function saveEditLabel() {
     <!-- Rules Tab -->
     <div v-if="activeTab === 'rules'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
+        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
           <h3 class="text-headline-sm">Routing Rules ({{ allRules.length }})</h3>
+          <button @click="openRulesEditor" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+            <span class="material-symbols-outlined text-sm">edit</span> Edit Rules
+          </button>
         </div>
         <table v-if="allRules.length" class="w-full text-left border-collapse">
           <thead>
@@ -344,6 +374,49 @@ function saveEditLabel() {
     <template #actions>
       <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+    </template>
+  </Modal>
+
+  <!-- Edit Rules Modal -->
+  <Modal v-model="showRulesModal" title="Edit Routing Rules" width="max-w-4xl">
+    <p class="text-body-sm text-on-surface-variant mb-md">编辑路由规则，保存后写回 Ingress <span class="font-mono">{{ route.params.name }}</span>（等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl patch ingress</code>）。</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="bg-surface-container-low border-b border-outline-variant">
+            <th class="px-md py-sm text-label-caps text-on-surface-variant">Host</th>
+            <th class="px-md py-sm text-label-caps text-on-surface-variant">Path</th>
+            <th class="px-md py-sm text-label-caps text-on-surface-variant">Type</th>
+            <th class="px-md py-sm text-label-caps text-on-surface-variant">Service</th>
+            <th class="px-md py-sm text-label-caps text-on-surface-variant">Port</th>
+            <th class="px-md py-sm w-10"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-outline-variant/30">
+          <tr v-for="(r, idx) in editRules" :key="idx">
+            <td class="px-md py-sm"><input v-model="r.host" class="w-40 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="app.example.com" /></td>
+            <td class="px-md py-sm"><input v-model="r.path" class="w-28 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="/" /></td>
+            <td class="px-md py-sm">
+              <select v-model="r.pathType" class="bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm">
+                <option v-for="t in pathTypeOptions" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </td>
+            <td class="px-md py-sm"><input v-model="r.serviceName" class="w-32 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="my-svc" /></td>
+            <td class="px-md py-sm"><input v-model="r.servicePort" class="w-20 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="80" /></td>
+            <td class="px-md py-sm text-center">
+              <button @click="removeRule(idx)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded" title="删除该规则"><span class="material-symbols-outlined text-lg">delete</span></button>
+            </td>
+          </tr>
+          <tr v-if="!editRules.length"><td colspan="6" class="px-md py-md text-center text-on-surface-variant text-body-sm">无规则</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <button @click="addRule" class="mt-md flex items-center gap-xs px-md py-xs border border-dashed border-outline-variant rounded-lg text-body-sm text-on-surface-variant hover:bg-surface-container-low">
+      <span class="material-symbols-outlined text-sm">add</span> Add Rule
+    </button>
+    <template #actions>
+      <button @click="showRulesModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveRules" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save Rules</button>
     </template>
   </Modal>
 

@@ -130,6 +130,75 @@ function saveEdit() {
   store.updateWorkload(route.params.name, route.params.namespace, updates)
   showEditModal.value = false
 }
+
+// === Pod 模板深度编辑（image/env/resources/probes/nodeSelector，远端 PATCH spec.template）===
+const showTemplateModal = ref(false)
+const editTpl = ref(null)                  // 深克隆的 pod template
+const editEnv = ref([])                    // 简单 env（{name,value}），可编辑
+const refEnv = ref([])                     // valueFrom 引用型 env（保留原样、只读展示）
+const nodeSelectorEntries = ref([])        // [{key,value}]
+const probeModel = ref({ liveness: mkProbe(), readiness: mkProbe() })
+const origProbes = ref({})
+const primary = computed(() => editTpl.value?.spec?.containers?.[0])
+
+function mkProbe() { return { enabled: false, type: 'http', path: '/', port: '' } }
+function probeFromSpec(probe) {
+  if (!probe) return mkProbe()
+  if (probe.httpGet) return { enabled: true, type: 'http', path: probe.httpGet.path || '/', port: probe.httpGet.port ?? '' }
+  if (probe.tcpSocket) return { enabled: true, type: 'tcp', path: '/', port: probe.tcpSocket.port ?? '' }
+  return { enabled: true, type: 'http', path: '/', port: '' }
+}
+function probeToSpec(m, original) {
+  // 未勾选则保留原探针（不通过此编辑器删除，避免误丢高级字段）
+  if (!m.enabled) return original
+  const port = m.port === '' ? undefined : (isNaN(Number(m.port)) ? m.port : Number(m.port))
+  const base = m.type === 'tcp' ? { tcpSocket: { port } } : { httpGet: { path: m.path || '/', port } }
+  return { ...(original || {}), ...base }
+}
+
+function openTemplateEditor() {
+  const wl = workload.value
+  let tpl = wl?.raw?.spec?.template
+  if (!tpl) {
+    // mock 无 raw：从扁平字段合成最小模板
+    tpl = { metadata: { labels: { app: wl?.name } }, spec: { nodeSelector: {}, containers: [{ name: wl?.name || 'main', image: wl?.image || '', env: [], resources: { requests: {}, limits: {} } }] } }
+  }
+  editTpl.value = JSON.parse(JSON.stringify(tpl))
+  const spec = editTpl.value.spec
+  spec.containers = spec.containers || []
+  const c = spec.containers[0] || (spec.containers[0] = { name: wl?.name || 'main', image: wl?.image || '' })
+  c.resources = c.resources || {}
+  c.resources.requests = c.resources.requests || {}
+  c.resources.limits = c.resources.limits || {}
+  spec.nodeSelector = spec.nodeSelector || {}
+  // env：拆分可编辑（value）与只读引用（valueFrom），避免编辑丢数据
+  refEnv.value = (c.env || []).filter(e => e.valueFrom).map(e => JSON.parse(JSON.stringify(e)))
+  editEnv.value = (c.env || []).filter(e => e.value !== undefined && !e.valueFrom).map(e => ({ name: e.name, value: e.value }))
+  origProbes.value = { liveness: c.livenessProbe, readiness: c.readinessProbe }
+  probeModel.value = { liveness: probeFromSpec(c.livenessProbe), readiness: probeFromSpec(c.readinessProbe) }
+  nodeSelectorEntries.value = Object.entries(spec.nodeSelector).map(([k, v]) => ({ key: k, value: v }))
+  showTemplateModal.value = true
+}
+function addEnv() { editEnv.value.push({ name: '', value: '' }) }
+function removeEnv(i) { editEnv.value.splice(i, 1) }
+function addNodeSelector() { nodeSelectorEntries.value.push({ key: '', value: '' }) }
+function removeNodeSelector(i) { nodeSelectorEntries.value.splice(i, 1) }
+async function saveTemplate() {
+  const c = primary.value
+  if (!c) return
+  c.env = [...refEnv.value, ...editEnv.value.filter(e => e.name)]
+  c.livenessProbe = probeToSpec(probeModel.value.liveness, origProbes.value.liveness)
+  c.readinessProbe = probeToSpec(probeModel.value.readiness, origProbes.value.readiness)
+  const ns = {}
+  for (const e of nodeSelectorEntries.value) if (e.key) ns[e.key] = e.value
+  editTpl.value.spec.nodeSelector = Object.keys(ns).length ? ns : undefined
+  try {
+    await store.applyWorkloadTemplate(route.params.name, route.params.namespace, JSON.parse(JSON.stringify(editTpl.value)))
+    showTemplateModal.value = false
+  } catch (e) {
+    alert(e.message || '保存模板失败')
+  }
+}
 </script>
 
 <template>
@@ -169,6 +238,9 @@ function saveEdit() {
         </button>
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
           <span class="material-symbols-outlined">edit</span> Edit
+        </button>
+        <button v-if="isRolloutType" @click="openTemplateEditor" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors" title="深度编辑容器模板（image/env/resources/probes/nodeSelector），写回集群">
+          <span class="material-symbols-outlined">tune</span> Edit Template
         </button>
       </div>
     </div>
@@ -510,6 +582,102 @@ function saveEdit() {
     <template #actions>
       <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Rollback</button>
+    </template>
+  </Modal>
+
+  <!-- Edit Pod Template Modal（深度编辑：image/env/resources/probes/nodeSelector）-->
+  <Modal v-model="showTemplateModal" title="Edit Pod Template" width="max-w-3xl">
+    <div v-if="primary" class="flex flex-col gap-lg">
+      <p class="text-body-sm text-on-surface-variant -mt-2">编辑容器模板并写回集群（等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl edit</code> 的 spec.template）。引用型 env 与探针的高级字段会原样保留。</p>
+
+      <!-- Image -->
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Container Image</label>
+        <input v-model="primary.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+      </div>
+
+      <!-- Environment -->
+      <div>
+        <div class="flex items-center justify-between mb-xs">
+          <label class="text-label-caps text-on-surface-variant">Environment Variables</label>
+          <button @click="addEnv" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-body-xs text-on-surface-variant hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span> Add</button>
+        </div>
+        <div class="flex flex-col gap-xs">
+          <div v-for="(e, i) in editEnv" :key="'e'+i" class="flex items-center gap-sm">
+            <input v-model="e.name" class="w-40 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="KEY" />
+            <span class="text-on-surface-variant">=</span>
+            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
+            <button @click="removeEnv(i)" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">delete</span></button>
+          </div>
+          <div v-if="!editEnv.length" class="text-body-xs text-on-surface-variant italic">无显式 env</div>
+        </div>
+        <div v-if="refEnv.length" class="mt-sm">
+          <p class="text-body-xs text-on-surface-variant mb-xs">引用型 env（只读，将原样保留）：</p>
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="(e, i) in refEnv" :key="'r'+i" class="px-sm py-xs bg-surface-container rounded text-body-xs font-mono text-on-surface-variant border border-outline-variant">{{ e.name }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resources -->
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Resources</label>
+        <div class="grid grid-cols-2 gap-md">
+          <div class="p-sm bg-surface-container-low rounded-lg">
+            <p class="text-body-xs text-on-surface-variant mb-xs">Requests</p>
+            <div class="flex gap-sm">
+              <input v-model="primary.resources.requests.cpu" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="cpu 250m" />
+              <input v-model="primary.resources.requests.memory" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="mem 256Mi" />
+            </div>
+          </div>
+          <div class="p-sm bg-surface-container-low rounded-lg">
+            <p class="text-body-xs text-on-surface-variant mb-xs">Limits</p>
+            <div class="flex gap-sm">
+              <input v-model="primary.resources.limits.cpu" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="cpu 500m" />
+              <input v-model="primary.resources.limits.memory" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="mem 512Mi" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Probes -->
+      <div class="grid grid-cols-2 gap-md">
+        <div v-for="pkey in ['liveness','readiness']" :key="pkey" class="p-sm bg-surface-container-low rounded-lg">
+          <label class="flex items-center gap-sm mb-xs capitalize">
+            <input type="checkbox" v-model="probeModel[pkey].enabled" class="rounded text-primary h-4 w-4" />
+            <span class="text-body-sm font-medium text-on-surface">{{ pkey }} Probe</span>
+          </label>
+          <div v-if="probeModel[pkey].enabled" class="flex flex-col gap-xs">
+            <select v-model="probeModel[pkey].type" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm">
+              <option value="http">HTTP GET</option>
+              <option value="tcp">TCP Socket</option>
+            </select>
+            <input v-if="probeModel[pkey].type === 'http'" v-model="probeModel[pkey].path" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="/healthz" />
+            <input v-model="probeModel[pkey].port" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="port 8080" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Node Selector -->
+      <div>
+        <div class="flex items-center justify-between mb-xs">
+          <label class="text-label-caps text-on-surface-variant">Node Selector</label>
+          <button @click="addNodeSelector" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-body-xs text-on-surface-variant hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span> Add</button>
+        </div>
+        <div class="flex flex-col gap-xs">
+          <div v-for="(e, i) in nodeSelectorEntries" :key="'ns'+i" class="flex items-center gap-sm">
+            <input v-model="e.key" class="w-44 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="disktype" />
+            <span class="text-on-surface-variant">:</span>
+            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="ssd" />
+            <button @click="removeNodeSelector(i)" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">delete</span></button>
+          </div>
+          <div v-if="!nodeSelectorEntries.length" class="text-body-xs text-on-surface-variant italic">无 nodeSelector（不限定节点）</div>
+        </div>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="saveTemplate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Apply Template</button>
     </template>
   </Modal>
 </template>

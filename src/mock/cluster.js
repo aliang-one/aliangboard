@@ -16,6 +16,7 @@ export const clusterInfo = {
   memoryUsage: 58,
   memoryTrend: '-2.1%',
   memoryTrendUp: false,
+  metricsAvailable: true,
 }
 
 // ── Namespaces ──────────────────────────────────────────────

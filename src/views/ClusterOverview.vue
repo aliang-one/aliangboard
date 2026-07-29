@@ -59,14 +59,19 @@ const timeRange = ref('24h')
         <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card">
           <div class="flex justify-between items-center mb-lg">
             <h2 class="text-headline-sm">Resource Usage</h2>
-            <div class="flex gap-xs">
-              <span
-                v-for="range in ['24h', '7d', '30d']"
-                :key="range"
-                @click="timeRange = range"
-                class="px-md py-1 rounded-full text-body-sm cursor-pointer transition-colors"
-                :class="timeRange === range ? 'bg-surface-container text-on-surface' : 'text-on-surface-variant hover:bg-surface-container-low'"
-              >{{ range }}</span>
+            <div class="flex items-center gap-md">
+              <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-body-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" title="集群未安装 metrics-server 或当前凭证无 metrics 读取权限">
+                <span class="material-symbols-outlined text-sm">sensors_off</span> 指标不可用
+              </span>
+              <div class="flex gap-xs">
+                <span
+                  v-for="range in ['24h', '7d', '30d']"
+                  :key="range"
+                  @click="timeRange = range"
+                  class="px-md py-1 rounded-full text-body-sm cursor-pointer transition-colors"
+                  :class="timeRange === range ? 'bg-surface-container text-on-surface' : 'text-on-surface-variant hover:bg-surface-container-low'"
+                >{{ range }}</span>
+              </div>
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-xl">
@@ -75,9 +80,9 @@ const timeRange = ref('24h')
               <div class="flex justify-between items-end">
                 <div>
                   <p class="text-label-caps text-on-surface-variant">CPU UTILIZATION</p>
-                  <p class="text-headline-md text-primary">{{ store.cluster.cpuUsage }}%</p>
+                  <p class="text-headline-md text-primary">{{ store.cluster.cpuUsage != null ? store.cluster.cpuUsage + '%' : '—' }}</p>
                 </div>
-                <p class="text-body-sm flex items-center gap-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-primary'">
+                <p v-if="store.cluster.cpuUsage != null" class="text-body-sm flex items-center gap-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-primary'">
                   <span class="material-symbols-outlined text-base">{{ store.cluster.cpuTrendUp ? 'trending_up' : 'trending_down' }}</span> {{ store.cluster.cpuTrend }}
                 </p>
               </div>
@@ -95,10 +100,10 @@ const timeRange = ref('24h')
               <div class="flex justify-between items-end">
                 <div>
                   <p class="text-label-caps text-on-surface-variant">MEMORY ALLOCATION</p>
-                  <p class="text-headline-md text-primary">{{ store.cluster.memoryUsage }}%</p>
+                  <p class="text-headline-md text-primary">{{ store.cluster.memoryUsage != null ? store.cluster.memoryUsage + '%' : '—' }}</p>
                 </div>
-                <p class="text-body-sm text-primary flex items-center gap-xs">
-                  <span class="material-symbols-outlined text-base">trending_down</span> {{ store.cluster.memoryTrend }}
+                <p v-if="store.cluster.memoryUsage != null" class="text-body-sm flex items-center gap-xs" :class="store.cluster.memoryTrendUp ? 'text-error' : 'text-primary'">
+                  <span class="material-symbols-outlined text-base">{{ store.cluster.memoryTrendUp ? 'trending_up' : 'trending_down' }}</span> {{ store.cluster.memoryTrend }}
                 </p>
               </div>
               <div class="h-32 w-full bg-surface-container-low rounded-lg relative border-b border-outline-variant overflow-hidden">
@@ -139,8 +144,8 @@ const timeRange = ref('24h')
               </div>
               <h4 class="text-body-lg font-bold truncate">{{ node.name }}</h4>
               <div class="flex flex-col gap-xs mt-md">
-                <ProgressBar :value="node.cpu" label="CPU" />
-                <ProgressBar :value="node.memory" label="Memory" />
+                <ProgressBar :value="node.cpu || 0" label="CPU" />
+                <ProgressBar :value="node.memory || 0" label="Memory" />
               </div>
               <div class="mt-md flex items-center justify-between">
                 <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" size="sm" />
