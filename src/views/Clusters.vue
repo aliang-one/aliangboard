@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 
@@ -16,7 +17,8 @@ const filtered = computed(() => {
   return store.clusterList.filter(c =>
     c.name.toLowerCase().includes(q) ||
     (c.distribution || '').toLowerCase().includes(q) ||
-    (c.version || '').toLowerCase().includes(q)
+    (c.version || '').toLowerCase().includes(q) ||
+    (c.apiServer || '').toLowerCase().includes(q)
   )
 })
 
@@ -27,16 +29,26 @@ function mapStatus(status) {
   return status || 'Unknown'
 }
 
-function switchTo(name) {
-  store.switchCluster(name)
+async function switchTo(apiServer) {
+  await store.switchCluster(apiServer)
+  notify(`已切换到 ${store.currentCluster}`, 'success')
 }
 
-function openCluster(c) {
+async function openCluster(c) {
   // 先切到目标集群再进入概览
-  if (c.name !== store.currentCluster) {
-    store.switchCluster(c.name)
-  }
+  if (c.apiServer !== store.cluster?.apiServer) await store.switchCluster(c.apiServer)
   router.push('/cluster')
+}
+
+function addCluster() {
+  router.push('/login')
+}
+
+function removeCluster(c) {
+  // 注意：仅从已保存列表移除，不主动断开当前连接
+  if (!window.confirm(`移除已保存的集群「${c.name}」？\n（仅从列表删除，不会影响当前已连接的会话）`)) return
+  store.removeSavedClusterStore(c.apiServer)
+  notify('已移除', 'success')
 }
 </script>
 
@@ -59,7 +71,7 @@ function openCluster(c) {
         <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">refresh</span> Sync
         </button>
-        <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <button @click="addCluster" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> 添加集群
         </button>
       </div>
@@ -145,7 +157,7 @@ function openCluster(c) {
         <div class="flex items-center justify-end gap-sm mt-auto pt-xs" @click.stop>
           <button
             v-if="c.name !== store.currentCluster"
-            @click="switchTo(c.name)"
+            @click="switchTo(c.apiServer)"
             class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary font-semibold rounded-lg text-body-sm shadow-sm hover:opacity-90 active:scale-95 transition-all"
           >
             <span class="material-symbols-outlined text-base">swap_horiz</span>
@@ -158,6 +170,14 @@ function openCluster(c) {
             <span class="material-symbols-outlined text-base">check_circle</span>
             当前活动集群
           </span>
+          <button
+            v-if="c.name !== store.currentCluster"
+            @click="removeCluster(c)"
+            title="移除已保存集群"
+            class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors"
+          >
+            <span class="material-symbols-outlined text-base">delete</span>
+          </button>
         </div>
       </div>
     </div>

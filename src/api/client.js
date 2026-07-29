@@ -20,7 +20,7 @@ export async function exportYaml(k8sPath, filename = 'resource.yaml') {
 }
 
 
-function getSessionToken() {
+export function getSessionToken() {
   return sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey) || ''
 }
 
@@ -54,6 +54,33 @@ export function clearSession() {
 
 export function getSession() {
   return getSessionToken()
+}
+
+// === 多集群：已保存集群持久化（localStorage），活跃集群 = sessionKey 中的 token ===
+const clustersKey = 'aliangboard.clusters'
+export function getSavedClusters() {
+  try { return JSON.parse(localStorage.getItem(clustersKey) || '[]') } catch { return [] }
+}
+function persistClusters(list) { localStorage.setItem(clustersKey, JSON.stringify(list)) }
+export function addSavedCluster(c) {
+  const list = getSavedClusters()
+  const i = list.findIndex(x => x.apiServer === c.apiServer)
+  const rec = { id: c.apiServer, name: c.name, apiServer: c.apiServer, token: c.token, version: c.version || 'unknown', authMethod: c.authMethod || 'token', status: 'Healthy', savedAt: c.savedAt }
+  if (i >= 0) list[i] = { ...list[i], ...rec }; else list.push(rec)
+  persistClusters(list)
+}
+export function removeSavedCluster(apiServer) {
+  persistClusters(getSavedClusters().filter(c => c.apiServer !== apiServer))
+}
+// 切换活跃集群：写入活跃 token（双写 storage，getSessionToken 优先读 sessionStorage）
+export function setActiveToken(token) {
+  if (!token) return
+  sessionStorage.setItem(sessionKey, token)
+  localStorage.setItem(sessionKey, token)
+}
+export function activeApiServer() {
+  const t = getSessionToken()
+  return (getSavedClusters().find(c => c.token === t) || {}).apiServer || ''
 }
 
 export const api = {
