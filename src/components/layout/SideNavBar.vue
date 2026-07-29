@@ -37,8 +37,9 @@ const nsNavGroups = [
     label: '工作负载',
     icon: 'work',
     items: [
+      { icon: 'layers', label: '应用分层', routeKey: 'layers' },
       { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
-      { icon: 'layers', label: 'Pods', routeKey: 'pods' },
+      { icon: 'view_in_ar', label: 'Pods', routeKey: 'pods' },
       { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
     ]
   },
@@ -90,6 +91,7 @@ const filteredNamespaces = computed(() => {
 const nsRouteMap = {
   overview: 'NamespaceOverview',
   events: 'NsEvents',
+  layers: 'NsLayers',
   workloads: 'NsWorkloads',
   pods: 'NsPods',
   hpa: 'NsHPA',
