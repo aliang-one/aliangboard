@@ -280,6 +280,32 @@ async function triggerCronJob(session, namespace, name, jobName) {
   return (await requestKubernetes(session, `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/jobs`, { method: 'POST', body: JSON.stringify(job) })).body
 }
 
+// 资源拓扑：沿 metadata.ownerReferences 向上解析归属链（Pod→ReplicaSet→Deployment…）。
+const KIND_PLURAL = {
+  Pod: 'pods', ReplicaSet: 'replicasets', Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets',
+  Job: 'jobs', CronJob: 'cronjobs', Service: 'services', ConfigMap: 'configmaps', Secret: 'secrets',
+  PersistentVolumeClaim: 'persistentvolumeclaims', Ingress: 'ingresses', ServiceAccount: 'serviceaccounts',
+}
+function pathFor(apiVersion, kind, ns, name) {
+  const plural = KIND_PLURAL[kind]
+  if (!plural) return null
+  const [group, version] = String(apiVersion || '').includes('/') ? String(apiVersion).split('/') : ['', apiVersion || 'v1']
+  if (!version) return null
+  const base = group ? `/apis/${group}/${version}` : `/api/${version}`
+  return `${base}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`
+}
+async function resolveOwnerTree(session, ns, kind, name, apiVersion, depth = 0) {
+  if (depth > 8) return { kind, name, namespace: ns, error: '归属链过深，已截断' }
+  const path = pathFor(apiVersion, kind, ns, name)
+  if (!path) return { kind, name, namespace: ns, error: `暂不支持解析 ${kind} 的归属链` }
+  let obj
+  try { obj = (await requestKubernetes(session, path)).body } catch (e) { return { kind, name, namespace: ns, error: e.message } }
+  const node = { kind, name, namespace: ns, apiVersion: obj?.apiVersion, createdAt: obj?.metadata?.creationTimestamp, owner: null }
+  const ownerRef = (obj?.metadata?.ownerReferences || [])[0]
+  if (ownerRef) node.owner = await resolveOwnerTree(session, ns, ownerRef.kind, ownerRef.name, ownerRef.apiVersion, depth + 1)
+  return node
+}
+
 // === 端口转发 ===
 // 在网关主机开本地 TCP 监听，每个进入的 TCP 连接经 client-node portForward 转发到 Pod；
 // 语义等同 kubectl port-forward（默认绑 127.0.0.1，浏览器需能访问该地址）。
@@ -524,6 +550,23 @@ async function handle(req, res) {
       return sendJson(res, 200, { ok: true, job: job?.metadata?.name || '' })
     } catch (error) {
       return sendJson(res, error.status || 422, { message: error?.message || '触发 CronJob 失败' })
+    }
+  }
+
+  // 资源归属拓扑（ownerReferences 链）
+  if (req.method === 'GET' && url.pathname === '/api/resource/tree') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const ns = url.searchParams.get('namespace')
+    const kind = url.searchParams.get('kind')
+    const name = url.searchParams.get('name')
+    const apiVersion = url.searchParams.get('apiVersion') || 'v1'
+    if (!ns || !kind || !name) return sendJson(res, 400, { message: '缺少 namespace / kind / name' })
+    try {
+      const tree = await resolveOwnerTree(session, ns, kind, name, apiVersion)
+      return sendJson(res, 200, tree)
+    } catch (error) {
+      return sendJson(res, error.status || 502, { message: error?.message || '解析归属链失败' })
     }
   }
 

@@ -102,6 +102,12 @@ export const cronJobApi = {
   trigger: payload => request('/api/cronjob/trigger', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
+// 资源归属拓扑（沿 ownerReferences 解析归属链）。仅远端模式。
+export const resourceTreeApi = {
+  get: ({ namespace, kind, name, apiVersion }) =>
+    request(`/api/resource/tree?${new URLSearchParams({ namespace, kind, name, apiVersion: apiVersion || 'v1' })}`),
+}
+
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。
