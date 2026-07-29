@@ -73,6 +73,11 @@ export const podFileApi = {
   },
 }
 
+// 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
+export const podDebugApi = {
+  attach: payload => request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。

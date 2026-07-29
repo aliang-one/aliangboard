@@ -15,6 +15,7 @@ AliangBoard 是一个 Vue 3 Kubernetes 管理面板。项目同时包含前端�
 - Pod Exec 终端（kubectl exec，xterm.js 实时双向，终端尺寸自适应）—— 浏览器 WebSocket ↔ Gateway ↔ K8s（`@kubernetes/client-node` 处理 SPDY/WS 协议升级）
 - 端口转发（kubectl port-forward）：Service / Deployment 自动经 endpoints 解析到后端 Pod，在网关本机开本地监听
 - Pod 文件浏览（kubectl cp 语义：列目录 / 预览 / 下载 / 上传），基于一次性 exec 落地真实容器文件
+- Pod 调试容器注入（kubectl debug / Ephemeral Containers）：向无 shell / distroless Pod 注入临时容器排查问题，注入后即可在终端进入该容器
 - API Discovery 驱动的 Server-Side Apply（kubectl edit / apply 语义）
 - 部署向导支持一次应用多份 YAML 文档
 - 连接真实集群后自动清除 Mock 数据，确保只展示集群真实状态；未连接时仍保留 Mock 数据，便于界面开发
@@ -88,6 +89,7 @@ K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 - Node 运维需要的 `patch`
 - Pod Exec 终端的 `pods/exec`（`create`）
 - 端口转发的 `pods/portforward`（`get` / `create`）
+- 调试容器注入的 `pods/ephemeralcontainers`（`update`）
 
 API Gateway 只在内存中保存集群凭据和会话，重启后所有登录会话都会失效。生产环境若需要多实例部署，应将会话和加密后的集群凭据迁移到专用存储。
 
@@ -95,6 +97,6 @@ API Gateway 只在内存中保存集群凭据和会话，重启后所有登录�
 
 - Pod Exec 终端、端口转发、文件浏览仅在连接真实集群时生效（演示数据模式下为模拟 / 只读）。
 - 端口转发在网关本机开本地 TCP 监听（默认 `127.0.0.1`，同 kubectl port-forward）；当 Dashboard 部署在远端主机时，浏览器无法直接访问该端口，需自行 SSH 端口转发等。
-- Exec 终端默认执行 `/bin/sh`（可通过组件 `command` 属性调整）；distroless 等无 shell 镜像无法进入。
+- Exec 终端默认执行 `/bin/sh`（可通过组件 `command` 属性调整）；distroless 等无 shell 镜像可用「kubectl debug」注入带 shell 的临时容器进入（需集群 K8s 1.25+，已默认启用 EphemeralContainers）。
 - Helm、GitOps、告警和持久化审计尚未接入。
 - HPA / PDB 等依赖特定 API 版本（如 autoscaling/v2、policy/v1），低版本集群上对应创建会失败并以 toast 提示。
