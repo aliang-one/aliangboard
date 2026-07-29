@@ -59,11 +59,10 @@ function clusterStatusColor(status) {
   return 'bg-on-surface-variant'
 }
 
-function selectCluster(name) {
-  if (name !== store.currentCluster) {
-    store.switchCluster(name)
-  }
+async function selectCluster(apiServer) {
   showClusterDropdown.value = false
+  const c = store.clusterList.find(x => x.apiServer === apiServer)
+  if (c && c.apiServer !== store.cluster?.apiServer) await store.switchCluster(apiServer)
 }
 
 function closeClusterDropdown() {
@@ -143,7 +142,7 @@ async function logout() {
             <div
               v-for="c in store.clusterList"
               :key="c.name"
-              @click="selectCluster(c.name)"
+              @click="selectCluster(c.apiServer)"
               class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
               :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
             >

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
-import { api, k8sStream, portForwardApi } from '@/api/client'
+import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
@@ -111,7 +111,12 @@ export const useClusterStore = defineStore('cluster', () => {
   const clusterRoleBindingList = ref(clusterRoleBindings)
   const pdbList = ref(podDisruptionBudgets)
   const priorityClassList = ref(priorityClasses)
-  const clusterList = ref(clusters)
+  // 多集群：已保存集群来自 localStorage；clusterList 为其映射（无已保存时回退演示数据）
+  const savedClusters = ref(getSavedClusters())
+  const activeApiServerRef = ref(activeApiServer())
+  const clusterList = computed(() => savedClusters.value.length
+    ? savedClusters.value.map(c => ({ name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy', distribution: c.distribution || 'Kubernetes', context: c.name, current: c.apiServer === activeApiServerRef.value }))
+    : clusters)
   const auditLogList = ref(auditLogs)
   const crdList = ref(customResourceDefinitions)
   const currentCluster = ref(clusters.find(c => c.current)?.name || clusters[0]?.name || '')
@@ -1133,12 +1138,23 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === 多集群 ===
-  function switchCluster(name) {
-    currentCluster.value = name
-    const c = clusterList.value.find(c => c.name === name)
-    if (c) {
-      cluster.value = { ...cluster.value, name: c.name, version: c.version, apiServer: c.apiServer, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }
-    }
+  // 切换活跃集群：写入该集群 token 为活跃 → 重新水合（后端 session 仍在内存中即可直接复用）
+  async function switchCluster(apiServer) {
+    const c = savedClusters.value.find(x => x.apiServer === apiServer)
+    if (!c) return
+    setActiveToken(c.token)
+    activeApiServerRef.value = c.apiServer
+    currentCluster.value = c.name
+    cluster.value = { ...cluster.value, name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy' }
+    remoteMode.value = true
+    connectionState.value = 'loading'
+    clearMockSeeds()
+    try { await hydrateCoreResources() } catch { connectionState.value = 'error' }
+  }
+  // 移除已保存集群
+  function removeSavedClusterStore(apiServer) {
+    removeSavedCluster(apiServer)
+    savedClusters.value = getSavedClusters()
   }
 
   // 远端连接时清空所有资源列表（mock 种子），随后由水合用真实集群数据回填
@@ -1178,7 +1194,12 @@ export const useClusterStore = defineStore('cluster', () => {
     connectionState.value = 'loading'
     // 远端模式下清空 mock 种子：水合会用真实数据回填，避免失败时仍展示假数据
     clearMockSeeds()
-    const name = info.name || new URL(info.apiServer).hostname
+    let name = info.name
+    try { name = name || new URL(info.apiServer).hostname } catch { name = name || info.apiServer }
+    // 持久化到「已保存集群」（多集群）：token 取当前活跃会话
+    addSavedCluster({ name, apiServer: info.apiServer, token: getSessionToken(), version: info.version, authMethod: info.authMethod })
+    savedClusters.value = getSavedClusters()
+    activeApiServerRef.value = info.apiServer
     currentCluster.value = name
     cluster.value = {
       ...cluster.value,
@@ -1187,15 +1208,6 @@ export const useClusterStore = defineStore('cluster', () => {
       version: info.version || cluster.value.version,
       status: 'Healthy',
     }
-    clusterList.value = [{
-      name,
-      apiServer: info.apiServer,
-      version: info.version || 'unknown',
-      status: 'Healthy',
-      current: true,
-      context: name,
-      distribution: 'Kubernetes',
-    }]
   }
 
   const ageOf = timestamp => {
@@ -2769,7 +2781,7 @@ status:
     scList, ingressClassList, runtimeClassList, roleList, saList, logEntries, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
     clusterRoleBindingList, pdbList, priorityClassList,
-    clusterList, auditLogList, crdList, currentCluster, remoteMode, connectionState,
+    clusterList, savedClusters, auditLogList, crdList, currentCluster, remoteMode, connectionState,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
@@ -2826,7 +2838,7 @@ status:
     // CRUD: Namespaces
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
-    switchCluster, getCurrentCluster, setConnectedCluster, hydrateCoreResources,
+    switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
