@@ -72,12 +72,14 @@ const headers = [
       </template>
       <template #cpu="{ row }">
         <div class="w-24">
-          <ProgressBar :value="row.cpu" :show-label="true" />
+          <ProgressBar v-if="row.cpu != null" :value="row.cpu" :show-label="true" />
+          <span v-else class="text-on-surface-variant">—</span>
         </div>
       </template>
       <template #memory="{ row }">
         <div class="w-24">
-          <ProgressBar :value="row.memory" :show-label="true" />
+          <ProgressBar v-if="row.memory != null" :value="row.memory" :show-label="true" />
+          <span v-else class="text-on-surface-variant">—</span>
         </div>
       </template>
       <template #version="{ row }">

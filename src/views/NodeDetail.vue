@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -87,15 +87,21 @@ async function handleDrain() {
       <div class="col-span-12 lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">Resource Usage</h3>
-          <div class="grid grid-cols-2 gap-xl">
+          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-2 gap-xl">
             <div>
-              <ProgressBar :value="node.cpu" size="lg" show-label label="CPU" />
-              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.cpu }}% allocated</p>
+              <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
+              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
+              <p v-if="node.usedCpu != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(node.usedCpu) }} / {{ formatCpu(node.allocCpu) }}</p>
             </div>
             <div>
-              <ProgressBar :value="node.memory" size="lg" show-label label="Memory" />
-              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.memory }}% allocated</p>
+              <ProgressBar :value="node.memory || 0" size="lg" show-label label="Memory" />
+              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
+              <p v-if="node.usedMem != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
             </div>
+          </div>
+          <div v-else class="flex items-center gap-sm text-on-surface-variant py-md">
+            <span class="material-symbols-outlined">sensors_off</span>
+            <span class="text-body-sm">指标不可用（集群未安装 metrics-server 或缺少 metrics 读取权限）</span>
           </div>
         </div>
 
@@ -169,7 +175,7 @@ async function handleDrain() {
               </td>
               <td class="px-lg py-md"><span class="text-body-sm text-primary font-medium">{{ p.namespace }}</span></td>
               <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
-              <td class="px-lg py-md font-mono text-code-sm">{{ p.cpu }}</td>
+              <td class="px-lg py-md font-mono text-code-sm">{{ p.cpu || '—' }}</td>
               <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
               <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
             </tr>

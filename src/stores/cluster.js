@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
-import { api } from '@/api/client'
+import { api, k8sStream, portForwardApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
@@ -11,6 +11,41 @@ import {
   clusters, auditLogs, customResourceDefinitions, clusterRoleBindings,
   podDisruptionBudgets, priorityClasses
 } from '@/mock/cluster'
+
+// === K8s 资源量解析（CPU→毫核 millicores，内存→Ki）===
+// metrics.k8s.io 返回的用量与节点 allocatable / 容器 requests 都是 K8s quantity 字符串，
+// 这里统一解析为可计算的数值，再格式化回 mock 既有的展示格式（"124m/500m"、"182Mi/512Mi"）。
+function cpuToMilli(q) {
+  if (q == null || q === '') return 0
+  const s = String(q).trim()
+  if (s.endsWith('n')) return Math.round(Number(s.slice(0, -1)) / 1e6)   // nanocores → m
+  if (s.endsWith('u')) return Math.round(Number(s.slice(0, -1)) / 1e3)   // microcores → m
+  if (s.endsWith('m')) return Number(s.slice(0, -1)) || 0                // millicores
+  const n = Number(s)
+  return isNaN(n) ? 0 : n * 1000                                         // cores → m
+}
+function memToKi(q) {
+  if (q == null || q === '') return 0
+  const s = String(q).trim()
+  const m = s.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$/)
+  if (!m) return 0
+  const num = Number(m[1])
+  const suf = m[2] || ''
+  const mult = {
+    Ki: 1, Mi: 1024, Gi: 1024 ** 2, Ti: 1024 ** 3, Pi: 1024 ** 4, Ei: 1024 ** 5,
+    k: 1000 / 1024, M: 1e6 / 1024, G: 1e9 / 1024, T: 1e12 / 1024, P: 1e15 / 1024, E: 1e18 / 1024,
+  }
+  return Math.round(num * (suf ? (mult[suf] ?? 1) : 1 / 1024))           // 无后缀视为裸字节
+}
+// 用量/容量格式化（供视图展示）
+export const formatCpu = milli => (milli == null ? '—' : Math.round(milli) + 'm')
+export const formatMem = ki => {
+  if (ki == null) return '—'
+  if (ki >= 1024 ** 3) return (ki / 1024 ** 3).toFixed(ki % 1024 ** 3 ? 1 : 0) + 'Ti'
+  if (ki >= 1024 ** 2) return (ki / 1024 ** 2).toFixed(ki % 1024 ** 2 ? 1 : 0) + 'Gi'
+  if (ki >= 1024) return Math.round(ki / 1024) + 'Mi'
+  return Math.round(ki) + 'Ki'
+}
 
 export const useClusterStore = defineStore('cluster', () => {
   // === Base64（Secret data 编解码，UTF-8 安全）===
@@ -82,6 +117,12 @@ export const useClusterStore = defineStore('cluster', () => {
   const currentCluster = ref(clusters.find(c => c.current)?.name || clusters[0]?.name || '')
   const remoteMode = ref(false)
   const connectionState = ref('mock')
+  // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
+  let prevClusterMetrics = { cpu: null, mem: null }
+  // Pod Watch（实时监听）的资源版本续接点 + 句柄；断开/出错即停，避免重连风暴
+  let podWatchRv = null
+  let podWatchHandle = null
+  const podWatchLive = ref(false)
 
   // === 当前选中的 Namespace ===
   const currentNamespace = ref('')
@@ -425,6 +466,30 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) ingressList.value[idx] = { ...ingressList.value[idx], ...updates }
   }
 
+  // 结构化编辑 Ingress 路由规则：入参为扁平规则 [{host,path,pathType,serviceName,servicePort}]，
+  // 重建为规范 networking.k8s.io/v1 rules；远端 PATCH spec.rules，本地合并。
+  async function updateIngressRules(name, ns, flatRules) {
+    const byHost = new Map()
+    for (const r of flatRules) {
+      const host = r.host || ''
+      if (!byHost.has(host)) byHost.set(host, [])
+      byHost.get(host).push({
+        path: r.path || '/',
+        pathType: r.pathType || 'Prefix',
+        backend: { service: { name: r.serviceName || '', port: { number: Number(r.servicePort) || 80 } } },
+      })
+    }
+    const rules = Array.from(byHost.entries()).map(([host, paths]) => ({ host, http: { paths } }))
+    if (remoteMode.value) {
+      await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { rules } }),
+      })
+    }
+    updateIngress(name, ns, { rules, hosts: rules.map(r => r.host).filter(Boolean).join(',') })
+  }
+
   async function deleteIngress(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, ingressList, i => i.name === name && i.namespace === ns)
@@ -617,6 +682,27 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) workloadList.value[idx] = { ...workloadList.value[idx], ...updates }
   }
 
+  // 深度编辑工作负载的 Pod 模板（image/env/resources/probes/nodeSelector 等）：
+  // 入参 template 为完整的 pod template 对象（深克隆后由视图修改）。
+  // 远端 PATCH spec.template（全量 merge-patch，安全）；本地合并并刷新 image。仅 Deployment/StatefulSet/DaemonSet。
+  async function applyWorkloadTemplate(name, ns, template) {
+    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
+    if (!wl) throw new Error('工作负载不存在')
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
+    if (!plural) throw new Error(`暂不支持深度编辑 ${wl.type || '该工作负载'}，请使用 YAML 编辑`)
+    if (remoteMode.value) {
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { template } }),
+      })
+    }
+    wl.raw = { ...(wl.raw || {}), spec: { ...(wl.raw?.spec || {}), template } }
+    const img = template?.spec?.containers?.[0]?.image
+    if (img) wl.image = img
+    wl.age = 'Just now'
+  }
+
   async function scaleWorkload(name, ns, replicas) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
     if (remoteMode.value) {
@@ -668,20 +754,24 @@ export const useClusterStore = defineStore('cluster', () => {
     if (remoteMode.value) {
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
       if (plural) {
+        // kubectl rollout undo --to-revision=N：把工作负载 template 还原为目标 ReplicaSet 的完整 template
+        const body = target._template
+          ? { spec: { template: target._template } }
+          : { spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } } }
         await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/merge-patch+json' },
-          body: JSON.stringify({ spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } } }),
+          body: JSON.stringify(body),
         })
       }
     }
-    // mock：恢复目标镜像/sha，标记旧版本为非当前，并新增一条「回滚到 revN」的当前版本
+    // 本地反映：标记旧版本非当前，追加一条「回滚到 revN」的当前版本（携带目标 template 以便连续回滚）
     wl.revisions.forEach(r => r.current = false)
     const nextRev = Math.max(0, ...(wl.revisions.map(r => r.rev))) + 1
     wl.image = target.image
     wl.sha = target.sha
     wl.age = 'Just now'
-    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: `回滚到 rev-${revNumber}` }, ...wl.revisions]
+    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: `回滚到 rev-${revNumber}`, _template: target._template }, ...wl.revisions]
   }
 
   // === CRUD: Pods ===
@@ -1115,8 +1205,14 @@ export const useClusterStore = defineStore('cluster', () => {
     return `${Math.floor(seconds / 86400)}d`
   }
 
-  function mapNode(item) {
+  function mapNode(item, metric) {
     const ready = item.status?.conditions?.find(c => c.type === 'Ready')
+    // allocatable 作为分母、metrics.k8s.io 用量作为分子；无 metric 时百分比返回 null，由视图降级展示「—」
+    const allocCpu = cpuToMilli(item.status?.allocatable?.cpu)
+    const allocMem = memToKi(item.status?.allocatable?.memory)
+    const usedCpu = metric ? metric.cpuMilli : null
+    const usedMem = metric ? metric.memKi : null
+    const pct = (used, alloc) => (used != null && alloc > 0 ? Math.min(100, Math.round((used / alloc) * 100)) : null)
     return {
       name: item.metadata?.name,
       status: ready?.status === 'True' ? 'Ready' : 'NotReady',
@@ -1128,11 +1224,21 @@ export const useClusterStore = defineStore('cluster', () => {
       age: ageOf(item.metadata?.creationTimestamp),
       unschedulable: Boolean(item.spec?.unschedulable),
       conditions: Object.fromEntries((item.status?.conditions || []).map(c => [c.type, c.status === 'True'])),
+      cpu: pct(usedCpu, allocCpu),
+      memory: pct(usedMem, allocMem),
+      usedCpu, usedMem, allocCpu, allocMem,
     }
   }
 
-  function mapPod(item) {
+  function mapPod(item, metric) {
     const statuses = item.status?.containerStatuses || []
+    // request 取自容器 resources.requests（分母），用量取自 metrics.k8s.io（分子）
+    const reqCpu = (item.spec?.containers || []).reduce((s, c) => s + cpuToMilli(c.resources?.requests?.cpu), 0)
+    const reqMem = (item.spec?.containers || []).reduce((s, c) => s + memToKi(c.resources?.requests?.memory), 0)
+    const usedCpu = metric ? metric.cpuMilli : null
+    const usedMem = metric ? metric.memKi : null
+    // 与 mock 保持一致格式 "124m/500m" / "182Mi/512Mi"；无用量时返回 null，视图降级展示
+    const ratio = (used, total, fmt) => (used != null ? `${fmt(used)}/${fmt(total)}` : null)
     return {
       name: item.metadata?.name,
       namespace: item.metadata?.namespace,
@@ -1145,6 +1251,9 @@ export const useClusterStore = defineStore('cluster', () => {
       image: item.spec?.containers?.[0]?.image || '',
       labels: item.metadata?.labels || {},
       annotations: item.metadata?.annotations || {},
+      cpu: ratio(usedCpu, reqCpu, m => Math.round(m) + 'm'),
+      memory: ratio(usedMem, reqMem, k => Math.round(k / 1024) + 'Mi'),
+      usedCpu, usedMem, reqCpu, reqMem,
     }
   }
 
@@ -1164,6 +1273,81 @@ export const useClusterStore = defineStore('cluster', () => {
       annotations: item.metadata?.annotations || {},
       raw: item,
     }
+  }
+
+  // 还原 Deployment 的滚动发布历史：每个 ReplicaSet 携带 deployment.kubernetes.io/revision 注解，
+  // 其 pod template 即该 revision 的镜像/配置；当前 revision 取 Deployment 自身注解。
+  // _template 保留完整模板，供 rollbackWorkload 执行真正的 rollout undo PATCH。
+  function attachRolloutHistory(workloads, deploymentData, replicaSetData) {
+    const rsByDeploy = new Map()
+    for (const rs of (replicaSetData?.items || [])) {
+      const owner = (rs.metadata?.ownerReferences || []).find(o => o.kind === 'Deployment' && o.controller)
+      if (!owner) continue
+      const key = `${rs.metadata.namespace}/${owner.name}`
+      if (!rsByDeploy.has(key)) rsByDeploy.set(key, [])
+      rsByDeploy.get(key).push(rs)
+    }
+    const findDeploy = (name, ns) => (deploymentData?.items || []).find(d => d.metadata?.name === name && d.metadata?.namespace === ns)
+    for (const wl of workloads) {
+      if (wl.type !== 'Deployment') {
+        // StatefulSet/DaemonSet 历史走 ControllerRevision（暂未接入），仅展示当前版本
+        wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: '当前版本' }]
+        continue
+      }
+      const deploy = findDeploy(wl.name, wl.namespace)
+      const curRev = deploy?.metadata?.annotations?.['deployment.kubernetes.io/revision'] || ''
+      const rss = rsByDeploy.get(`${wl.namespace}/${wl.name}`) || []
+      const revs = rss.map(rs => {
+        const rev = Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision']) || 0
+        return {
+          rev,
+          image: rs.spec?.template?.spec?.containers?.[0]?.image || wl.image,
+          sha: String(rs.metadata?.uid || '').slice(0, 7) || String(rs.metadata?.name || '').split('-').pop() || '—',
+          age: ageOf(rs.metadata?.creationTimestamp),
+          reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
+          current: curRev ? String(rev) === String(curRev) : false,
+          replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
+          _template: rs.spec?.template,
+        }
+      }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
+      wl.revisions = revs.length
+        ? revs
+        : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: '当前版本' }]
+    }
+  }
+
+  // === Pod Watch：实时监听 Pod 变化（ADDED/MODIFIED/DELETED 增量更新 podList）===
+  // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
+  // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
+  function applyPodWatchEvent(evt) {
+    if (!evt?.object) return
+    const mapped = mapPod(evt.object, null)
+    const list = podList.value
+    const idx = list.findIndex(p => p.name === mapped.name && p.namespace === mapped.namespace)
+    if (evt.type === 'DELETED') { if (idx !== -1) list.splice(idx, 1) }
+    else if (idx !== -1) list[idx] = { ...list[idx], ...mapped }
+    else list.push(mapped)
+  }
+  function startPodWatch() {
+    if (!remoteMode.value || podWatchHandle) return
+    const rv = podWatchRv || ''
+    const path = `/api/v1/pods?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`
+    podWatchLive.value = true
+    podWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
+          applyPodWatchEvent(evt)
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopPodWatch,
+      onClose: stopPodWatch,
+    })
+  }
+  function stopPodWatch() {
+    podWatchLive.value = false
+    if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
   }
 
   // === 远端资源映射（K8s API 对象 → 前端扁平结构，字段与 mock 保持一致）===
@@ -1407,9 +1591,12 @@ export const useClusterStore = defineStore('cluster', () => {
       api.k8s('/apis/apps/v1/deployments?limit=1000'),
       api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
       api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
+      api.k8s('/apis/apps/v1/replicasets?limit=5000'),                    // 回滚历史：revision 注解
       api.k8s('/api/v1/services?limit=1000'),
       api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'),
       api.k8s('/api/v1/events?limit=1000'),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/nodes'),                      // 真实节点用量
+      api.k8s('/apis/metrics.k8s.io/v1beta1/pods'),                       // 真实 Pod 用量
     ])
     const valueAt = index => requests[index].status === 'fulfilled' ? requests[index].value : null
     const nodeData = valueAt(0)
@@ -1418,16 +1605,39 @@ export const useClusterStore = defineStore('cluster', () => {
     const deploymentData = valueAt(3)
     const statefulSetData = valueAt(4)
     const daemonSetData = valueAt(5)
-    const serviceData = valueAt(6)
-    const ingressData = valueAt(7)
-    const eventData = valueAt(8)
+    const replicaSetData = valueAt(6)
+    const serviceData = valueAt(7)
+    const ingressData = valueAt(8)
+    const eventData = valueAt(9)
+    const nodeMetricsData = valueAt(10)
+    const podMetricsData = valueAt(11)
+
+    // 指标（metrics-server）可能未安装或无 RBAC 权限——任一失败即整体降级为「不可用」
+    const metricsAvailable = Boolean(nodeMetricsData && podMetricsData)
+    const nodeMetricMap = new Map()
+    for (const it of (nodeMetricsData?.items || [])) {
+      nodeMetricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
+    }
+    const podMetricMap = new Map()
+    for (const it of (podMetricsData?.items || [])) {
+      let cpuMilli = 0, memKi = 0
+      for (const c of (it.containers || [])) { cpuMilli += cpuToMilli(c.usage?.cpu); memKi += memToKi(c.usage?.memory) }
+      podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
+    }
+    const nodeMetric = name => (metricsAvailable ? (nodeMetricMap.get(name) || null) : null)
+    const podMetric = (ns, name) => (metricsAvailable ? (podMetricMap.get(`${ns}/${name}`) || null) : null)
+
     if (!namespaceData) {
       connectionState.value = 'error'
       const failure = requests[2].status === 'rejected' ? requests[2].reason : null
       throw new Error(failure?.message || '无法读取 Namespace，请检查 Kubernetes RBAC 权限')
     }
-    if (nodeData?.items) nodeList.value = nodeData.items.map(mapNode)
-    if (podData?.items) podList.value = podData.items.map(mapPod)
+    if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, nodeMetric(item.metadata?.name)))
+    if (podData?.items) {
+      podList.value = podData.items.map(item => mapPod(item, podMetric(item.metadata?.namespace, item.metadata?.name)))
+      // 记录 list 的 resourceVersion，供 Pod Watch 续接（只收此后变更）
+      if (podData.metadata?.resourceVersion) podWatchRv = podData.metadata.resourceVersion
+    }
     if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
       name: item.metadata?.name,
       status: item.status?.phase || 'Unknown',
@@ -1442,6 +1652,8 @@ export const useClusterStore = defineStore('cluster', () => {
         ...(statefulSetData?.items || []).map(item => mapWorkload(item, 'StatefulSet')),
         ...(daemonSetData?.items || []).map(item => mapWorkload(item, 'DaemonSet')),
       ]
+      // 真实回滚历史：按 ReplicaSet 的 revision 注解还原
+      attachRolloutHistory(workloadList.value, deploymentData, replicaSetData)
     }
     if (serviceData?.items) serviceList.value = serviceData.items.map(mapService)
     if (ingressData?.items) ingressList.value = ingressData.items.map(mapIngress)
@@ -1453,11 +1665,36 @@ export const useClusterStore = defineStore('cluster', () => {
       namespace: item.metadata?.namespace || '',
       age: ageOf(item.lastTimestamp || item.eventTime || item.metadata?.creationTimestamp),
     }))
+    // 集群级 CPU/内存：按节点用量 / allocatable 汇总；与上次水合对比得出趋势
+    let cpuUsage = null, memoryUsage = null
+    if (metricsAvailable) {
+      let usedCpu = 0, allocCpu = 0, usedMem = 0, allocMem = 0
+      for (const n of nodeList.value) {
+        if (n.usedCpu != null) usedCpu += n.usedCpu
+        if (n.allocCpu > 0) allocCpu += n.allocCpu
+        if (n.usedMem != null) usedMem += n.usedMem
+        if (n.allocMem > 0) allocMem += n.allocMem
+      }
+      cpuUsage = allocCpu > 0 ? Math.min(100, Math.round((usedCpu / allocCpu) * 100)) : null
+      memoryUsage = allocMem > 0 ? Math.min(100, Math.round((usedMem / allocMem) * 100)) : null
+    }
+    const trendOf = (cur, prev) => {
+      if (cur == null || prev == null) return { trend: '—', up: false }
+      const d = cur - prev
+      return { trend: (d >= 0 ? '+' : '') + d.toFixed(1) + '%', up: d > 0 }
+    }
+    const cpuT = trendOf(cpuUsage, prevClusterMetrics.cpu)
+    const memT = trendOf(memoryUsage, prevClusterMetrics.mem)
+    prevClusterMetrics = { cpu: cpuUsage, mem: memoryUsage }
     cluster.value = {
       ...cluster.value,
       nodeCount: nodeList.value.length,
       podCount: podList.value.length,
       activeEvents: eventList.value.length,
+      metricsAvailable,
+      cpuUsage, memoryUsage,
+      cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
+      memoryTrend: memT.trend, memoryTrendUp: memT.up,
     }
     // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
     try { await hydrateExtendedResources() } catch { /* 容错：部分资源无权限时忽略 */ }
@@ -2379,19 +2616,38 @@ status:
     return { ok: true, kind, name, namespace: ns }
   }
 
-  // === 端口转发（KuboardProxy 语义，纯前端 mock）===
-  // 模拟 kubectl port-forward：把 Service/Pod 的端口映射到一个本地端口，便于浏览器直接访问。
+  // === 端口转发（kubectl port-forward 语义）===
+  // 远端：在网关主机开本地 TCP 监听转发到 Pod；演示数据模式：纯前端 mock。
   const portForwards = ref([])
   let pfIdSeq = 1
-  function addPortForward({ kind, name, namespace, port, localPort }) {
+  async function addPortForward({ kind, name, namespace, port, localPort }) {
+    if (remoteMode.value) {
+      const fwd = await portForwardApi.create({ kind, name, namespace, port, localPort })
+      const pf = { id: fwd.id, kind, name, namespace, port, pod: fwd.pod, targetPort: fwd.targetPort, localPort: fwd.localPort, host: fwd.host, status: 'Forwarding' }
+      portForwards.value.push(pf)
+      return pf
+    }
     const lf = localPort || (7000 + portForwards.value.length * 7)
-    const pf = { id: pfIdSeq++, kind, name, namespace, port, localPort: lf, status: 'Forwarding' }
+    const pf = { id: `mock-${pfIdSeq++}`, kind, name, namespace, port, localPort: lf, status: 'Forwarding' }
     portForwards.value.push(pf)
     return pf
   }
-  function removePortForward(id) {
+  async function removePortForward(id) {
+    if (remoteMode.value && !String(id).startsWith('mock-')) {
+      try { await portForwardApi.remove(id) } catch { /* 已停止或会话过期 */ }
+    }
     const idx = portForwards.value.findIndex(p => p.id === id)
     if (idx !== -1) portForwards.value.splice(idx, 1)
+  }
+  async function refreshPortForwards() {
+    if (!remoteMode.value) return
+    try {
+      const { forwards } = await portForwardApi.list()
+      portForwards.value = forwards.map(f => ({
+        id: f.id, kind: f.kind, name: f.name, namespace: f.namespace,
+        port: f.targetPort, pod: f.pod, targetPort: f.targetPort, localPort: f.localPort, host: f.host, status: 'Forwarding',
+      }))
+    } catch { /* 忽略 */ }
   }
 
   // === RBAC 权限模拟（kubectl auth can-i 语义）===
@@ -2468,7 +2724,7 @@ status:
     // CRUD: Services
     addService, updateService, deleteService,
     // CRUD: Ingress
-    addIngress, updateIngress, deleteIngress,
+    addIngress, updateIngress, updateIngressRules, deleteIngress,
     // CRUD: ConfigMaps
     addConfigMap, updateConfigMap, deleteConfigMap,
     // CRUD: Secrets
@@ -2483,7 +2739,7 @@ status:
     // CRUD: IngressClass / RuntimeClass（集群级）
     getIngressClassByName, addIngressClass, updateIngressClass, deleteIngressClass, getRuntimeClassByName, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
-    addWorkload, deleteWorkload, updateWorkload, scaleWorkload, restartWorkload, rollbackWorkload,
+    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, scaleWorkload, restartWorkload, rollbackWorkload,
     // CRUD: Pods
     addPod, deletePod,
     // CRUD: NetworkPolicies
@@ -2509,6 +2765,8 @@ status:
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster, setConnectedCluster, hydrateCoreResources,
+    // Pod Watch（实时监听）
+    podWatchLive, startPodWatch, stopPodWatch,
     // CRD
     getCRDByName,
     // 审计
@@ -2516,7 +2774,7 @@ status:
     // YAML generation
     generateYAML, generateExtraYAML, generateCRYaml, applyResourceYaml,
     // 端口转发
-    portForwards, addPortForward, removePortForward,
+    portForwards, addPortForward, removePortForward, refreshPortForwards,
     // RBAC 权限模拟
     checkAccess,
   }

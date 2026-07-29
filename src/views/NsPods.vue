@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -44,6 +44,10 @@ const pageSize = ref(10)
 const paginated = computed(() => filtered.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value))
 // 筛选条件变化时回到第 1 页
 watch([searchQuery, statusFilter, nodeFilter], () => { currentPage.value = 1 })
+
+// Pod 实时监听（watch）：远端模式可开关；离开页面停止，避免长连接泄漏
+function toggleLive() { store.podWatchLive ? store.stopPodWatch() : store.startPodWatch() }
+onUnmounted(() => { if (store.podWatchLive) store.stopPodWatch() })
 
 function cpuPercent(cpu) {
   if (!cpu || cpu === '0/0') return 0
@@ -118,9 +122,20 @@ function handleCreate() {
         <h2 class="text-display-lg text-on-surface">Pods</h2>
         <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> Create Pod
-      </button>
+      <div class="flex items-center gap-sm">
+        <button v-if="store.remoteMode" @click="toggleLive"
+          class="flex items-center gap-sm px-md py-sm rounded-lg font-semibold border transition-colors"
+          :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
+          :title="store.podWatchLive ? '正在实时监听 Pod 变化（watch），点击停止' : '开启实时监听 Pod 变化（watch=true）'">
+          <span class="material-symbols-outlined">{{ store.podWatchLive ? 'pause' : 'play_arrow' }}</span>
+          <span class="flex items-center gap-xs">Live
+            <span v-if="store.podWatchLive" class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>
+          </span>
+        </button>
+        <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined">add</span> Create Pod
+        </button>
+      </div>
     </div>
 
     <!-- Status Summary Bar -->
@@ -198,7 +213,7 @@ function handleCreate() {
               <span class="font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</span>
             </td>
             <td class="px-lg py-md">
-              <div v-if="p.cpu !== '0/0'" class="flex items-center gap-sm">
+              <div v-if="p.cpu && p.cpu !== '0/0'" class="flex items-center gap-sm">
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="cpuPercent(p.cpu) > 80 ? 'bg-error' : cpuPercent(p.cpu) > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPercent(p.cpu) + '%' }"></div>
                 </div>
@@ -207,7 +222,7 @@ function handleCreate() {
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
             <td class="px-lg py-md">
-              <div v-if="p.memory !== '0/0'" class="flex items-center gap-sm">
+              <div v-if="p.memory && p.memory !== '0/0'" class="flex items-center gap-sm">
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="memPercent(p.memory) > 80 ? 'bg-error' : memPercent(p.memory) > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPercent(p.memory) + '%' }"></div>
                 </div>
