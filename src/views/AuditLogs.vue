@@ -1,68 +1,48 @@
 <script setup>
-import { ref, computed } from 'vue'
+// 集群活动记录：K8s 标准 API 不暴露「审计日志」（需集群开启 audit logging 并对接日志后端），
+// 故此处如实以集群 Events 作为可用的活动记录展示，并标注数据来源。
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 
 const store = useClusterStore()
+const router = useRouter()
 
-const userFilter = ref('All Users')
-const verbFilter = ref('All')
+const typeFilter = ref('All')
 const searchQuery = ref('')
 
-// 从 auditLogList 提取去重的用户列表
-const userList = computed(() => {
-  const users = [...new Set(store.auditLogList.map(l => l.user))]
-  return ['All Users', ...users]
-})
-
-// verb 颜色 + 图标映射
-const verbMeta = {
-  create: { icon: 'add_circle', color: 'bg-primary-container/10 text-primary' },
-  update: { icon: 'edit', color: 'bg-tertiary-container/10 text-tertiary-container' },
-  delete: { icon: 'delete', color: 'bg-error-container/10 text-error' },
-  patch: { icon: 'build', color: 'bg-secondary-container/10 text-secondary' },
-  get: { icon: 'search', color: 'bg-surface-container text-on-surface-variant' },
-}
-
-// 操作类型筛选按钮颜色（选中态）
-const verbButtonColor = {
-  create: 'bg-primary text-on-primary border-primary',
-  update: 'bg-tertiary text-on-tertiary border-tertiary',
-  delete: 'bg-error text-on-error border-error',
-  patch: 'bg-secondary text-on-secondary border-secondary',
-  get: 'bg-surface-container-high text-on-surface border-surface-container-high',
-}
-
-const verbOptions = ['All', 'create', 'update', 'delete', 'patch']
-
 const filtered = computed(() => {
-  let list = store.auditLogList
-  if (userFilter.value !== 'All Users') list = list.filter(l => l.user === userFilter.value)
-  if (verbFilter.value !== 'All') list = list.filter(l => l.verb === verbFilter.value)
+  let list = store.eventList
+  if (typeFilter.value !== 'All') list = list.filter(e => e.type === typeFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
-  if (q) list = list.filter(l => (l.user || '').toLowerCase().includes(q) || (l.resource || '').toLowerCase().includes(q))
+  if (q) list = list.filter(e =>
+    (e.reason || '').toLowerCase().includes(q) ||
+    (e.message || '').toLowerCase().includes(q) ||
+    (e.relatedName || '').toLowerCase().includes(q))
   return list
 })
 
-// 统计：今日操作总数 + create / update / delete 数
 const stats = computed(() => {
-  const list = store.auditLogList
+  const list = store.eventList
   return {
     total: list.length,
-    create: list.filter(l => l.verb === 'create').length,
-    update: list.filter(l => l.verb === 'update').length,
-    delete: list.filter(l => l.verb === 'delete').length,
+    normal: list.filter(e => e.type !== 'warning').length,
+    warning: list.filter(e => e.type === 'warning').length,
   }
 })
 
-// HTTP 状态码 badge 颜色
-function codeClass(code) {
-  if (code >= 200 && code < 300) return 'bg-primary-container/10 text-primary'
-  if (code >= 300 && code < 400) return 'bg-tertiary-container/10 text-tertiary-container'
-  if (code >= 400 && code < 500) return 'bg-error-container/10 text-error'
-  if (code >= 500) return 'bg-error text-on-error'
-  return 'bg-surface-container text-on-surface-variant'
+const WL = ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob']
+function goToRelated(e) {
+  if (!e.relatedKind || !e.relatedName) return
+  const ns = e.relatedNamespace || e.namespace
+  if (e.relatedKind === 'Pod') router.push({ name: 'NsPodDetail', params: { namespace: ns, name: e.relatedName } })
+  else if (WL.includes(e.relatedKind)) router.push({ name: 'NsWorkloadDetail', params: { namespace: ns, type: e.relatedKind.toLowerCase(), name: e.relatedName } })
+  else if (e.relatedKind === 'Service') router.push({ name: 'NsServiceDetail', params: { namespace: ns, name: e.relatedName } })
+  else if (e.relatedKind === 'Node') router.push(`/nodes/${e.relatedName}`)
 }
+
+onMounted(() => { if (store.remoteMode) store.startEventWatch() })
 </script>
 
 <template>
@@ -73,78 +53,64 @@ function codeClass(code) {
     ]" />
 
     <!-- 标题区 -->
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-sm">
       <div>
-        <h2 class="text-headline-sm text-on-surface">审计日志 <span class="text-on-surface-variant font-normal">· {{ store.auditLogList.length }}</span></h2>
-        <p class="text-on-surface-variant text-body-md mt-1">记录用户对集群资源的操作</p>
+        <h2 class="text-headline-sm text-on-surface">审计日志 <span class="text-on-surface-variant font-normal">· {{ stats.total }}</span></h2>
+        <p class="text-on-surface-variant text-body-md mt-1">集群活动记录</p>
       </div>
+      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE
+      </span>
+    </div>
+
+    <!-- 数据来源说明 -->
+    <div class="flex items-start gap-sm mb-lg p-md rounded-lg bg-tertiary-container/10 border border-tertiary-container/30">
+      <span class="material-symbols-outlined text-tertiary-container text-lg shrink-0 mt-0.5">info</span>
+      <p class="text-body-sm text-on-surface-variant">
+        Kubernetes 标准 API 不直接暴露审计日志（需集群开启 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">audit logging</code> 并对接日志后端）。
+        此处如实以集群 <strong>Events</strong> 作为可用的活动记录展示——包含资源调度、扩缩容、镜像拉取、异常等事件。
+      </p>
     </div>
 
     <!-- 统计卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-md mb-lg">
+    <div class="grid grid-cols-3 gap-md mb-lg">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-md">
         <div class="flex items-center gap-sm text-on-surface-variant mb-xs">
           <span class="material-symbols-outlined text-lg">history</span>
-          <span class="text-label-caps">今日操作</span>
+          <span class="text-label-caps">事件总数</span>
         </div>
         <p class="text-headline-sm text-on-surface font-semibold">{{ stats.total }}</p>
       </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-md">
         <div class="flex items-center gap-sm text-primary mb-xs">
-          <span class="material-symbols-outlined text-lg">add_circle</span>
-          <span class="text-label-caps">创建</span>
+          <span class="material-symbols-outlined text-lg">check_circle</span>
+          <span class="text-label-caps">Normal</span>
         </div>
-        <p class="text-headline-sm text-primary font-semibold">{{ stats.create }}</p>
+        <p class="text-headline-sm text-primary font-semibold">{{ stats.normal }}</p>
       </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-md">
         <div class="flex items-center gap-sm text-tertiary-container mb-xs">
-          <span class="material-symbols-outlined text-lg">edit</span>
-          <span class="text-label-caps">更新</span>
+          <span class="material-symbols-outlined text-lg">warning</span>
+          <span class="text-label-caps">Warning</span>
         </div>
-        <p class="text-headline-sm text-tertiary-container font-semibold">{{ stats.update }}</p>
-      </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-md">
-        <div class="flex items-center gap-sm text-error mb-xs">
-          <span class="material-symbols-outlined text-lg">delete</span>
-          <span class="text-label-caps">删除</span>
-        </div>
-        <p class="text-headline-sm text-error font-semibold">{{ stats.delete }}</p>
+        <p class="text-headline-sm text-tertiary-container font-semibold">{{ stats.warning }}</p>
       </div>
     </div>
 
     <!-- 筛选区 -->
     <div class="flex flex-wrap items-center gap-md mb-lg">
-      <!-- 用户筛选下拉 -->
-      <div class="relative">
-        <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">person</span>
-        <select v-model="userFilter" class="appearance-none bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-lg py-sm text-body-md text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-w-[180px]">
-          <option v-for="u in userList" :key="u" :value="u">{{ u }}</option>
-        </select>
-        <span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">expand_more</span>
-      </div>
-
-      <!-- 操作类型筛选按钮组 -->
-      <div class="flex gap-xs flex-wrap">
-        <button v-for="opt in verbOptions" :key="opt" @click="verbFilter = opt"
-          class="px-md py-xs rounded-full text-body-sm font-medium border transition-all flex items-center gap-1 capitalize"
-          :class="verbFilter === opt
-            ? (opt === 'All' ? 'bg-primary text-on-primary border-primary' : verbButtonColor[opt])
-            : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
-          <span v-if="opt !== 'All'" class="material-symbols-outlined text-base">{{ verbMeta[opt].icon }}</span>
+      <div class="flex gap-xs">
+        <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
+          class="px-md py-xs rounded-full text-body-sm font-medium border transition-all capitalize"
+          :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
           {{ opt === 'All' ? '全部' : opt }}
         </button>
       </div>
-
-      <!-- 搜索框 -->
       <div class="relative flex-1 min-w-[200px] max-w-md ml-auto">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索用户或资源..." />
-        <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
-          <span class="material-symbols-outlined text-lg">close</span>
-        </button>
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索原因 / 消息 / 资源..." />
       </div>
-
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.auditLogList.length }}</span>
+      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ stats.total }}</span>
     </div>
 
     <!-- 日志表格 -->
@@ -153,48 +119,38 @@ function codeClass(code) {
         <table class="w-full text-left">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">User</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Verb</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant w-14">Type</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Reason</th>
               <th class="px-lg py-md text-label-caps text-on-surface-variant">Resource</th>
               <th class="px-lg py-md text-label-caps text-on-surface-variant">Namespace</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">IP</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Code</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">Message</th>
               <th class="px-lg py-md text-label-caps text-on-surface-variant">Time</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="(log, idx) in filtered" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
-              <!-- User -->
+            <tr v-for="(e, idx) in filtered" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
               <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <div class="w-7 h-7 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant shrink-0">
-                    <span class="material-symbols-outlined text-base">person</span>
-                  </div>
-                  <span class="text-body-sm text-on-surface font-medium">{{ log.user }}</span>
+                <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                  :class="e.color === 'error' ? 'bg-error-container text-on-error-container' : e.color === 'tertiary' ? 'bg-tertiary-container/20 text-tertiary-container' : e.color === 'primary' ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container text-on-surface-variant'">
+                  <span class="material-symbols-outlined text-lg">{{ e.icon }}</span>
                 </div>
               </td>
-              <!-- Verb badge -->
               <td class="px-lg py-md">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-label-caps capitalize" :class="verbMeta[log.verb].color">
-                  <span class="material-symbols-outlined text-base">{{ verbMeta[log.verb].icon }}</span>
-                  {{ log.verb }}
-                </span>
+                <span class="font-semibold text-on-surface text-body-md">{{ e.reason }}</span>
+                <span class="ml-sm px-2 py-0.5 rounded text-label-caps" :class="e.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ e.type }}</span>
               </td>
-              <!-- Resource -->
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface whitespace-nowrap">{{ log.resource }}</td>
-              <!-- Namespace -->
               <td class="px-lg py-md">
-                <span v-if="log.namespace" class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ log.namespace }}</span>
+                <button v-if="e.relatedKind" @click="goToRelated(e)" class="font-mono text-code-sm text-primary hover:underline whitespace-nowrap">
+                  {{ e.relatedKind }}/{{ e.relatedName }}
+                </button>
                 <span v-else class="text-on-surface-variant text-body-sm">—</span>
               </td>
-              <!-- IP -->
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ log.ip }}</td>
-              <!-- Code -->
               <td class="px-lg py-md">
-                <span class="inline-flex items-center px-2 py-0.5 rounded font-mono text-code-sm font-semibold" :class="codeClass(log.code)">{{ log.code }}</span>
+                <span v-if="e.namespace" class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ e.namespace }}</span>
+                <span v-else class="text-on-surface-variant text-body-sm">—</span>
               </td>
-              <!-- Time -->
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ log.time }}</td>
+              <td class="px-lg py-md text-body-sm text-on-surface-variant max-w-md">{{ e.message }}</td>
+              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ e.time }}</td>
             </tr>
           </tbody>
         </table>
@@ -204,7 +160,7 @@ function codeClass(code) {
     <!-- 空状态 -->
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">manage_history</span>
-      <p class="text-on-surface-variant mt-md">没有匹配的审计日志记录</p>
+      <p class="text-on-surface-variant mt-md">没有匹配的活动记录</p>
     </div>
   </section>
 </template>
