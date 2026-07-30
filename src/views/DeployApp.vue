@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 
 const route = useRoute()
 const router = useRouter()
@@ -59,6 +60,8 @@ const form = ref({
   createIngress: false,
   ingressClassName: 'nginx',
   ingressRules: [{ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }],
+  ingressAdv: {},
+  ingressCustomAnnotations: [],
   // Labels
   labels: [{ key: 'app', value: '' }],
   annotations: [],
@@ -118,6 +121,8 @@ function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
 function addAnnotation() { form.value.annotations.push({ key: '', value: '' }) }
 function removeAnnotation(idx) { form.value.annotations.splice(idx, 1) }
+function addIngressCustom() { form.value.ingressCustomAnnotations.push({ key: '', value: '' }) }
+function removeIngressCustom(i) { form.value.ingressCustomAnnotations.splice(i, 1) }
 function addNodeSelector() { form.value.nodeSelectors.push({ key: '', value: '' }) }
 function removeNodeSelector(idx) { form.value.nodeSelectors.splice(idx, 1) }
 function addToleration() { form.value.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' }) }
@@ -429,7 +434,13 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${f.name}-ingress
-  namespace: ${f.namespace}
+  namespace: ${f.namespace}`
+    const ingressAnn = buildIngressAnnotations(f.ingressAdv, f.ingressCustomAnnotations)
+    if (Object.keys(ingressAnn).length) {
+      yaml += '\n  annotations:'
+      for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: "${String(v).replace(/"/g, '\\"')}"`
+    }
+    yaml += `
 spec:`
     if (f.ingressClassName) yaml += `\n  ingressClassName: ${f.ingressClassName}`
     const tlsRules = validRules.filter(r => r.tls)
@@ -515,7 +526,7 @@ async function handleDeploy() {
       tls: validRules.some(r => r.tls),
       tlsSecret: validRules.find(r => r.tls)?.tlsSecret || (f.name + '-tls'),
       className: f.ingressClassName,
-      annotations: {},
+      annotations: buildIngressAnnotations(f.ingressAdv, f.ingressCustomAnnotations),
       rules: validRules.map(r => ({
         host: r.host,
         http: { paths: r.paths.filter(p => p.path).map(p => ({ path: p.path, pathType: p.pathType, backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePorts[0]?.port) || 80 } })) }
@@ -1196,6 +1207,45 @@ async function handleDeploy() {
             <p class="text-body-xs text-on-surface-variant mt-sm flex items-center gap-xs">
               <span class="material-symbols-outlined text-sm">info</span>每个 Rule 一个域名，可配多个 path 与 pathType（Prefix/Exact），后端统一指向 {{ form.name }}-svc
             </p>
+
+            <!-- 网关性能调优（nginx 注解，留空=默认）-->
+            <details class="mt-md border border-outline-variant rounded-lg p-md bg-surface-container-low">
+              <summary class="cursor-pointer text-body-sm font-semibold text-on-surface flex items-center gap-sm">
+                <span class="material-symbols-outlined text-primary text-lg">tune</span> 网关性能调优（高级 · nginx 注解）
+              </summary>
+              <p class="text-body-xs text-on-surface-variant mt-sm mb-md">参数以 <code class="font-mono bg-surface-container px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
+              <div class="flex flex-col gap-md">
+                <div v-for="g in PERF_GROUPS" :key="g.title" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
+                  <div class="flex items-center gap-sm mb-sm">
+                    <span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span>
+                    <h4 class="text-body-xs font-semibold text-on-surface">{{ g.title }}</h4>
+                  </div>
+                  <div class="grid grid-cols-2 gap-xs">
+                    <div v-for="fld in g.fields" :key="fld.key">
+                      <label class="text-body-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
+                      <textarea v-if="fld.area" v-model="form.ingressAdv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
+                      <select v-else-if="fld.options" v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
+                        <option v-for="o in fld.options" :key="o" :value="o">{{ o || '默认' }}</option>
+                      </select>
+                      <input v-else v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
+                    </div>
+                  </div>
+                </div>
+                <!-- 自定义注解 -->
+                <div class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
+                  <div class="flex items-center justify-between mb-sm">
+                    <h4 class="text-body-xs font-semibold text-on-surface">自定义注解（任意 key/value）</h4>
+                    <button type="button" @click="addIngressCustom" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-body-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>新增</button>
+                  </div>
+                  <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
+                    <input v-model="a.key" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="annotation key" />
+                    <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
+                    <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
+                  </div>
+                  <p v-if="!form.ingressCustomAnnotations.length" class="text-body-xs text-on-surface-variant">暂无自定义注解</p>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
