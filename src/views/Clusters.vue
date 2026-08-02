@@ -10,6 +10,21 @@ const router = useRouter()
 const store = useClusterStore()
 
 const searchQuery = ref('')
+// Sync：重新水合当前集群（core + extended + CRDs + metrics，hydrateCoreResources 内部已串联）
+const syncing = ref(false)
+async function sync() {
+  if (syncing.value) return
+  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  syncing.value = true
+  try {
+    await store.hydrateCoreResources()
+    notify('success', `已同步 ${store.currentCluster}`)
+  } catch (e) {
+    notify('error', `同步失败：${e.message || '未知错误'}`)
+  } finally {
+    syncing.value = false
+  }
+}
 
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -31,7 +46,7 @@ function mapStatus(status) {
 
 async function switchTo(apiServer) {
   await store.switchCluster(apiServer)
-  notify(`已切换到 ${store.currentCluster}`, 'success')
+  notify('success', `已切换到 ${store.currentCluster}`)
 }
 
 async function openCluster(c) {
@@ -48,7 +63,7 @@ function removeCluster(c) {
   // 注意：仅从已保存列表移除，不主动断开当前连接
   if (!window.confirm(`移除已保存的集群「${c.name}」？\n（仅从列表删除，不会影响当前已连接的会话）`)) return
   store.removeSavedClusterStore(c.apiServer)
-  notify('已移除', 'success')
+  notify('success', '已移除')
 }
 </script>
 
@@ -68,8 +83,8 @@ function removeCluster(c) {
         </p>
       </div>
       <div class="flex gap-sm">
-        <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">refresh</span> Sync
+        <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
         <button @click="addCluster" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> 添加集群

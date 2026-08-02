@@ -1,6 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { api } from '@/api/client'
+import { useTableColumns } from '@/composables/useTableColumns'
 
 const store = useClusterStore()
 const activeTab = ref('general')
@@ -12,14 +14,49 @@ const tabs = [
   { key: 'customcols', label: 'Custom Columns', icon: 'view_column' },
 ]
 
-const components = [
-  { name: 'etcd', status: 'Healthy', endpoint: '10.0.1.10:2379' },
-  { name: 'kube-apiserver', status: 'Healthy', endpoint: '10.0.1.10:6443' },
-  { name: 'kube-controller-manager', status: 'Healthy', endpoint: '10.0.1.10:10257' },
-  { name: 'kube-scheduler', status: 'Healthy', endpoint: '10.0.1.10:10259' },
-  { name: 'coredns', status: 'Healthy', endpoint: '10.96.0.10:53' },
-  { name: 'kube-proxy', status: 'Healthy', endpoint: '10.0.1.10:10256' },
+// 演示数据模式下的静态组件（无后端连接时展示，避免空白）
+const demoComponents = [
+  { name: 'etcd', status: 'Healthy', message: '' },
+  { name: 'kube-apiserver', status: 'Healthy', message: '' },
+  { name: 'kube-controller-manager', status: 'Healthy', message: '' },
+  { name: 'kube-scheduler', status: 'Healthy', message: '' },
 ]
+
+// === Components：真实集群组件健康 ===
+const components = ref([])
+const apiReady = ref(null)        // null=未知, true=就绪, false=未就绪
+const csState = ref('idle')       // 'idle' | 'loading' | 'loaded' | 'error'
+const csError = ref('')
+
+async function loadComponents() {
+  if (!store.remoteMode) { csState.value = 'loaded'; return }   // 演示模式：用 demoComponents
+  csState.value = 'loading'
+  csError.value = ''
+  // API Server 就绪探针（/readyz 返回 200 'ok' 即健康；componentstatuses 自 K8s 1.19 起已弃用）
+  try { await api.k8s('/readyz'); apiReady.value = true } catch { apiReady.value = false }
+  // 控制面组件健康（componentstatuses；多数现代集群返回空或 Unhealthy，故 readyz 才是主信号）
+  try {
+    const data = await api.k8s('/api/v1/componentstatuses')
+    components.value = (data.items || []).map(it => {
+      const cond = (it.conditions || []).find(c => c.type === 'Healthy') || (it.conditions || [])[0]
+      return {
+        name: it.metadata?.name,
+        status: cond?.status === 'True' ? 'Healthy' : 'Unhealthy',
+        message: cond?.message || '',
+      }
+    })
+    csState.value = 'loaded'
+  } catch (e) {
+    csState.value = 'error'
+    csError.value = e.message || '读取组件状态失败'
+  }
+}
+
+watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
+onMounted(() => { if (activeTab.value === 'components') loadComponents() })
+
+// === Custom Columns：可勾选列 + localStorage 持久化（即时生效）===
+const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
 </script>
 
 <template>
@@ -82,25 +119,72 @@ const components = [
 
         <!-- Components -->
         <div v-if="activeTab === 'components'" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-          <div class="p-lg"><h3 class="text-headline-md">Component Status</h3></div>
-          <table class="w-full text-left">
+          <div class="p-lg flex items-center justify-between">
+            <div>
+              <h3 class="text-headline-md">Component Status</h3>
+              <p class="text-body-sm text-on-surface-variant mt-1">控制面组件健康（来自 <code class="font-mono text-code-sm">componentstatuses</code>）；API Server 就绪探针取自 <code class="font-mono text-code-sm">/readyz</code>。</p>
+            </div>
+            <button v-if="store.remoteMode" @click="loadComponents" :disabled="csState === 'loading'"
+              class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container disabled:opacity-50">
+              <span class="material-symbols-outlined text-base" :class="csState === 'loading' ? 'animate-spin' : ''">refresh</span>
+              Refresh
+            </button>
+          </div>
+
+          <!-- 演示模式提示 -->
+          <div v-if="!store.remoteMode" class="mx-lg mb-md flex items-center gap-sm bg-tertiary-container/10 border border-tertiary/30 rounded-lg px-md py-sm">
+            <span class="material-symbols-outlined text-tertiary-container text-lg">info</span>
+            <span class="text-body-sm text-on-surface-variant">演示数据模式：以下为静态示例，连接真实集群后将显示实际组件健康。</span>
+          </div>
+
+          <!-- API Server 就绪探针 -->
+          <div v-if="store.remoteMode" class="mx-lg mb-md flex items-center justify-between bg-surface-container-low rounded-lg px-md py-sm border border-outline-variant/50">
+            <div class="flex items-center gap-sm">
+              <span class="material-symbols-outlined text-on-surface-variant">api</span>
+              <span class="text-body-md font-medium">API Server (/readyz)</span>
+            </div>
+            <span v-if="apiReady === null" class="text-body-sm text-on-surface-variant">检测中…</span>
+            <span v-else-if="apiReady" class="flex items-center gap-sm text-primary font-medium text-body-sm">
+              <span class="w-2 h-2 bg-primary rounded-full"></span> Ready
+            </span>
+            <span v-else class="flex items-center gap-sm text-error font-medium text-body-sm">
+              <span class="w-2 h-2 bg-error rounded-full"></span> Not Ready
+            </span>
+          </div>
+
+          <!-- 加载 / 错误 / 表格 -->
+          <div v-if="csState === 'loading'" class="p-xl text-center text-on-surface-variant">
+            <span class="material-symbols-outlined animate-spin">progress_activity</span>
+            <p class="text-body-sm mt-sm">读取组件状态…</p>
+          </div>
+          <div v-else-if="csState === 'error'" class="p-xl text-center">
+            <span class="material-symbols-outlined text-error">error</span>
+            <p class="text-body-sm text-error mt-sm">{{ csError }}</p>
+            <button @click="loadComponents" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">重试</button>
+          </div>
+          <table v-else class="w-full text-left">
             <thead>
               <tr class="bg-surface-container-low border-y border-outline-variant">
                 <th class="px-lg py-md text-label-caps text-on-surface-variant">Component</th>
                 <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Endpoint</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">Message</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="c in components" :key="c.name" class="hover:bg-surface-container-low/50">
+              <tr v-for="c in (store.remoteMode ? components : demoComponents)" :key="c.name" class="hover:bg-surface-container-low/50">
                 <td class="px-lg py-md font-medium text-body-md">{{ c.name }}</td>
                 <td class="px-lg py-md">
                   <span class="flex items-center gap-sm">
-                    <span class="w-2 h-2 bg-primary rounded-full"></span>
-                    <span class="text-body-sm text-primary font-medium">{{ c.status }}</span>
+                    <span class="w-2 h-2 rounded-full" :class="c.status === 'Healthy' ? 'bg-primary' : 'bg-error'"></span>
+                    <span class="text-body-sm font-medium" :class="c.status === 'Healthy' ? 'text-primary' : 'text-error'">{{ c.status }}</span>
                   </span>
                 </td>
-                <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ c.endpoint }}</td>
+                <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ c.message || '—' }}</td>
+              </tr>
+              <tr v-if="store.remoteMode && !components.length">
+                <td colspan="3" class="px-lg py-xl text-center text-on-surface-variant text-body-sm">
+                  本集群未暴露 componentstatuses（K8s 1.19+ 已弃用该 API，常返回空）。请以右上方 <span class="font-medium">API Server (/readyz)</span> 作为控制面就绪判据。
+                </td>
               </tr>
             </tbody>
           </table>
@@ -112,27 +196,45 @@ const components = [
           <div class="space-y-md">
             <div class="flex justify-between py-sm border-b border-outline-variant/50">
               <span class="text-body-md text-on-surface-variant">Endpoint</span>
-              <span class="font-mono text-code-sm text-primary">{{ store.cluster.apiServer }}:6443</span>
+              <span class="font-mono text-code-sm text-primary">{{ store.cluster.apiServer }}</span>
             </div>
             <div class="flex justify-between py-sm border-b border-outline-variant/50">
               <span class="text-body-md text-on-surface-variant">Authentication</span>
-              <span class="text-body-md">TLS Client Certificates</span>
+              <span class="text-body-md">Bearer Token / Basic Auth</span>
             </div>
             <div class="flex justify-between py-sm">
               <span class="text-body-md text-on-surface-variant">API Version</span>
-              <span class="font-mono text-code-sm">v1</span>
+              <span class="font-mono text-code-sm">{{ store.cluster.version || 'v1' }}</span>
             </div>
           </div>
         </div>
 
         <!-- Custom Columns -->
         <div v-if="activeTab === 'customcols'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-md mb-lg">Custom Display Columns</h3>
-          <p class="text-body-md text-on-surface-variant mb-lg">Configure which columns are shown in resource tables.</p>
+          <div class="flex items-center justify-between mb-lg">
+            <div>
+              <h3 class="text-headline-md">Custom Display Columns</h3>
+              <p class="text-body-md text-on-surface-variant mt-1">勾选要在各列表视图中显示的列，配置保存在浏览器本地并即时生效。</p>
+            </div>
+            <button @click="resetAll" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium text-on-surface-variant hover:bg-surface-container">Reset All</button>
+          </div>
           <div class="space-y-md">
-            <div v-for="res in ['Workloads', 'Pods', 'Services', 'Nodes']" :key="res" class="flex items-center justify-between py-sm border-b border-outline-variant/50">
-              <span class="text-body-md font-medium">{{ res }}</span>
-              <button class="px-md py-sm text-primary text-body-sm font-medium hover:bg-primary-container/10 rounded-lg">Edit Columns</button>
+            <div v-for="t in catalog" :key="t.key" class="border border-outline-variant/60 rounded-xl p-md">
+              <div class="flex items-center justify-between mb-sm">
+                <div class="flex items-center gap-sm">
+                  <span class="material-symbols-outlined text-primary">{{ t.icon }}</span>
+                  <span class="text-body-md font-semibold">{{ t.label }}</span>
+                </div>
+                <button @click="resetTable(t.key)" class="text-body-xs text-on-surface-variant hover:text-primary">Reset</button>
+              </div>
+              <div class="flex flex-wrap gap-xs">
+                <label v-for="col in t.columns" :key="col.key"
+                  class="flex items-center gap-xs px-md py-xs rounded-lg border cursor-pointer transition-colors"
+                  :class="isHidden(t.key, col.key) ? 'border-outline-variant text-on-surface-variant bg-surface-container-low' : 'border-primary/40 text-primary bg-primary-container/10'">
+                  <input type="checkbox" :checked="!isHidden(t.key, col.key)" @change="toggle(t.key, col.key)" class="accent-[var(--md-sys-color-primary)]" />
+                  <span class="text-body-sm">{{ col.label }}</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
