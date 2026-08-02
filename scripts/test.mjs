@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { classifyResource, groupByLayer } from '../src/composables/useLayering.js'
 import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
+import { yamlScalar } from '../src/composables/useYaml.js'
+import { load } from 'js-yaml'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -141,6 +143,28 @@ test('Ingress 性能参数注解：非空写入 nginx.ingress.kubernetes.io/*、
   assert.ok(!('nginx.ingress.kubernetes.io/limit-rps' in ann), '空值不应写入')
   assert.equal(ann['nginx.ingress.kubernetes.io/rewrite-target'], '/$1')
   assert.equal(Object.keys(ann).length, 3)
+})
+
+// --- Ingress 注解 YAML 转义：多行 snippet / 反斜杠 / 双引号经 yamlScalar 后 js-yaml 可往返 ---
+// 回归：server-snippet（多行原始 nginx 配置）、含反斜杠的值、含双引号的值曾因裸 "${v}" 包裹而损坏 YAML，
+// 导致 generateYAML('ingress') / DeployApp 向导生成的 Ingress apply 失败。
+test('Ingress 注解 YAML 转义：多行 / 反斜杠 / 双引号经 yamlScalar 后 js-yaml 完整往返；空值自定义跳过', () => {
+  const ann = buildIngressAnnotations(
+    { 'server-snippet': '# line one\nproxy_read_timeout 300;\n# regex \\d and "quote"' },
+    [{ key: 'custom.example/plain', value: 'plain' }, { key: 'custom.example/empty', value: '' }]
+  )
+  assert.ok(!('custom.example/empty' in ann), '空值自定义注解应被跳过')
+  // 复刻 generateYAML('ingress') 的注解序列化：`    ${k}: ${scalar(v)}`（scalar === yamlScalar）
+  const annYaml = Object.entries(ann).map(([k, v]) => `    ${k}: ${yamlScalar(v)}`).join('\n')
+  const doc = `apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: x
+  annotations:
+${annYaml}`
+  const out = load(doc).metadata.annotations
+  assert.equal(out['nginx.ingress.kubernetes.io/server-snippet'], '# line one\nproxy_read_timeout 300;\n# regex \\d and "quote"')
+  assert.equal(out['custom.example/plain'], 'plain')
 })
 
 // --- 汇总 ---
