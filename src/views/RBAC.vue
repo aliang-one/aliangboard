@@ -2,7 +2,9 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import DataTable from '@/components/common/DataTable.vue'
+import Modal from '@/components/common/Modal.vue'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -46,6 +48,41 @@ function openCRB(row) {
 function openSA(row) {
   router.push({ name: 'NsServiceAccountDetail', params: { namespace: row.namespace, name: row.name } })
 }
+
+// 新建：跳转到当前（或首个）命名空间的 RBAC 页，那里已有 Create Role / SA / ClusterRoleBinding 表单
+function createRole() {
+  const ns = store.currentNamespace || store.namespaceList?.[0]?.name || 'default'
+  router.push({ name: 'NsRBAC', params: { namespace: ns } })
+}
+
+// 编辑：复用行点击的详情跳转（详情页带结构化编辑 + apply YAML）
+const editRole = row => openRole(row)
+const editSA = row => openSA(row)
+
+// 删除（roles tab 兼容 Namespace/Cluster 两种 scope；ClusterRoleBinding 走集群级删除）
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+const deleting = ref(false)
+function askDelete(row) {
+  deleteTarget.value = { tab: activeTab.value, name: row.name, namespace: row.namespace, scope: row.scope }
+  showDeleteModal.value = true
+}
+async function doDelete() {
+  if (!deleteTarget.value) return
+  const { tab, name, namespace } = deleteTarget.value
+  deleting.value = true
+  try {
+    if (tab === 'roles') await store.deleteRole(name, namespace || '')
+    else if (tab === 'serviceaccounts') await store.deleteServiceAccount(name, namespace)
+    notify('success', `已删除 ${name}`)
+    showDeleteModal.value = false
+    deleteTarget.value = null
+  } catch (e) {
+    notify('error', e.message || '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -59,7 +96,7 @@ function openSA(row) {
         <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">verified_user</span> 权限模拟
         </button>
-        <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
+        <button @click="createRole" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
           <span class="material-symbols-outlined">add</span> Create Role
         </button>
       </div>
@@ -89,10 +126,10 @@ function openSA(row) {
       <template #bindings="{ row }">
         <span class="font-mono text-code-sm font-bold">{{ row.bindings }}</span>
       </template>
-      <template #actions>
+      <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editRole(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
     </DataTable>
@@ -122,12 +159,22 @@ function openSA(row) {
       <template #namespace="{ row }">
         <span class="font-mono text-code-sm">{{ row.namespace }}</span>
       </template>
-      <template #actions>
+      <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editSA(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
     </DataTable>
   </section>
+
+  <!-- Delete Confirm Modal -->
+  <Modal v-model="showDeleteModal" title="Delete resource" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">确定删除 <span class="font-mono text-on-surface font-semibold">{{ deleteTarget?.name }}</span><span v-if="deleteTarget?.namespace" class="text-on-surface-variant">（{{ deleteTarget.namespace }}）</span>？</p>
+    <p class="text-body-sm text-error mt-sm">此操作不可撤销。删除 {{ deleteTarget?.tab === 'roles' ? (deleteTarget?.scope === 'Cluster' ? 'ClusterRole' : 'Role') : deleteTarget?.tab === 'serviceaccounts' ? 'ServiceAccount' : '资源' }} 将影响依赖它的绑定。</p>
+    <template #actions>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="doDelete" :disabled="deleting" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-50">Delete</button>
+    </template>
+  </Modal>
 </template>
