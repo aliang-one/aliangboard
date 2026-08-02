@@ -55,8 +55,8 @@ const roleBindings = computed(() => {
   )
 })
 
-function handleDelete() {
-  store.deleteRole(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteRole(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
 }
 

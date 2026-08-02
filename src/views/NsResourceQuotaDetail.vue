@@ -58,8 +58,8 @@ function handleEdit() {
   showEditModal.value = false
 }
 
-function handleDelete() {
-  store.deleteResourceQuota(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteResourceQuota(route.params.name, route.params.namespace)
   router.push({ name: 'NsResourceQuotas', params: { namespace: route.params.namespace } })
 }
 

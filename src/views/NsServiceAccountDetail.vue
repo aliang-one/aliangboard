@@ -35,8 +35,8 @@ const saRoleBindings = computed(() => {
   )
 })
 
-function handleDelete() {
-  store.deleteServiceAccount(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteServiceAccount(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
 }
 

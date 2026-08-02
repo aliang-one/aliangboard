@@ -68,7 +68,7 @@ async function handleRollback() {
     showRollbackModal.value = false
     rollbackTarget.value = null
   } catch (e) {
-    alert(e.message || '回滚失败')
+    notify('error', e.message || '回滚失败')
   }
 }
 
@@ -82,8 +82,8 @@ const tierOptions = [
   { value: 'default', label: '默认层', icon: 'workspaces' },
 ]
 
-function handleDelete() {
-  store.deleteWorkload(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteWorkload(route.params.name, route.params.namespace)
   router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
 }
 
@@ -97,9 +97,9 @@ async function triggerCron() {
   triggering.value = true
   try {
     const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
-    notify(`已触发 Job：${res.job || route.params.name}`, 'success')
+    notify('success', `已触发 Job：${res.job || route.params.name}`)
   } catch (e) {
-    notify(e.message || '触发失败', 'error')
+    notify('error', e.message || '触发失败')
   } finally {
     triggering.value = false
   }
@@ -212,7 +212,7 @@ async function saveTemplate() {
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, JSON.parse(JSON.stringify(editTpl.value)))
     showTemplateModal.value = false
   } catch (e) {
-    alert(e.message || '保存模板失败')
+    notify('error', e.message || '保存模板失败')
   }
 }
 </script>

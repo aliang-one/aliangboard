@@ -43,9 +43,9 @@ function resetCreate() {
   createForm.value = { name: '', type: 'ClusterIP', port: '', targetPort: '', selectorKey: 'app', selectorValue: '' }
 }
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addService({
+  const r = await store.addService({
     name: f.name,
     namespace: route.params.namespace,
     type: f.type,
@@ -54,6 +54,7 @@ function handleCreate() {
     ports: f.port + ':' + (f.targetPort || f.port) + '/TCP',
     selector: { [f.selectorKey]: f.selectorValue || f.name },
   })
+  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   showCreateModal.value = false
   resetCreate()
 }

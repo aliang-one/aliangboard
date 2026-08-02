@@ -62,8 +62,8 @@ function handleEdit() {
   showEditModal.value = false
 }
 
-function handleDelete() {
-  store.deleteLimitRange(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteLimitRange(route.params.name, route.params.namespace)
   router.push({ name: 'NsLimitRanges', params: { namespace: route.params.namespace } })
 }
 

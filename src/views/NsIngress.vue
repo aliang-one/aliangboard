@@ -42,9 +42,9 @@ function addCustomAnnotation() { customAnnotations.value.push({ key: '', value: 
 function removeCustomAnnotation(i) { customAnnotations.value.splice(i, 1) }
 
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addIngress({
+  const r = await store.addIngress({
     name: f.name,
     namespace: route.params.namespace,
     hosts: f.host,
@@ -66,6 +66,7 @@ function handleCreate() {
       }
     }],
   })
+  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   showCreateModal.value = false
   resetCreate()
 }

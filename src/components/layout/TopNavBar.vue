@@ -75,6 +75,9 @@ function goClusters() {
 }
 
 async function logout() {
+  // 停止后台实时监听（Pod/Event Watch），避免带着失效 token 反复 401；并重置命名空间作用域
+  try { store.stopPodWatch() } catch { /* 未启动时忽略 */ }
+  try { store.stopEventWatch() } catch { /* 未启动时忽略 */ }
   try { await api.logout() } catch { /* 会话已失效时仍清理本地状态 */ }
   clearSession()
   router.push('/login')
@@ -164,14 +167,10 @@ async function logout() {
       </div>
     </div>
     <div class="flex items-center gap-md">
-      <button aria-label="通知" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors relative">
+      <button @click="router.push('/audit-logs')" aria-label="活动记录" title="活动记录" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">notifications</span>
-        <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full"></span>
       </button>
-      <button aria-label="帮助" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
-        <span class="material-symbols-outlined">help</span>
-      </button>
-      <button aria-label="设置" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+      <button @click="router.push('/settings')" aria-label="设置" title="设置" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">settings</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>

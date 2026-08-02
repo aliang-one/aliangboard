@@ -60,7 +60,20 @@ function removeCreateKey(idx) {
   createForm.value.keys.splice(idx, 1)
 }
 
-function handleCreate() {
+// 按 Secret 类型校验必填字段（避免提交后被 K8s 拒绝，如 tls 缺 crt/key）
+const canCreateSecret = computed(() => {
+  const f = createForm.value
+  if (!f.name) return false
+  switch (f.type) {
+    case 'kubernetes.io/basic-auth': return !!(f.username && f.password)
+    case 'kubernetes.io/dockerconfigjson': return !!(f.registry && f.registryUser && f.registryPassword)
+    case 'kubernetes.io/tls': return !!(f.tlsCrt && f.tlsKey)
+    case 'kubernetes.io/ssh-auth': return !!f.sshKey
+    default: return f.keys.some(k => k.key)   // Opaque：至少 1 个有效 key
+  }
+})
+
+async function handleCreate() {
   const f = createForm.value
   let data = {}
   if (f.type === 'Opaque') {
@@ -77,13 +90,14 @@ function handleCreate() {
   } else if (f.type === 'kubernetes.io/ssh-auth') {
     data = { 'ssh-privatekey': f.sshKey }
   }
-  store.addSecret({
+  const r = await store.addSecret({
     name: f.name,
     namespace: route.params.namespace,
     type: f.type,
     keys: Object.keys(data).length,
     data,
   })
+  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   showCreateModal.value = false
   resetCreate()
 }
@@ -318,7 +332,7 @@ function handleBatchDelete() {
     </div>
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="handleCreate" :disabled="!canCreateSecret" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
     </template>
   </Modal>
 

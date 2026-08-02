@@ -42,8 +42,8 @@ function toggleReveal(key) {
   revealedKeys.value = s
 }
 
-function handleDelete() {
-  store.deleteSecret(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteSecret(route.params.name, route.params.namespace)
   router.push({ name: 'NsSecrets', params: { namespace: route.params.namespace } })
 }
 

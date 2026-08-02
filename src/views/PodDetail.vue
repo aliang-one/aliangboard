@@ -189,8 +189,8 @@ async function exportPod() {
   if (!pod.value) return
   try {
     await exportYaml(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}`, `${pod.value.name}.yaml`)
-    notify('已导出 YAML', 'success')
-  } catch (e) { notify(e.message || '导出失败', 'error') }
+    notify('success', '已导出 YAML')
+  } catch (e) { notify('error', e.message || '导出失败') }
 }
 async function doConfirmed() {
   const mode = confirmAction.value?.mode
@@ -199,10 +199,10 @@ async function doConfirmed() {
   try {
     await store.deletePod(pod.value.name, pod.value.namespace)
     // 重启语义：删除该 Pod，由所属控制器重新拉起（独立 Pod 不会重建）
-    notify(mode === 'restart' ? '已删除该 Pod，由控制器重新拉起（独立 Pod 不会重建）' : 'Pod 已删除', 'success')
+    notify('success', mode === 'restart' ? '已删除该 Pod，由控制器重新拉起（独立 Pod 不会重建）' : 'Pod 已删除')
     router.push(`/ns/${route.params.namespace}/pods`)
   } catch (e) {
-    notify(e.message || '操作失败', 'error')
+    notify('error', e.message || '操作失败')
   }
 }
 
@@ -255,9 +255,9 @@ async function doAttachDebug() {
     selectedContainer.value = debugForm.value.name   // 终端容器选择切到调试容器
     showDebug.value = false
     activeTab.value = 'terminal'
-    notify(`已注入调试容器 ${debugForm.value.name}（稍候片刻待其启动，再点 Connect 进入）`, 'success')
+    notify('success', `已注入调试容器 ${debugForm.value.name}（稍候片刻待其启动，再点 Connect 进入）`)
   } catch (e) {
-    notify(e.message || '注入调试容器失败', 'error')
+    notify('error', e.message || '注入调试容器失败')
   } finally {
     debugAttaching.value = false
   }
@@ -347,7 +347,7 @@ async function openEntry(entry) {
     const res = await podFileApi.read({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: fp })
     selectedFile.value = { name: entry.n, path: res.path, content: res.content, truncated: res.truncated, binary: res.binary }
   } catch (e) {
-    notify(e.message || '读取文件失败', 'error')
+    notify('error', e.message || '读取文件失败')
   }
 }
 async function downloadFile() {
@@ -363,7 +363,7 @@ async function downloadFile() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = selectedFile.value.name; a.click(); URL.revokeObjectURL(url)
   } catch (e) {
-    notify(e.message || '下载失败', 'error')
+    notify('error', e.message || '下载失败')
   }
 }
 function triggerUpload() { fileInput.value?.click() }
@@ -381,10 +381,10 @@ async function onUploadPicked(e) {
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
     await podFileApi.write({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: targetPath, data: btoa(binary) })
     uploadInfo.value = `已上传 ${file.name} → ${targetPath}（${file.size} 字节）`
-    notify('上传成功', 'success')
+    notify('success', '上传成功')
     loadDir(currentPath.value)
   } catch (err) {
-    notify(err.message || '上传失败', 'error')
+    notify('error', err.message || '上传失败')
   } finally {
     setTimeout(() => { uploadInfo.value = '' }, 3000); e.target.value = ''
   }

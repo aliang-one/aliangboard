@@ -25,8 +25,8 @@ const referencedRole = computed(() => {
   return store.getRoleByName(rb.value.roleName, rb.value.namespace)
 })
 
-function handleDelete() {
-  store.deleteRoleBinding(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteRoleBinding(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
 }
 
