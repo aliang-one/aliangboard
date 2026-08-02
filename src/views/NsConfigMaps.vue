@@ -36,16 +36,17 @@ function removeCreateKey(idx) {
   createForm.value.keys.splice(idx, 1)
 }
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
   const data = {}
   f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
-  store.addConfigMap({
+  const r = await store.addConfigMap({
     name: f.name,
     namespace: route.params.namespace,
     keys: Object.keys(data).length,
     data,
   })
+  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   showCreateModal.value = false
   resetCreate()
 }

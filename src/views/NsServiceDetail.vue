@@ -37,8 +37,8 @@ const endpoints = computed(() => {
   })
 })
 
-function handleDelete() {
-  store.deleteService(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteService(route.params.name, route.params.namespace)
   router.push({ name: 'NsServices', params: { namespace: route.params.namespace } })
 }
 

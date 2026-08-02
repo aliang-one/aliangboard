@@ -71,8 +71,8 @@ function toggleExpand(key) {
   expandedKeys.value = s
 }
 
-function handleDelete() {
-  store.deleteConfigMap(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteConfigMap(route.params.name, route.params.namespace)
   router.push({ name: 'NsConfigMaps', params: { namespace: route.params.namespace } })
 }
 

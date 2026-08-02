@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -22,18 +23,33 @@ const nodePods = computed(() => store.podList.filter(p => p.node === route.param
 const isCordoned = computed(() => node.value?.unschedulable === true)
 
 async function handleCordon() {
-  await store.cordonNode(route.params.name)
-  showCordonModal.value = false
+  try {
+    await store.cordonNode(route.params.name)
+    notify('success', '已封锁节点')
+    showCordonModal.value = false
+  } catch (e) {
+    notify('error', e.message || '封锁节点失败')
+  }
 }
 
 async function handleUncordon() {
-  await store.uncordonNode(route.params.name)
+  try {
+    await store.uncordonNode(route.params.name)
+    notify('success', '已恢复调度')
+  } catch (e) {
+    notify('error', e.message || '恢复调度失败')
+  }
 }
 
 async function handleDrain() {
-  const count = await store.drainNode(route.params.name)
-  drainResult.value = count
-  showDrainModal.value = false
+  try {
+    const count = await store.drainNode(route.params.name)
+    drainResult.value = count
+    showDrainModal.value = false
+    notify('success', `已驱逐 ${count} 个 Pod`)
+  } catch (e) {
+    notify('error', e.message || '驱逐失败')
+  }
 }
 </script>
 

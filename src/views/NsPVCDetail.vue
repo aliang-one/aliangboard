@@ -22,8 +22,8 @@ const sc = computed(() => pvc.value?.storageClass ? store.scList.find(s => s.nam
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
-function handleDelete() {
-  store.deletePVC(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deletePVC(route.params.name, route.params.namespace)
   router.push({ name: 'NsStorage', params: { namespace: route.params.namespace } })
 }
 

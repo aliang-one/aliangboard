@@ -42,8 +42,8 @@ function saveEdit() {
   showEditModal.value = false
 }
 
-function handleDelete() {
-  store.deleteHPA(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteHPA(route.params.name, route.params.namespace)
   router.push({ name: 'NsHPA', params: { namespace: route.params.namespace } })
 }
 

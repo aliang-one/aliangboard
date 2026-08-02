@@ -38,8 +38,8 @@ function describePorts(ports) {
   return ports.map(p => `${p.port}/${p.protocol || 'TCP'}`).join(', ')
 }
 
-function handleDelete() {
-  store.deleteNetworkPolicy(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteNetworkPolicy(route.params.name, route.params.namespace)
   router.push({ name: 'NsNetworkPolicies', params: { namespace: route.params.namespace } })
 }
 

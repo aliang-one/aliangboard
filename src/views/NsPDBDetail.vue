@@ -62,8 +62,8 @@ function handleEdit() {
   showEditModal.value = false
 }
 
-function handleDelete() {
-  store.deletePDB(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deletePDB(route.params.name, route.params.namespace)
   router.push({ name: 'NsPDBs', params: { namespace: route.params.namespace } })
 }
 </script>

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -19,8 +20,8 @@ const yaml = computed(() => store.generateYAML('ingress', ing.value))
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
-function handleDelete() {
-  store.deleteIngress(route.params.name, route.params.namespace)
+async function handleDelete() {
+  await store.deleteIngress(route.params.name, route.params.namespace)
   router.push({ name: 'NsIngress', params: { namespace: route.params.namespace } })
 }
 
@@ -60,7 +61,7 @@ async function saveRules() {
     await store.updateIngressRules(route.params.name, route.params.namespace, editRules.value)
     showRulesModal.value = false
   } catch (e) {
-    alert(e.message || '保存规则失败')
+    notify('error', e.message || '保存规则失败')
   }
 }
 

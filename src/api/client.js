@@ -33,6 +33,13 @@ async function request(path, options = {}) {
   let body = null
   try { body = text ? JSON.parse(text) : null } catch { body = text }
   if (!response.ok) {
+    // 会话过期：统一清凭据并跳登录（登录接口自身的 401 表示凭据错误，不跳转，交由调用方提示）
+    if (response.status === 401 && !path.startsWith('/api/session')) {
+      clearSession()
+      if (typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
+        location.href = '/login'
+      }
+    }
     const error = new Error(body?.message || `请求失败：HTTP ${response.status}`)
     error.status = response.status
     error.details = body
