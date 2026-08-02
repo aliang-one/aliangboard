@@ -20,28 +20,17 @@ watch(() => props.modelValue, (val) => {
   hasChanges.value = false
 })
 
-// Simple YAML syntax highlighting
-function highlightYaml(text) {
-  if (!text) return ''
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // Comments
-    .replace(/(#.*$)/gm, '<span class="text-on-surface-variant opacity-60">$1</span>')
-    // Keys
-    .replace(/^(\s*)([\w.-]+)(:)/gm, '$1<span class="text-primary">$2</span><span class="text-on-surface-variant">$3</span>')
-    // Strings
-    .replace(/(".*?"|'.*?')/g, '<span class="text-secondary-fixed-dim">$1</span>')
-    // Numbers & booleans
-    .replace(/:\s*(\d+)\s*$/gm, ': <span class="text-tertiary-fixed-dim">$1</span>')
-    .replace(/:\s*(true|false|null)/gm, ': <span class="text-error">$1</span>')
-}
-
 const lines = computed(() => {
   const content = editableContent.value || ''
   return content.split('\n')
 })
+
+// 复制到剪贴板（模板内联访问 navigator 在 Vue 中常为 undefined，故收口到函数）
+async function copy() {
+  try {
+    await navigator?.clipboard?.writeText(editableContent.value)
+  } catch { /* 剪贴板被浏览器拒绝时静默 */ }
+}
 
 function handleInput(e) {
   editableContent.value = e.target.innerText || e.target.textContent
@@ -72,7 +61,7 @@ function handleDiscard() {
         <span v-if="hasChanges" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">MODIFIED</span>
       </div>
       <div class="flex items-center gap-sm">
-        <button class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Copy" @click="navigator?.clipboard?.writeText(editableContent)">
+        <button class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Copy" @click="copy">
           <span class="material-symbols-outlined text-lg">content_copy</span>
         </button>
         <button class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Download" @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }">

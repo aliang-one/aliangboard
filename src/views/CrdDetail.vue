@@ -1,7 +1,9 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { api } from '@/api/client'
+import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -14,6 +16,16 @@ const store = useClusterStore()
 const crd = computed(() => store.getCRDByName(route.params.name))
 
 const activeTab = ref('overview')
+
+// 远端模式下拉取真实 CRD 定义对象并转为 YAML（比静态模板准确）；失败回退静态模板
+const realYaml = ref('')
+onMounted(async () => {
+  if (!store.remoteMode || !crd.value) return
+  try {
+    const obj = await api.k8s(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${encodeURIComponent(route.params.name)}`)
+    realYaml.value = yamlDump(obj)
+  } catch { /* 无权限或不存在时回退静态模板 */ }
+})
 
 const tabs = [
   { key: 'overview', label: 'Overview' },
@@ -247,7 +259,7 @@ const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
 
     <!-- YAML Tab -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="staticYaml" :readonly="true" height="560px" />
+      <YamlEditor :model-value="realYaml || staticYaml" :readonly="true" height="560px" />
     </div>
   </div>
 

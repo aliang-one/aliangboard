@@ -66,7 +66,8 @@ export function buildIngressAnnotations(adv = {}, custom = []) {
   }
   for (const a of custom || []) {
     const k = (a.key || '').trim()
-    if (k) ann[k] = String(a.value || '').trim()
+    const val = String(a.value ?? '').trim()
+    if (k && val) ann[k] = val   // 键或值任一为空都跳过，避免写入无意义的空注解
   }
   return ann
 }
