@@ -1,11 +1,23 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
 
+const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 const activeTab = ref('services')
+
+// 全局页无命名空间上下文：New Service/Ingress 走部署向导；NetworkPolicy 进命名空间作用域页创建
+function newServiceOrIngress() { router.push('/deploy') }
+function newNetworkPolicy() {
+  const ns = store.currentNamespace || store.namespaceList?.[0]?.name || 'default'
+  router.push({ name: 'NsNetworkPolicies', params: { namespace: ns } })
+}
 
 const tabs = [
   { key: 'services', label: 'Services' },
@@ -14,25 +26,8 @@ const tabs = [
   { key: 'networkpolicies', label: 'NetworkPolicies' },
 ]
 
-const svcHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'type', label: 'Type' },
-  { key: 'clusterIP', label: 'Cluster IP' },
-  { key: 'externalIP', label: 'External IP' },
-  { key: 'ports', label: 'Ports' },
-  { key: 'age', label: 'Age' },
-]
-
-const ingressHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'hosts', label: 'Hosts' },
-  { key: 'path', label: 'Path' },
-  { key: 'backend', label: 'Backend' },
-  { key: 'tls', label: 'TLS' },
-  { key: 'age', label: 'Age' },
-]
+const svcHeaders = computed(() => tableColumns('services'))
+const ingressHeaders = computed(() => tableColumns('ingress'))
 </script>
 
 <template>
@@ -43,10 +38,10 @@ const ingressHeaders = [
         <p class="text-on-surface-variant text-body-md mt-1">Manage Services, Ingress, Endpoints, and NetworkPolicies.</p>
       </div>
       <div class="flex gap-sm">
-        <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container">
+        <button @click="newServiceOrIngress" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container">
           <span class="material-symbols-outlined">add</span> New Service
         </button>
-        <button class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
+        <button @click="newServiceOrIngress" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
           <span class="material-symbols-outlined">add</span> New Ingress
         </button>
       </div>
@@ -59,7 +54,8 @@ const ingressHeaders = [
       >{{ tab.label }}</button>
     </div>
 
-    <DataTable v-if="activeTab === 'services'" :headers="svcHeaders" :rows="store.serviceList">
+    <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" title="No services" />
+    <DataTable v-if="activeTab === 'services' && store.serviceList.length" :headers="svcHeaders" :rows="store.serviceList">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -77,7 +73,8 @@ const ingressHeaders = [
       </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'ingress'" :headers="ingressHeaders" :rows="store.ingressList">
+    <EmptyState v-if="activeTab === 'ingress' && !store.ingressList.length" icon="router" title="No ingress rules" />
+    <DataTable v-if="activeTab === 'ingress' && store.ingressList.length" :headers="ingressHeaders" :rows="store.ingressList">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -100,7 +97,7 @@ const ingressHeaders = [
     <div v-if="activeTab === 'networkpolicies'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
       <span class="material-symbols-outlined text-5xl text-surface-container-high">security</span>
       <p class="text-on-surface-variant mt-md">No NetworkPolicies defined.</p>
-      <button class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create NetworkPolicy</button>
+      <button @click="newNetworkPolicy" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create NetworkPolicy</button>
     </div>
   </section>
 </template>

@@ -5,18 +5,25 @@ import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
+import { notify } from '@/composables/useToast'
 
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 
-const headers = [
-  { key: 'name', label: 'Name' },
-  { key: 'status', label: 'Status' },
-  { key: 'pods', label: 'Pods' },
-  { key: 'services', label: 'Services' },
-  { key: 'age', label: 'Age' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const syncing = ref(false)
+async function sync() {
+  if (syncing.value) return
+  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  syncing.value = true
+  try { await store.hydrateCoreResources(); notify('success', '已同步命名空间') }
+  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  finally { syncing.value = false }
+}
+
+const headers = computed(() => tableColumns('namespaces'))
 
 // 受保护的系统命名空间，禁止删除
 const PROTECTED_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease', 'default']
@@ -55,7 +62,7 @@ function parseLabels(text) {
   return labels
 }
 
-function submitCreate() {
+async function submitCreate() {
   createError.value = ''
   const name = createName.value.trim()
   if (!name) {
@@ -67,7 +74,8 @@ function submitCreate() {
     return
   }
   const labels = parseLabels(createLabelsText.value)
-  store.addNamespace({ name, labels })
+  const r = await store.addNamespace({ name, labels })
+  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   showCreate.value = false
   createName.value = ''
   createLabelsText.value = ''
@@ -107,8 +115,8 @@ function submitDelete() {
           <p class="text-on-surface-variant text-body-md mt-1">Browse and manage Kubernetes namespaces.</p>
         </div>
         <div class="flex gap-sm">
-          <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-            <span class="material-symbols-outlined">refresh</span> Sync
+          <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
           </button>
           <button
             class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-opacity"
@@ -120,7 +128,8 @@ function submitDelete() {
       </div>
     </div>
 
-    <DataTable :headers="headers" :rows="store.namespaceList" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
+    <EmptyState v-if="!store.namespaceList.length" icon="folder_open" title="No namespaces" description="集群暂无命名空间。" />
+    <DataTable v-else :headers="headers" :rows="store.namespaceList" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded-lg bg-primary-container/20 flex items-center justify-center">
@@ -140,7 +149,7 @@ function submitDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Edit YAML">
+          <button @click.stop="router.push(`/namespaces/${row.name}`)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="View">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
           <button

@@ -1,9 +1,17 @@
 <script setup>
+import { ref, onMounted, onUnmounted } from 'vue'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
 import { useClusterStore } from '@/stores/cluster'
 
 const store = useClusterStore()
+
+// footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
+const lastUpdated = ref('')
+let timer = null
+function tick() { lastUpdated.value = new Date().toLocaleTimeString() }
+onMounted(() => { tick(); timer = setInterval(tick, 1000) })
+onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <template>
@@ -35,7 +43,7 @@ const store = useClusterStore()
           </div>
         </div>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
-          <span>Last Updated: {{ new Date().toLocaleTimeString() }}</span>
+          <span>Last Updated: {{ lastUpdated }}</span>
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>
       </footer>

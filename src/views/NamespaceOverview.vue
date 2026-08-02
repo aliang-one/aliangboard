@@ -72,9 +72,6 @@ function goToWorkload(w) {
           </div>
         </div>
         <div class="flex gap-sm">
-          <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-            <span class="material-symbols-outlined">edit</span> Edit YAML
-          </button>
           <button
             @click="router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })"
             class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"

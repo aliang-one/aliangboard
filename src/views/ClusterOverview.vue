@@ -1,9 +1,11 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 
+const router = useRouter()
 const store = useClusterStore()
 const timeRange = ref('24h')
 </script>
@@ -188,7 +190,7 @@ const timeRange = ref('24h')
               </div>
             </div>
           </div>
-          <button class="w-full mt-lg py-sm border border-outline-variant rounded-lg text-on-surface-variant font-semibold text-body-sm hover:bg-surface-container-low transition-colors">
+          <button @click="router.push('/audit-logs')" class="w-full mt-lg py-sm border border-outline-variant rounded-lg text-on-surface-variant font-semibold text-body-sm hover:bg-surface-container-low transition-colors">
             Show More Events
           </button>
         </div>
