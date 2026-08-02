@@ -613,7 +613,14 @@ async function handle(req, res) {
 
   try {
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? JSON.stringify(await readBody(req)) : undefined
-    const result = await requestKubernetes(session, kubernetesPath, { method: req.method, body })
+    // 透传客户端 content-type（PATCH 的 merge-patch/strategic-merge-patch/json-patch 必须原样转发，
+    // 否则 requestKubernetes 会回退成 application/json → K8s 返回 415 Unsupported Media Type）
+    const ct = req.headers['content-type']
+    const result = await requestKubernetes(session, kubernetesPath, {
+      method: req.method,
+      body,
+      ...(ct ? { headers: { 'content-type': ct } } : {}),
+    })
     return sendJson(res, result.status, result.body ?? {})
   } catch (error) {
     return sendJson(res, error.status || 502, { message: error.message || 'Kubernetes API 请求失败', details: error.details })
