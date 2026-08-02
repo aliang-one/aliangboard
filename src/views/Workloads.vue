@@ -6,9 +6,13 @@ import DataTable from '@/components/common/DataTable.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
+import { notify } from '@/composables/useToast'
 
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 
 const namespaceFilter = ref('All Namespaces')
 const typeFilter = ref('All Types')
@@ -19,6 +23,14 @@ const filters = [
   { key: 'type', label: 'Workload Type', options: ['All Types', 'Deployment', 'Pod', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'] },
   { key: 'status', label: 'Status', options: ['All Statuses', 'Running', 'Pending', 'Failed', 'Succeeded'] },
 ]
+
+// FilterBar 过滤回调 → 写回对应 ref
+function onFilterChange({ key, value }) {
+  if (key === 'namespace') namespaceFilter.value = value
+  else if (key === 'type') typeFilter.value = value
+  else if (key === 'status') statusFilter.value = value
+  currentPage.value = 1
+}
 
 const filteredWorkloads = computed(() => {
   let list = store.workloadList
@@ -34,17 +46,18 @@ const filteredWorkloads = computed(() => {
   return list
 })
 
-const headers = [
-  { key: 'name', label: 'Name' },
-  { key: 'type', label: 'Type' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'status', label: 'Status' },
-  { key: 'replicas', label: 'Replicas' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const headers = computed(() => tableColumns('workloads'))
+
+// 分页
+const currentPage = ref(1)
+const pageSize = 10
+const pagedWorkloads = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredWorkloads.value.slice(start, start + pageSize)
+})
 
 function parseReplicas(rep) {
-  const [current, total] = rep.split('/').map(Number)
+  const [current, total] = String(rep || '0/0').split('/').map(Number)
   return { current, total, percent: total > 0 ? (current / total) * 100 : 0 }
 }
 
@@ -58,6 +71,29 @@ function goDetail(row) {
     },
   })
 }
+
+// 行内操作：Restart 真实落集群；Edit/Logs 复用详情页（含日志/编辑）
+async function restartWorkload(row) {
+  try { await store.restartWorkload(row.name, row.namespace); notify('success', `已重启 ${row.name}`) }
+  catch (e) { notify('error', e.message || '重启失败') }
+}
+
+// 导出当前过滤结果为 JSON 文件下载
+function exportWorkloads() {
+  const blob = new Blob([JSON.stringify(filteredWorkloads.value, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'workloads.json'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 真实统计（替代硬编码假数据）
+const nodeHealthPct = computed(() => {
+  const total = store.totalNodes
+  return total > 0 ? Math.round((store.healthyNodes / total) * 100) : null
+})
 </script>
 
 <template>
@@ -70,7 +106,7 @@ function goDetail(row) {
           <p class="text-on-surface-variant text-body-md mt-1">Manage and monitor your containerized applications across all namespaces.</p>
         </div>
         <div class="flex gap-sm">
-          <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
+          <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
             <span class="material-symbols-outlined">file_download</span> Export
           </button>
           <router-link to="/deploy" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90">
@@ -80,11 +116,12 @@ function goDetail(row) {
       </div>
 
       <!-- Filters -->
-      <FilterBar :filters="filters" :result-count="filteredWorkloads.length" result-label="workloads" />
+      <FilterBar :filters="filters" :result-count="filteredWorkloads.length" result-label="workloads" @filter-change="onFilterChange" />
     </div>
 
     <!-- Table -->
-    <DataTable :headers="headers" :rows="filteredWorkloads" @row-click="goDetail">
+    <EmptyState v-if="!filteredWorkloads.length" icon="workspaces" title="No workloads" description="没有匹配的工作负载，或集群暂无工作负载。" />
+    <DataTable v-else :headers="headers" :rows="pagedWorkloads" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex flex-col">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
@@ -110,20 +147,20 @@ function goDetail(row) {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Edit">
+          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Edit">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
-          <button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Logs">
+          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Logs">
             <span class="material-symbols-outlined text-lg">receipt_long</span>
           </button>
-          <button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" title="Restart">
+          <button @click.stop="restartWorkload(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" title="Restart">
             <span class="material-symbols-outlined text-lg">restart_alt</span>
           </button>
         </div>
       </template>
       <template #pagination>
-        <span class="text-body-sm text-on-surface-variant">Rows per page: 10</span>
-        <Pagination :total="filteredWorkloads.length" />
+        <span class="text-body-sm text-on-surface-variant">Rows per page: {{ pageSize }}</span>
+        <Pagination :total="filteredWorkloads.length" :page-size="pageSize" :current-page="currentPage" @page-change="p => currentPage = p" />
       </template>
     </DataTable>
 
@@ -132,28 +169,28 @@ function goDetail(row) {
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
           <span class="material-symbols-outlined text-primary">check_circle</span>
-          <span class="text-label-caps text-on-surface-variant">Health</span>
+          <span class="text-label-caps text-on-surface-variant">Node Health</span>
         </div>
-        <h3 class="text-headline-sm font-bold text-on-surface">92.4%</h3>
-        <p class="text-body-sm text-on-surface-variant mt-1">Global uptime across nodes</p>
+        <h3 class="text-headline-sm font-bold text-on-surface">{{ nodeHealthPct != null ? nodeHealthPct + '%' : '—' }}</h3>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.healthyNodes }} / {{ store.totalNodes }} nodes Ready</p>
       </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
           <span class="material-symbols-outlined text-tertiary-container">memory</span>
           <span class="text-label-caps text-on-surface-variant">CPU Usage</span>
         </div>
-        <h3 class="text-headline-sm font-bold text-on-surface">45.2%</h3>
+        <h3 class="text-headline-sm font-bold text-on-surface">{{ store.cluster.cpuUsage != null ? store.cluster.cpuUsage + '%' : '—' }}</h3>
         <div class="w-full bg-outline-variant/30 h-2 rounded-full mt-2 overflow-hidden">
-          <div class="bg-tertiary-container h-full" style="width: 45%"></div>
+          <div class="bg-tertiary-container h-full" :style="{ width: (store.cluster.cpuUsage || 0) + '%' }"></div>
         </div>
       </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
-          <span class="material-symbols-outlined text-secondary">database</span>
-          <span class="text-label-caps text-on-surface-variant">Storage</span>
+          <span class="material-symbols-outlined text-secondary">workspaces</span>
+          <span class="text-label-caps text-on-surface-variant">Workloads</span>
         </div>
-        <h3 class="text-headline-sm font-bold text-on-surface">1.2 TB</h3>
-        <p class="text-body-sm text-on-surface-variant mt-1">Available cluster capacity</p>
+        <h3 class="text-headline-sm font-bold text-on-surface">{{ store.workloadList.length }}</h3>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.cluster.podCount }} pods across cluster</p>
       </div>
     </div>
   </section>

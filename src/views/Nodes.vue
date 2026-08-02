@@ -5,27 +5,31 @@ import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
+import { notify } from '@/composables/useToast'
 
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 
 const searchQuery = ref('')
+const syncing = ref(false)
+async function sync() {
+  if (syncing.value) return
+  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  syncing.value = true
+  try { await store.hydrateCoreResources(); notify('success', '已同步节点') }
+  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  finally { syncing.value = false }
+}
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return store.nodeList
   return store.nodeList.filter(n => n.name.toLowerCase().includes(q) || (n.roles || '').toLowerCase().includes(q) || (n.ip || '').toLowerCase().includes(q))
 })
 
-const headers = [
-  { key: 'name', label: 'Name' },
-  { key: 'status', label: 'Status' },
-  { key: 'roles', label: 'Role' },
-  { key: 'cpu', label: 'CPU' },
-  { key: 'memory', label: 'Memory' },
-  { key: 'version', label: 'Version' },
-  { key: 'age', label: 'Age' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const headers = computed(() => tableColumns('nodes'))
 </script>
 
 <template>
@@ -36,8 +40,8 @@ const headers = [
         <p class="text-on-surface-variant text-body-md mt-1">Monitor and manage cluster nodes. {{ store.healthyNodes }} of {{ store.totalNodes }} healthy.</p>
       </div>
       <div class="flex gap-sm">
-        <button class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">refresh</span> Sync
+        <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
       </div>
     </div>
@@ -52,7 +56,8 @@ const headers = [
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nodeList.length }}</span>
     </div>
 
-    <DataTable :headers="headers" :rows="filtered" @row-click="(row) => router.push(`/nodes/${row.name}`)">
+    <EmptyState v-if="!filtered.length" icon="dns" title="No nodes found" description="集群暂无节点，或被搜索条件过滤。" />
+    <DataTable v-else :headers="headers" :rows="filtered" @row-click="(row) => router.push(`/nodes/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">

@@ -1,11 +1,13 @@
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 
 const route = useRoute()
+const router = useRouter()
 const store = useClusterStore()
 
 const workload = computed(() => store.workloadList.find(
@@ -13,6 +15,17 @@ const workload = computed(() => store.workloadList.find(
 ))
 const pod = computed(() => store.podList.find((p) => p.name === route.params.name))
 const displayData = computed(() => pod.value || workload.value)
+
+async function handleDelete() {
+  if (!workload.value) { notify('error', '仅工作负载支持删除'); return }
+  try { await store.deleteWorkload(workload.value.name, workload.value.namespace); router.push('/workloads') }
+  catch (e) { notify('error', e.message || '删除失败') }
+}
+async function handleRestart() {
+  if (!workload.value) { notify('error', '仅工作负载支持重启'); return }
+  try { await store.restartWorkload(workload.value.name, workload.value.namespace); notify('success', '已重启') }
+  catch (e) { notify('error', e.message || '重启失败') }
+}
 </script>
 
 <template>
@@ -32,11 +45,11 @@ const displayData = computed(() => pod.value || workload.value)
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button @click="handleDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-error">delete</span>
           <span class="font-medium text-body-md">Delete</span>
         </button>
-        <button class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <button @click="handleRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">refresh</span>
           <span class="font-medium text-body-md">Restart</span>
         </button>

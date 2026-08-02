@@ -1,7 +1,8 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -13,6 +14,16 @@ const store = useClusterStore()
 const ns = computed(() => store.getNamespaceByName(route.params.name))
 const nsWorkloads = computed(() => store.workloadList.filter(w => w.namespace === route.params.name))
 const nsServices = computed(() => store.serviceList.filter(s => s.namespace === route.params.name))
+
+const syncing = ref(false)
+async function sync() {
+  if (syncing.value) return
+  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  syncing.value = true
+  try { await store.hydrateCoreResources(); notify('success', '已同步') }
+  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  finally { syncing.value = false }
+}
 </script>
 
 <template>
@@ -30,11 +41,8 @@ const nsServices = computed(() => store.serviceList.filter(s => s.namespace === 
         <h2 class="text-display-lg text-on-surface">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
-        <button class="px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors flex items-center gap-sm">
-          <span class="material-symbols-outlined">refresh</span> Sync
-        </button>
-        <button class="px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 flex items-center gap-sm">
-          <span class="material-symbols-outlined">edit</span> Edit YAML
+        <button @click="sync" :disabled="syncing" class="px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors flex items-center gap-sm disabled:opacity-50">
+          <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
       </div>
     </div>

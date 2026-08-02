@@ -389,6 +389,10 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const store = useClusterStore()
+  // 未登录（无会话）访问任何非登录页 → 跳登录，避免未授权看到 AppLayout/mock 数据
+  if (to.name !== 'Login' && !getSession()) {
+    return { name: 'Login' }
+  }
   if (to.name !== 'Login' && getSession() && !store.remoteMode) {
     try {
       const result = await api.session()
