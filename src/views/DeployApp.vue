@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { yamlScalar } from '@/composables/useYaml'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,7 +18,8 @@ const showAdvanced = ref(false)
 const deployLoading = ref(false)
 const deployError = ref('')
 
-const form = ref({
+function makeForm() {
+  return {
   name: '',
   namespace: route.params.namespace || 'default',
   workloadType: 'Deployment',
@@ -84,7 +86,15 @@ const form = ref({
   securityContext: { enabled: false, privileged: false, runAsUser: '', runAsGroup: '', runAsNonPrivileged: false, readOnlyRootFilesystem: false, addCaps: '', dropCaps: '' },
   // 生命周期钩子
   lifecycle: { postStart: '', preStop: '' },
-})
+  }
+}
+const form = ref(makeForm())
+
+// 整体重置表单（保留当前命名空间）—— 用于「Deploy Another」避免残留脏数据
+function resetForm() {
+  const ns = form.value.namespace
+  form.value = { ...makeForm(), namespace: ns }
+}
 
 const steps = [
   { title: 'Basic Information', icon: 'info' },
@@ -133,12 +143,24 @@ function prevStep() { if (currentStep.value > 0) currentStep.value-- }
 
 const canProceed = computed(() => {
   const f = form.value
-  if (currentStep.value === 0) return !!(f.name && f.namespace)
-  if (currentStep.value === 1) return !!f.image
+  if (currentStep.value === 0) {
+    // K8s 资源名合规：小写字母/数字/横线，开头结尾须为字母数字
+    if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) return false
+    if (!f.namespace) return false
+  }
+  if (currentStep.value === 1) {
+    if (!f.image) return false
+    // 已填写的端口必须是正整数
+    if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return false
+  }
   if (currentStep.value === 4) {
     if (f.createService) {
       if (f.serviceType === 'ExternalName') { if (!f.externalName) return false }
-      else if (!f.servicePorts.some(p => p.port)) return false
+      else {
+        // service port 已填则必须为正整数
+        if (!f.servicePorts.some(p => p.port)) return false
+        if (f.servicePorts.some(p => p.port !== '' && !/^\d+$/.test(String(p.port)))) return false
+      }
     }
     if (f.createIngress && !f.ingressRules.some(r => r.host)) return false
   }
@@ -438,7 +460,7 @@ metadata:
     const ingressAnn = buildIngressAnnotations(f.ingressAdv, f.ingressCustomAnnotations)
     if (Object.keys(ingressAnn).length) {
       yaml += '\n  annotations:'
-      for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: "${String(v).replace(/"/g, '\\"')}"`
+      for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: ${yamlScalar(v)}`
     }
     yaml += `
 spec:`
@@ -564,7 +586,7 @@ async function handleDeploy() {
         <button @click="router.push({ name: 'NsPods', params: { namespace: form.namespace } })" class="px-lg py-sm border border-outline-variant rounded-lg hover:bg-surface-container-high">
           View Pods
         </button>
-        <button @click="showDeploySuccess = false; currentStep = 0; form.name = ''" class="px-lg py-sm border border-outline-variant rounded-lg hover:bg-surface-container-high">
+        <button @click="showDeploySuccess = false; currentStep = 0; resetForm()" class="px-lg py-sm border border-outline-variant rounded-lg hover:bg-surface-container-high">
           Deploy Another
         </button>
       </div>
