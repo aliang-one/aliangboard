@@ -1492,6 +1492,10 @@ export const useClusterStore = defineStore('cluster', () => {
           reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
           current: curRev ? String(rev) === String(curRev) : false,
           replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
+          readyReplicas: rs.status?.readyReplicas ?? 0,
+          desiredReplicas: rs.spec?.replicas ?? rs.status?.replicas ?? 0,
+          rsName: rs.metadata?.name,
+          rsUid: rs.metadata?.uid,
           _template: rs.spec?.template,
         }
       }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)

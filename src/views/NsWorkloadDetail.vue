@@ -2,12 +2,13 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
-import { cronJobApi } from '@/api/client'
+import { cronJobApi, api } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
-import { readMeta } from '@/composables/useBusinessMeta'
+import { readMeta, imageTag } from '@/composables/useBusinessMeta'
+import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -186,6 +187,50 @@ async function handleRollback() {
   } catch (e) {
     notify('error', e.message || '回滚失败')
   }
+}
+
+// === 版本历史增强：展开事件 / YAML / 删除旧 RS ===
+const expandedRev = ref(null)
+function toggleRevExpand(rev) {
+  expandedRev.value = expandedRev.value === rev.rev ? null : rev.rev
+}
+function revImgBase(img) {
+  if (!img) return ''
+  const noDigest = img.split('@')[0]
+  const idx = noDigest.lastIndexOf(':')
+  return idx > noDigest.lastIndexOf('/') ? noDigest.slice(0, idx) : noDigest
+}
+// 该版本关联事件（按 RS 名 或 Deployment 名匹配 involvedObject，最多 5 条）
+function revEvents(rev) {
+  const names = new Set([rev.rsName, route.params.name].filter(Boolean))
+  return (store.nsEvents || [])
+    .filter(e => names.has(e.involvedObject?.name))
+    .slice(0, 5)
+}
+// 版本 YAML（pod template）
+const showRevYamlModal = ref(false)
+const revYamlContent = ref('')
+const revYamlTitle = ref('')
+function viewRevYaml(rev) {
+  revYamlTitle.value = `Rev ${rev.rev} · ${rev.rsName || ''}`
+  revYamlContent.value = rev._template ? yamlDump(rev._template) : '# 无 template 数据'
+  showRevYamlModal.value = true
+}
+// 删除旧版本 ReplicaSet（仅非当前版本）
+const showDeleteRevModal = ref(false)
+const deleteRevTarget = ref(null)
+function confirmDeleteRev(rev) { deleteRevTarget.value = rev; showDeleteRevModal.value = true }
+async function handleDeleteRev() {
+  const rev = deleteRevTarget.value
+  if (!rev?.rsName) return
+  try {
+    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
+    notify('success', `已删除旧版本 Rev ${rev.rev} (${rev.rsName})`)
+    // 本地即时移除
+    if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
+    if (expandedRev.value === rev.rev) expandedRev.value = null
+  } catch (e) { notify('error', e.message || '删除失败') }
+  showDeleteRevModal.value = false; deleteRevTarget.value = null
 }
 
 const tierOptions = TIER_OPTIONS
@@ -451,19 +496,56 @@ async function saveTemplate() {
             <div class="absolute left-[3px] top-2 bottom-2 w-0.5 bg-outline-variant/40"></div>
             <div v-for="(rev, idx) in revisions" :key="rev.rev" class="relative pl-md pb-sm">
               <div class="absolute left-0 top-1 w-[7px] h-[7px] rounded-full ring-2 ring-surface-container-lowest z-10" :class="rev.current ? 'bg-primary' : 'bg-outline-variant'"></div>
-              <div
-                class="rounded-lg p-sm mb-1 cursor-pointer transition-all duration-200"
-                :class="rev.current
-                  ? 'bg-primary/8 ring-1 ring-primary/30 shadow-sm'
-                  : 'bg-surface-container-low/60 hover:bg-surface-container hover:shadow-sm'"
-                @click="rev.current ? null : confirmRollback(rev)">
-                <div class="flex items-center justify-between mb-xs">
+              <div class="rounded-lg p-sm mb-1 transition-all duration-200"
+                :class="[rev.current ? 'bg-primary/8 ring-1 ring-primary/30 shadow-sm' : 'bg-surface-container-low/60 hover:bg-surface-container hover:shadow-sm', expandedRev === rev.rev ? 'ring-1 ring-primary/40' : '']">
+                <!-- 行1: Rev + badge/age + 展开箭头 -->
+                <div class="flex items-center justify-between mb-xs cursor-pointer" @click="toggleRevExpand(rev)">
                   <span class="text-body-sm font-bold" :class="rev.current ? 'text-primary' : 'text-on-surface'">Rev {{ rev.rev }}</span>
-                  <span v-if="rev.current" class="px-1.5 py-0.5 bg-primary text-on-primary text-body-xs rounded-full font-bold whitespace-nowrap">当前</span>
-                  <span v-else class="material-symbols-outlined text-sm text-primary opacity-60">undo</span>
+                  <div class="flex items-center gap-xs">
+                    <span v-if="rev.current" class="px-1.5 py-0.5 bg-primary text-on-primary text-body-xs rounded-full font-bold">当前</span>
+                    <span class="text-body-xs text-on-surface-variant/60">{{ rev.age }}</span>
+                    <span class="material-symbols-outlined text-sm text-on-surface-variant/40 transition-transform" :class="expandedRev === rev.rev ? 'rotate-180' : ''">expand_more</span>
+                  </div>
                 </div>
-                <p class="font-mono text-code-xs text-on-surface-variant truncate" :title="rev.image">{{ rev.image }}</p>
-                <p class="text-body-xs text-on-surface-variant/70 mt-xs">{{ rev.age }}</p>
+                <!-- 行2: 镜像 base + 版本 tag -->
+                <p class="font-mono text-code-xs truncate mb-xs" :title="rev.image">
+                  <span class="text-on-surface-variant">{{ revImgBase(rev.image) }}</span><span class="text-primary font-semibold">:{{ imageTag(rev.image) || 'latest' }}</span>
+                </p>
+                <!-- 行3: 副本 期望/当前/就绪 -->
+                <div class="flex items-center gap-sm text-body-xs mb-xs">
+                  <span class="text-on-surface-variant">期望<span class="font-bold text-on-surface ml-0.5">{{ rev.desiredReplicas ?? '—' }}</span></span>
+                  <span class="text-on-surface-variant/40">·</span>
+                  <span class="text-on-surface-variant">当前<span class="font-bold ml-0.5" :class="(rev.replicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-tertiary-container'">{{ rev.replicas ?? 0 }}</span></span>
+                  <span class="text-on-surface-variant/40">·</span>
+                  <span class="text-on-surface-variant">就绪<span class="font-bold ml-0.5" :class="(rev.readyReplicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-error'">{{ rev.readyReplicas ?? 0 }}</span></span>
+                </div>
+                <!-- 行4: 操作按钮 -->
+                <div class="flex items-center gap-xs">
+                  <button @click.stop="viewRevYaml(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors" title="查看 YAML"><span class="material-symbols-outlined text-sm">code</span> YAML</button>
+                  <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors" title="删除此旧版本 ReplicaSet"><span class="material-symbols-outlined text-sm">delete</span></button>
+                  <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-primary hover:bg-primary/10 transition-colors ml-auto" title="回滚到此版本"><span class="material-symbols-outlined text-sm">undo</span> 回滚</button>
+                </div>
+              </div>
+              <!-- 展开区：历史事件（最多 5 条 + More） -->
+              <div v-if="expandedRev === rev.rev" class="ml-xs mb-sm animate-fade-in">
+                <div class="bg-surface-container-lowest/80 rounded-lg p-xs border border-outline-variant/40">
+                  <p class="text-body-xs font-semibold text-on-surface-variant px-xs py-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">notifications_active</span> 关联事件</p>
+                  <div v-if="revEvents(rev).length" class="flex flex-col">
+                    <div v-for="(e, ei) in revEvents(rev)" :key="ei" class="flex items-start gap-xs px-xs py-xs border-t border-outline-variant/20">
+                      <span class="w-1.5 h-1.5 rounded-full mt-1 shrink-0" :class="e.type === 'warning' ? 'bg-error' : 'bg-primary'"></span>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-xs">
+                          <span class="text-body-xs font-semibold" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ e.reason }}</span>
+                          <span class="text-body-xs text-on-surface-variant/50">{{ e.age }}</span>
+                          <span v-if="e.count > 1" class="text-body-xs text-on-surface-variant/50">×{{ e.count }}</span>
+                        </div>
+                        <p class="text-body-xs text-on-surface-variant truncate" :title="e.message">{{ e.message }}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <p v-else class="text-body-xs text-on-surface-variant/50 px-xs py-sm text-center">暂无关联事件</p>
+                  <button @click="activeTab = 'events'" class="w-full text-center text-body-xs text-primary hover:underline py-xs">More →</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1228,6 +1310,24 @@ async function saveTemplate() {
     <template #actions>
       <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
       <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">创建</button>
+    </template>
+  </Modal>
+
+  <!-- 版本 YAML 查看 -->
+  <Modal v-model="showRevYamlModal" :title="revYamlTitle" width="max-w-2xl">
+    <YamlEditor :model-value="revYamlContent" :readonly="true" height="400px" />
+    <template #actions>
+      <button @click="showRevYamlModal = false" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold">关闭</button>
+    </template>
+  </Modal>
+
+  <!-- 删除旧版本 ReplicaSet -->
+  <Modal v-model="showDeleteRevModal" title="删除旧版本" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">确认删除旧版本 <span class="font-mono text-on-surface font-semibold">Rev {{ deleteRevTarget?.rev }}</span>（ReplicaSet <span class="font-mono">{{ deleteRevTarget?.rsName }}</span>）？</p>
+    <p class="text-body-sm text-error mt-sm">删除后无法回滚到该版本。当前运行版本不受影响。</p>
+    <template #actions>
+      <button @click="showDeleteRevModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="handleDeleteRev" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
     </template>
   </Modal>
 </template>
