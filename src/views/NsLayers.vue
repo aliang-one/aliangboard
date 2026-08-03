@@ -81,7 +81,7 @@ async function applyLayer(key) {
       <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0 mt-0.5">info</span>
       <p class="text-body-sm text-on-surface-variant">
         默认按名称/镜像启发式归类；要精确控制，可给资源打 label <code class="font-mono text-code-sm bg-surface-container px-1 rounded">layer.aliangboard.io</code>
-        （值如 <code class="font-mono text-code-sm bg-surface-container px-1 rounded">gateway</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">middleware</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice/business</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice/support</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice/misc</code> 等）。
+        （值如 <code class="font-mono text-code-sm bg-surface-container px-1 rounded">gateway</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">middleware</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice-business</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice-support</code>、<code class="font-mono text-code-sm bg-surface-container px-1 rounded">microservice-misc</code> 等）。
       </p>
     </div>
 
