@@ -278,6 +278,16 @@ export const useClusterStore = defineStore('cluster', () => {
   })
 
   // === Actions ===
+  // 平台编辑/回滚/创建后自动写入的 tag：标识「由 AliangBoard 管理」+ 最后编辑时间
+  function aliangTag(extra) {
+    const tag = {
+      labels: { 'aliangboard.io/managed-by': 'aliangboard' },
+      annotations: { 'aliangboard.io/last-edited': new Date().toISOString() },
+    }
+    if (extra) { tag.labels = { ...tag.labels, ...extra.labels }; tag.annotations = { ...tag.annotations, ...extra.annotations } }
+    return tag
+  }
+
   function setNamespace(ns) {
     currentNamespace.value = ns
   }
@@ -756,6 +766,11 @@ export const useClusterStore = defineStore('cluster', () => {
           if (updates.tier != null) labels['layer.aliangboard.io'] = updates.tier
           patch.metadata = { labels }
         }
+        // 平台编辑自动 tag（managed-by + last-edited）
+        const _edittag = aliangTag()
+        patch.metadata = patch.metadata || {}
+        patch.metadata.labels = { ...(patch.metadata.labels || {}), ..._edittag.labels }
+        patch.metadata.annotations = _edittag.annotations
         const spec = {}
         if (updates.replicas != null) {
           const r = Number(String(updates.replicas).split('/')[0])
@@ -799,11 +814,11 @@ export const useClusterStore = defineStore('cluster', () => {
     const path = `${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`
     let labels = {}
     try { labels = (await api.k8s(path))?.metadata?.labels || {} } catch { /* 读取失败则从空开始 */ }
-    labels = { ...labels, 'layer.aliangboard.io': layerKey }
+    labels = { ...labels, 'layer.aliangboard.io': layerKey, 'aliangboard.io/managed-by': 'aliangboard' }
     await api.k8s(path, {
       method: 'PATCH',
       headers: { 'content-type': 'application/merge-patch+json' },
-      body: JSON.stringify({ metadata: { labels } }),
+      body: JSON.stringify({ metadata: { labels, annotations: { 'aliangboard.io/last-edited': new Date().toISOString() } } }),
     })
     // 本地即时反映：NsLayers 的 items 直接引用这些对象的 labels，改了即重算 classifyResource
     const list = res[2] === 'workload' ? workloadList : res[2] === 'service' ? serviceList : ingressList
@@ -817,10 +832,11 @@ export const useClusterStore = defineStore('cluster', () => {
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
     if (!plural) throw new Error(`暂不支持深度编辑 ${wl.type || '该工作负载'}，请使用 YAML 编辑`)
     if (remoteMode.value) {
+      const tag = aliangTag()
       await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/merge-patch+json' },
-        body: JSON.stringify({ spec: { template } }),
+        body: JSON.stringify({ spec: { template }, metadata: { labels: tag.labels, annotations: tag.annotations } }),
       })
     }
     wl.raw = { ...(wl.raw || {}), spec: { ...(wl.raw?.spec || {}), template } }
@@ -882,8 +898,8 @@ export const useClusterStore = defineStore('cluster', () => {
       if (plural) {
         // kubectl rollout undo --to-revision=N：把工作负载 template 还原为目标 ReplicaSet 的完整 template
         const body = target._template
-          ? { spec: { template: target._template } }
-          : { spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } } }
+          ? { spec: { template: target._template }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${revNumber}` } } }
+          : { spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${revNumber}` } } }
         await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/merge-patch+json' },

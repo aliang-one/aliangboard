@@ -225,6 +225,7 @@ const previewYAML = computed(() => {
   f.labels.forEach(l => { if (l.key) labels[l.key] = l.value || f.name })
   labels.app = labels.app || f.name
   labels['aliangboard.io/layer'] = f.tier
+  labels['aliangboard.io/managed-by'] = 'aliangboard'
   if (f.metaTitle) labels['aliangboard.io/title'] = f.metaTitle
   if (f.metaOwner) labels['aliangboard.io/owner'] = f.metaOwner
   if (f.metaVersion) labels['aliangboard.io/version'] = f.metaVersion

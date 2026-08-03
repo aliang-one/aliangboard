@@ -12,6 +12,8 @@ export const META_KEYS = {
   owner:       { canon: 'aliangboard.io/owner',       aliases: ['owner', 'team'],                                      std: 'app.kubernetes.io/part-of' },
   version:     { canon: 'aliangboard.io/version',     aliases: ['version'],                                            std: 'app.kubernetes.io/version' },
   tags:        { canon: 'aliangboard.io/tags',        aliases: ['tags'],                                               std: '' },
+  managedBy:   { canon: 'aliangboard.io/managed-by',  aliases: [],                                                     std: '' },
+  lastEdited:  { canon: 'aliangboard.io/last-edited', aliases: [],                                                     std: '' },
 }
 
 function fromAliases(labels, ann, def) {

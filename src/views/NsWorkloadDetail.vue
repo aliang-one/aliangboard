@@ -402,6 +402,8 @@ async function saveTemplate() {
             <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">group</span>{{ meta.owner }}</span>
             <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-primary border border-outline-variant"><span class="material-symbols-outlined text-sm">sell</span>{{ meta.version }}</span>
             <span v-if="meta.tags" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">label</span>{{ meta.tags }}</span>
+            <span v-if="meta.managedBy === 'aliangboard'" class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/20 text-primary rounded-full text-body-xs font-medium border border-primary/20"><span class="material-symbols-outlined text-sm">verified</span> AliangBoard 管理</span>
+            <span v-if="meta.lastEdited" class="text-body-xs text-on-surface-variant/60">最后编辑 {{ meta.lastEdited.slice(0, 10) }}</span>
           </div>
         </div>
       </div>
