@@ -12,7 +12,9 @@ const form = ref({
   token: '',
   username: '',
   password: '',
-  authMethod: 'token', // 'token' | 'basic'
+  kubeconfig: '',
+  authMethod: 'token', // 'token' | 'basic' | 'kubeconfig'
+  insecure: false,
   remember: true,
 })
 
@@ -29,6 +31,8 @@ async function handleLogin() {
       token: form.value.token,
       username: form.value.username,
       password: form.value.password,
+      kubeconfig: form.value.kubeconfig,
+      insecure: form.value.insecure,
     })
     saveSession(result.token, form.value.remember)
     store.setConnectedCluster(result.cluster)
@@ -80,10 +84,17 @@ async function handleLogin() {
           >
             <span class="material-symbols-outlined text-sm align-middle mr-1">person</span> 账号密码
           </button>
+          <button
+            @click="form.authMethod = 'kubeconfig'"
+            class="flex-1 py-sm text-body-md font-medium border-b-2 transition-colors"
+            :class="form.authMethod === 'kubeconfig' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant'"
+          >
+            <span class="material-symbols-outlined text-sm align-middle mr-1">description</span> kubeconfig
+          </button>
         </div>
 
-        <!-- API Server -->
-        <div class="mb-md">
+        <!-- API Server（token / basic 需手填；kubeconfig 模式由文件解析） -->
+        <div v-if="form.authMethod !== 'kubeconfig'" class="mb-md">
           <label class="text-label-caps text-on-surface-variant block mb-xs">API Server 地址</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">language</span>
@@ -128,6 +139,28 @@ async function handleLogin() {
             </div>
           </div>
         </template>
+
+        <!-- Kubeconfig Auth -->
+        <template v-if="form.authMethod === 'kubeconfig'">
+          <div class="mb-md">
+            <label class="text-label-caps text-on-surface-variant block mb-xs">粘贴 kubeconfig 内容</label>
+            <textarea
+              v-model="form.kubeconfig"
+              class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary transition-all h-32 resize-none font-mono text-code-sm"
+              placeholder="apiVersion: v1&#10;kind: Config&#10;clusters:&#10;- cluster:&#10;    server: https://...&#10;    certificate-authority-data: ...&#10;users:&#10;- user:&#10;    client-certificate-data: ...&#10;    client-key-data: ..."
+            ></textarea>
+            <p class="text-body-sm text-on-surface-variant mt-xs flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm">info</span>
+              直接粘贴 <code class="bg-surface-container px-1 rounded">~/.kube/config</code> 全文；server / CA / 客户端证书自动解析
+            </p>
+          </div>
+        </template>
+
+        <!-- 跳过 TLS 校验（自签集群 / token|basic 模式常用） -->
+        <label v-if="form.authMethod !== 'kubeconfig'" class="flex items-center gap-sm mb-md cursor-pointer">
+          <input v-model="form.insecure" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
+          <span class="text-body-sm text-on-surface-variant">跳过 TLS 证书校验（自签集群）</span>
+        </label>
 
         <div v-if="errorMessage" class="mb-md rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-body-sm text-error">
           {{ errorMessage }}

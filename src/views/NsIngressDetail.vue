@@ -65,6 +65,23 @@ async function saveRules() {
   }
 }
 
+// === IngressClass / TLS 编辑（远端 regenerate + apply）===
+const showClassModal = ref(false)
+const editClassName = ref('')
+function openClassEditor() { editClassName.value = ing.value?.className || ''; showClassModal.value = true }
+function saveClassName() {
+  store.updateIngress(route.params.name, route.params.namespace, { className: editClassName.value })
+  showClassModal.value = false
+}
+const showTlsModal = ref(false)
+const editTls = ref(false)
+const editTlsSecret = ref('')
+function openTlsEditor() { editTls.value = ing.value?.tls || false; editTlsSecret.value = ing.value?.tlsSecret || ''; showTlsModal.value = true }
+function saveTls() {
+  store.updateIngress(route.params.name, route.params.namespace, { tls: editTls.value, tlsSecret: editTlsSecret.value })
+  showTlsModal.value = false
+}
+
 const allAnnotations = computed(() => {
   if (!ing.value?.annotations) return []
   return Object.entries(ing.value.annotations)
@@ -189,11 +206,17 @@ function saveEditLabel() {
               <p class="font-mono text-code-md text-primary font-semibold">{{ ing.hosts }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Ingress Class</p>
-              <p class="text-body-md text-on-surface">{{ ing.className || 'nginx' }}</p>
+              <div class="flex items-center justify-between mb-xs">
+                <p class="text-label-caps text-on-surface-variant">Ingress Class</p>
+                <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 IngressClass"><span class="material-symbols-outlined text-base">edit</span></button>
+              </div>
+              <p class="text-body-md text-on-surface">{{ ing.className || '（默认）' }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">TLS</p>
+              <div class="flex items-center justify-between mb-xs">
+                <p class="text-label-caps text-on-surface-variant">TLS</p>
+                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 TLS"><span class="material-symbols-outlined text-base">edit</span></button>
+              </div>
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-lg" :class="ing.tls ? 'text-primary' : 'text-on-surface-variant'">{{ ing.tls ? 'lock' : 'lock_open' }}</span>
                 <span class="text-body-md" :class="ing.tls ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ ing.tls ? 'Enabled' : 'Disabled' }}</span>
@@ -428,6 +451,39 @@ function saveEditLabel() {
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- IngressClass 编辑 -->
+  <Modal v-model="showClassModal" title="编辑 IngressClass" width="max-w-md">
+    <p class="text-body-sm text-on-surface-variant mb-sm">选择该 Ingress 使用的 IngressClass（留空则由集群默认类接管）。</p>
+    <select v-model="editClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+      <option value="">（默认，不指定）</option>
+      <option v-for="c in store.ingressClassList" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? '（默认）' : '' }}</option>
+    </select>
+    <template #actions>
+      <button @click="showClassModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="saveClassName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">保存</button>
+    </template>
+  </Modal>
+
+  <!-- TLS 编辑 -->
+  <Modal v-model="showTlsModal" title="编辑 TLS" width="max-w-md">
+    <label class="flex items-center gap-sm mb-md cursor-pointer">
+      <input v-model="editTls" type="checkbox" class="h-4 w-4 accent-primary" />
+      <span class="text-body-md text-on-surface">启用 TLS（spec.tls）</span>
+    </label>
+    <div v-if="editTls">
+      <label class="text-label-caps text-on-surface-variant block mb-xs">TLS Secret 名称（含证书的 TLS Secret）</label>
+      <input v-model="editTlsSecret" list="ing-tls-secrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-tls-secret" />
+      <datalist id="ing-tls-secrets">
+        <option v-for="s in store.nsSecrets.filter(x => x.type === 'kubernetes.io/tls')" :key="s.name" :value="s.name" />
+      </datalist>
+      <p class="text-body-xs text-on-surface-variant mt-xs">TLS hosts 取自当前 rules 的 host；Secret 需为 <code>kubernetes.io/tls</code> 类型。</p>
+    </div>
+    <template #actions>
+      <button @click="showTlsModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="saveTls" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">保存</button>
     </template>
   </Modal>
 </template>

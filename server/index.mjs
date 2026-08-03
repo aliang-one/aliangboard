@@ -4,7 +4,9 @@ import net from 'node:net'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'node:crypto'
 import { URL } from 'node:url'
-import { loadAll as yamlLoadAll } from 'js-yaml'
+import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
+import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
+import { readFileSync } from 'node:fs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -55,15 +57,52 @@ function normalizeServer(value) {
   return url
 }
 
+// 解析粘贴进来的 kubeconfig：定位 current-context → cluster（server/CA）+ user（token|账密|客户端证书）。
+// 仅支持内联 *-data（base64）或 Gateway 主机上可读的 *-file；不支持 exec 凭证插件（gcp/aws/azure 等）。
+function parseKubeconfig(text) {
+  let cfg
+  try { cfg = yamlLoad(String(text || '')) } catch (e) { throw new Error('kubeconfig 解析失败：' + e.message) }
+  if (!cfg || cfg.kind !== 'Config') throw new Error('不是有效的 kubeconfig（缺少 kind: Config）')
+  const ctxName = cfg['current-context']
+  const ctx = (cfg.contexts || []).find(c => c.name === ctxName)
+  if (!ctx?.context) throw new Error(`kubeconfig 中找不到 current-context：${ctxName}`)
+  const cluster = (cfg.clusters || []).find(c => c.name === ctx.context.cluster)?.cluster
+  const user = (cfg.users || []).find(u => u.name === ctx.context.user)?.user
+  if (!cluster?.server) throw new Error('kubeconfig 中找不到 cluster.server')
+  if (user?.exec) throw new Error('kubeconfig 使用 exec 凭证插件（如 gcp/aws/azure），AliangBoard 暂不支持，请改用 token 或客户端证书')
+  return { server: cluster.server, cluster, user }
+}
+
+// 取证书/CA 材料：优先内联 *-data（base64），其次 Gateway 主机上的 *-file
+function certMaterial(node, dataKey, fileKey) {
+  if (!node) return undefined
+  if (node[dataKey]) return Buffer.from(node[dataKey], 'base64').toString('utf8')
+  if (node[fileKey]) {
+    try { return readFileSync(node[fileKey], 'utf8') } catch { throw new Error(`无法读取证书文件：${node[fileKey]}（请改用内联 *-data 形式）`) }
+  }
+  return undefined
+}
+
+// 为每个会话构建独立的 undici dispatcher：承载 mTLS（client cert+key+CA）与 insecure 开关。
+// Node 全局 fetch 接受 dispatcher 选项；故所有 fetch（缓冲式 + 流式）都透传它，统一 TLS 行为。
+function buildDispatcher({ ca, cert, key, insecure }) {
+  const connect = { rejectUnauthorized: !insecure }
+  if (ca) connect.ca = ca
+  if (cert) connect.cert = cert
+  if (key) connect.key = key
+  return new UndiciAgent({ connect })
+}
+
 async function requestKubernetes(session, path, init = {}) {
   const target = new URL(path, session.apiServer)
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
 
-  const response = await fetch(target, {
+  const response = await kubeFetch(target, {
     ...init,
     headers,
+    dispatcher: session.dispatcher,
     signal: AbortSignal.timeout(Number(process.env.K8S_REQUEST_TIMEOUT || 15000)),
   })
   const text = await response.text()
@@ -136,7 +175,8 @@ function buildKubeConfig(KubeConfig, session) {
   const cluster = {
     name: 'aliangboard',
     server: session.apiServer.toString(),
-    skipTLSVerify: process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true',
+    skipTLSVerify: !!session.insecure,
+    ...(session.ca ? { caData: session.ca } : {}),
   }
   const user = { name: 'aliangboard' }
   const header = session.authHeader || ''
@@ -147,6 +187,9 @@ function buildKubeConfig(KubeConfig, session) {
     user.username = idx >= 0 ? decoded.slice(0, idx) : decoded
     user.password = idx >= 0 ? decoded.slice(idx + 1) : ''
   }
+  // 客户端证书（kubeconfig client-cert/key）：client-node 的 User 支持 certData/keyData
+  if (session.cert) user.certData = session.cert
+  if (session.key) user.keyData = session.key
   kc.loadFromClusterAndUser(cluster, user)
   return kc
 }
@@ -236,6 +279,38 @@ async function execCapture(session, namespace, pod, container, command) {
   const conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, false, s => { status = s })
   await new Promise(resolve => conn.on('close', resolve))
   return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status }
+}
+
+// PVC 文件浏览：起一个 busybox 只读挂载该 PVC 的 helper Pod（确定性命名、幂等创建），复用 exec ls/cat。
+// 集群需允许当前用户 create pods + exec（cluster-admin 通常满足）。Pod 跨多次浏览复用，避免反复创建。
+async function ensurePvcBrowser(session, ns, pvc) {
+  const safe = String(pvc).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+  const podName = `aliang-pvc-${safe || 'x'}`.slice(0, 63)
+  const podPath = `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(podName)}`
+  try { await requestKubernetes(session, podPath); return podName }   // 已存在 → 复用
+  catch (e) {
+    if (e.status !== 404) throw e
+    const body = {
+      apiVersion: 'v1', kind: 'Pod',
+      metadata: { name: podName, namespace: ns, labels: { app: 'aliang-pvc-browser' }, annotations: { 'aliangboard.io/purpose': 'pvc-file-browser' } },
+      spec: {
+        restartPolicy: 'Never', terminationGracePeriodSeconds: 1,
+        containers: [{ name: 'browser', image: 'busybox:1.36', command: ['sh', '-c', 'sleep 86400'], volumeMounts: [{ name: 'data', mountPath: '/data', readOnly: true }], resources: { requests: { cpu: '10m', memory: '16Mi' }, limits: { memory: '64Mi' } } }],
+        volumes: [{ name: 'data', persistentVolumeClaim: { claimName: pvc } }],
+      },
+    }
+    try { await requestKubernetes(session, `/api/v1/namespaces/${encodeURIComponent(ns)}/pods`, { method: 'POST', body: JSON.stringify(body) }) }
+    catch (err) { throw Object.assign(new Error(`创建 PVC 浏览器 Pod 失败：${err.message}（需 create pods 权限）`), { status: err.status || 403 }) }
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      try {
+        const p = (await requestKubernetes(session, podPath)).body
+        if (p.status?.phase === 'Running') return podName
+        if (p.status?.phase === 'Failed') throw Object.assign(new Error('PVC 浏览器 Pod 启动失败（PVC 可能未绑定或挂载失败）'), { status: 502 })
+      } catch (waitErr) { if (waitErr.status === 502) throw waitErr }
+    }
+    throw Object.assign(new Error('PVC 浏览器 Pod 启动超时（镜像拉取中？请稍后重试）'), { status: 502 })
+  }
 }
 
 const PODFILE_PREVIEW_LIMIT = 256 * 1024   // 预览最多 256KB
@@ -376,16 +451,32 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/session') {
     try {
       const input = await readBody(req)
-      const apiServer = normalizeServer(input.apiServer)
-      const authHeader = input.authMethod === 'basic'
-        ? `Basic ${Buffer.from(`${input.username || ''}:${input.password || ''}`).toString('base64')}`
-        : `Bearer ${String(input.token || '')}`
-      if (input.authMethod === 'basic' && (!input.username || !input.password)) {
-        return sendJson(res, 400, { message: '用户名和密码不能为空' })
+      let apiServer, authHeader = null, ca, cert, key
+      if (input.authMethod === 'kubeconfig') {
+        // 直接粘贴 kubeconfig：从中解析 server / CA / 凭据（token|账密|客户端证书）
+        const parsed = parseKubeconfig(input.kubeconfig)
+        apiServer = normalizeServer(parsed.server)
+        ca = certMaterial(parsed.cluster, 'certificate-authority-data', 'certificate-authority')
+        cert = certMaterial(parsed.user, 'client-certificate-data', 'client-certificate')
+        key = certMaterial(parsed.user, 'client-key-data', 'client-key')
+        if (parsed.user?.token) authHeader = `Bearer ${parsed.user.token}`
+        else if (parsed.user?.username != null || parsed.user?.password != null) {
+          authHeader = `Basic ${Buffer.from(`${parsed.user.username || ''}:${parsed.user.password || ''}`).toString('base64')}`
+        }
+        if (!authHeader && !(cert && key)) throw new Error('kubeconfig 未包含可用凭据（需 token / 账号密码 / 客户端证书）')
+      } else if (input.authMethod === 'basic') {
+        if (!input.username || !input.password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
+        apiServer = normalizeServer(input.apiServer)
+        authHeader = `Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`
+      } else {
+        if (!input.token) return sendJson(res, 400, { message: 'Bearer Token 不能为空' })
+        apiServer = normalizeServer(input.apiServer)
+        authHeader = `Bearer ${String(input.token)}`
       }
-      if (input.authMethod !== 'basic' && !input.token) return sendJson(res, 400, { message: 'Bearer Token 不能为空' })
+      const insecure = input.insecure === true || process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true'
+      const dispatcher = buildDispatcher({ ca, cert, key, insecure })
       const sessionId = randomUUID()
-      const session = { apiServer, authHeader, createdAt: Date.now() }
+      const session = { apiServer, authHeader, dispatcher, ca, cert, key, insecure, createdAt: Date.now() }
       const probe = await requestKubernetes(session, '/version')
       session.version = probe.body?.gitVersion || 'unknown'
       sessions.set(sessionId, session)
@@ -453,6 +544,41 @@ async function handle(req, res) {
     const id = decodeURIComponent(url.pathname.slice('/api/portforward/'.length))
     const removed = stopForward(id)
     return sendJson(res, removed ? 200 : 404, { ok: removed })
+  }
+
+  // PVC 文件浏览（helper busybox Pod 只读挂载 + exec ls/cat；只读，不支持写入）
+  if (url.pathname.startsWith('/api/pvcfile/')) {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const action = url.pathname.slice('/api/pvcfile/'.length)
+    try {
+      const input = await readBody(req)
+      if (!input.namespace || !input.pvc) return sendJson(res, 400, { message: '缺少 namespace / pvc' })
+      const podName = await ensurePvcBrowser(session, input.namespace, input.pvc)
+      const sub = (input.path || '/').replace(/^\//, '')
+      const fullPath = sub ? `/data/${sub}`.replace(/\/$/, '') : '/data'
+      if (action === 'list') {
+        const r = await execCapture(session, input.namespace, podName, 'browser', ['ls', '-1Ap', fullPath])
+        const errText = r.stderr.trim()
+        if (errText && !r.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
+        const entries = r.stdout.toString('utf8').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+          const isDir = line.endsWith('/')
+          return { name: isDir ? line.slice(0, -1) : line, type: isDir ? 'dir' : 'file' }
+        })
+        return sendJson(res, 200, { path: '/' + sub, entries })
+      }
+      if (action === 'read') {
+        const r = await execCapture(session, input.namespace, podName, 'browser', ['head', '-c', String(PODFILE_PREVIEW_LIMIT + 1), fullPath])
+        const errText = r.stderr.trim()
+        if (errText && !r.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
+        const truncated = r.stdout.length > PODFILE_PREVIEW_LIMIT
+        const buf = truncated ? r.stdout.subarray(0, PODFILE_PREVIEW_LIMIT) : r.stdout
+        return sendJson(res, 200, { path: '/' + sub, content: buf.toString('utf8'), truncated, binary: r.stdout.includes(0) })
+      }
+      return sendJson(res, 404, { message: `未知 pvcfile 操作：${action}（只读浏览，仅支持 list / read）` })
+    } catch (error) {
+      return sendJson(res, error.status || 502, { message: error?.message || 'PVC 文件浏览失败' })
+    }
   }
 
   // Pod 文件浏览（基于一次性 exec：ls / cat / 写入）
@@ -582,9 +708,10 @@ async function handle(req, res) {
   if (isStreaming) {
     try {
       const target = new URL(kubernetesPath, session.apiServer)
-      const upstream = await fetch(target, {
+      const upstream = await kubeFetch(target, {
         method: 'GET',
         headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+        dispatcher: session.dispatcher,
         signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
       })
       if (!upstream.ok || !upstream.body) {

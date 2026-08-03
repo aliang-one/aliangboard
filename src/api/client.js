@@ -131,6 +131,12 @@ export const podDebugApi = {
   attach: payload => request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
+// PVC 文件浏览（只读）：网关起 helper busybox Pod 只读挂载该 PVC + exec ls/cat。仅远端模式。
+export const pvcFileApi = {
+  list: payload => request('/api/pvcfile/list', { method: 'POST', body: JSON.stringify(payload) }),
+  read: payload => request('/api/pvcfile/read', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // 手动触发 CronJob（kubectl create job --from）。仅远端模式。
 export const cronJobApi = {
   trigger: payload => request('/api/cronjob/trigger', { method: 'POST', body: JSON.stringify(payload) }),
