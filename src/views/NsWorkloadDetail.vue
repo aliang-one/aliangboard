@@ -150,7 +150,7 @@ const memRefLines = computed(() => {
   return r
 })
 
-const activeTab = ref('overview')
+const activeTab = ref('dashboard')
 const showDeleteModal = ref(false)
 const showScaleModal = ref(false)
 const scaleReplicas = ref(1)
@@ -429,11 +429,106 @@ async function saveTemplate() {
 
     <!-- Tabs -->
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in (isRolloutType ? ['overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in (isRolloutType ? ['dashboard', 'overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['dashboard', 'overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
+    </div>
+
+    <!-- Dashboard Tab（Kuboard 风格：左 timeline + 右 指标/Pod） -->
+    <div v-if="activeTab === 'dashboard'" class="flex gap-lg">
+      <!-- 左侧：版本历史 timeline（仅 Deployment/StatefulSet/DaemonSet） -->
+      <div v-if="isRolloutType && revisions.length" class="w-[220px] shrink-0 hidden lg:block">
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card sticky top-md">
+          <h3 class="text-label-caps text-on-surface-variant mb-md px-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">history</span>版本历史</h3>
+          <div class="flex flex-col">
+            <div v-for="(rev, idx) in revisions" :key="rev.rev" class="relative pl-md pb-xs"
+              :class="idx < revisions.length - 1 ? 'border-l-2 ' + (rev.current ? 'border-primary' : 'border-outline-variant') : 'border-l-2 border-transparent'">
+              <div class="absolute -left-[5px] top-0 w-2 h-2 rounded-full border-2 border-surface-container-lowest z-10" :class="rev.current ? 'bg-primary' : 'bg-outline-variant'"></div>
+              <div class="bg-surface-container-low rounded-lg p-sm mb-xs cursor-pointer hover:bg-surface-container transition-all"
+                :class="rev.current ? 'ring-1 ring-primary/40' : ''"
+                @click="rev.current ? null : confirmRollback(rev)">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="text-body-xs font-bold" :class="rev.current ? 'text-primary' : 'text-on-surface-variant'">Rev {{ rev.rev }}</span>
+                  <span v-if="rev.current" class="px-1.5 py-0 bg-primary text-on-primary text-body-xs rounded font-bold">当前</span>
+                </div>
+                <p class="font-mono text-code-xs text-on-surface-variant truncate" :title="rev.image">{{ rev.image }}</p>
+                <p class="text-body-xs text-on-surface-variant mt-xs">{{ rev.age }}</p>
+                <p v-if="!rev.current" class="text-body-xs text-primary mt-xs">↩ 回滚到此版本</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：指标 + Pod 状态 -->
+      <div class="flex-1 min-w-0 flex flex-col gap-lg">
+        <!-- 运行指标图表 -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <div class="flex items-center justify-between mb-lg">
+            <div>
+              <h3 class="text-headline-sm">运行指标</h3>
+              <p class="text-body-xs text-on-surface-variant mt-xs">实时占用（每 5s 采样）· 管理 {{ managedPods.length }} 个 Pod · 副本 {{ workload.replicas }}</p>
+            </div>
+            <span v-if="!metricsAvailable" class="text-body-xs text-error">指标不可用</span>
+          </div>
+          <div v-if="metricsAvailable" class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+            <div>
+              <MiniChart :series="cpuSeries" label="CPU 用量" unit="m" color="var(--md-sys-color-primary)" :ref-lines="cpuRefLines" :height="84" />
+              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.cpu }}m / 请求 {{ cpuReq || '—' }}m / 上限 {{ cpuLim || '—' }}m</p>
+            </div>
+            <div>
+              <MiniChart :series="memSeries" label="内存用量" unit="Mi" color="var(--md-sys-color-secondary)" :ref-lines="memRefLines" :height="84" />
+              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.mem }}Mi / 请求 {{ memReq || '—' }}Mi / 上限 {{ memLim || '—' }}Mi</p>
+            </div>
+          </div>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">metrics-server 未就绪，或当前用户无 metrics 读取权限。</p>
+        </div>
+
+        <!-- Pod 状态表 -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+          <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
+            <h3 class="text-headline-sm">Pods（{{ managedPods.length }}）</h3>
+            <div class="flex items-center gap-md text-body-xs">
+              <span class="flex items-center gap-xs"><span class="w-2 h-2 rounded-full bg-primary"></span>Running {{ managedPods.filter(p => p.status === 'Running').length }}</span>
+              <span class="flex items-center gap-xs"><span class="w-2 h-2 rounded-full bg-tertiary-container"></span>Pending {{ managedPods.filter(p => p.status === 'Pending').length }}</span>
+              <span v-if="managedPods.filter(p => p.status === 'Failed').length" class="flex items-center gap-xs"><span class="w-2 h-2 rounded-full bg-error"></span>Failed {{ managedPods.filter(p => p.status === 'Failed').length }}</span>
+            </div>
+          </div>
+          <table class="w-full text-left">
+            <thead>
+              <tr class="border-b border-outline-variant bg-surface-container-low">
+                <th class="px-md py-sm text-label-caps text-on-surface-variant">Name</th>
+                <th class="px-md py-sm text-label-caps text-on-surface-variant">Status</th>
+                <th class="px-md py-sm text-label-caps text-on-surface-variant">Restarts</th>
+                <th class="px-md py-sm text-label-caps text-on-surface-variant">Node</th>
+                <th class="px-md py-sm text-label-caps text-on-surface-variant">Age</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant/30">
+              <tr v-for="p in managedPods.slice(0, 20)" :key="p.name"
+                @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })"
+                class="hover:bg-surface-container-low/50 cursor-pointer transition-colors">
+                <td class="px-md py-sm"><span class="font-mono text-code-xs font-semibold text-on-surface truncate max-w-[200px] inline-block align-bottom">{{ p.name }}</span></td>
+                <td class="px-md py-sm">
+                  <div class="flex items-center gap-xs">
+                    <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary animate-pulse-status': p.status === 'Running', 'bg-tertiary-container': p.status === 'Pending', 'bg-error': p.status === 'Failed', 'bg-on-surface-variant': p.status === 'Succeeded' }"></span>
+                    <span class="text-body-xs">{{ p.status }}</span>
+                  </div>
+                </td>
+                <td class="px-md py-sm"><span class="text-body-xs font-semibold" :class="p.restarts > 3 ? 'text-error' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span></td>
+                <td class="px-md py-sm"><span class="font-mono text-code-xs text-on-surface-variant">{{ p.node || '-' }}</span></td>
+                <td class="px-md py-sm"><span class="text-body-xs text-on-surface-variant">{{ p.age }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="managedPods.length > 20" class="px-md py-sm text-center text-body-sm text-primary border-t border-outline-variant">
+            还有 {{ managedPods.length - 20 }} 个 Pod，<button @click="activeTab = 'pods'" class="underline font-medium">查看全部 →</button>
+          </div>
+          <div v-if="!managedPods.length" class="px-md py-xl text-center text-on-surface-variant text-body-sm">暂无管理 Pod</div>
+        </div>
+      </div>
     </div>
 
     <!-- Overview Tab -->
