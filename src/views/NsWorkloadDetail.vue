@@ -22,73 +22,10 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
-// 业务元数据（aliangboard.io/* 标签体系：title/description/owner/version/tags 等）
-const meta = computed(() => readMeta(workload.value))
-
-// === 网络暴露关系：Deployment → Service → Ingress ===
-const containerPorts = computed(() => {
-  const out = []
-  for (const c of (containers.value || [])) for (const p of (c.ports || [])) out.push({ container: c.name, port: p.containerPort, name: p.name, protocol: p.protocol || 'TCP' })
-  return out
-})
-// Pod 标签 = Service selector 的匹配对象（优先 pod template labels，回退 metadata labels）
-const podLabels = computed(() => workload.value?.raw?.spec?.template?.metadata?.labels || workload.value?.labels || {})
-const relatedServices = computed(() => {
-  const ns = route.params.namespace
-  const sel = podLabels.value
-  return (store.serviceList || []).filter(s => s.namespace === ns && s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
-})
-const relatedServiceNames = computed(() => new Set(relatedServices.value.map(s => s.name)))
-const relatedIngresses = computed(() => {
-  const ns = route.params.namespace
-  return (store.ingressList || []).filter(ing => ing.namespace === ns && (ing.rules || []).some(r => (r.http?.paths || []).some(p => {
-    const be = p.backend?.service || p.backend
-    return relatedServiceNames.value.has(be?.name)
-  })))
-})
-// 暴露 Service（selector 自动 = podLabels）
-const showExposeModal = ref(false)
-const exposeForm = ref({ name: '', type: 'ClusterIP', ports: [] })
-function openExpose() {
-  const base = workload.value?.name || 'app'
-  exposeForm.value = { name: `${base}-svc`, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol })) : [{ port: 80, targetPort: 8080, protocol: 'TCP' }] }
-  showExposeModal.value = true
-}
-async function saveExpose() {
-  try {
-    await store.addService({
-      name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '',
-      ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','),
-      selector: { ...podLabels.value },
-    })
-    notify('success', `已创建 Service ${exposeForm.value.name}`); showExposeModal.value = false
-  } catch (e) { notify('error', e.message || '创建 Service 失败') }
-}
-// 加 Ingress 映射（host/path → service:port）
-const showIngressMapModal = ref(false)
-const ingressMapForm = ref({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
-function openIngressMap() {
-  const svc = relatedServices.value[0]
-  const firstPort = svc?.ports?.split(',')[0]?.split(':')[0] || '80'
-  ingressMapForm.value = { host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
-  showIngressMapModal.value = true
-}
-async function saveIngressMap() {
-  const f = ingressMapForm.value
-  if (!f.serviceName) { notify('error', '请选择目标 Service'); return }
-  try {
-    await store.addIngress({
-      name: `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '',
-      rules: [{ host: f.host, path: f.path, pathType: f.pathType, serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 }],
-    })
-    notify('success', `已创建 Ingress ${f.host || '*'}${f.path} → ${f.serviceName}:${f.servicePort}`); showIngressMapModal.value = false
-  } catch (e) { notify('error', e.message || '创建 Ingress 失败') }
-}
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('deployment', workload.value))
-
-// 该 Workload 引用的 ConfigMap / Secret（正向依赖）
 const configRefs = computed(() => store.getWorkloadReferences(route.params.name, route.params.namespace))
+const meta = computed(() => readMeta(workload.value))
 
 const refTypeMeta = {
   envFrom: { label: 'EnvFrom', icon: 'code' },
@@ -101,8 +38,98 @@ function refRoute(ref) {
   return { name: 'NsSecretDetail', query: {} }
 }
 
-// 真实容器定义：从 live 对象的 pod template 取（Deploy/STS/DS/Job 用 .spec.template，
-// CronJob 用 .spec.jobTemplate.spec.template）。不再硬编码端口/资源。
+const activeTab = ref('overview')
+const showDeleteModal = ref(false)
+const showScaleModal = ref(false)
+const scaleReplicas = ref(1)
+const showEditModal = ref(false)
+const editForm = ref({})
+
+const isScalable = computed(() => ['Deployment', 'StatefulSet'].includes(workload.value?.type))
+const replicasLabel = computed(() => {
+  const t = workload.value?.type
+  if (t === 'DaemonSet') return 'SCHEDULED'
+  if (t === 'Job') return 'COMPLETIONS'
+  if (t === 'CronJob') return 'ACTIVE'
+  return 'REPLICAS'
+})
+const isCronJob = computed(() => workload.value?.type === 'CronJob')
+const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
+const revisions = computed(() => workload.value?.revisions || [])
+
+const showRollbackModal = ref(false)
+const rollbackTarget = ref(null)
+function confirmRollback(rev) { rollbackTarget.value = rev; showRollbackModal.value = true }
+async function handleRollback() {
+  if (rollbackTarget.value == null) return
+  try {
+    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
+    showRollbackModal.value = false
+    rollbackTarget.value = null
+  } catch (e) { notify('error', e.message || '回滚失败') }
+}
+
+// === 版本历史增强 ===
+const expandedRev = ref(null)
+function toggleRevExpand(rev) { expandedRev.value = expandedRev.value === rev.rev ? null : rev.rev }
+function revImgBase(img) {
+  if (!img) return ''
+  const noDigest = img.split('@')[0]
+  const idx = noDigest.lastIndexOf(':')
+  return idx > noDigest.lastIndexOf('/') ? noDigest.slice(0, idx) : noDigest
+}
+function revEvents(rev) {
+  const names = new Set([rev.rsName, route.params.name].filter(Boolean))
+  return (store.nsEvents || []).filter(e => names.has(e.involvedObject?.name)).slice(0, 5)
+}
+const showRevYamlModal = ref(false)
+const revYamlContent = ref('')
+const revYamlTitle = ref('')
+function viewRevYaml(rev) {
+  revYamlTitle.value = `Rev ${rev.rev} · ${rev.rsName || ''}`
+  revYamlContent.value = rev._template ? yamlDump(rev._template) : '# 无 template 数据'
+  showRevYamlModal.value = true
+}
+const showDeleteRevModal = ref(false)
+const deleteRevTarget = ref(null)
+function confirmDeleteRev(rev) { deleteRevTarget.value = rev; showDeleteRevModal.value = true }
+async function handleDeleteRev() {
+  const rev = deleteRevTarget.value
+  if (!rev?.rsName) return
+  try {
+    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
+    notify('success', `已删除旧版本 Rev ${rev.rev} (${rev.rsName})`)
+    if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
+    if (expandedRev.value === rev.rev) expandedRev.value = null
+  } catch (e) { notify('error', e.message || '删除失败') }
+  showDeleteRevModal.value = false; deleteRevTarget.value = null
+}
+
+const tierOptions = TIER_OPTIONS
+
+async function handleDelete() {
+  await store.deleteWorkload(route.params.name, route.params.namespace)
+  router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
+}
+function handleRestart() { store.restartWorkload(route.params.name, route.params.namespace) }
+
+const triggering = ref(false)
+async function triggerCron() {
+  triggering.value = true
+  try {
+    const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
+    notify('success', `已触发 Job：${res.job || route.params.name}`)
+  } catch (e) { notify('error', e.message || '触发失败') }
+  finally { triggering.value = false }
+}
+function openScale() {
+  if (!workload.value) return
+  scaleReplicas.value = parseInt(workload.value.replicas?.split('/')[1] || '1')
+  showScaleModal.value = true
+}
+function handleScale() { store.scaleWorkload(route.params.name, route.params.namespace, scaleReplicas.value); showScaleModal.value = false }
+
+// === 容器 ===
 const containers = computed(() => {
   const raw = workload.value?.raw
   if (!raw) return []
@@ -123,13 +150,11 @@ function fmtResources(resources) {
   return [cpu && `cpu ${cpu}`, mem && `mem ${mem}`].filter(Boolean).join('  ·  ')
 }
 
-// === 运行指标（实时 CPU/内存，metrics.k8s.io 每 5s 采样，滚动 ~2.5 分钟） ===
+// === 运行指标 ===
 const nsRef = computed(() => route.params.namespace)
 const managedPodNames = computed(() => (managedPods.value || []).map(p => p.name))
 const { cpuSeries, memSeries, current: metricsNow, available: metricsAvailable, start: startMetrics } = useMetricsHistory(nsRef, managedPodNames)
 onMounted(() => { if (store.remoteMode) startMetrics() })
-
-// 容器 requests/limits 合计（作为曲线参考线）
 function sumRes(field, kind) {
   const parse = kind === 'cpu' ? toMilli : toMi
   return (containers.value || []).reduce((t, c) => t + parse(c.resources?.[field]?.[kind]), 0)
@@ -151,131 +176,57 @@ const memRefLines = computed(() => {
   return r
 })
 
-const activeTab = ref('overview')
-const showDeleteModal = ref(false)
-const showScaleModal = ref(false)
-const scaleReplicas = ref(1)
-const showEditModal = ref(false)
-const editForm = ref({})
-
-// 仅 Deployment / StatefulSet 可按 replicas 扩缩容；DaemonSet 按节点调度，Job/CronJob 为批处理
-const isScalable = computed(() => ['Deployment', 'StatefulSet'].includes(workload.value?.type))
-const replicasLabel = computed(() => {
-  const t = workload.value?.type
-  if (t === 'DaemonSet') return 'SCHEDULED'
-  if (t === 'Job') return 'COMPLETIONS'
-  if (t === 'CronJob') return 'ACTIVE'
-  return 'REPLICAS'
+// === 网络暴露 ===
+const containerPorts = computed(() => {
+  const out = []
+  for (const c of (containers.value || [])) for (const p of (c.ports || [])) out.push({ container: c.name, port: p.containerPort, name: p.name, protocol: p.protocol || 'TCP' })
+  return out
 })
-const isCronJob = computed(() => workload.value?.type === 'CronJob')
-// 仅 Deployment/StatefulSet/DaemonSet 支持 rollout 历史与回滚
-const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
-const revisions = computed(() => workload.value?.revisions || [])
-
-const showRollbackModal = ref(false)
-const rollbackTarget = ref(null)
-function confirmRollback(rev) {
-  rollbackTarget.value = rev
-  showRollbackModal.value = true
+const podLabels = computed(() => workload.value?.raw?.spec?.template?.metadata?.labels || workload.value?.labels || {})
+const relatedServices = computed(() => {
+  const ns = route.params.namespace
+  const sel = podLabels.value
+  return (store.serviceList || []).filter(s => s.namespace === ns && s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
+})
+const relatedServiceNames = computed(() => new Set(relatedServices.value.map(s => s.name)))
+const relatedIngresses = computed(() => {
+  const ns = route.params.namespace
+  return (store.ingressList || []).filter(ing => ing.namespace === ns && (ing.rules || []).some(r => (r.http?.paths || []).some(p => { const be = p.backend?.service || p.backend; return relatedServiceNames.value.has(be?.name) })))
+})
+const showExposeModal = ref(false)
+const exposeForm = ref({ name: '', type: 'ClusterIP', ports: [] })
+function openExpose() {
+  const base = workload.value?.name || 'app'
+  exposeForm.value = { name: `${base}-svc`, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol })) : [{ port: 80, targetPort: 8080, protocol: 'TCP' }] }
+  showExposeModal.value = true
 }
-async function handleRollback() {
-  if (rollbackTarget.value == null) return
+async function saveExpose() {
   try {
-    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
-    showRollbackModal.value = false
-    rollbackTarget.value = null
-  } catch (e) {
-    notify('error', e.message || '回滚失败')
-  }
+    await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: { ...podLabels.value } })
+    notify('success', `已创建 Service ${exposeForm.value.name}`); showExposeModal.value = false
+  } catch (e) { notify('error', e.message || '创建 Service 失败') }
 }
-
-// === 版本历史增强：展开事件 / YAML / 删除旧 RS ===
-const expandedRev = ref(null)
-function toggleRevExpand(rev) {
-  expandedRev.value = expandedRev.value === rev.rev ? null : rev.rev
+const showIngressMapModal = ref(false)
+const ingressMapForm = ref({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
+function openIngressMap() {
+  const svc = relatedServices.value[0]
+  const firstPort = svc?.ports?.split(',')[0]?.split(':')[0] || '80'
+  ingressMapForm.value = { host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
+  showIngressMapModal.value = true
 }
-function revImgBase(img) {
-  if (!img) return ''
-  const noDigest = img.split('@')[0]
-  const idx = noDigest.lastIndexOf(':')
-  return idx > noDigest.lastIndexOf('/') ? noDigest.slice(0, idx) : noDigest
-}
-// 该版本关联事件（按 RS 名 或 Deployment 名匹配 involvedObject，最多 5 条）
-function revEvents(rev) {
-  const names = new Set([rev.rsName, route.params.name].filter(Boolean))
-  return (store.nsEvents || [])
-    .filter(e => names.has(e.involvedObject?.name))
-    .slice(0, 5)
-}
-// 版本 YAML（pod template）
-const showRevYamlModal = ref(false)
-const revYamlContent = ref('')
-const revYamlTitle = ref('')
-function viewRevYaml(rev) {
-  revYamlTitle.value = `Rev ${rev.rev} · ${rev.rsName || ''}`
-  revYamlContent.value = rev._template ? yamlDump(rev._template) : '# 无 template 数据'
-  showRevYamlModal.value = true
-}
-// 删除旧版本 ReplicaSet（仅非当前版本）
-const showDeleteRevModal = ref(false)
-const deleteRevTarget = ref(null)
-function confirmDeleteRev(rev) { deleteRevTarget.value = rev; showDeleteRevModal.value = true }
-async function handleDeleteRev() {
-  const rev = deleteRevTarget.value
-  if (!rev?.rsName) return
+async function saveIngressMap() {
+  const f = ingressMapForm.value
+  if (!f.serviceName) { notify('error', '请选择目标 Service'); return }
   try {
-    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
-    notify('success', `已删除旧版本 Rev ${rev.rev} (${rev.rsName})`)
-    // 本地即时移除
-    if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
-    if (expandedRev.value === rev.rev) expandedRev.value = null
-  } catch (e) { notify('error', e.message || '删除失败') }
-  showDeleteRevModal.value = false; deleteRevTarget.value = null
+    await store.addIngress({ name: `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: f.host, path: f.path, pathType: f.pathType, serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 }] })
+    notify('success', `已创建 Ingress ${f.host || '*'}${f.path} → ${f.serviceName}:${f.servicePort}`); showIngressMapModal.value = false
+  } catch (e) { notify('error', e.message || '创建 Ingress 失败') }
 }
 
-const tierOptions = TIER_OPTIONS
-
-async function handleDelete() {
-  await store.deleteWorkload(route.params.name, route.params.namespace)
-  router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
-}
-
-function handleRestart() {
-  store.restartWorkload(route.params.name, route.params.namespace)
-}
-
-// CronJob 手动触发（kubectl create job --from）
-const triggering = ref(false)
-async function triggerCron() {
-  triggering.value = true
-  try {
-    const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
-    notify('success', `已触发 Job：${res.job || route.params.name}`)
-  } catch (e) {
-    notify('error', e.message || '触发失败')
-  } finally {
-    triggering.value = false
-  }
-}
-
-function openScale() {
-  if (!workload.value) return
-  scaleReplicas.value = parseInt(workload.value.replicas?.split('/')[1] || '1')
-  showScaleModal.value = true
-}
-
-function handleScale() {
-  store.scaleWorkload(route.params.name, route.params.namespace, scaleReplicas.value)
-  showScaleModal.value = false
-}
-
+// === Edit ===
 function openEdit() {
   if (!workload.value) return
-  // 容器级参数从 pod template 的首个容器读取（env/resources/probes）
-  const c0 = workload.value?.raw?.spec?.template?.spec?.containers?.[0]
-    || workload.value?.raw?.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0]
-    || {}
-  const probe = (p, d) => ({ enabled: !!p, path: p?.httpGet?.path ?? d, port: p?.httpGet?.port ?? d })
+  const c0 = workload.value?.raw?.spec?.template?.spec?.containers?.[0] || workload.value?.raw?.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0] || {}
   editForm.value = {
     image: workload.value.image,
     replicas: workload.value.replicas?.split('/')[1] || '1',
@@ -283,41 +234,20 @@ function openEdit() {
     labels: { ...workload.value.labels },
     tier: workload.value.tier || 'default',
     env: (c0.env || []).filter(e => e.value !== undefined && e.valueFrom === undefined).map(e => ({ key: e.name, value: e.value })),
-    cpuReq: c0.resources?.requests?.cpu || '',
-    cpuLim: c0.resources?.limits?.cpu || '',
-    memReq: c0.resources?.requests?.memory || '',
-    memLim: c0.resources?.limits?.memory || '',
-    livenessEnabled: !!c0.livenessProbe,
-    livenessPath: c0.livenessProbe?.httpGet?.path ?? '/health',
-    livenessPort: c0.livenessProbe?.httpGet?.port ?? 8080,
-    readinessEnabled: !!c0.readinessProbe,
-    readinessPath: c0.readinessProbe?.httpGet?.path ?? '/ready',
-    readinessPort: c0.readinessProbe?.httpGet?.port ?? 8080,
+    cpuReq: c0.resources?.requests?.cpu || '', cpuLim: c0.resources?.limits?.cpu || '',
+    memReq: c0.resources?.requests?.memory || '', memLim: c0.resources?.limits?.memory || '',
+    livenessEnabled: !!c0.livenessProbe, livenessPath: c0.livenessProbe?.httpGet?.path ?? '/health', livenessPort: c0.livenessProbe?.httpGet?.port ?? 8080,
+    readinessEnabled: !!c0.readinessProbe, readinessPath: c0.readinessProbe?.httpGet?.path ?? '/ready', readinessPort: c0.readinessProbe?.httpGet?.port ?? 8080,
     ports: (c0.ports || []).map(p => ({ containerPort: p.containerPort, protocol: p.protocol || 'TCP' })),
   }
   showEditModal.value = true
 }
-
 async function saveEdit() {
-  // tier 由 store 统一写成 layer.aliangboard.io label（权威），此处不重复注入 labels.tier
   const labels = { ...(editForm.value.labels || {}) }
-  const updates = {
-    image: editForm.value.image,
-    tier: editForm.value.tier,
-    labels,
-  }
-  // 仅可扩缩容的类型才回写 replicas，避免覆盖 DaemonSet/Job 的调度或完成状态
-  if (isScalable.value) {
-    updates.replicas = `${editForm.value.replicas}/${editForm.value.replicas}`
-  }
-  // CronJob 的 schedule 可编辑
-  if (isCronJob.value) {
-    updates.schedule = editForm.value.schedule
-  }
+  const updates = { image: editForm.value.image, tier: editForm.value.tier, labels }
+  if (isScalable.value) updates.replicas = `${editForm.value.replicas}/${editForm.value.replicas}`
+  if (isCronJob.value) updates.schedule = editForm.value.schedule
   store.updateWorkload(route.params.name, route.params.namespace, updates)
-
-  // 容器级结构化编辑（env/resources/probes）：取当前 template 全量克隆后改 containers[0]，经 applyWorkloadTemplate 全量回写
-  // （全量替换 spec.template，故 sidecar/init/卷/调度均保留；删除项也生效）
   if (isRolloutType.value) {
     const rawTpl = workload.value?.raw?.spec?.template
     if (rawTpl) {
@@ -331,91 +261,47 @@ async function saveEdit() {
           limits: { ...(editForm.value.cpuLim ? { cpu: editForm.value.cpuLim } : {}), ...(editForm.value.memLim ? { memory: editForm.value.memLim } : {}) },
         }
         c0.ports = (editForm.value.ports || []).filter(p => p.containerPort).map(p => ({ containerPort: Number(p.containerPort), protocol: p.protocol || 'TCP' }))
-        c0.livenessProbe = editForm.value.livenessEnabled
-          ? { httpGet: { path: editForm.value.livenessPath, port: Number(editForm.value.livenessPort) || 8080 } }
-          : undefined
-        c0.readinessProbe = editForm.value.readinessEnabled
-          ? { httpGet: { path: editForm.value.readinessPath, port: Number(editForm.value.readinessPort) || 8080 } }
-          : undefined
+        c0.livenessProbe = editForm.value.livenessEnabled ? { httpGet: { path: editForm.value.livenessPath, port: Number(editForm.value.livenessPort) || 8080 } } : undefined
+        c0.readinessProbe = editForm.value.readinessEnabled ? { httpGet: { path: editForm.value.readinessPath, port: Number(editForm.value.readinessPort) || 8080 } } : undefined
         ;['livenessProbe', 'readinessProbe'].forEach(k => { if (c0[k] === undefined) delete c0[k] })
-        try {
-          await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl)
-        } catch (e) {
-          notify('error', e.message || '容器配置（env/resources/probes）保存失败')
-        }
+        try { await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl) }
+        catch (e) { notify('error', e.message || '容器配置保存失败') }
       }
     }
   }
   showEditModal.value = false
 }
 
-// === Pod 模板深度编辑（image/env/resources/probes/nodeSelector，远端 PATCH spec.template）===
+// === Template Editor ===
 const showTemplateModal = ref(false)
-const editTpl = ref(null)                  // 深克隆的 pod template
-const editEnv = ref([])                    // 简单 env（{name,value}），可编辑
-const refEnv = ref([])                     // valueFrom 引用型 env（保留原样、只读展示）
-const nodeSelectorEntries = ref([])        // [{key,value}]
-const probeModel = ref({ liveness: mkProbe(), readiness: mkProbe() })
-const origProbes = ref({})
-const primary = computed(() => editTpl.value?.spec?.containers?.[0])
-
-function mkProbe() { return { enabled: false, type: 'http', path: '/', port: '' } }
-function probeFromSpec(probe) {
-  if (!probe) return mkProbe()
-  if (probe.httpGet) return { enabled: true, type: 'http', path: probe.httpGet.path || '/', port: probe.httpGet.port ?? '' }
-  if (probe.tcpSocket) return { enabled: true, type: 'tcp', path: '/', port: probe.tcpSocket.port ?? '' }
-  return { enabled: true, type: 'http', path: '/', port: '' }
-}
-function probeToSpec(m, original) {
-  // 未勾选则保留原探针（不通过此编辑器删除，避免误丢高级字段）
-  if (!m.enabled) return original
-  const port = m.port === '' ? undefined : (isNaN(Number(m.port)) ? m.port : Number(m.port))
-  const base = m.type === 'tcp' ? { tcpSocket: { port } } : { httpGet: { path: m.path || '/', port } }
-  return { ...(original || {}), ...base }
-}
-
+const templateYaml = ref('')
 function openTemplateEditor() {
-  const wl = workload.value
-  let tpl = wl?.raw?.spec?.template
-  if (!tpl) {
-    // mock 无 raw：从扁平字段合成最小模板
-    tpl = { metadata: { labels: { app: wl?.name } }, spec: { nodeSelector: {}, containers: [{ name: wl?.name || 'main', image: wl?.image || '', env: [], resources: { requests: {}, limits: {} } }] } }
-  }
-  editTpl.value = JSON.parse(JSON.stringify(tpl))
-  const spec = editTpl.value.spec
-  spec.containers = spec.containers || []
-  const c = spec.containers[0] || (spec.containers[0] = { name: wl?.name || 'main', image: wl?.image || '' })
-  c.resources = c.resources || {}
-  c.resources.requests = c.resources.requests || {}
-  c.resources.limits = c.resources.limits || {}
-  spec.nodeSelector = spec.nodeSelector || {}
-  // env：拆分可编辑（value）与只读引用（valueFrom），避免编辑丢数据
-  refEnv.value = (c.env || []).filter(e => e.valueFrom).map(e => JSON.parse(JSON.stringify(e)))
-  editEnv.value = (c.env || []).filter(e => e.value !== undefined && !e.valueFrom).map(e => ({ name: e.name, value: e.value }))
-  origProbes.value = { liveness: c.livenessProbe, readiness: c.readinessProbe }
-  probeModel.value = { liveness: probeFromSpec(c.livenessProbe), readiness: probeFromSpec(c.readinessProbe) }
-  nodeSelectorEntries.value = Object.entries(spec.nodeSelector).map(([k, v]) => ({ key: k, value: v }))
+  const rawTpl = workload.value?.raw?.spec?.template
+  templateYaml.value = rawTpl ? yamlDump(rawTpl) : ''
   showTemplateModal.value = true
 }
-function addEnv() { editEnv.value.push({ name: '', value: '' }) }
-function removeEnv(i) { editEnv.value.splice(i, 1) }
-function addNodeSelector() { nodeSelectorEntries.value.push({ key: '', value: '' }) }
-function removeNodeSelector(i) { nodeSelectorEntries.value.splice(i, 1) }
-async function saveTemplate() {
-  const c = primary.value
-  if (!c) return
-  c.env = [...refEnv.value, ...editEnv.value.filter(e => e.name)]
-  c.livenessProbe = probeToSpec(probeModel.value.liveness, origProbes.value.liveness)
-  c.readinessProbe = probeToSpec(probeModel.value.readiness, origProbes.value.readiness)
-  const ns = {}
-  for (const e of nodeSelectorEntries.value) if (e.key) ns[e.key] = e.value
-  editTpl.value.spec.nodeSelector = Object.keys(ns).length ? ns : undefined
+async function saveTemplate(yamlStr) {
   try {
-    await store.applyWorkloadTemplate(route.params.name, route.params.namespace, JSON.parse(JSON.stringify(editTpl.value)))
+    const tpl = yamlDump ? null : null // placeholder
+    const obj = JSON.parse(JSON.stringify(workload.value?.raw?.spec?.template || {}))
+    // 简化：用 js-yaml load 解析
+    const { load: yamlLoad } = await import('js-yaml')
+    const parsed = yamlLoad(yamlStr)
+    await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
+    notify('success', 'Pod 模板已更新')
     showTemplateModal.value = false
-  } catch (e) {
-    notify('error', e.message || '保存模板失败')
-  }
+  } catch (e) { notify('error', e.message || '保存失败') }
+}
+
+// Pod status color helper
+function podStatusColor(s) {
+  return s === 'Running' ? 'text-primary' : s === 'Pending' ? 'text-tertiary-container' : s === 'Failed' ? 'text-error' : 'text-on-surface-variant'
+}
+function podStatusBg(s) {
+  return s === 'Running' ? 'bg-primary' : s === 'Pending' ? 'bg-tertiary-container' : s === 'Failed' ? 'bg-error' : 'bg-on-surface-variant'
+}
+function podStatusBorder(s) {
+  return s === 'Running' ? 'border-l-primary' : s === 'Pending' ? 'border-l-tertiary-container' : s === 'Failed' ? 'border-l-error' : 'border-l-on-surface-variant/30'
 }
 </script>
 
@@ -428,906 +314,507 @@ async function saveTemplate() {
       { label: workload.name }
     ]" />
 
-    <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
-          <span class="material-symbols-outlined text-primary text-3xl">apps</span>
+    <!-- ====== Header ====== -->
+    <div class="flex items-start justify-between mt-sm mb-md">
+      <div class="flex items-start gap-md">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center shrink-0 ring-1 ring-primary/10">
+          <span class="material-symbols-outlined text-primary text-2xl">apps</span>
         </div>
         <div>
-          <div class="flex items-baseline gap-md flex-wrap">
-            <h1 class="text-display-lg text-on-surface">{{ meta.title || workload.name }}</h1>
-            <span v-if="meta.title" class="font-mono text-code-sm text-on-surface-variant">{{ workload.name }}</span>
+          <div class="flex items-baseline gap-sm flex-wrap">
+            <h1 class="text-headline-lg text-on-surface font-bold">{{ meta.title || workload.name }}</h1>
+            <span v-if="meta.title" class="font-mono text-code-xs text-on-surface-variant">{{ workload.name }}</span>
           </div>
-          <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs max-w-2xl">{{ meta.description }}</p>
+          <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs">{{ meta.description }}</p>
           <div class="flex items-center gap-xs mt-xs flex-wrap">
-            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ workload.type }}</span>
-            <StatusChip :status="workload.status" />
-            <span class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ workload.namespace }}</span></span>
-            <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">group</span>{{ meta.owner }}</span>
-            <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-primary border border-outline-variant"><span class="material-symbols-outlined text-sm">sell</span>{{ meta.version }}</span>
-            <span v-if="meta.tags" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">label</span>{{ meta.tags }}</span>
-            <span v-if="meta.managedBy === 'aliangboard'" class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/20 text-primary rounded-full text-body-xs font-medium border border-primary/20"><span class="material-symbols-outlined text-sm">verified</span> AliangBoard 管理</span>
-            <span v-if="meta.lastEdited" class="text-body-xs text-on-surface-variant/60">最后编辑 {{ meta.lastEdited.slice(0, 10) }}</span>
+            <span class="px-2 py-0.5 bg-primary/8 text-primary text-body-xs rounded-md font-medium">{{ workload.type }}</span>
+            <StatusChip :status="workload.status" size="sm" />
+            <span class="text-body-xs text-on-surface-variant">{{ workload.namespace }}</span>
+            <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant"><span class="material-symbols-outlined text-xs">group</span>{{ meta.owner }}</span>
+            <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/8 rounded text-body-xs text-primary"><span class="material-symbols-outlined text-xs">sell</span>{{ meta.version }}</span>
+            <span v-if="meta.managedBy === 'aliangboard'" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/8 text-primary rounded text-body-xs font-medium"><span class="material-symbols-outlined text-xs">verified</span>AliangBoard</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
-        </button>
-        <button v-if="isScalable" @click="openScale" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">height</span> Scale
-        </button>
-        <button @click="handleRestart" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">refresh</span> Restart
-        </button>
-        <button v-if="isCronJob && store.remoteMode" @click="triggerCron" :disabled="triggering" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50" title="手动触发一次（kubectl create job --from）">
-          <span class="material-symbols-outlined">{{ triggering ? 'progress_activity' : 'play_arrow' }}</span> Trigger
-        </button>
-        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
-        </button>
-        <button v-if="isRolloutType" @click="openTemplateEditor" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors" title="深度编辑容器模板（image/env/resources/probes/nodeSelector），写回集群">
-          <span class="material-symbols-outlined">tune</span> Edit Template
-        </button>
+      <div class="flex gap-xs shrink-0">
+        <button v-if="isScalable" @click="openScale" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">Scale</button>
+        <button @click="handleRestart" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">Restart</button>
+        <button @click="openEdit" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">Edit</button>
+        <button v-if="isRolloutType" @click="openTemplateEditor" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">Template</button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">Delete</button>
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <!-- ====== Tabs ====== -->
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button v-for="tab in (isRolloutType ? ['overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
-        :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'">
         {{ tab }}
+        <span v-if="activeTab === tab" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
     </div>
 
-    <!-- Overview Tab（合并 Dashboard：左 timeline+labels+summary，右 指标+Pod+容器+详情） -->
-    <div v-if="activeTab === 'overview'" class="flex gap-lg">
-      <!-- 左侧 sidebar：timeline + labels + summary -->
-      <div class="w-[240px] shrink-0 hidden lg:block flex flex-col gap-md sticky top-0 self-start max-h-[calc(100vh-160px)] overflow-y-auto">
-        <div v-if="isRolloutType && revisions.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
-          <h3 class="text-label-caps text-on-surface-variant mb-md px-xs flex items-center gap-xs">
-            <span class="material-symbols-outlined text-sm">history</span> 版本历史
-          </h3>
-          <div class="relative">
-            <!-- 连接线 -->
-            <div class="absolute left-[3px] top-2 bottom-2 w-0.5 bg-outline-variant/40"></div>
-            <div v-for="(rev, idx) in revisions" :key="rev.rev" class="relative pl-md pb-sm">
-              <div class="absolute left-0 top-1 w-[7px] h-[7px] rounded-full ring-2 ring-surface-container-lowest z-10" :class="rev.current ? 'bg-primary' : 'bg-outline-variant'"></div>
-              <div class="rounded-lg p-sm mb-1 transition-all duration-200"
-                :class="[rev.current ? 'bg-primary/8 ring-1 ring-primary/30 shadow-sm' : 'bg-surface-container-low/60 hover:bg-surface-container hover:shadow-sm', expandedRev === rev.rev ? 'ring-1 ring-primary/40' : '']">
-                <!-- 行1: Rev + badge/age + 展开箭头 -->
-                <div class="flex items-center justify-between mb-xs cursor-pointer" @click="toggleRevExpand(rev)">
-                  <span class="text-body-sm font-bold" :class="rev.current ? 'text-primary' : 'text-on-surface'">Rev {{ rev.rev }}</span>
-                  <div class="flex items-center gap-xs">
-                    <span v-if="rev.current" class="px-1.5 py-0.5 bg-primary text-on-primary text-body-xs rounded-full font-bold">当前</span>
-                    <span class="text-body-xs text-on-surface-variant/60">{{ rev.age }}</span>
-                    <span class="material-symbols-outlined text-sm text-on-surface-variant/40 transition-transform" :class="expandedRev === rev.rev ? 'rotate-180' : ''">expand_more</span>
+    <!-- ====== Overview Tab ====== -->
+    <div v-if="activeTab === 'overview'" class="flex gap-md">
+      <!-- ====== LEFT: Timeline + Labels ====== -->
+      <div class="w-[260px] shrink-0 hidden lg:flex flex-col gap-sm">
+        <!-- Timeline -->
+        <div v-if="isRolloutType && revisions.length" class="rounded-xl overflow-hidden">
+          <div class="px-sm py-2 flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base text-on-surface-variant">history</span>
+            <span class="text-body-sm font-semibold text-on-surface">版本历史</span>
+            <span class="text-body-xs text-on-surface-variant ml-auto">{{ revisions.length }}</span>
+          </div>
+          <div class="relative px-sm pb-sm">
+            <div class="absolute left-[13px] top-0 bottom-0 w-px bg-outline-variant/30"></div>
+            <div v-for="rev in revisions" :key="rev.rev" class="relative pl-md pb-xs">
+              <div class="absolute left-[10px] top-1.5 w-[7px] h-[7px] rounded-full z-10 ring-2 ring-surface" :class="rev.current ? 'bg-primary' : 'bg-outline-variant'"></div>
+              <div class="rounded-lg overflow-hidden transition-all"
+                :class="rev.current ? 'bg-primary/5 ring-1 ring-primary/20' : expandedRev === rev.rev ? 'bg-surface-container ring-1 ring-primary/20' : 'hover:bg-surface-container/50'">
+                <div class="px-sm py-1.5 cursor-pointer" @click="toggleRevExpand(rev)">
+                  <div class="flex items-center justify-between">
+                    <span class="text-body-xs font-bold" :class="rev.current ? 'text-primary' : 'text-on-surface'">Rev {{ rev.rev }}</span>
+                    <div class="flex items-center gap-1">
+                      <span v-if="rev.current" class="text-body-xs text-primary font-semibold">●</span>
+                      <span class="text-body-xs text-on-surface-variant/50">{{ rev.age }}</span>
+                      <span class="material-symbols-outlined text-xs text-on-surface-variant/40 transition-transform" :class="expandedRev === rev.rev ? 'rotate-180' : ''">expand_more</span>
+                    </div>
+                  </div>
+                  <p class="font-mono text-xs text-on-surface-variant truncate leading-tight mt-0.5">{{ revImgBase(rev.image) }}<span class="text-primary font-semibold">:{{ imageTag(rev.image) || 'latest' }}</span></p>
+                  <div class="flex items-center gap-1 mt-1">
+                    <span class="text-xs text-on-surface-variant">期望<b class="text-on-surface ml-0.5">{{ rev.desiredReplicas ?? '—' }}</b></span>
+                    <span class="text-xs" :class="(rev.replicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-tertiary-container'">·<b class="ml-0.5">{{ rev.replicas ?? 0 }}</b></span>
+                    <span class="text-xs" :class="(rev.readyReplicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-error'">·<b class="ml-0.5">{{ rev.readyReplicas ?? 0 }}</b></span>
+                    <div class="flex items-center gap-0.5 ml-auto">
+                      <button @click.stop="viewRevYaml(rev)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" title="YAML"><span class="material-symbols-outlined text-xs">code</span></button>
+                      <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="删除"><span class="material-symbols-outlined text-xs">delete</span></button>
+                      <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-0.5 rounded hover:bg-primary/10 text-primary" title="回滚"><span class="material-symbols-outlined text-xs">undo</span></button>
+                    </div>
                   </div>
                 </div>
-                <!-- 行2: 镜像 base + 版本 tag -->
-                <p class="font-mono text-code-xs truncate mb-xs" :title="rev.image">
-                  <span class="text-on-surface-variant">{{ revImgBase(rev.image) }}</span><span class="text-primary font-semibold">:{{ imageTag(rev.image) || 'latest' }}</span>
-                </p>
-                <!-- 行3: 副本 期望/当前/就绪 -->
-                <div class="flex items-center gap-sm text-body-xs mb-xs">
-                  <span class="text-on-surface-variant">期望<span class="font-bold text-on-surface ml-0.5">{{ rev.desiredReplicas ?? '—' }}</span></span>
-                  <span class="text-on-surface-variant/40">·</span>
-                  <span class="text-on-surface-variant">当前<span class="font-bold ml-0.5" :class="(rev.replicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-tertiary-container'">{{ rev.replicas ?? 0 }}</span></span>
-                  <span class="text-on-surface-variant/40">·</span>
-                  <span class="text-on-surface-variant">就绪<span class="font-bold ml-0.5" :class="(rev.readyReplicas ?? 0) >= (rev.desiredReplicas ?? 0) ? 'text-primary' : 'text-error'">{{ rev.readyReplicas ?? 0 }}</span></span>
-                </div>
-                <!-- 行4: 操作按钮 -->
-                <div class="flex items-center gap-xs">
-                  <button @click.stop="viewRevYaml(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors" title="查看 YAML"><span class="material-symbols-outlined text-sm">code</span> YAML</button>
-                  <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors" title="删除此旧版本 ReplicaSet"><span class="material-symbols-outlined text-sm">delete</span></button>
-                  <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-body-xs text-primary hover:bg-primary/10 transition-colors ml-auto" title="回滚到此版本"><span class="material-symbols-outlined text-sm">undo</span> 回滚</button>
-                </div>
-              </div>
-              <!-- 展开区：历史事件（最多 5 条 + More） -->
-              <div v-if="expandedRev === rev.rev" class="ml-xs mb-sm animate-fade-in">
-                <div class="bg-surface-container-lowest/80 rounded-lg p-xs border border-outline-variant/40">
-                  <p class="text-body-xs font-semibold text-on-surface-variant px-xs py-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">notifications_active</span> 关联事件</p>
-                  <div v-if="revEvents(rev).length" class="flex flex-col">
-                    <div v-for="(e, ei) in revEvents(rev)" :key="ei" class="flex items-start gap-xs px-xs py-xs border-t border-outline-variant/20">
-                      <span class="w-1.5 h-1.5 rounded-full mt-1 shrink-0" :class="e.type === 'warning' ? 'bg-error' : 'bg-primary'"></span>
+                <!-- Events -->
+                <div v-if="expandedRev === rev.rev" class="px-sm pb-sm border-t border-outline-variant/20 animate-fade-in">
+                  <div v-if="revEvents(rev).length" class="flex flex-col mt-1">
+                    <div v-for="(e, ei) in revEvents(rev)" :key="ei" class="flex items-start gap-1 py-0.5">
+                      <span class="w-1 h-1 rounded-full mt-1.5 shrink-0" :class="e.type === 'warning' ? 'bg-error' : 'bg-primary'"></span>
                       <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-xs">
-                          <span class="text-body-xs font-semibold" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ e.reason }}</span>
-                          <span class="text-body-xs text-on-surface-variant/50">{{ e.age }}</span>
-                          <span v-if="e.count > 1" class="text-body-xs text-on-surface-variant/50">×{{ e.count }}</span>
+                        <div class="flex items-center gap-1">
+                          <span class="text-xs font-medium" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ e.reason }}</span>
+                          <span class="text-xs text-on-surface-variant/40">{{ e.age }}</span>
+                          <span v-if="e.count > 1" class="text-xs text-on-surface-variant/40">×{{ e.count }}</span>
                         </div>
-                        <p class="text-body-xs text-on-surface-variant truncate" :title="e.message">{{ e.message }}</p>
+                        <p class="text-xs text-on-surface-variant/70 truncate">{{ e.message }}</p>
                       </div>
                     </div>
                   </div>
-                  <p v-else class="text-body-xs text-on-surface-variant/50 px-xs py-sm text-center">暂无关联事件</p>
-                  <button @click="activeTab = 'events'" class="w-full text-center text-body-xs text-primary hover:underline py-xs">More →</button>
+                  <p v-else class="text-xs text-on-surface-variant/40 py-1 text-center">暂无事件</p>
+                  <button @click="activeTab = 'events'" class="w-full text-xs text-primary hover:underline pt-0.5">More →</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
         <!-- Labels -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
-          <h3 class="text-label-caps text-on-surface-variant mb-sm px-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">label</span> Labels</h3>
-          <div class="flex flex-wrap gap-1">
-            <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-sm py-xs bg-primary-container/10 text-primary text-body-xs rounded-full border border-primary/20">
-              <span class="font-semibold">{{ key }}</span>: {{ val }}
-            </span>
+        <div class="rounded-xl overflow-hidden">
+          <div class="px-sm py-2 flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base text-on-surface-variant">label</span>
+            <span class="text-body-sm font-semibold text-on-surface">Labels</span>
           </div>
-        </div>
-        <!-- Summary -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
-          <h3 class="text-label-caps text-on-surface-variant mb-sm px-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">analytics</span> Summary</h3>
-          <div class="space-y-xs">
-            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
-              <span class="text-body-xs text-on-surface-variant">Pods</span>
-              <span class="text-body-sm font-semibold text-primary">{{ managedPods.length }}</span>
-            </div>
-            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
-              <span class="text-body-xs text-on-surface-variant">Running</span>
-              <span class="text-body-sm font-semibold text-primary">{{ managedPods.filter(p => p.status === 'Running').length }}</span>
-            </div>
-            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
-              <span class="text-body-xs text-on-surface-variant">Replicas</span>
-              <span class="text-body-sm font-semibold">{{ workload.replicas }}</span>
-            </div>
-            <div class="flex justify-between items-center py-xs">
-              <span class="text-body-xs text-on-surface-variant">Age</span>
-              <span class="text-body-sm text-on-surface">{{ workload.age }}</span>
-            </div>
+          <div class="px-sm pb-sm flex flex-wrap gap-1">
+            <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">
+              <span class="font-semibold">{{ key }}</span>={{ val }}
+            </span>
           </div>
         </div>
       </div>
 
-      <!-- 右侧：指标 + Pod + 容器 + 详情 -->
-      <div class="flex-1 min-w-0 flex flex-col gap-md">
-        <!-- 运行指标 -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-md">
+      <!-- ====== RIGHT: Metrics + Pods + Containers ====== -->
+      <div class="flex-1 min-w-0 flex flex-col gap-sm">
+        <!-- Metrics -->
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/50">
             <div class="flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-xl">monitoring</span>
-              <div>
-                <h3 class="text-headline-sm text-on-surface">运行指标</h3>
-                <p class="text-body-xs text-on-surface-variant">每 5s 采样 · 管理 {{ managedPods.length }} 个 Pod · 副本 {{ workload.replicas }}</p>
-              </div>
+              <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
+              <span class="text-body-sm font-semibold">运行指标</span>
             </div>
-            <div v-if="managedPods.filter(p => p.status === 'Running').length === managedPods.length && managedPods.length" class="flex items-center gap-xs px-sm py-xs bg-primary/8 rounded-full">
-              <span class="material-symbols-outlined text-primary text-sm">check_circle</span>
-              <span class="text-body-xs text-primary font-medium">全部就绪</span>
+            <div class="flex items-center gap-sm">
+              <span class="text-body-xs text-on-surface-variant">{{ managedPods.length }} Pods · {{ workload.replicas }}</span>
+              <span v-if="managedPods.length && managedPods.every(p => p.status === 'Running')" class="text-body-xs text-primary font-medium flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">check_circle</span>全部就绪</span>
+              <span v-else-if="!metricsAvailable" class="text-body-xs text-error">不可用</span>
             </div>
-            <span v-else-if="!metricsAvailable" class="text-body-xs text-error flex items-center gap-xs"><span class="material-symbols-outlined text-sm">error</span>指标不可用</span>
           </div>
-          <div v-if="metricsAvailable" class="grid grid-cols-1 md:grid-cols-2 gap-md">
-            <div class="p-md bg-surface-container-low/50 rounded-lg">
-              <MiniChart :series="cpuSeries" label="CPU 用量" unit="m" color="var(--md-sys-color-primary)" :ref-lines="cpuRefLines" :height="72" />
-              <div class="flex items-center gap-md mt-xs text-body-xs">
-                <span class="text-on-surface-variant">当前 <span class="font-mono font-bold text-primary">{{ metricsNow.cpu }}m</span></span>
-                <span class="text-on-surface-variant/60">请求 {{ cpuReq || '—' }}m</span>
-                <span class="text-on-surface-variant/60">上限 {{ cpuLim || '—' }}m</span>
+          <div v-if="metricsAvailable" class="grid grid-cols-2 gap-px bg-outline-variant/10">
+            <div class="bg-surface-container-lowest p-md">
+              <MiniChart :series="cpuSeries" label="CPU" unit="m" color="var(--md-sys-color-primary)" :ref-lines="cpuRefLines" :height="64" />
+              <div class="flex items-center gap-sm mt-1 text-body-xs">
+                <span class="text-on-surface-variant"><b class="text-primary font-mono">{{ metricsNow.cpu }}</b>m</span>
+                <span class="text-on-surface-variant/40">req {{ cpuReq || '—' }}m</span>
+                <span class="text-on-surface-variant/40">lim {{ cpuLim || '—' }}m</span>
               </div>
             </div>
-            <div class="p-md bg-surface-container-low/50 rounded-lg">
-              <MiniChart :series="memSeries" label="内存用量" unit="Mi" color="var(--md-sys-color-secondary)" :ref-lines="memRefLines" :height="72" />
-              <div class="flex items-center gap-md mt-xs text-body-xs">
-                <span class="text-on-surface-variant">当前 <span class="font-mono font-bold text-secondary">{{ metricsNow.mem }}Mi</span></span>
-                <span class="text-on-surface-variant/60">请求 {{ memReq || '—' }}Mi</span>
-                <span class="text-on-surface-variant/60">上限 {{ memLim || '—' }}Mi</span>
+            <div class="bg-surface-container-lowest p-md">
+              <MiniChart :series="memSeries" label="Memory" unit="Mi" color="var(--md-sys-color-secondary)" :ref-lines="memRefLines" :height="64" />
+              <div class="flex items-center gap-sm mt-1 text-body-xs">
+                <span class="text-on-surface-variant"><b class="text-secondary font-mono">{{ metricsNow.mem }}</b>Mi</span>
+                <span class="text-on-surface-variant/40">req {{ memReq || '—' }}Mi</span>
+                <span class="text-on-surface-variant/40">lim {{ memLim || '—' }}Mi</span>
               </div>
             </div>
           </div>
-          <div v-else class="py-lg text-center">
-            <span class="material-symbols-outlined text-3xl text-surface-container-high">monitoring</span>
-            <p class="text-body-sm text-on-surface-variant mt-sm">metrics-server 未就绪或无权限</p>
+          <div v-else class="py-md text-center">
+            <span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span>
+            <p class="text-body-sm text-on-surface-variant mt-xs">metrics-server 未就绪</p>
           </div>
         </div>
 
-        <!-- Pod 状态 -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-          <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low/50">
+        <!-- Pods -->
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/50">
             <div class="flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-xl">view_in_ar</span>
-              <h3 class="text-headline-sm text-on-surface">Pods（{{ managedPods.length }}）</h3>
+              <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
+              <span class="text-body-sm font-semibold">Pods</span>
+              <span class="text-body-xs text-on-surface-variant">{{ managedPods.length }}</span>
             </div>
             <div class="flex items-center gap-sm">
-              <span class="flex items-center gap-xs px-sm py-xs bg-primary/8 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span><span class="text-body-xs text-primary font-medium">{{ managedPods.filter(p => p.status === 'Running').length }} Running</span></span>
-              <span v-if="managedPods.filter(p => p.status === 'Pending').length" class="flex items-center gap-xs px-sm py-xs bg-tertiary-container/10 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span><span class="text-body-xs text-tertiary-container">{{ managedPods.filter(p => p.status === 'Pending').length }} Pending</span></span>
-              <span v-if="managedPods.filter(p => p.status === 'Failed').length" class="flex items-center gap-xs px-sm py-xs bg-error/10 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-error"></span><span class="text-body-xs text-error">{{ managedPods.filter(p => p.status === 'Failed').length }} Failed</span></span>
+              <span class="text-body-xs text-primary font-medium">{{ managedPods.filter(p => p.status === 'Running').length }} Running</span>
+              <span v-if="managedPods.filter(p => p.status !== 'Running').length" class="text-body-xs text-tertiary-container">{{ managedPods.filter(p => p.status !== 'Running').length }} Other</span>
             </div>
           </div>
-          <!-- Pod 列表（卡片式行） -->
-          <div class="divide-y divide-outline-variant/20">
+          <div class="divide-y divide-outline-variant/15">
             <div v-for="p in managedPods.slice(0, 20)" :key="p.name"
               @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })"
-              class="flex items-center gap-md px-lg py-sm hover:bg-surface-container-low/40 cursor-pointer transition-colors border-l-[3px]"
-              :class="{
-                'border-l-primary': p.status === 'Running',
-                'border-l-tertiary-container': p.status === 'Pending',
-                'border-l-error': p.status === 'Failed',
-                'border-l-on-surface-variant/30': p.status === 'Succeeded',
-              }">
-              <!-- 状态点 -->
-              <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary animate-pulse-status': p.status === 'Running', 'bg-tertiary-container': p.status === 'Pending', 'bg-error': p.status === 'Failed', 'bg-on-surface-variant': p.status === 'Succeeded' }"></span>
-              <!-- 名称 -->
-              <span class="font-mono text-code-xs font-semibold text-on-surface truncate flex-1 min-w-0">{{ p.name }}</span>
-              <!-- 状态文字 -->
-              <span class="text-body-xs shrink-0" :class="{ 'text-primary': p.status === 'Running', 'text-tertiary-container': p.status === 'Pending', 'text-error': p.status === 'Failed', 'text-on-surface-variant': p.status === 'Succeeded' }">{{ p.status }}</span>
-              <!-- 重启 -->
-              <span v-if="p.restarts > 0" class="flex items-center gap-0.5 text-body-xs shrink-0" :class="p.restarts > 3 ? 'text-error' : 'text-tertiary-container'" title="重启次数">
-                <span class="material-symbols-outlined text-sm">restart_alt</span>{{ p.restarts }}
+              class="flex items-center gap-sm px-md py-2 hover:bg-surface-container-low/40 cursor-pointer transition-colors border-l-2"
+              :class="podStatusBorder(p.status)">
+              <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="[podStatusBg(p.status), p.status === 'Running' ? 'animate-pulse-status' : '']"></span>
+              <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0">{{ p.name }}</span>
+              <span class="text-xs shrink-0" :class="podStatusColor(p.status)">{{ p.status }}</span>
+              <span v-if="p.restarts > 0" class="flex items-center gap-0.5 text-xs shrink-0" :class="p.restarts > 3 ? 'text-error' : 'text-tertiary-container'">
+                <span class="material-symbols-outlined text-xs">restart_alt</span>{{ p.restarts }}
               </span>
-              <!-- 节点 -->
-              <span class="font-mono text-code-xs text-on-surface-variant/60 shrink-0 hidden md:inline">{{ p.node || '—' }}</span>
-              <!-- 年龄 -->
-              <span class="text-body-xs text-on-surface-variant/60 shrink-0">{{ p.age }}</span>
-              <span class="material-symbols-outlined text-base text-on-surface-variant/40 shrink-0">chevron_right</span>
+              <span class="font-mono text-xs text-on-surface-variant/50 shrink-0 hidden md:inline">{{ p.node || '—' }}</span>
+              <span class="text-xs text-on-surface-variant/50 shrink-0">{{ p.age }}</span>
+              <span class="material-symbols-outlined text-sm text-on-surface-variant/30 shrink-0">chevron_right</span>
             </div>
           </div>
-          <div v-if="managedPods.length > 20" class="px-lg py-sm text-center text-body-sm border-t border-outline-variant/50">
-            <button @click="activeTab = 'pods'" class="text-primary hover:underline font-medium">查看全部 {{ managedPods.length }} 个 Pod →</button>
+          <div v-if="managedPods.length > 20" class="px-md py-2 text-center border-t border-outline-variant/30">
+            <button @click="activeTab = 'pods'" class="text-body-sm text-primary hover:underline">查看全部 {{ managedPods.length }} 个 →</button>
           </div>
-          <div v-if="!managedPods.length" class="py-xl text-center">
-            <span class="material-symbols-outlined text-3xl text-surface-container-high">inbox</span>
-            <p class="text-body-sm text-on-surface-variant mt-sm">暂无管理 Pod</p>
-          </div>
+          <div v-if="!managedPods.length" class="py-md text-center text-body-sm text-on-surface-variant">暂无管理 Pod</div>
         </div>
 
-        <!-- Containers -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-md">
-            <div class="flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-xl">inventory_2</span><h3 class="text-headline-sm">Containers</h3></div>
-            <span class="text-body-sm text-on-surface-variant">{{ containers.length }} 个</span>
-          </div>
-          <div v-if="containers.length" class="flex flex-col gap-sm">
-            <div v-for="(c, i) in containers" :key="i" class="flex items-center gap-md p-sm bg-surface-container-low rounded-lg">
-              <div class="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary">inventory_2</span></div>
-              <div class="flex-1 min-w-0"><p class="text-body-sm font-semibold truncate">{{ c.name }}</p><p class="font-mono text-code-xs text-primary truncate">{{ c.image }}</p></div>
-              <div class="text-right shrink-0 hidden sm:block"><p class="text-label-caps text-on-surface-variant">Ports</p><p class="font-mono text-code-xs">{{ fmtPorts(c) }}</p></div>
-              <div class="text-right shrink-0 hidden sm:block"><p class="text-label-caps text-on-surface-variant">Resources</p><p class="font-mono text-code-xs">{{ fmtResources(c.resources) }}</p></div>
+        <!-- Containers + Details (2-col) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
+          <!-- Containers -->
+          <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+            <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+              <span class="material-symbols-outlined text-primary text-lg">inventory_2</span>
+              <span class="text-body-sm font-semibold">Containers</span>
+              <span class="text-body-xs text-on-surface-variant ml-auto">{{ containers.length }}</span>
             </div>
-          </div>
-          <p v-else class="text-body-sm text-on-surface-variant">未提供容器详情（可在 YAML 标签页查看）</p>
-        </div>
-
-        <!-- 详情概要 -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">详情</h3>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">TYPE</p><p class="text-body-sm font-semibold">{{ workload.type }}</p></div>
-            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">IMAGE</p><p class="font-mono text-code-xs text-primary truncate">{{ workload.image }}</p></div>
-            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">{{ replicasLabel }}</p><p class="text-body-sm font-semibold">{{ workload.replicas }}</p></div>
-            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">REVISION</p><p class="font-mono text-code-xs">{{ workload.sha }}</p></div>
-            <div v-if="isCronJob" class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">SCHEDULE</p><p class="font-mono text-code-xs text-primary">{{ workload.schedule }}</p></div>
-            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">AGE</p><p class="text-body-sm font-semibold">{{ workload.age }}</p></div>
-          </div>
-        </div>
-
-        <!-- 配置依赖 -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-md">
-            <div class="flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-xl">link</span><h3 class="text-headline-sm">配置依赖</h3></div>
-            <span class="text-body-sm text-on-surface-variant">{{ configRefs.length }} 个引用</span>
-          </div>
-          <div v-if="configRefs.length" class="flex flex-wrap gap-sm">
-            <div v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })"
-              class="flex items-center gap-xs px-md py-xs bg-surface-container-low rounded-lg cursor-pointer hover:bg-surface-container transition-colors">
-              <span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>
-              <span class="font-mono text-code-xs font-semibold text-on-surface">{{ ref.name }}</span>
-              <span class="text-body-xs text-on-surface-variant">{{ ref.kind }}</span>
-            </div>
-          </div>
-          <p v-else class="text-body-sm text-on-surface-variant flex items-center gap-sm"><span class="material-symbols-outlined">link_off</span>此 Workload 未引用任何 ConfigMap / Secret</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Legacy Overview (已合并到上方) -->
-    <div v-if="false" class="hidden">
-      <div class="lg:col-span-8 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Overview</h3>
-          <div class="grid grid-cols-2 gap-md">
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">TYPE</p>
-              <p class="text-body-lg font-semibold">{{ workload.type }}</p>
-            </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">NAMESPACE</p>
-              <p class="text-body-lg font-semibold text-primary">{{ workload.namespace }}</p>
-            </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">IMAGE</p>
-              <p class="font-mono text-code-sm text-primary">{{ workload.image }}</p>
-            </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">{{ replicasLabel }}</p>
-              <p class="text-body-lg font-semibold">{{ workload.replicas }}</p>
-            </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">AGE</p>
-              <p class="text-body-lg font-semibold">{{ workload.age }}</p>
-            </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">REVISION</p>
-              <p class="font-mono text-code-sm">{{ workload.sha }}</p>
-            </div>
-            <div v-if="isCronJob" class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">SCHEDULE</p>
-              <p class="font-mono text-code-sm text-primary">{{ workload.schedule }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Container Info（真实数据，来自 pod template；多容器全展开） -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-lg">
-            <h3 class="text-headline-sm">Containers</h3>
-            <span class="text-body-sm text-on-surface-variant">{{ containers.length }} 个容器</span>
-          </div>
-          <div v-if="containers.length" class="flex flex-col gap-md">
-            <div v-for="(c, i) in containers" :key="i" class="flex items-center gap-md p-md bg-surface-container-low rounded-lg">
-              <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
-                <span class="material-symbols-outlined text-secondary">inventory_2</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="text-body-md font-semibold truncate">{{ c.name }}</p>
-                <p class="font-mono text-code-sm text-primary truncate">{{ c.image }}</p>
-              </div>
-              <div class="text-right shrink-0">
-                <p class="text-label-caps text-on-surface-variant">Ports</p>
-                <p class="font-mono text-code-xs">{{ fmtPorts(c) }}</p>
-              </div>
-              <div class="text-right shrink-0">
-                <p class="text-label-caps text-on-surface-variant">Resources</p>
-                <p class="font-mono text-code-xs">{{ fmtResources(c.resources) }}</p>
-              </div>
-            </div>
-          </div>
-          <p v-else class="text-body-sm text-on-surface-variant">该工作负载未提供容器详情（可在「YAML」标签页查看完整定义）。</p>
-        </div>
-
-        <!-- 运行指标（实时 CPU/内存占用曲线） -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-lg">
-            <div>
-              <h3 class="text-headline-sm">运行指标</h3>
-              <p class="text-body-xs text-on-surface-variant mt-xs">实时占用（metrics.k8s.io，每 5s 采样，滚动约 2.5 分钟）· 管理 {{ managedPods.length }} 个 Pod</p>
-            </div>
-            <span v-if="!metricsAvailable" class="text-body-xs text-error">指标不可用</span>
-          </div>
-          <div v-if="metricsAvailable" class="grid grid-cols-1 md:grid-cols-2 gap-lg">
-            <div>
-              <MiniChart :series="cpuSeries" label="CPU 用量" unit="m" color="var(--md-sys-color-primary)" :ref-lines="cpuRefLines" :height="84" />
-              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.cpu }}m / 请求 {{ cpuReq || '—' }}m / 上限 {{ cpuLim || '—' }}m</p>
-            </div>
-            <div>
-              <MiniChart :series="memSeries" label="内存用量" unit="Mi" color="var(--md-sys-color-secondary)" :ref-lines="memRefLines" :height="84" />
-              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.mem }}Mi / 请求 {{ memReq || '—' }}Mi / 上限 {{ memLim || '—' }}Mi</p>
-            </div>
-          </div>
-          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">metrics-server 未就绪，或当前用户无 metrics 读取权限。</p>
-        </div>
-
-        <!-- Configuration Dependencies -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <div class="flex items-center justify-between mb-md">
-            <h3 class="text-headline-sm">配置依赖 (ConfigMaps &amp; Secrets)</h3>
-            <span class="text-body-sm text-on-surface-variant">{{ configRefs.length }} 个引用</span>
-          </div>
-          <div v-if="configRefs.length" class="flex flex-col gap-sm">
-            <div v-for="(ref, idx) in configRefs" :key="idx"
-              class="flex items-center gap-md p-md bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors cursor-pointer"
-              @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })">
-              <div class="w-9 h-9 rounded-lg flex items-center justify-center"
-                :class="ref.kind === 'ConfigMap' ? 'bg-secondary-container/20' : 'bg-tertiary-container/20'">
-                <span class="material-symbols-outlined" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-sm">
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ ref.name }}</span>
-                  <span class="px-1.5 py-0 rounded text-label-caps" :class="ref.kind === 'ConfigMap' ? 'bg-secondary-container/10 text-secondary' : 'bg-tertiary-container/10 text-tertiary'">{{ ref.kind }}</span>
+            <div v-if="containers.length" class="flex flex-col">
+              <div v-for="(c, i) in containers" :key="i" class="px-md py-2 border-b border-outline-variant/15 last:border-0">
+                <p class="text-body-sm font-semibold">{{ c.name }}</p>
+                <p class="font-mono text-xs text-primary truncate">{{ c.image }}</p>
+                <div class="flex items-center gap-sm mt-1 text-xs text-on-surface-variant">
+                  <span>{{ fmtPorts(c) }}</span>
+                  <span class="text-on-surface-variant/40">·</span>
+                  <span>{{ fmtResources(c.resources) }}</span>
                 </div>
-                <p class="text-body-sm text-on-surface-variant mt-xs">
-                  <span class="inline-flex items-center gap-xs px-1.5 py-0 bg-surface-container rounded text-label-caps mr-xs">
-                    <span class="material-symbols-outlined text-sm">{{ (refTypeMeta[ref.type] || { icon: 'link' }).icon }}</span>{{ (refTypeMeta[ref.type] || { label: ref.type }).label }}
-                  </span>
-                  <span v-if="ref.type === 'volume' && ref.mountPath" class="font-mono text-code-sm text-primary">挂载到 {{ ref.mountPath }}</span>
-                  <span v-else-if="ref.type === 'env' && ref.envName" class="font-mono text-code-sm">{{ ref.envName }} ← {{ ref.kind }}.{{ ref.key }}</span>
-                  <span v-else-if="ref.type === 'envFrom'">所有 Key 注入为环境变量</span>
-                  <span v-else-if="ref.type === 'imagePullSecrets'">拉取镜像时认证</span>
-                </p>
               </div>
-              <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            </div>
+            <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">无容器详情</p>
+          </div>
+          <!-- Details -->
+          <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+            <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+              <span class="material-symbols-outlined text-primary text-lg">info</span>
+              <span class="text-body-sm font-semibold">详情</span>
+            </div>
+            <div class="px-md py-sm grid grid-cols-2 gap-xs">
+              <div><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Type</p><p class="text-body-sm font-medium">{{ workload.type }}</p></div>
+              <div><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">{{ replicasLabel }}</p><p class="text-body-sm font-medium">{{ workload.replicas }}</p></div>
+              <div><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Revision</p><p class="font-mono text-xs">{{ workload.sha }}</p></div>
+              <div><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Age</p><p class="text-body-sm font-medium">{{ workload.age }}</p></div>
+              <div v-if="isCronJob" class="col-span-2"><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Schedule</p><p class="font-mono text-xs text-primary">{{ workload.schedule }}</p></div>
+              <div class="col-span-2"><p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Image</p><p class="font-mono text-xs text-primary truncate">{{ workload.image }}</p></div>
             </div>
           </div>
-          <div v-else class="flex items-center gap-sm p-md text-on-surface-variant opacity-70">
-            <span class="material-symbols-outlined">link_off</span>
-            <span class="text-body-sm">此 Workload 未引用任何 ConfigMap / Secret</span>
-          </div>
         </div>
-      </div>
 
-      <div class="lg:col-span-4 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">Labels</h3>
-          <div class="flex flex-wrap gap-2">
-            <span v-for="(val, key) in (workload.labels || {})" :key="key"
-              class="px-md py-xs bg-primary-container/10 text-primary text-body-sm rounded-full border border-primary/20">
-              <span class="font-semibold">{{ key }}</span>: {{ val }}
+        <!-- Config Deps -->
+        <div v-if="configRefs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">link</span>
+            <span class="text-body-sm font-semibold">配置依赖</span>
+            <span class="text-body-xs text-on-surface-variant ml-auto">{{ configRefs.length }}</span>
+          </div>
+          <div class="flex flex-wrap gap-xs px-md py-sm">
+            <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })"
+              class="inline-flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors">
+              <span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>
+              <span class="font-mono text-xs font-medium">{{ ref.name }}</span>
             </span>
           </div>
         </div>
-        <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
-          <div class="space-y-md">
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Managed Pods</span>
-              <span class="text-body-md font-semibold text-primary">{{ managedPods.length }}</span>
-            </div>
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Running</span>
-              <span class="text-body-md font-semibold text-primary">{{ managedPods.filter(p => p.status === 'Running').length }}</span>
-            </div>
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Pending</span>
-              <span class="text-body-md font-semibold">{{ managedPods.filter(p => p.status === 'Pending').length }}</span>
-            </div>
-            <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Failed</span>
-              <span class="text-body-md font-semibold text-error">{{ managedPods.filter(p => p.status === 'Failed').length }}</span>
-            </div>
+      </div>
+    </div>
+
+    <!-- ====== Network Tab ====== -->
+    <div v-if="activeTab === 'network'" class="flex flex-col gap-md">
+      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant p-md">
+        <h3 class="text-body-sm font-semibold mb-sm">容器端口</h3>
+        <div v-if="containerPorts.length" class="flex flex-wrap gap-xs">
+          <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-xs px-sm py-xs bg-surface-container-low rounded border border-outline-variant">{{ p.container }}: <b class="text-primary">{{ p.port }}</b>/{{ p.protocol }}</span>
+        </div>
+        <p v-else class="text-body-sm text-on-surface-variant">未定义</p>
+      </div>
+      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
+          <span class="text-body-sm font-semibold">关联 Service</span>
+          <button @click="openExpose" class="text-body-xs text-primary hover:underline">+ 暴露</button>
+        </div>
+        <div v-if="relatedServices.length" class="divide-y divide-outline-variant/15">
+          <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="flex items-center gap-sm px-md py-2 hover:bg-surface-container-low/40 cursor-pointer">
+            <span class="material-symbols-outlined text-primary text-sm">hub</span>
+            <span class="text-body-sm font-medium flex-1 truncate">{{ s.name }}</span>
+            <span class="font-mono text-xs text-on-surface-variant">{{ s.ports }}</span>
+            <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ s.type }}</span>
           </div>
         </div>
+        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">暂无关联 Service</p>
       </div>
-    </div>
-
-    <!-- Pods Tab -->
-    <div v-if="activeTab === 'pods'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Managed Pods ({{ managedPods.length }})</h3>
+      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
+          <span class="text-body-sm font-semibold">关联 Ingress</span>
+          <button @click="openIngressMap" :disabled="!relatedServices.length" class="text-body-xs text-primary hover:underline disabled:opacity-40">+ 映射</button>
         </div>
-        <table v-if="managedPods.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">IP</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="p in managedPods" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">layers</span>
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
-              <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</td>
-              <td class="px-lg py-md font-mono text-code-sm text-primary">{{ p.ip || '-' }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">search_off</span>
-          <p class="mt-sm">No managed pods found</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Revisions Tab（滚动发布历史 + 一键回滚）-->
-    <div v-if="activeTab === 'revisions'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Revision History ({{ revisions.length }})</h3>
-          <span class="text-body-sm text-on-surface-variant">kubectl rollout undo</span>
-        </div>
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Revision</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Image</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">SHA</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Reason</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant w-32"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="r in revisions" :key="r.rev" class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
-                <span class="font-mono text-code-sm font-semibold" :class="r.current ? 'text-primary' : 'text-on-surface'">rev-{{ r.rev }}</span>
-                <span v-if="r.current" class="ml-xs px-1.5 py-0 bg-primary-container/10 text-primary text-label-caps rounded">CURRENT</span>
-              </td>
-              <td class="px-lg py-md font-mono text-code-sm text-primary">{{ r.image }}</td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ r.sha }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ r.reason }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ r.age }}</td>
-              <td class="px-lg py-md text-right">
-                <button v-if="!r.current" @click="confirmRollback(r.rev)" class="flex items-center gap-xs ml-auto px-md py-xs border border-outline-variant text-on-surface rounded-lg text-body-sm font-semibold hover:bg-surface-container-high transition-colors">
-                  <span class="material-symbols-outlined text-sm">undo</span> Rollback
-                </button>
-                <span v-else class="text-body-sm text-on-surface-variant italic">—</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- YAML Tab -->
-    <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
-    </div>
-
-    <!-- Events Tab -->
-    <!-- Network Tab：Deployment → Service → Ingress 关系链 -->
-    <div v-if="activeTab === 'network'" class="flex flex-col gap-lg">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-        <h3 class="text-headline-sm mb-md">容器端口 (containerPort)</h3>
-        <div v-if="containerPorts.length" class="flex flex-wrap gap-sm">
-          <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-code-sm px-md py-xs bg-surface-container-low rounded-lg border border-outline-variant">{{ p.container }}: <span class="text-primary font-semibold">{{ p.port }}</span>/{{ p.protocol }}<span v-if="p.name" class="text-on-surface-variant"> · {{ p.name }}</span></span>
-        </div>
-        <p v-else class="text-body-sm text-on-surface-variant">未定义容器端口（在 Edit 里添加 ports，或用 Edit Template）</p>
-      </div>
-
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">关联 Service（暴露端口）</h3>
-          <button @click="openExpose" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90"><span class="material-symbols-outlined text-sm">share</span> 暴露</button>
-        </div>
-        <div v-if="relatedServices.length" class="divide-y divide-outline-variant/30">
-          <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="flex items-center gap-md px-lg py-md hover:bg-surface-container-low/50 cursor-pointer">
-            <span class="material-symbols-outlined text-primary">hub</span>
-            <div class="flex-1 min-w-0"><p class="font-semibold text-on-surface truncate">{{ s.name }}</p><p class="font-mono text-code-xs text-on-surface-variant truncate">{{ s.ports }} · {{ s.clusterIP }}</p></div>
-            <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant shrink-0">{{ s.type }}</span>
-            <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
-          </div>
-        </div>
-        <div v-else class="px-lg py-xl text-center"><span class="material-symbols-outlined text-4xl text-surface-container-high">share</span><p class="text-on-surface-variant mt-sm text-body-sm">暂无关联 Service。点「暴露」创建（selector 自动匹配本 Deployment 的 Pod 标签）。</p></div>
-      </div>
-
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">关联 Ingress（外部路由）</h3>
-          <button @click="openIngressMap" :disabled="!relatedServices.length" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40" :title="relatedServices.length ? '创建 Ingress 映射' : '先创建 Service 再映射'"><span class="material-symbols-outlined text-sm">alt_route</span> 加 Ingress 映射</button>
-        </div>
-        <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/30">
+        <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/15">
           <template v-for="ing in relatedIngresses" :key="ing.name">
-            <div v-for="(r, ri) in (ing.rules || [])" :key="ing.name + ri" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: ing.name } })" class="flex items-center gap-md px-lg py-md hover:bg-surface-container-low/50 cursor-pointer">
-              <span class="material-symbols-outlined text-primary">alt_route</span>
-              <div class="flex-1 min-w-0">
-                <p class="font-mono text-code-sm text-on-surface truncate"><span class="text-primary font-semibold">{{ r.host || '*' }}</span>{{ (r.http?.paths?.[0]?.path) || '/' }} <span class="text-on-surface-variant">→</span> {{ r.http?.paths?.[0]?.backend?.service?.name || r.http?.paths?.[0]?.backend?.serviceName }}:{{ r.http?.paths?.[0]?.backend?.service?.port?.number || r.http?.paths?.[0]?.backend?.servicePort }}</p>
-                <p class="text-body-xs text-on-surface-variant">via Ingress <span class="font-mono">{{ ing.name }}</span>{{ ing.className ? ' · ' + ing.className : '' }}{{ ing.tls ? ' · TLS' : '' }}</p>
-              </div>
-              <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            <div v-for="(r, ri) in (ing.rules || [])" :key="ri" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: ing.name } })" class="flex items-center gap-sm px-md py-2 hover:bg-surface-container-low/40 cursor-pointer">
+              <span class="material-symbols-outlined text-primary text-sm">alt_route</span>
+              <span class="font-mono text-xs flex-1 truncate"><b class="text-primary">{{ r.host || '*' }}</b>{{ r.http?.paths?.[0]?.path || '/' }} → {{ r.http?.paths?.[0]?.backend?.service?.name || r.http?.paths?.[0]?.backend?.serviceName }}:{{ r.http?.paths?.[0]?.backend?.service?.port?.number || r.http?.paths?.[0]?.backend?.servicePort }}</span>
             </div>
           </template>
         </div>
-        <div v-else class="px-lg py-xl text-center"><span class="material-symbols-outlined text-4xl text-surface-container-high">alt_route</span><p class="text-on-surface-variant mt-sm text-body-sm">{{ relatedServices.length ? '暂无 Ingress 路由到本服务。点「加 Ingress 映射」创建。' : '先暴露 Service，再创建 Ingress 映射。' }}</p></div>
+        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">暂无关联 Ingress</p>
       </div>
-      <p class="text-body-xs text-on-surface-variant px-sm">链路：外部请求 → Ingress(host/path) → Service(port→targetPort) → 本 Deployment 的 Pod(containerPort)。点任一项进入详情页编辑（Ingress 详情页可编辑 rules/TLS/Class/annotations）。</p>
     </div>
 
-    <div v-if="activeTab === 'events'" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-      <table v-if="store.nsEvents.length" class="w-full text-left">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-14">Type</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Reason</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Message</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Time</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="(event, idx) in store.nsEvents" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
-            <td class="px-lg py-md">
-              <div class="w-8 h-8 rounded-full flex items-center justify-center"
-                :class="{
-                  'bg-primary-container text-on-primary-container': event.color === 'primary',
-                  'bg-tertiary-fixed-dim text-on-tertiary-fixed': event.color === 'tertiary',
-                  'bg-error-container text-on-error-container': event.color === 'error',
-                  'bg-surface-container text-on-surface-variant': event.color === 'surface',
-                }">
-                <span class="material-symbols-outlined text-lg">{{ event.icon }}</span>
-              </div>
-            </td>
-            <td class="px-lg py-md">
-              <span class="font-semibold text-on-surface text-body-md">{{ event.reason }}</span>
-              <span class="ml-sm px-2 py-0.5 rounded text-label-caps" :class="event.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ event.type }}</span>
-            </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant max-w-md">{{ event.message }}</td>
-            <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ event.time }}</td>
+    <!-- ====== Pods Tab ====== -->
+    <div v-if="activeTab === 'pods'">
+      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
+        <table class="w-full text-left">
+          <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Restarts</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Node</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+          </tr></thead>
+          <tbody class="divide-y divide-outline-variant/15">
+            <tr v-for="p in managedPods" :key="p.name" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })" class="hover:bg-surface-container-low/40 cursor-pointer">
+              <td class="px-md py-2 font-mono text-xs font-medium">{{ p.name }}</td>
+              <td class="px-md py-2"><div class="flex items-center gap-xs"><span class="w-1.5 h-1.5 rounded-full" :class="podStatusBg(p.status)"></span><span class="text-xs" :class="podStatusColor(p.status)">{{ p.status }}</span></div></td>
+              <td class="px-md py-2 text-xs" :class="p.restarts > 3 ? 'text-error font-medium' : 'text-on-surface-variant'">{{ p.restarts }}</td>
+              <td class="px-md py-2 font-mono text-xs text-on-surface-variant">{{ p.node || '—' }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ p.age }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ====== Revisions Tab ====== -->
+    <div v-if="activeTab === 'revisions'">
+      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
+        <table class="w-full text-left">
+          <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Rev</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Image</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Replicas</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-20">Actions</th>
+          </tr></thead>
+          <tbody class="divide-y divide-outline-variant/15">
+            <tr v-for="rev in revisions" :key="rev.rev" class="hover:bg-surface-container-low/40">
+              <td class="px-md py-2"><span class="text-body-sm font-bold" :class="rev.current ? 'text-primary' : ''">Rev {{ rev.rev }}</span><span v-if="rev.current" class="ml-xs text-body-xs text-primary">●</span></td>
+              <td class="px-md py-2 font-mono text-xs truncate max-w-[200px]">{{ rev.image }}</td>
+              <td class="px-md py-2 text-xs">{{ rev.readyReplicas }}/{{ rev.desiredReplicas }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ rev.age }}</td>
+              <td class="px-md py-2"><button v-if="!rev.current" @click="confirmRollback(rev)" class="text-body-xs text-primary hover:underline">回滚</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ====== YAML Tab ====== -->
+    <div v-if="activeTab === 'yaml'"><YamlEditor :model-value="yaml" :readonly="false" height="560px" @save="applyYaml" /></div>
+
+    <!-- ====== Events Tab ====== -->
+    <div v-if="activeTab === 'events'" class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
+      <table class="w-full text-left">
+        <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
+          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Reason</th>
+          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
+          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Message</th>
+          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+        </tr></thead>
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="(e, i) in (store.nsEvents || []).filter(e => e.involvedObject?.name === route.params.name).slice(0, 50)" :key="i" class="hover:bg-surface-container-low/30">
+            <td class="px-md py-2 text-xs font-medium" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ e.reason }}</td>
+            <td class="px-md py-2"><span class="text-xs px-1.5 py-0.5 rounded" :class="e.type === 'warning' ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'">{{ e.type }}</span></td>
+            <td class="px-md py-2 text-xs text-on-surface-variant truncate max-w-[400px]" :title="e.message">{{ e.message }}</td>
+            <td class="px-md py-2 text-xs text-on-surface-variant">{{ e.age }}</td>
           </tr>
         </tbody>
       </table>
-      <div v-else class="p-xl text-center text-on-surface-variant">
-        <p>No events found for this namespace</p>
-      </div>
+      <p v-if="!(store.nsEvents || []).filter(e => e.involvedObject?.name === route.params.name).length" class="py-md text-center text-body-sm text-on-surface-variant">暂无事件</p>
     </div>
   </div>
 
   <!-- Not Found -->
-  <div v-else class="animate-fade-in text-center py-xxl">
-    <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
+  <div v-else class="text-center py-xl">
+    <span class="material-symbols-outlined text-4xl text-surface-container-high">search_off</span>
     <h2 class="text-headline-lg text-on-surface mt-md">Workload Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">Workload "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Workloads</button>
+    <button @click="router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back</button>
   </div>
 
-  <!-- Delete Modal -->
+  <!-- ====== Modals ====== -->
   <Modal v-model="showDeleteModal" title="Delete Workload" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This action cannot be undone. All managed pods will be terminated.</p>
+    <p class="text-body-md">Delete <b>{{ route.params.name }}</b>?</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">Delete</button>
     </template>
   </Modal>
 
-  <!-- Scale Modal -->
-  <Modal v-model="showScaleModal" title="Scale Workload" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant mb-md">Adjust the number of replicas for <span class="text-on-surface font-semibold">{{ route.params.name }}</span></p>
-    <div class="flex items-center gap-md">
-      <label class="text-label-caps text-on-surface-variant">Replicas</label>
-      <input v-model.number="scaleReplicas" type="number" min="0" max="100" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-center" />
-    </div>
+  <Modal v-model="showScaleModal" title="Scale" width="max-w-sm">
+    <input v-model.number="scaleReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm" />
     <template #actions>
-      <button @click="showScaleModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleScale" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Scale</button>
+      <button @click="showScaleModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
+      <button @click="handleScale" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Scale</button>
     </template>
   </Modal>
 
-  <!-- Edit Modal -->
+  <Modal v-model="showRollbackModal" title="Rollback" width="max-w-md">
+    <p>Rollback to <b>Rev {{ rollbackTarget?.rev }}</b>?</p>
+    <template #actions>
+      <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
+      <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Rollback</button>
+    </template>
+  </Modal>
+
   <Modal v-model="showEditModal" title="Edit Workload" width="max-w-2xl">
     <div class="flex flex-col gap-md">
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Container Image</label>
-        <input v-model="editForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
-      </div>
-      <div v-if="isScalable">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label>
-        <input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
-      </div>
-      <div v-if="isCronJob">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Schedule (Cron)</label>
-        <input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="*/5 * * * *" />
+      <div class="grid grid-cols-2 gap-sm">
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">Image</label><input v-model="editForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+        <div v-if="isScalable"><label class="text-body-xs text-on-surface-variant block mb-xs">Replicas</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier)</label>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">分层</label>
         <div class="flex flex-wrap gap-xs">
-          <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value"
-            class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm font-medium transition-all"
-            :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
+          <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm" :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">
             <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
           </button>
         </div>
       </div>
-      <!-- 容器配置：env / resources / probes（仅 Deployment/StatefulSet/DaemonSet） -->
-      <div v-if="isRolloutType" class="mt-md pt-md border-t border-outline-variant/50 flex flex-col gap-md">
-        <p class="text-label-caps text-on-surface-variant">容器配置（资源 / 环境变量 / 探针）</p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-sm">
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU 请求</label><input v-model="editForm.cpuReq" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="250m" /></div>
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU 上限</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="500m" /></div>
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存请求</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="256Mi" /></div>
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存上限</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="512Mi" /></div>
+      <div v-if="isRolloutType" class="pt-md border-t border-outline-variant/40 flex flex-col gap-sm">
+        <p class="text-body-xs font-semibold text-on-surface-variant">容器配置</p>
+        <div class="grid grid-cols-4 gap-xs">
+          <div><label class="text-body-xs text-on-surface-variant">CPU Req</label><input v-model="editForm.cpuReq" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="250m" /></div>
+          <div><label class="text-body-xs text-on-surface-variant">CPU Lim</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="500m" /></div>
+          <div><label class="text-body-xs text-on-surface-variant">Mem Req</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="256Mi" /></div>
+          <div><label class="text-body-xs text-on-surface-variant">Mem Lim</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="512Mi" /></div>
         </div>
         <div>
-          <div class="flex items-center justify-between mb-xs">
-            <label class="text-body-xs text-on-surface-variant">容器端口 (containerPort)</label>
-            <button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="text-body-xs text-primary hover:underline">+ 添加</button>
-          </div>
-          <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs mb-xs">
-            <input v-model.number="p.containerPort" type="number" class="w-32 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
-            <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="TCP" />
-            <button @click="editForm.ports.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+          <div class="flex items-center justify-between"><label class="text-body-xs text-on-surface-variant">端口</label><button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="text-body-xs text-primary">+</button></div>
+          <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs mt-xs">
+            <input v-model.number="p.containerPort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="8080" />
+            <input v-model="p.protocol" class="w-20 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="TCP" />
+            <button @click="editForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
           </div>
         </div>
         <div>
-          <div class="flex items-center justify-between mb-xs">
-            <label class="text-body-xs text-on-surface-variant">环境变量</label>
-            <button @click="editForm.env.push({ key: '', value: '' })" class="text-body-xs text-primary hover:underline">+ 添加</button>
-          </div>
-          <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs mb-xs">
-            <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
-            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value" />
-            <button @click="editForm.env.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+          <div class="flex items-center justify-between"><label class="text-body-xs text-on-surface-variant">环境变量</label><button @click="editForm.env.push({ key: '', value: '' })" class="text-body-xs text-primary">+</button></div>
+          <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs mt-xs">
+            <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="KEY" />
+            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="val" />
+            <button @click="editForm.env.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
           </div>
         </div>
-        <div class="flex flex-col gap-xs">
-          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.livenessEnabled" class="h-4 w-4 accent-primary" /> Liveness Probe</label>
-          <div v-if="editForm.livenessEnabled" class="flex items-center gap-xs pl-md">
-            <input v-model="editForm.livenessPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/health" />
-            <input v-model.number="editForm.livenessPort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
-          </div>
-          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.readinessEnabled" class="h-4 w-4 accent-primary" /> Readiness Probe</label>
-          <div v-if="editForm.readinessEnabled" class="flex items-center gap-xs pl-md">
-            <input v-model="editForm.readinessPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/ready" />
-            <input v-model.number="editForm.readinessPort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
-          </div>
+        <div class="flex items-center gap-md">
+          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.livenessEnabled" class="h-4 w-4 accent-primary" /> Liveness</label>
+          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.readinessEnabled" class="h-4 w-4 accent-primary" /> Readiness</label>
         </div>
-        <p class="text-body-xs text-on-surface-variant">更复杂的配置（多容器 / 卷 / 调度 / 完整探针）可用「Edit Template」全量编辑 pod 模板。</p>
+        <div v-if="editForm.livenessEnabled || editForm.readinessEnabled" class="grid grid-cols-2 gap-xs">
+          <div><label class="text-body-xs text-on-surface-variant">HTTP Path</label><input v-model="editForm.livenessPath" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/health" /></div>
+          <div><label class="text-body-xs text-on-surface-variant">Port</label><input v-model.number="editForm.livenessPort" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="8080" /></div>
+        </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Save</button>
     </template>
   </Modal>
 
-  <!-- Rollback Modal -->
-  <Modal v-model="showRollbackModal" title="Rollback Workload" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">将 <span class="text-on-surface font-semibold">{{ route.params.name }}</span> 回滚到 <span class="font-mono text-primary font-semibold">rev-{{ rollbackTarget }}</span>？</p>
-    <p class="text-body-sm text-on-surface-variant mt-sm">等同于 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl rollout undo --to-revision={{ rollbackTarget }}</code>，将触发一次新的滚动发布。</p>
-    <template #actions>
-      <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Rollback</button>
-    </template>
-  </Modal>
-
-  <!-- Edit Pod Template Modal（深度编辑：image/env/resources/probes/nodeSelector）-->
   <Modal v-model="showTemplateModal" title="Edit Pod Template" width="max-w-3xl">
-    <div v-if="primary" class="flex flex-col gap-lg">
-      <p class="text-body-sm text-on-surface-variant -mt-2">编辑容器模板并写回集群（等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl edit</code> 的 spec.template）。引用型 env 与探针的高级字段会原样保留。</p>
-
-      <!-- Image -->
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Container Image</label>
-        <input v-model="primary.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
-      </div>
-
-      <!-- Environment -->
-      <div>
-        <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Environment Variables</label>
-          <button @click="addEnv" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-body-xs text-on-surface-variant hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span> Add</button>
-        </div>
-        <div class="flex flex-col gap-xs">
-          <div v-for="(e, i) in editEnv" :key="'e'+i" class="flex items-center gap-sm">
-            <input v-model="e.name" class="w-40 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="KEY" />
-            <span class="text-on-surface-variant">=</span>
-            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeEnv(i)" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">delete</span></button>
-          </div>
-          <div v-if="!editEnv.length" class="text-body-xs text-on-surface-variant italic">无显式 env</div>
-        </div>
-        <div v-if="refEnv.length" class="mt-sm">
-          <p class="text-body-xs text-on-surface-variant mb-xs">引用型 env（只读，将原样保留）：</p>
-          <div class="flex flex-wrap gap-xs">
-            <span v-for="(e, i) in refEnv" :key="'r'+i" class="px-sm py-xs bg-surface-container rounded text-body-xs font-mono text-on-surface-variant border border-outline-variant">{{ e.name }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Resources -->
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Resources</label>
-        <div class="grid grid-cols-2 gap-md">
-          <div class="p-sm bg-surface-container-low rounded-lg">
-            <p class="text-body-xs text-on-surface-variant mb-xs">Requests</p>
-            <div class="flex gap-sm">
-              <input v-model="primary.resources.requests.cpu" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="cpu 250m" />
-              <input v-model="primary.resources.requests.memory" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="mem 256Mi" />
-            </div>
-          </div>
-          <div class="p-sm bg-surface-container-low rounded-lg">
-            <p class="text-body-xs text-on-surface-variant mb-xs">Limits</p>
-            <div class="flex gap-sm">
-              <input v-model="primary.resources.limits.cpu" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="cpu 500m" />
-              <input v-model="primary.resources.limits.memory" class="w-full bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="mem 512Mi" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Probes -->
-      <div class="grid grid-cols-2 gap-md">
-        <div v-for="pkey in ['liveness','readiness']" :key="pkey" class="p-sm bg-surface-container-low rounded-lg">
-          <label class="flex items-center gap-sm mb-xs capitalize">
-            <input type="checkbox" v-model="probeModel[pkey].enabled" class="rounded text-primary h-4 w-4" />
-            <span class="text-body-sm font-medium text-on-surface">{{ pkey }} Probe</span>
-          </label>
-          <div v-if="probeModel[pkey].enabled" class="flex flex-col gap-xs">
-            <select v-model="probeModel[pkey].type" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm">
-              <option value="http">HTTP GET</option>
-              <option value="tcp">TCP Socket</option>
-            </select>
-            <input v-if="probeModel[pkey].type === 'http'" v-model="probeModel[pkey].path" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="/healthz" />
-            <input v-model="probeModel[pkey].port" class="bg-surface-container border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="port 8080" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Node Selector -->
-      <div>
-        <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Node Selector</label>
-          <button @click="addNodeSelector" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-body-xs text-on-surface-variant hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span> Add</button>
-        </div>
-        <div class="flex flex-col gap-xs">
-          <div v-for="(e, i) in nodeSelectorEntries" :key="'ns'+i" class="flex items-center gap-sm">
-            <input v-model="e.key" class="w-44 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="disktype" />
-            <span class="text-on-surface-variant">:</span>
-            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="ssd" />
-            <button @click="removeNodeSelector(i)" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">delete</span></button>
-          </div>
-          <div v-if="!nodeSelectorEntries.length" class="text-body-xs text-on-surface-variant italic">无 nodeSelector（不限定节点）</div>
-        </div>
-      </div>
-    </div>
+    <YamlEditor v-model="templateYaml" :readonly="false" height="400px" @save="saveTemplate" />
     <template #actions>
-      <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveTemplate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Apply Template</button>
+      <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
+      <button @click="saveTemplate(templateYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Apply</button>
     </template>
   </Modal>
 
-  <!-- 暴露为 Service -->
   <Modal v-model="showExposeModal" title="暴露为 Service" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service 名称</label><input v-model="exposeForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" /></div>
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">类型</label><select v-model="exposeForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md"><option>ClusterIP</option><option>NodePort</option><option>LoadBalancer</option></select></div>
+        <div><label class="text-body-xs text-on-surface-variant">名称</label><input v-model="exposeForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+        <div><label class="text-body-xs text-on-surface-variant">类型</label><select v-model="exposeForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option>ClusterIP</option><option>NodePort</option><option>LoadBalancer</option></select></div>
       </div>
-      <p class="text-body-xs text-on-surface-variant">Selector 自动 = 本 Deployment 的 Pod 标签（{{ Object.keys(podLabels).length }} 个）。端口映射 port:targetPort：</p>
       <div v-for="(p, i) in exposeForm.ports" :key="i" class="flex items-center gap-xs">
-        <input v-model.number="p.port" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="port" />
+        <input v-model.number="p.port" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="port" />
         <span class="text-on-surface-variant">:</span>
-        <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="targetPort" />
-        <input v-model="p.protocol" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="TCP" />
-        <button @click="exposeForm.ports.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+        <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="target" />
+        <button @click="exposeForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
       </div>
-      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-body-xs text-primary hover:underline">+ 添加端口</button>
+      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-body-xs text-primary">+ 端口</button>
     </div>
     <template #actions>
-      <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="saveExpose" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">创建</button>
+      <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
+      <button @click="saveExpose" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">创建</button>
     </template>
   </Modal>
 
-  <!-- 加 Ingress 映射 -->
   <Modal v-model="showIngressMapModal" title="加 Ingress 映射" width="max-w-lg">
     <div class="flex flex-col gap-md">
-      <div><label class="text-label-caps text-on-surface-variant block mb-xs">Host</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="app.example.com（留空=任意）" /></div>
+      <div><label class="text-body-xs text-on-surface-variant">Host</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" /></div>
       <div class="grid grid-cols-2 gap-md">
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/" /></div>
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path Type</label><select v-model="ingressMapForm.pathType" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md"><option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option></select></div>
+        <div><label class="text-body-xs text-on-surface-variant">Path</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/" /></div>
+        <div><label class="text-body-xs text-on-surface-variant">Service</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
       </div>
-      <div class="grid grid-cols-2 gap-md">
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">目标 Service</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
-        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service Port</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="80" /></div>
-      </div>
-      <p class="text-body-xs text-on-surface-variant">创建新 Ingress <span class="font-mono">{{ (workload?.name || 'app') + '-ingress' }}</span>，路由 {{ ingressMapForm.host || '*' }}{{ ingressMapForm.path }} → {{ ingressMapForm.serviceName || '?' }}:{{ ingressMapForm.servicePort }}。</p>
+      <div><label class="text-body-xs text-on-surface-variant">Port</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="80" /></div>
     </div>
     <template #actions>
-      <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">创建</button>
+      <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
+      <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">创建</button>
     </template>
   </Modal>
 
-  <!-- 版本 YAML 查看 -->
   <Modal v-model="showRevYamlModal" :title="revYamlTitle" width="max-w-2xl">
     <YamlEditor :model-value="revYamlContent" :readonly="true" height="400px" />
-    <template #actions>
-      <button @click="showRevYamlModal = false" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold">关闭</button>
-    </template>
+    <template #actions><button @click="showRevYamlModal = false" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">关闭</button></template>
   </Modal>
 
-  <!-- 删除旧版本 ReplicaSet -->
   <Modal v-model="showDeleteRevModal" title="删除旧版本" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确认删除旧版本 <span class="font-mono text-on-surface font-semibold">Rev {{ deleteRevTarget?.rev }}</span>（ReplicaSet <span class="font-mono">{{ deleteRevTarget?.rsName }}</span>）？</p>
-    <p class="text-body-sm text-error mt-sm">删除后无法回滚到该版本。当前运行版本不受影响。</p>
+    <p class="text-body-md">删除 <b>Rev {{ deleteRevTarget?.rev }}</b>（{{ deleteRevTarget?.rsName }}）？</p>
+    <p class="text-body-sm text-error mt-sm">删除后无法回滚到该版本。</p>
     <template #actions>
-      <button @click="showDeleteRevModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleDeleteRev" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      <button @click="showDeleteRevModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
+      <button @click="handleDeleteRev" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">删除</button>
     </template>
   </Modal>
 </template>
