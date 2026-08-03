@@ -1,10 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -48,6 +50,14 @@ function openCRB(row) {
 function openSA(row) {
   router.push({ name: 'NsServiceAccountDetail', params: { namespace: row.namespace, name: row.name } })
 }
+
+// 按 tab 切换的当前列表
+const currentTabList = computed(() => ({
+  roles: store.roleList,
+  clusterrolebindings: store.clusterRoleBindingList,
+  serviceaccounts: store.saList,
+}[activeTab.value] || []))
+const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 
 // 新建：跳转到当前（或首个）命名空间的 RBAC 页，那里已有 Create Role / SA / ClusterRoleBinding 表单
 function createRole() {
@@ -109,7 +119,7 @@ async function doDelete() {
       >{{ tab.label }}</button>
     </div>
 
-    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="store.roleList" @row-click="openRole">
+    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" @row-click="openRole">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
@@ -132,9 +142,12 @@ async function doDelete() {
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="store.clusterRoleBindingList" @row-click="openCRB">
+    <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="paginated" @row-click="openCRB">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">share</span>
@@ -147,9 +160,12 @@ async function doDelete() {
       <template #subjects="{ row }">
         <span class="text-body-sm text-on-surface-variant">{{ row.subjects?.length || 0 }} subject(s)</span>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="store.saList" @row-click="openSA">
+    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" @row-click="openSA">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">person</span>
@@ -164,6 +180,9 @@ async function doDelete() {
           <button @click.stop="editSA(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
   </section>

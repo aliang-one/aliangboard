@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const store = useClusterStore()
@@ -18,6 +20,8 @@ const filtered = computed(() => {
   if (q) list = list.filter(e => (e.reason || '').toLowerCase().includes(q) || (e.message || '').toLowerCase().includes(q))
   return list
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery, typeFilter] })
 
 // 远端模式进入页面即开启 Events 实时监听，离开时停止
 onMounted(() => { if (store.remoteMode) store.startEventWatch() })
@@ -65,7 +69,7 @@ onUnmounted(() => store.stopEventWatch())
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="(event, idx) in filtered" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
+          <tr v-for="(event, idx) in paginated" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
             <td class="px-lg py-md">
               <div class="w-8 h-8 rounded-full flex items-center justify-center"
                 :class="{
@@ -86,6 +90,9 @@ onUnmounted(() => store.stopEventWatch())
           </tr>
         </tbody>
       </table>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">event_available</span>

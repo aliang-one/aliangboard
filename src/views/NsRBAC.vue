@@ -5,6 +5,8 @@ import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,6 +106,16 @@ function goToSA(name) {
 function goToBinding(name) {
   router.push({ name: 'NsRoleBindingDetail', params: { namespace: route.params.namespace, name } })
 }
+
+// 按 tab 切换的当前列表
+const currentTabList = computed(() => ({
+  roles: store.nsRoles,
+  serviceaccounts: store.nsServiceAccounts,
+  rolebindings: store.nsRoleBindings,
+  clusterroles: store.clusterRoles,
+  clusterrolebindings: store.clusterRoleBindingList,
+}[activeTab.value] || []))
+const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
 
 <template>
@@ -136,7 +148,7 @@ function goToBinding(name) {
     </div>
 
     <!-- Roles Tab -->
-    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="store.nsRoles">
+    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated">
       <template #name="{ row }">
         <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
           <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
@@ -150,15 +162,21 @@ function goToBinding(name) {
       <template #bindings="{ row }">
         <span class="text-body-md font-semibold text-primary">{{ row.bindings }}</span>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <!-- ServiceAccounts Tab -->
-    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="store.nsServiceAccounts">
+    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated">
       <template #name="{ row }">
         <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToSA(row.name)">
           <span class="material-symbols-outlined text-tertiary-container">person</span>
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
         </div>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
 
@@ -169,7 +187,7 @@ function goToBinding(name) {
           <span class="material-symbols-outlined text-sm">add</span> Create RoleBinding
         </button>
       </div>
-      <DataTable :headers="bindingHeaders" :rows="store.nsRoleBindings">
+      <DataTable :headers="bindingHeaders" :rows="paginated">
         <template #name="{ row }">
           <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
             <span class="material-symbols-outlined text-secondary">link</span>
@@ -189,6 +207,9 @@ function goToBinding(name) {
             </span>
           </div>
         </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
       </DataTable>
     </div>
 
@@ -203,7 +224,7 @@ function goToBinding(name) {
           <span class="material-symbols-outlined text-sm">add</span> Create ClusterRole
         </button>
       </div>
-      <DataTable :headers="roleHeaders" :rows="store.clusterRoles">
+      <DataTable :headers="roleHeaders" :rows="paginated">
         <template #name="{ row }">
           <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
             <span class="material-symbols-outlined text-primary">shield</span>
@@ -216,6 +237,9 @@ function goToBinding(name) {
         <template #bindings="{ row }">
           <span class="text-body-md font-semibold text-primary">{{ row.bindings }}</span>
         </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
       </DataTable>
     </div>
 
@@ -230,7 +254,7 @@ function goToBinding(name) {
           <span class="material-symbols-outlined text-sm">add</span> Create ClusterRoleBinding
         </button>
       </div>
-      <DataTable :headers="bindingHeaders" :rows="store.clusterRoleBindingList">
+      <DataTable :headers="bindingHeaders" :rows="paginated">
         <template #name="{ row }">
           <div class="flex items-center gap-md">
             <span class="material-symbols-outlined text-primary">link</span>
@@ -255,6 +279,9 @@ function goToBinding(name) {
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
       </DataTable>
     </div>
   </section>

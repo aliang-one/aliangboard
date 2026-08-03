@@ -5,6 +5,8 @@ import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -36,6 +38,8 @@ const filtered = computed(() => {
     (c.apiServer || '').toLowerCase().includes(q)
   )
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
 
 // 集群状态：StatusChip 没有原生支持 Healthy/Degraded，映射到现有值
 function mapStatus(status) {
@@ -111,7 +115,7 @@ function removeCluster(c) {
     <!-- 卡片网格 -->
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-lg">
       <div
-        v-for="c in filtered"
+        v-for="c in paginated"
         :key="c.name"
         class="bg-surface-container-lowest border rounded-xl shadow-card p-lg flex flex-col gap-md cursor-pointer hover:shadow-lg hover:border-primary/40 transition-all"
         :class="c.name === store.currentCluster ? 'border-primary/60' : 'border-outline-variant'"
@@ -195,6 +199,10 @@ function removeCluster(c) {
           </button>
         </div>
       </div>
+    </div>
+
+    <div v-if="total > pageSize" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card flex items-center justify-between px-lg py-md bg-surface-container-low">
+      <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
     </div>
 
     <!-- 空状态 -->

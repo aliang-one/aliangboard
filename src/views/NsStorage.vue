@@ -5,6 +5,8 @@ import { useClusterStore } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +25,8 @@ const filteredPVCs = computed(() => {
   if (!q) return store.nsPVCs
   return store.nsPVCs.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filteredPVCs, { resetDeps: [searchQuery] })
 
 // Create PVC
 const showCreatePVC = ref(false)
@@ -139,7 +143,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="row in filteredPVCs" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })">
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-primary text-lg">storage</span>
@@ -159,8 +163,17 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
                 </div>
               </td>
             </tr>
+            <tr v-if="!filteredPVCs.length">
+              <td :colspan="8" class="px-lg py-xl text-center">
+                <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+                <p class="text-on-surface-variant">暂无数据</p>
+              </td>
+            </tr>
           </tbody>
         </table>
+        <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+          <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+        </div>
       </div>
       <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
         <span class="material-symbols-outlined text-4xl text-surface-container-high">storage</span>
@@ -207,6 +220,12 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
                 <span v-else class="text-on-surface-variant">—</span>
               </td>
               <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ sc.age }}</td>
+            </tr>
+            <tr v-if="!store.scList.length">
+              <td :colspan="6" class="px-lg py-xl text-center">
+                <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+                <p class="text-on-surface-variant">暂无数据</p>
+              </td>
             </tr>
           </tbody>
         </table>

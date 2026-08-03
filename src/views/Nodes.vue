@@ -8,6 +8,8 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notify } from '@/composables/useToast'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -30,6 +32,8 @@ const filtered = computed(() => {
 })
 
 const headers = computed(() => tableColumns('nodes'))
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
 </script>
 
 <template>
@@ -57,7 +61,7 @@ const headers = computed(() => tableColumns('nodes'))
     </div>
 
     <EmptyState v-if="!filtered.length" icon="dns" title="No nodes found" description="集群暂无节点，或被搜索条件过滤。" />
-    <DataTable v-else :headers="headers" :rows="filtered" @row-click="(row) => router.push(`/nodes/${row.name}`)">
+    <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/nodes/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">
@@ -102,6 +106,9 @@ const headers = computed(() => tableColumns('nodes'))
             <span class="material-symbols-outlined text-lg">output</span>
           </button>
         </div>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
   </section>

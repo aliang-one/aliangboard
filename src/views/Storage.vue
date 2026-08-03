@@ -1,10 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -119,6 +121,14 @@ function openPV(row) {
 function openSC(row) {
   router.push({ name: 'StorageClassDetail', params: { name: row.name } })
 }
+
+// 按 tab 切换的当前列表
+const currentTabList = computed(() => ({
+  pvc: store.pvcList,
+  pv: store.pvList,
+  sc: store.scList,
+}[activeTab.value] || []))
+const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
 
 <template>
@@ -151,7 +161,7 @@ function openSC(row) {
     </div>
 
     <!-- PVC Tab -->
-    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="store.pvcList" @row-click="openPVC">
+    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="paginated" @row-click="openPVC">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -161,10 +171,13 @@ function openSC(row) {
       <template #storageClass="{ row }">
         <span class="px-2 py-0.5 bg-surface-container rounded text-body-sm border border-outline-variant">{{ row.storageClass }}</span>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <!-- PV Tab -->
-    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="store.pvList" @row-click="openPV">
+    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="paginated" @row-click="openPV">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -179,10 +192,13 @@ function openSC(row) {
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <!-- SC Tab -->
-    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="store.scList" @row-click="openSC">
+    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="paginated" @row-click="openSC">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
@@ -196,6 +212,9 @@ function openSC(row) {
         <button @click.stop="store.deleteStorageClass(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
 

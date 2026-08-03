@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const store = useClusterStore()
 
@@ -31,6 +33,8 @@ const filteredCrds = computed(() => {
     (c.description || '').toLowerCase().includes(kw)
   )
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filteredCrds, { resetDeps: [search] })
 
 const totalInstances = computed(() =>
   store.crdList.reduce((sum, c) => sum + (c.instances?.length || 0), 0)
@@ -92,7 +96,7 @@ const totalInstances = computed(() =>
           </tr>
         </thead>
         <tbody>
-          <template v-for="crd in filteredCrds" :key="crd.name">
+          <template v-for="crd in paginated" :key="crd.name">
             <!-- 主行 -->
             <tr
               class="border-b border-outline-variant cursor-pointer hover:bg-surface-container-low transition-colors"
@@ -192,6 +196,10 @@ const totalInstances = computed(() =>
           </template>
         </tbody>
       </table>
+
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
 
       <!-- 空状态 -->
       <div v-if="!filteredCrds.length" class="px-md py-xxl text-center">

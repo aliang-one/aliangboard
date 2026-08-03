@@ -41,6 +41,13 @@ defineEmits(['row-click'])
               </slot>
             </td>
           </tr>
+          <!-- 空状态：所有 DataTable 视图统一兜底 -->
+          <tr v-if="!rows.length">
+            <td :colspan="headers.length" class="px-lg py-xl text-center">
+              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant">暂无数据</p>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>

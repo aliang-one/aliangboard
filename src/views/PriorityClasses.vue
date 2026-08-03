@@ -4,6 +4,8 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const store = useClusterStore()
 
@@ -25,6 +27,8 @@ const filtered = computed(() => {
   // 按 value 降序
   return list.sort((a, b) => b.value - a.value)
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
 
 // 可展开行
 const expandedName = ref(null)
@@ -119,7 +123,7 @@ function handleDelete() {
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <template v-for="row in filtered" :key="row.name">
+          <template v-for="row in paginated" :key="row.name">
             <!-- 主行 -->
             <tr
               class="hover:bg-surface-container-low/50 cursor-pointer transition-colors"
@@ -228,6 +232,9 @@ function handleDelete() {
           </template>
         </tbody>
       </table>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
     </div>
 
     <!-- 空状态 -->

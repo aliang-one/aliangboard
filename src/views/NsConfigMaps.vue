@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +22,8 @@ const filtered = computed(() => {
     return Object.keys(cm.data || {}).some(k => k.toLowerCase().includes(q))
   })
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })
 
 // Create ConfigMap
 const showCreateModal = ref(false)
@@ -136,7 +140,7 @@ function handleBatchDelete() {
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in filtered" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })">
             <td class="px-lg py-md" @click.stop>
               <input type="checkbox" :checked="selected.has(row.name)" @change="toggleSelect(row.name)" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </td>
@@ -161,8 +165,17 @@ function handleBatchDelete() {
               </div>
             </td>
           </tr>
+          <tr v-if="!filtered.length">
+            <td :colspan="6" class="px-lg py-xl text-center">
+              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant">暂无数据</p>
+            </td>
+          </tr>
         </tbody>
       </table>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>

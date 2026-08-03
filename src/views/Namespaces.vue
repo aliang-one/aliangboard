@@ -8,6 +8,8 @@ import Modal from '@/components/common/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notify } from '@/composables/useToast'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -24,6 +26,8 @@ async function sync() {
 }
 
 const headers = computed(() => tableColumns('namespaces'))
+
+const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.namespaceList))
 
 // 受保护的系统命名空间，禁止删除
 const PROTECTED_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease', 'default']
@@ -129,7 +133,7 @@ function submitDelete() {
     </div>
 
     <EmptyState v-if="!store.namespaceList.length" icon="folder_open" title="No namespaces" description="集群暂无命名空间。" />
-    <DataTable v-else :headers="headers" :rows="store.namespaceList" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
+    <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded-lg bg-primary-container/20 flex items-center justify-center">
@@ -162,6 +166,9 @@ function submitDelete() {
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </div>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
 
