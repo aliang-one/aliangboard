@@ -2,6 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { exportYaml } from '@/api/client'
+import { readMeta } from '@/composables/useBusinessMeta'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
@@ -50,10 +52,19 @@ function goDetail(row) {
   router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: row.type.toLowerCase(), name: row.name } })
 }
 
+// 行内导出 YAML（kubectl get -o yaml 语义）：按类型取 apps/batch 的复数路径
+const WL_PLURAL = { Deployment: ['apps', 'deployments'], StatefulSet: ['apps', 'statefulsets'], DaemonSet: ['apps', 'daemonsets'], Job: ['batch', 'jobs'], CronJob: ['batch', 'cronjobs'] }
+function exportWorkload(row) {
+  const g = WL_PLURAL[row.type]
+  if (!g) return
+  exportYaml(`/apis/${g[0]}/v1/namespaces/${route.params.namespace}/${g[1]}/${encodeURIComponent(row.name)}`, `${row.name}.yaml`)
+}
+
 // 行操作菜单
 function menuItems(row) {
   return [
     { label: '查看详情', icon: 'open_in_new', action: () => goDetail(row) },
+    { label: '导出 YAML', icon: 'download', action: () => exportWorkload(row) },
     { label: '重启', icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
     { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
   ]
@@ -150,6 +161,7 @@ function handleDelete() {
             <td class="px-lg py-md">
               <div class="flex flex-col">
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+                <span v-if="readMeta(row).title" class="text-body-xs text-primary">{{ readMeta(row).title }}</span>
                 <span class="font-mono text-code-xs text-on-surface-variant">{{ row.sha }}</span>
               </div>
             </td>

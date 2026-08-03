@@ -2,6 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { exportYaml } from '@/api/client'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
@@ -71,6 +72,7 @@ function memPercent(mem) {
 function menuItems(row) {
   return [
     { label: '查看详情', icon: 'open_in_new', action: () => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: row.name } }) },
+    { label: '导出 YAML', icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${route.params.namespace}/pods/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) },
     { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
   ]
 }
@@ -183,6 +185,7 @@ function handleCreate() {
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">IP</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
@@ -205,6 +208,7 @@ function handleCreate() {
                 <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
               </div>
             </td>
+            <td class="px-lg py-md"><span class="font-mono text-code-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
             <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
             <td class="px-lg py-md">
               <span class="text-body-sm" :class="p.restarts > 3 ? 'text-error font-semibold' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span>
@@ -236,7 +240,7 @@ function handleCreate() {
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="8" class="px-lg py-xl text-center">
+            <td colspan="9" class="px-lg py-xl text-center">
               <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">search_off</span>
               <p class="text-on-surface-variant">No pods found matching your filters</p>
             </td>

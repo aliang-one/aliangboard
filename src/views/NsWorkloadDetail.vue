@@ -1,14 +1,18 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { cronJobApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { TIER_OPTIONS } from '@/composables/useLayering'
+import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
+import { readMeta } from '@/composables/useBusinessMeta'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import MiniChart from '@/components/common/MiniChart.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +21,8 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
+// 业务元数据（aliangboard.io/* 标签体系：title/description/owner/version/tags 等）
+const meta = computed(() => readMeta(workload.value))
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('deployment', workload.value))
 
@@ -33,6 +39,56 @@ function refRoute(ref) {
   if (ref.kind === 'ConfigMap') return { name: 'NsConfigMapDetail', query: {} }
   return { name: 'NsSecretDetail', query: {} }
 }
+
+// 真实容器定义：从 live 对象的 pod template 取（Deploy/STS/DS/Job 用 .spec.template，
+// CronJob 用 .spec.jobTemplate.spec.template）。不再硬编码端口/资源。
+const containers = computed(() => {
+  const raw = workload.value?.raw
+  if (!raw) return []
+  const spec = raw.spec || {}
+  const tpl = spec.template || spec.jobTemplate?.spec?.template
+  return tpl?.spec?.containers || []
+})
+function fmtPorts(c) {
+  const ports = c?.ports || []
+  if (!ports.length) return '—'
+  return ports.map(p => `${p.containerPort}${p.name ? '/' + p.name : ''}/${p.protocol || 'TCP'}`).join(', ')
+}
+function fmtResources(resources) {
+  const q = resources?.requests, l = resources?.limits
+  const cpu = [q?.cpu, l?.cpu].filter(Boolean).join('-')
+  const mem = [q?.memory, l?.memory].filter(Boolean).join('-')
+  if (!cpu && !mem) return '—'
+  return [cpu && `cpu ${cpu}`, mem && `mem ${mem}`].filter(Boolean).join('  ·  ')
+}
+
+// === 运行指标（实时 CPU/内存，metrics.k8s.io 每 5s 采样，滚动 ~2.5 分钟） ===
+const nsRef = computed(() => route.params.namespace)
+const managedPodNames = computed(() => (managedPods.value || []).map(p => p.name))
+const { cpuSeries, memSeries, current: metricsNow, available: metricsAvailable, start: startMetrics } = useMetricsHistory(nsRef, managedPodNames)
+onMounted(() => { if (store.remoteMode) startMetrics() })
+
+// 容器 requests/limits 合计（作为曲线参考线）
+function sumRes(field, kind) {
+  const parse = kind === 'cpu' ? toMilli : toMi
+  return (containers.value || []).reduce((t, c) => t + parse(c.resources?.[field]?.[kind]), 0)
+}
+const cpuReq = computed(() => sumRes('requests', 'cpu'))
+const cpuLim = computed(() => sumRes('limits', 'cpu'))
+const memReq = computed(() => sumRes('requests', 'memory'))
+const memLim = computed(() => sumRes('limits', 'memory'))
+const cpuRefLines = computed(() => {
+  const r = []
+  if (cpuReq.value) r.push({ label: 'requests', value: cpuReq.value, color: 'var(--md-sys-color-secondary)' })
+  if (cpuLim.value) r.push({ label: 'limits', value: cpuLim.value, color: 'var(--md-sys-color-error)' })
+  return r
+})
+const memRefLines = computed(() => {
+  const r = []
+  if (memReq.value) r.push({ label: 'requests', value: memReq.value, color: 'var(--md-sys-color-secondary)' })
+  if (memLim.value) r.push({ label: 'limits', value: memLim.value, color: 'var(--md-sys-color-error)' })
+  return r
+})
 
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
@@ -72,15 +128,7 @@ async function handleRollback() {
   }
 }
 
-const tierOptions = [
-  { value: 'web', label: '表现层', icon: 'web' },
-  { value: 'gateway', label: '网关层', icon: 'dns' },
-  { value: 'svc', label: '服务层', icon: 'apps' },
-  { value: 'cloud', label: '中间件', icon: 'cloud' },
-  { value: 'db', label: '持久层', icon: 'database' },
-  { value: 'monitor', label: '监控层', icon: 'monitoring' },
-  { value: 'default', label: '默认层', icon: 'workspaces' },
-]
+const tierOptions = TIER_OPTIONS
 
 async function handleDelete() {
   await store.deleteWorkload(route.params.name, route.params.namespace)
@@ -118,18 +166,35 @@ function handleScale() {
 
 function openEdit() {
   if (!workload.value) return
+  // 容器级参数从 pod template 的首个容器读取（env/resources/probes）
+  const c0 = workload.value?.raw?.spec?.template?.spec?.containers?.[0]
+    || workload.value?.raw?.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0]
+    || {}
+  const probe = (p, d) => ({ enabled: !!p, path: p?.httpGet?.path ?? d, port: p?.httpGet?.port ?? d })
   editForm.value = {
     image: workload.value.image,
     replicas: workload.value.replicas?.split('/')[1] || '1',
     schedule: workload.value.schedule || '',
     labels: { ...workload.value.labels },
     tier: workload.value.tier || 'default',
+    env: (c0.env || []).filter(e => e.value !== undefined && e.valueFrom === undefined).map(e => ({ key: e.name, value: e.value })),
+    cpuReq: c0.resources?.requests?.cpu || '',
+    cpuLim: c0.resources?.limits?.cpu || '',
+    memReq: c0.resources?.requests?.memory || '',
+    memLim: c0.resources?.limits?.memory || '',
+    livenessEnabled: !!c0.livenessProbe,
+    livenessPath: c0.livenessProbe?.httpGet?.path ?? '/health',
+    livenessPort: c0.livenessProbe?.httpGet?.port ?? 8080,
+    readinessEnabled: !!c0.readinessProbe,
+    readinessPath: c0.readinessProbe?.httpGet?.path ?? '/ready',
+    readinessPort: c0.readinessProbe?.httpGet?.port ?? 8080,
   }
   showEditModal.value = true
 }
 
-function saveEdit() {
-  const labels = { ...(editForm.value.labels || {}), tier: editForm.value.tier }
+async function saveEdit() {
+  // tier 由 store 统一写成 layer.aliangboard.io label（权威），此处不重复注入 labels.tier
+  const labels = { ...(editForm.value.labels || {}) }
   const updates = {
     image: editForm.value.image,
     tier: editForm.value.tier,
@@ -144,6 +209,36 @@ function saveEdit() {
     updates.schedule = editForm.value.schedule
   }
   store.updateWorkload(route.params.name, route.params.namespace, updates)
+
+  // 容器级结构化编辑（env/resources/probes）：取当前 template 全量克隆后改 containers[0]，经 applyWorkloadTemplate 全量回写
+  // （全量替换 spec.template，故 sidecar/init/卷/调度均保留；删除项也生效）
+  if (isRolloutType.value) {
+    const rawTpl = workload.value?.raw?.spec?.template
+    if (rawTpl) {
+      const tpl = JSON.parse(JSON.stringify(rawTpl))
+      const c0 = tpl.spec?.containers?.[0]
+      if (c0) {
+        c0.image = editForm.value.image
+        c0.env = (editForm.value.env || []).filter(e => e.key).map(e => ({ name: e.key, value: String(e.value ?? '') }))
+        c0.resources = {
+          requests: { ...(editForm.value.cpuReq ? { cpu: editForm.value.cpuReq } : {}), ...(editForm.value.memReq ? { memory: editForm.value.memReq } : {}) },
+          limits: { ...(editForm.value.cpuLim ? { cpu: editForm.value.cpuLim } : {}), ...(editForm.value.memLim ? { memory: editForm.value.memLim } : {}) },
+        }
+        c0.livenessProbe = editForm.value.livenessEnabled
+          ? { httpGet: { path: editForm.value.livenessPath, port: Number(editForm.value.livenessPort) || 8080 } }
+          : undefined
+        c0.readinessProbe = editForm.value.readinessEnabled
+          ? { httpGet: { path: editForm.value.readinessPath, port: Number(editForm.value.readinessPort) || 8080 } }
+          : undefined
+        ;['livenessProbe', 'readinessProbe'].forEach(k => { if (c0[k] === undefined) delete c0[k] })
+        try {
+          await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl)
+        } catch (e) {
+          notify('error', e.message || '容器配置（env/resources/probes）保存失败')
+        }
+      }
+    }
+  }
   showEditModal.value = false
 }
 
@@ -233,12 +328,18 @@ async function saveTemplate() {
           <span class="material-symbols-outlined text-primary text-3xl">apps</span>
         </div>
         <div>
-          <h1 class="text-display-lg text-on-surface">{{ workload.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+          <div class="flex items-baseline gap-md flex-wrap">
+            <h1 class="text-display-lg text-on-surface">{{ meta.title || workload.name }}</h1>
+            <span v-if="meta.title" class="font-mono text-code-sm text-on-surface-variant">{{ workload.name }}</span>
+          </div>
+          <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs max-w-2xl">{{ meta.description }}</p>
+          <div class="flex items-center gap-xs mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ workload.type }}</span>
             <StatusChip :status="workload.status" />
-            <span class="text-body-sm text-on-surface-variant">Age: {{ workload.age }}</span>
             <span class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ workload.namespace }}</span></span>
+            <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">group</span>{{ meta.owner }}</span>
+            <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-primary border border-outline-variant"><span class="material-symbols-outlined text-sm">sell</span>{{ meta.version }}</span>
+            <span v-if="meta.tags" class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-surface-container rounded-full text-body-xs text-on-surface-variant border border-outline-variant"><span class="material-symbols-outlined text-sm">label</span>{{ meta.tags }}</span>
           </div>
         </div>
       </div>
@@ -310,28 +411,54 @@ async function saveTemplate() {
           </div>
         </div>
 
-        <!-- Container Info -->
+        <!-- Container Info（真实数据，来自 pod template；多容器全展开） -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Containers</h3>
-          <div class="flex flex-col gap-md">
-            <div class="flex items-center gap-md p-md bg-surface-container-low rounded-lg">
-              <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
+          <div class="flex items-center justify-between mb-lg">
+            <h3 class="text-headline-sm">Containers</h3>
+            <span class="text-body-sm text-on-surface-variant">{{ containers.length }} 个容器</span>
+          </div>
+          <div v-if="containers.length" class="flex flex-col gap-md">
+            <div v-for="(c, i) in containers" :key="i" class="flex items-center gap-md p-md bg-surface-container-low rounded-lg">
+              <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
                 <span class="material-symbols-outlined text-secondary">inventory_2</span>
               </div>
-              <div class="flex-1">
-                <p class="text-body-md font-semibold">{{ workload.name }}</p>
-                <p class="font-mono text-code-sm text-primary">{{ workload.image }}</p>
+              <div class="flex-1 min-w-0">
+                <p class="text-body-md font-semibold truncate">{{ c.name }}</p>
+                <p class="font-mono text-code-sm text-primary truncate">{{ c.image }}</p>
               </div>
-              <div class="text-right">
+              <div class="text-right shrink-0">
                 <p class="text-label-caps text-on-surface-variant">Ports</p>
-                <p class="text-body-sm">8080/TCP</p>
+                <p class="font-mono text-code-xs">{{ fmtPorts(c) }}</p>
               </div>
-              <div class="text-right">
+              <div class="text-right shrink-0">
                 <p class="text-label-caps text-on-surface-variant">Resources</p>
-                <p class="text-body-sm">250m-500m / 256Mi-512Mi</p>
+                <p class="font-mono text-code-xs">{{ fmtResources(c.resources) }}</p>
               </div>
             </div>
           </div>
+          <p v-else class="text-body-sm text-on-surface-variant">该工作负载未提供容器详情（可在「YAML」标签页查看完整定义）。</p>
+        </div>
+
+        <!-- 运行指标（实时 CPU/内存占用曲线） -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <div class="flex items-center justify-between mb-lg">
+            <div>
+              <h3 class="text-headline-sm">运行指标</h3>
+              <p class="text-body-xs text-on-surface-variant mt-xs">实时占用（metrics.k8s.io，每 5s 采样，滚动约 2.5 分钟）· 管理 {{ managedPods.length }} 个 Pod</p>
+            </div>
+            <span v-if="!metricsAvailable" class="text-body-xs text-error">指标不可用</span>
+          </div>
+          <div v-if="metricsAvailable" class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+            <div>
+              <MiniChart :series="cpuSeries" label="CPU 用量" unit="m" color="var(--md-sys-color-primary)" :ref-lines="cpuRefLines" :height="84" />
+              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.cpu }}m / 请求 {{ cpuReq || '—' }}m / 上限 {{ cpuLim || '—' }}m</p>
+            </div>
+            <div>
+              <MiniChart :series="memSeries" label="内存用量" unit="Mi" color="var(--md-sys-color-secondary)" :ref-lines="memRefLines" :height="84" />
+              <p class="font-mono text-code-xs text-on-surface-variant mt-xs">当前 {{ metricsNow.mem }}Mi / 请求 {{ memReq || '—' }}Mi / 上限 {{ memLim || '—' }}Mi</p>
+            </div>
+          </div>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">metrics-server 未就绪，或当前用户无 metrics 读取权限。</p>
         </div>
 
         <!-- Configuration Dependencies -->
@@ -563,7 +690,7 @@ async function saveTemplate() {
   </Modal>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit Workload" width="max-w-lg">
+  <Modal v-model="showEditModal" title="Edit Workload" width="max-w-2xl">
     <div class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Container Image</label>
@@ -586,6 +713,40 @@ async function saveTemplate() {
             <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
           </button>
         </div>
+      </div>
+      <!-- 容器配置：env / resources / probes（仅 Deployment/StatefulSet/DaemonSet） -->
+      <div v-if="isRolloutType" class="mt-md pt-md border-t border-outline-variant/50 flex flex-col gap-md">
+        <p class="text-label-caps text-on-surface-variant">容器配置（资源 / 环境变量 / 探针）</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-sm">
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU 请求</label><input v-model="editForm.cpuReq" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="250m" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU 上限</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="500m" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存请求</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="256Mi" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存上限</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="512Mi" /></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-xs">
+            <label class="text-body-xs text-on-surface-variant">环境变量</label>
+            <button @click="editForm.env.push({ key: '', value: '' })" class="text-body-xs text-primary hover:underline">+ 添加</button>
+          </div>
+          <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs mb-xs">
+            <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
+            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value" />
+            <button @click="editForm.env.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
+        </div>
+        <div class="flex flex-col gap-xs">
+          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.livenessEnabled" class="h-4 w-4 accent-primary" /> Liveness Probe</label>
+          <div v-if="editForm.livenessEnabled" class="flex items-center gap-xs pl-md">
+            <input v-model="editForm.livenessPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/health" />
+            <input v-model.number="editForm.livenessPort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
+          </div>
+          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.readinessEnabled" class="h-4 w-4 accent-primary" /> Readiness Probe</label>
+          <div v-if="editForm.readinessEnabled" class="flex items-center gap-xs pl-md">
+            <input v-model="editForm.readinessPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/ready" />
+            <input v-model.number="editForm.readinessPort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
+          </div>
+        </div>
+        <p class="text-body-xs text-on-surface-variant">更复杂的配置（多容器 / 卷 / 调度 / 完整探针）可用「Edit Template」全量编辑 pod 模板。</p>
       </div>
     </div>
     <template #actions>

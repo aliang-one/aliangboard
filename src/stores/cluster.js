@@ -4,6 +4,7 @@ import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
 import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { yamlScalar } from '@/composables/useYaml'
+import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -260,19 +261,20 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   })
 
-  // 微服务分层拓扑：按 tier 分组当前 namespace 的 workloads
+  // 微服务分层拓扑：按 classifyResource(w) 分组（与 NsLayers 同源），输出 LAYER_TAXONOMY 扁平层。
+  // meta 带 color/en/icon/label，供 NamespaceOverview 的 tierBg/Text/Chip 直接复用。
   const nsTieredWorkloads = computed(() => {
     if (!currentNamespace.value) return []
     const groups = {}
     nsWorkloads.value.forEach(w => {
-      const tier = w.tier || 'default'
-      if (!groups[tier]) groups[tier] = []
-      groups[tier].push(w)
+      const key = classifyResource(w) || 'unclassified'
+      ;(groups[key] ||= []).push(w)
     })
-    return Object.keys(TIER_META)
-      .filter(t => groups[t] && groups[t].length)
-      .sort((a, b) => TIER_META[a].order - TIER_META[b].order)
-      .map(t => ({ tier: t, meta: TIER_META[t], workloads: groups[t] }))
+    const flat = []
+    for (const node of LAYER_TAXONOMY) {
+      if (node.children) flat.push(...node.children); else flat.push(node)
+    }
+    return flat.filter(n => groups[n.key]?.length).map(n => ({ tier: n.key, meta: n, workloads: groups[n.key] }))
   })
 
   // === Actions ===
@@ -726,13 +728,23 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx === -1) return
     const before = JSON.parse(JSON.stringify(workloadList.value[idx]))
     workloadList.value[idx] = { ...before, ...updates }
+    const wl = workloadList.value[idx]
+    // tier 以 layer.aliangboard.io label 为权威：本地即时写入 labels，classifyResource 无需刷新即可重算
+    if (updates.tier != null) {
+      wl.labels = { ...(wl.labels || {}), 'layer.aliangboard.io': updates.tier }
+      wl.tier = updates.tier
+    }
     if (remoteMode.value) {
-      const wl = workloadList.value[idx]
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
       // 定点 merge-patch：仅改动字段，避免 regenerate 丢失深模板（env/probes/卷）。Job/CronJob 等不支持定点编辑，回退仅本地。
       if (plural) {
         const patch = {}
-        if (updates.labels) patch.metadata = { labels: updates.labels }
+        // labels：合并 tier→layer.aliangboard.io，保留既有 labels（merge-patch 全量回写，故取并集）
+        if (updates.labels || updates.tier != null) {
+          const labels = { ...(updates.labels || before.labels || {}) }
+          if (updates.tier != null) labels['layer.aliangboard.io'] = updates.tier
+          patch.metadata = { labels }
+        }
         const spec = {}
         if (updates.replicas != null) {
           const r = Number(String(updates.replicas).split('/')[0])
@@ -757,6 +769,37 @@ export const useClusterStore = defineStore('cluster', () => {
   // 深度编辑工作负载的 Pod 模板（image/env/resources/probes/nodeSelector 等）：
   // 入参 template 为完整的 pod template 对象（深克隆后由视图修改）。
   // 远端 PATCH spec.template（全量 merge-patch，安全）；本地合并并刷新 image。仅 Deployment/StatefulSet/DaemonSet。
+  // 就地修改任意资源的分层（NsLayers 用）：写 layer.aliangboard.io label 并本地即时反映。
+  // 取当前 labels 再合并后全量回写，避免 merge-patch 下 labels 对象被替换而丢其它键。
+  const LABEL_RES = {
+    Deployment: ['/apis/apps/v1', 'deployments', 'workload'],
+    StatefulSet: ['/apis/apps/v1', 'statefulsets', 'workload'],
+    DaemonSet: ['/apis/apps/v1', 'daemonsets', 'workload'],
+    Job: ['/apis/batch/v1', 'jobs', 'workload'],
+    CronJob: ['/apis/batch/v1', 'cronjobs', 'workload'],
+    Service: ['/api/v1', 'services', 'service'],
+    Ingress: ['/apis/networking.k8s.io/v1', 'ingresses', 'ingress'],
+  }
+  async function reassignLayer(kind, name, ns, layerKey) {
+    if (!remoteMode.value) throw new Error('仅连接集群后可用')
+    const res = LABEL_RES[kind]
+    if (!res) throw new Error(`暂不支持修改 ${kind} 的分层`)
+    const [gv, plural] = res
+    const path = `${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`
+    let labels = {}
+    try { labels = (await api.k8s(path))?.metadata?.labels || {} } catch { /* 读取失败则从空开始 */ }
+    labels = { ...labels, 'layer.aliangboard.io': layerKey }
+    await api.k8s(path, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/merge-patch+json' },
+      body: JSON.stringify({ metadata: { labels } }),
+    })
+    // 本地即时反映：NsLayers 的 items 直接引用这些对象的 labels，改了即重算 classifyResource
+    const list = res[2] === 'workload' ? workloadList : res[2] === 'service' ? serviceList : ingressList
+    const it = list.value.find(x => x.name === name && x.namespace === ns)
+    if (it) { it.labels = labels; if ('tier' in it) it.tier = layerKey }
+  }
+
   async function applyWorkloadTemplate(name, ns, template) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
     if (!wl) throw new Error('工作负载不存在')
@@ -1370,16 +1413,22 @@ export const useClusterStore = defineStore('cluster', () => {
     const desired = item.spec?.replicas ?? (type === 'DaemonSet' ? item.status?.desiredNumberScheduled : 1)
     const ready = item.status?.readyReplicas ?? item.status?.numberReady ?? item.status?.availableReplicas ?? 0
     const image = item.spec?.template?.spec?.containers?.[0]?.image || ''
+    const labels = item.metadata?.labels || {}
+    const annotations = item.metadata?.annotations || {}
+    // tier 由 layer.aliangboard.io label（权威）+ 名称/镜像启发式统一推导，与 useLayering 完全一致
+    const tier = classifyResource({ name: item.metadata?.name, image, labels, annotations, type, kind: type })
     return {
       name: item.metadata?.name,
       namespace: item.metadata?.namespace,
       type,
+      tier,
       status: ready >= desired ? 'Running' : ready > 0 ? 'Degraded' : 'Pending',
       replicas: `${ready}/${desired}`,
       image,
       age: ageOf(item.metadata?.creationTimestamp),
-      labels: item.metadata?.labels || {},
-      annotations: item.metadata?.annotations || {},
+      createdAt: item.metadata?.creationTimestamp,
+      labels,
+      annotations,
       raw: item,
     }
   }
@@ -2526,6 +2575,96 @@ status:
   phase: ${inst.status || 'Ready'}`
   }
 
+  // 某个 CR 实例在 API 上的路径（cluster-scoped vs namespaced 两种形态）
+  function crInstancePath(crd, inst) {
+    if (!crd) return ''
+    const plural = crd.name?.split('.')[0]
+    const gv = `/apis/${crd.group}/${crd.version}`
+    return crd.namespaced
+      ? `${gv}/namespaces/${encodeURIComponent(inst?.namespace || 'default')}/${plural}/${encodeURIComponent(inst?.name)}`
+      : `${gv}/${plural}/${encodeURIComponent(inst?.name)}`
+  }
+
+  // 重新拉取某个 CRD 的全部实例（CR 增删改后刷新局部，不必全量 hydrate）
+  async function refreshCRDInstances(crdName) {
+    const c = crdList.value.find(x => x.name === crdName)
+    if (!c) return
+    const plural = c.name.split('.')[0]
+    try {
+      const data = await api.k8s(`/apis/${c.group}/${c.version}/${plural}?limit=500`)
+      c.instances = (data.items || []).map(it => ({
+        name: it.metadata?.name,
+        namespace: it.metadata?.namespace || '',
+        status: it.status?.phase || it.status?.conditions?.find(x => x.type === 'Ready')?.status || 'Ready',
+        age: ageOf(it.metadata?.creationTimestamp),
+        spec: it.spec,
+        labels: it.metadata?.labels || {},
+        annotations: it.metadata?.annotations || {},
+      }))
+    } catch { /* 无权限或不存在时静默 */ }
+  }
+
+  // 通用 CR apply（server-side apply，适用于任意 CRD kind）+ 局部刷新
+  async function applyCRYaml(crdName, yamlStr) {
+    if (!remoteMode.value) return { ok: false, error: '仅连接集群后可用' }
+    try {
+      let object = null
+      yamlLoadAll(yamlStr, d => { if (!object && d) object = d })
+      const result = await api.applyYaml(yamlStr)
+      const resource = result?.resources?.[0]
+      await refreshCRDInstances(crdName)
+      return { ok: true, kind: resource?.kind || object?.kind, name: resource?.metadata?.name || object?.metadata?.name }
+    } catch (error) {
+      return { ok: false, error: error.message || '应用 YAML 失败' }
+    }
+  }
+
+  // 删除某个 CR 实例 + 局部刷新
+  async function deleteCRInstance(crd, inst) {
+    await api.k8s(crInstancePath(crd, inst), { method: 'DELETE' })
+    await refreshCRDInstances(crd.name)
+  }
+
+  // can-i 服务端真值：SelfSubjectAccessReview。
+  // 注意 SSAR 只判定「当前登录用户」（subjectName 无关）；任意 subject 的本地推演仍用 checkAccess。
+  const RESOURCE_TO_GROUP = {
+    pods: '', services: '', configmaps: '', secrets: '', serviceaccounts: '',
+    persistentvolumeclaims: '', persistentvolumes: '', nodes: '', namespaces: '',
+    endpoints: '', events: '',
+    deployments: 'apps', statefulsets: 'apps', daemonsets: 'apps', replicasets: 'apps',
+    ingresses: 'networking.k8s.io', networkpolicies: 'networking.k8s.io',
+    roles: 'rbac.authorization.k8s.io', rolebindings: 'rbac.authorization.k8s.io',
+    clusterroles: 'rbac.authorization.k8s.io', clusterrolebindings: 'rbac.authorization.k8s.io',
+    jobs: 'batch', cronjobs: 'batch',
+  }
+  async function checkAccessServer({ verb, resource, namespace }) {
+    if (!remoteMode.value) return { ok: false, error: '仅连接集群后可用' }
+    // pods/log → resource=pods + subresource=log
+    let name = String(resource || ''), subresource = ''
+    if (name.includes('/')) { const [n, s] = name.split('/'); name = n; subresource = s }
+    const group = RESOURCE_TO_GROUP[name] ?? ''
+    const attrs = { verb: String(verb || 'get'), resource: name, group }
+    if (namespace) attrs.namespace = namespace
+    if (subresource) attrs.subresource = subresource
+    const body = {
+      apiVersion: 'authorization.k8s.io/v1',
+      kind: 'SelfSubjectAccessReview',
+      spec: { resourceAttributes: attrs },
+    }
+    try {
+      const r = await api.k8s('/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', { method: 'POST', body: JSON.stringify(body) })
+      return {
+        ok: true,
+        allowed: !!r?.status?.allowed,
+        denied: !r?.status?.allowed,
+        reason: r?.status?.reason || '',
+        evaluationError: r?.status?.evaluationError || '',
+      }
+    } catch (e) {
+      return { ok: false, error: e.message || 'SelfSubjectAccessReview 失败（当前用户可能缺少 create selfsubjectaccessreviews 权限）' }
+    }
+  }
+
   async function applyResourceYaml(yamlStr) {
     if (remoteMode.value) {
       try {
@@ -2903,7 +3042,7 @@ status:
     // CRUD: IngressClass / RuntimeClass（集群级）
     getIngressClassByName, addIngressClass, updateIngressClass, deleteIngressClass, getRuntimeClassByName, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
-    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, scaleWorkload, restartWorkload, rollbackWorkload,
+    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods
     addPod, deletePod,
     // CRUD: NetworkPolicies
@@ -2933,7 +3072,7 @@ status:
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
     // CRD
-    getCRDByName,
+    getCRDByName, crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计
     logAudit,
     // YAML generation
@@ -2941,6 +3080,6 @@ status:
     // 端口转发
     portForwards, addPortForward, removePortForward, refreshPortForwards,
     // RBAC 权限模拟
-    checkAccess,
+    checkAccess, checkAccessServer,
   }
 })
