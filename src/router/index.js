@@ -137,6 +137,36 @@ const routes = [
         meta: { title: 'RuntimeClasses', icon: 'memory', scope: 'global' }
       },
       {
+        path: 'admin/apiservices',
+        name: 'APIServices',
+        component: () => import('@/views/ClusterResourceList.vue'),
+        meta: { title: 'APIServices', icon: 'api', scope: 'global', resource: 'apiservices' }
+      },
+      {
+        path: 'admin/webhooks-mutating',
+        name: 'MutatingWebhooks',
+        component: () => import('@/views/ClusterResourceList.vue'),
+        meta: { title: 'Mutating Webhooks', icon: 'webhook', scope: 'global', resource: 'mutatingwebhooks' }
+      },
+      {
+        path: 'admin/webhooks-validating',
+        name: 'ValidatingWebhooks',
+        component: () => import('@/views/ClusterResourceList.vue'),
+        meta: { title: 'Validating Webhooks', icon: 'rule', scope: 'global', resource: 'validatingwebhooks' }
+      },
+      {
+        path: 'admin/replicasets',
+        name: 'ReplicaSets',
+        component: () => import('@/views/ClusterResourceList.vue'),
+        meta: { title: 'ReplicaSets', icon: 'dynamic_feed', scope: 'global', resource: 'replicasets' }
+      },
+      {
+        path: 'admin/csinodes',
+        name: 'CSINodes',
+        component: () => import('@/views/ClusterResourceList.vue'),
+        meta: { title: 'CSINodes', icon: 'hard_drive', scope: 'global', resource: 'csinodes' }
+      },
+      {
         path: 'priorityclasses/:name',
         name: 'PriorityClassDetail',
         component: () => import('@/views/PriorityClassDetail.vue'),

@@ -18,6 +18,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   <div class="flex h-screen overflow-hidden">
     <SideNavBar />
     <div class="flex-1 flex flex-col min-w-0 ml-[260px]">
+      <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
+      <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary z-[60] animate-pulse"></div>
       <TopNavBar />
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
         <router-view v-slot="{ Component, route }">

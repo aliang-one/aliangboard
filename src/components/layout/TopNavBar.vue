@@ -9,8 +9,26 @@ const store = useClusterStore()
 
 const searchQuery = ref('')
 const showClusterDropdown = ref(false)
+const showNsDropdown = ref(false)
+const nsSearch = ref('')
 
 const currentClusterObj = computed(() => store.getCurrentCluster())
+const currentNs = computed(() => store.currentNamespace)
+const filteredNamespaces = computed(() => {
+  if (!nsSearch.value) return store.namespaceList
+  const q = nsSearch.value.toLowerCase()
+  return store.namespaceList.filter(ns => ns.name.toLowerCase().includes(q))
+})
+function selectNs(ns) {
+  showNsDropdown.value = false
+  nsSearch.value = ''
+  store.setNamespace(ns)
+  router.push({ name: 'NamespaceOverview', params: { namespace: ns } })
+}
+function closeNsDropdown() {
+  showNsDropdown.value = false
+  nsSearch.value = ''
+}
 
 // === 全局搜索：聚合已同步资源，按名称跨命名空间匹配，点击跳转详情 ===
 const WL_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
@@ -165,6 +183,51 @@ async function logout() {
           </div>
         </div>
       </div>
+
+      <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
+      <div class="relative">
+        <button
+          @click="showNsDropdown = !showNsDropdown"
+          class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
+          :class="showNsDropdown
+            ? 'border-primary bg-primary/5 text-primary'
+            : (currentNs
+              ? 'border-primary/40 bg-primary/5 text-primary'
+              : 'border-outline-variant bg-surface-container-low text-on-surface-variant hover:border-primary/50')"
+        >
+          <span class="material-symbols-outlined text-lg">folder_open</span>
+          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[160px]">
+            <span class="text-body-xs text-on-surface-variant opacity-70">NAMESPACE</span>
+            <span class="text-body-sm font-semibold truncate">{{ currentNs || '未选择' }}</span>
+          </div>
+          <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
+        </button>
+
+        <div
+          v-if="showNsDropdown"
+          class="absolute top-full left-0 mt-1 w-72 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-hidden"
+        >
+          <div class="p-sm border-b border-outline-variant">
+            <div class="relative">
+              <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
+              <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="过滤命名空间..." />
+            </div>
+          </div>
+          <div class="max-h-72 overflow-y-auto p-sm">
+            <div
+              v-for="ns in filteredNamespaces"
+              :key="ns.name"
+              @click="selectNs(ns.name)"
+              class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
+              :class="currentNs === ns.name ? 'bg-primary-container/20 text-primary' : 'text-on-surface'"
+            >
+              <span class="text-body-md font-medium truncate">{{ ns.name }}</span>
+              <span class="text-body-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} pods</span>
+            </div>
+            <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">无匹配命名空间</p>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="flex items-center gap-md">
       <button @click="router.push('/audit-logs')" aria-label="活动记录" title="活动记录" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
@@ -181,6 +244,6 @@ async function logout() {
       </button>
     </div>
   </header>
-  <!-- 点击外部关闭集群下拉 -->
-  <div v-if="showClusterDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown"></div>
+  <!-- 点击外部关闭下拉（集群 / 命名空间） -->
+  <div v-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
 </template>

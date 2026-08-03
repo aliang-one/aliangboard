@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +25,8 @@ const filtered = computed(() => {
   }
   return list
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, searchQuery] })
 
 const clusterIPCount = computed(() => store.nsServices.filter(s => s.type === 'ClusterIP').length)
 const nodePortCount = computed(() => store.nsServices.filter(s => s.type === 'NodePort').length)
@@ -128,12 +132,13 @@ function handleDelete() {
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Cluster IP</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">External IP</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Ports</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">Selector</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
             <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in filtered" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })">
             <td class="px-lg py-md">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-lg">hub</span>
@@ -144,6 +149,12 @@ function handleDelete() {
             <td class="px-lg py-md"><span class="font-mono text-code-sm">{{ row.clusterIP }}</span></td>
             <td class="px-lg py-md"><span class="font-mono text-code-sm" :class="row.externalIP !== '-' ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ row.externalIP }}</span></td>
             <td class="px-lg py-md"><span class="font-mono text-code-sm">{{ row.ports }}</span></td>
+            <td class="px-lg py-md">
+              <div v-if="row.selector && Object.keys(row.selector).length" class="flex flex-wrap gap-0.5 max-w-[220px]">
+                <span v-for="(v, k) in row.selector" :key="k" class="font-mono text-code-xs px-1.5 py-0.5 bg-surface-container rounded text-on-surface-variant border border-outline-variant/60">{{ k }}={{ v }}</span>
+              </div>
+              <span v-else class="text-on-surface-variant text-body-sm">-</span>
+            </td>
             <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
             <td class="px-lg py-md" @click.stop>
               <div class="flex gap-1">
@@ -157,10 +168,13 @@ function handleDelete() {
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="7" class="px-lg py-xl text-center text-on-surface-variant">No services found</td>
+            <td colspan="8" class="px-lg py-xl text-center text-on-surface-variant">No services found</td>
           </tr>
         </tbody>
       </table>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
     </div>
   </section>
 

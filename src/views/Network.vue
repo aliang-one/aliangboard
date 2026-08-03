@@ -6,6 +6,8 @@ import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -28,6 +30,13 @@ const tabs = [
 
 const svcHeaders = computed(() => tableColumns('services'))
 const ingressHeaders = computed(() => tableColumns('ingress'))
+
+// 按 tab 切换的当前列表（services / ingress 有 DataTable；endpoints / networkpolicies 为占位）
+const currentTabList = computed(() => ({
+  services: store.serviceList,
+  ingress: store.ingressList,
+}[activeTab.value] || []))
+const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
 
 <template>
@@ -55,7 +64,7 @@ const ingressHeaders = computed(() => tableColumns('ingress'))
     </div>
 
     <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" title="No services" />
-    <DataTable v-if="activeTab === 'services' && store.serviceList.length" :headers="svcHeaders" :rows="store.serviceList">
+    <DataTable v-if="activeTab === 'services' && store.serviceList.length" :headers="svcHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -71,10 +80,13 @@ const ingressHeaders = computed(() => tableColumns('ingress'))
       <template #ports="{ row }">
         <span class="font-mono text-code-sm">{{ row.ports }}</span>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <EmptyState v-if="activeTab === 'ingress' && !store.ingressList.length" icon="router" title="No ingress rules" />
-    <DataTable v-if="activeTab === 'ingress' && store.ingressList.length" :headers="ingressHeaders" :rows="store.ingressList">
+    <DataTable v-if="activeTab === 'ingress' && store.ingressList.length" :headers="ingressHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -86,6 +98,9 @@ const ingressHeaders = computed(() => tableColumns('ingress'))
       </template>
       <template #tls="{ row }">
         <span class="material-symbols-outlined" :class="row.tls ? 'text-primary' : 'text-outline-variant'">{{ row.tls ? 'lock' : 'lock_open' }}</span>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
 

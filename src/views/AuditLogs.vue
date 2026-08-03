@@ -5,6 +5,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const store = useClusterStore()
 const router = useRouter()
@@ -22,6 +24,8 @@ const filtered = computed(() => {
     (e.relatedName || '').toLowerCase().includes(q))
   return list
 })
+
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, searchQuery] })
 
 const stats = computed(() => {
   const list = store.eventList
@@ -128,7 +132,7 @@ onMounted(() => { if (store.remoteMode) store.startEventWatch() })
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="(e, idx) in filtered" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
+            <tr v-for="(e, idx) in paginated" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
               <td class="px-lg py-md">
                 <div class="w-8 h-8 rounded-full flex items-center justify-center"
                   :class="e.color === 'error' ? 'bg-error-container text-on-error-container' : e.color === 'tertiary' ? 'bg-tertiary-container/20 text-tertiary-container' : e.color === 'primary' ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container text-on-surface-variant'">
@@ -154,6 +158,9 @@ onMounted(() => { if (store.remoteMode) store.startEventWatch() })
             </tr>
           </tbody>
         </table>
+      </div>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
 

@@ -10,18 +10,29 @@ const store = useClusterStore()
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
-// 全局导航（不需要 Namespace）
-const globalNavItems = [
+// 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
+// 选中 namespace 时该板块默认折叠（让命名空间工作为主），无 namespace 时自动展开（此时它是唯一内容）。
+const clusterPrimaryNav = [
   { icon: 'dashboard', label: 'Cluster Overview', route: '/cluster' },
-  { icon: 'hub', label: 'Clusters', route: '/clusters' },
   { icon: 'dns', label: 'Nodes', route: '/nodes' },
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
+]
+const clusterResourcesNav = [
   { icon: 'extension', label: 'CRDs', route: '/crds' },
   { icon: 'flag', label: 'PriorityClasses', route: '/priorityclasses' },
   { icon: 'language', label: 'IngressClasses', route: '/ingressclasses' },
   { icon: 'memory', label: 'RuntimeClasses', route: '/runtimeclasses' },
-  { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
+  { icon: 'api', label: 'APIServices', route: '/admin/apiservices' },
+  { icon: 'webhook', label: 'Mutating Webhooks', route: '/admin/webhooks-mutating' },
+  { icon: 'rule', label: 'Validating Webhooks', route: '/admin/webhooks-validating' },
+  { icon: 'dynamic_feed', label: 'ReplicaSets', route: '/admin/replicasets' },
+  { icon: 'hard_drive', label: 'CSINodes', route: '/admin/csinodes' },
 ]
+const clusterOtherNav = [
+  { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
+  { icon: 'hub', label: 'Clusters', route: '/clusters' },
+]
+const clusterNavOpen = ref(false)
 
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
@@ -234,28 +245,9 @@ function nsStatusColor(status) {
 
     <!-- Scrollable Navigation -->
     <nav class="flex-1 overflow-y-auto px-md pb-md">
-      <!-- Global Nav -->
-      <div class="flex flex-col gap-xs mb-md">
-        <p class="text-label-caps text-on-surface-variant px-sm mb-xs">CLUSTER</p>
-        <a
-          v-for="item in globalNavItems"
-          :key="item.route"
-          @click="router.push(item.route)"
-          class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
-          :class="isGlobalActive(item.route)
-            ? 'bg-primary-container text-on-primary-container font-semibold'
-            : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
-        >
-          <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-          <span class="text-body-sm">{{ item.label }}</span>
-        </a>
-      </div>
-
-      <!-- Namespace-Scoped Nav (only shown when namespace selected) -->
-      <div v-if="currentNs" class="animate-fade-in">
-        <div class="h-px bg-outline-variant/50 mb-md"></div>
+      <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
+      <div v-if="currentNs" class="animate-fade-in mb-md">
         <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
-
         <div v-for="group in nsNavGroups" :key="group.label" class="mb-xs">
           <div class="flex items-center gap-xs px-md pt-sm pb-xs">
             <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
@@ -276,13 +268,35 @@ function nsStatusColor(status) {
         </div>
       </div>
 
-      <!-- No namespace selected hint -->
-      <div v-else class="text-center py-xl px-md">
-        <div class="w-16 h-16 rounded-full bg-surface-container mx-auto flex items-center justify-center mb-sm">
-          <span class="material-symbols-outlined text-2xl text-on-surface-variant">arrow_upward</span>
+      <!-- 集群管理：专门板块，可折叠；选中 ns 时默认折叠（让命名空间工作为主），无 ns 时自动展开 -->
+      <div class="flex flex-col gap-xs">
+        <button @click="clusterNavOpen = !clusterNavOpen"
+          class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
+          <span class="material-symbols-outlined text-base transition-transform" :class="(clusterNavOpen || !currentNs) ? 'rotate-90' : ''">chevron_right</span>
+          <p class="text-label-caps">集群管理</p>
+        </button>
+        <div v-show="clusterNavOpen || !currentNs" class="flex flex-col gap-xs">
+          <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
+            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+            <span class="text-body-sm">{{ item.label }}</span>
+          </a>
+          <p class="text-body-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">集群资源</p>
+          <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
+            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+            <span class="text-body-sm">{{ item.label }}</span>
+          </a>
+          <p class="text-body-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">审计 / 多集群</p>
+          <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
+            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+            <span class="text-body-sm">{{ item.label }}</span>
+          </a>
         </div>
-        <p class="text-body-sm text-on-surface-variant font-medium">请先选择一个 Namespace</p>
-        <p class="text-body-xs text-on-surface-variant mt-xs opacity-60">从上方下拉列表中选择</p>
       </div>
     </nav>
 

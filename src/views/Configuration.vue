@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -114,6 +116,16 @@ async function doDelete() {
 }
 
 const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
+
+// 按 tab 切换的当前列表（ConfigMaps / Secrets / ResourceQuotas / LimitRanges / HPA）
+const currentTabList = computed(() => ({
+  configmaps: store.configMapList,
+  secrets: store.secretList,
+  resourcequotas: store.resourceQuotaList,
+  limitranges: store.limitRangeList,
+  hpas: store.hpaList,
+}[activeTab.value] || []))
+const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
 
 <template>
@@ -136,7 +148,7 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
     </div>
 
     <!-- ConfigMaps -->
-    <DataTable v-if="activeTab === 'configmaps'" :headers="cmHeaders" :rows="store.configMapList" @row-click="editItem">
+    <DataTable v-if="activeTab === 'configmaps'" :headers="cmHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">description</span>
@@ -156,10 +168,13 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
           </button>
         </div>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <!-- Secrets -->
-    <DataTable v-if="activeTab === 'secrets'" :headers="secretHeaders" :rows="store.secretList" @row-click="editItem">
+    <DataTable v-if="activeTab === 'secrets'" :headers="secretHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">key</span>
@@ -175,10 +190,13 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
 
     <!-- ResourceQuotas -->
-    <DataTable v-if="activeTab === 'resourcequotas' && store.resourceQuotaList.length" :headers="rqHeaders" :rows="store.resourceQuotaList" @row-click="editItem">
+    <DataTable v-if="activeTab === 'resourcequotas' && store.resourceQuotaList.length" :headers="rqHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">pie_chart</span>
@@ -192,6 +210,9 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
     <div v-else-if="activeTab === 'resourcequotas'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
       <span class="material-symbols-outlined text-5xl text-surface-container-high">pie_chart</span>
@@ -200,7 +221,7 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
     </div>
 
     <!-- LimitRanges -->
-    <DataTable v-if="activeTab === 'limitranges' && store.limitRangeList.length" :headers="lrHeaders" :rows="store.limitRangeList" @row-click="editItem">
+    <DataTable v-if="activeTab === 'limitranges' && store.limitRangeList.length" :headers="lrHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">tune</span>
@@ -215,6 +236,9 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
     </DataTable>
     <div v-else-if="activeTab === 'limitranges'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
       <span class="material-symbols-outlined text-5xl text-surface-container-high">tune</span>
@@ -223,7 +247,7 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
     </div>
 
     <!-- HPA -->
-    <DataTable v-if="activeTab === 'hpas' && store.hpaList.length" :headers="hpaHeaders" :rows="store.hpaList" @row-click="editItem">
+    <DataTable v-if="activeTab === 'hpas' && store.hpaList.length" :headers="hpaHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">timeline</span>
@@ -239,6 +263,9 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
           <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
           <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
+      </template>
+      <template #pagination>
+        <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
     <div v-else-if="activeTab === 'hpas'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">

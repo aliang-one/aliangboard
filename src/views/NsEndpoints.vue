@@ -5,6 +5,8 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,6 +21,8 @@ const filtered = computed(() => {
   const list = store.nsEndpoints
   return q ? list.filter(e => e.name.toLowerCase().includes(q)) : list
 })
+const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })
+
 function toggleExpand(name) {
   const s = new Set(expanded.value)
   if (s.has(name)) s.delete(name); else s.add(name)
@@ -62,7 +66,7 @@ const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <template v-for="row in filtered" :key="row.name">
+          <template v-for="row in paginated" :key="row.name">
             <tr class="hover:bg-surface-container-low/50 transition-colors">
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
@@ -103,8 +107,17 @@ const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
               </td>
             </tr>
           </template>
+          <tr v-if="!filtered.length">
+            <td :colspan="6" class="px-lg py-xl text-center">
+              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant">暂无数据</p>
+            </td>
+          </tr>
         </tbody>
       </table>
+      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </div>
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ search ? 'search_off' : 'hub' }}</span>
