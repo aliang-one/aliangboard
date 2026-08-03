@@ -1,11 +1,13 @@
 <script setup>
 // Namespace 应用分层：把工作负载 / Service / Ingress 按分层体系归类展示。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
-import { groupByLayer, LAYER_TAXONOMY } from '@/composables/useLayering'
+import { groupByLayer, LAYER_TAXONOMY, TIER_OPTIONS, classifyResource } from '@/composables/useLayering'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import Modal from '@/components/common/Modal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +32,29 @@ function goTo(it) {
   if (it._kind === 'workload') router.push({ name: 'NsWorkloadDetail', params: { namespace: it.namespace, type: String(it.kind).toLowerCase(), name: it.name } })
   else if (it._kind === 'service') router.push({ name: 'NsServiceDetail', params: { namespace: it.namespace, name: it.name } })
   else if (it._kind === 'ingress') router.push({ name: 'NsIngressDetail', params: { namespace: it.namespace, name: it.name } })
+}
+
+// 就地修改分层：chip 悬停出 layers 按钮 → 选层 → patch layer.aliangboard.io label → 即时重排
+const showLayerModal = ref(false)
+const layerTarget = ref(null)
+const layerSaving = ref(false)
+function setLayer(it) { layerTarget.value = it; showLayerModal.value = true }
+function currentLayerOf(it) { return it ? classifyResource(it) : '' }
+function layerLabel(key) { return TIER_OPTIONS.find(o => o.value === key)?.label || key }
+async function applyLayer(key) {
+  const it = layerTarget.value
+  if (!it) return
+  layerSaving.value = true
+  try {
+    await store.reassignLayer(it.kind, it.name, it.namespace, key)
+    notify('success', `${it.name} 已移至「${layerLabel(key)}」`)
+    showLayerModal.value = false
+    layerTarget.value = null
+  } catch (e) {
+    notify('error', e.message || '修改分层失败')
+  } finally {
+    layerSaving.value = false
+  }
 }
 </script>
 
@@ -87,12 +112,18 @@ function goTo(it) {
               <span class="text-body-xs text-on-surface-variant opacity-70">· {{ sub.desc }}</span>
             </div>
             <div class="flex flex-wrap gap-sm">
-              <button v-for="it in sub.items" :key="it._kind + it.name" @click="goTo(it)"
-                class="group flex items-center gap-sm px-md py-sm rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
-                <span class="material-symbols-outlined text-on-surface-variant text-lg group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
-                <span class="font-mono text-code-sm text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
-                <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
-              </button>
+              <div v-for="it in sub.items" :key="it._kind + it.name" class="relative group/chip">
+                <button @click="goTo(it)"
+                  class="group flex items-center gap-sm px-md py-sm rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
+                  <span class="material-symbols-outlined text-on-surface-variant text-lg group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                  <span class="font-mono text-code-sm text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
+                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
+                </button>
+                <button @click.stop="setLayer(it)" title="修改分层"
+                  class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center">
+                  <span class="material-symbols-outlined text-sm">layers</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -100,13 +131,19 @@ function goTo(it) {
         <!-- 普通层：资源 chips -->
         <div v-else class="p-lg">
           <div class="flex flex-wrap gap-sm">
-            <button v-for="it in g.items" :key="it._kind + it.name" @click="goTo(it)"
-              class="group flex items-center gap-sm px-md py-sm rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
-              <span class="material-symbols-outlined text-on-surface-variant text-lg group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
-              <span class="font-mono text-code-sm text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
-              <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
-              <StatusChip v-if="it.status" :status="it.status" size="sm" />
-            </button>
+            <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
+              <button @click="goTo(it)"
+                class="group flex items-center gap-sm px-md py-sm rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
+                <span class="material-symbols-outlined text-on-surface-variant text-lg group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                <span class="font-mono text-code-sm text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
+                <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
+                <StatusChip v-if="it.status" :status="it.status" size="sm" />
+              </button>
+              <button @click.stop="setLayer(it)" title="修改分层"
+                class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center">
+                <span class="material-symbols-outlined text-sm">layers</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -130,5 +167,20 @@ function goTo(it) {
         </div>
       </div>
     </details>
+
+    <!-- 修改分层 Modal（写 layer.aliangboard.io label，即时重排） -->
+    <Modal v-model="showLayerModal" :title="`修改分层 — ${layerTarget?.name || ''}`" width="max-w-lg">
+      <p class="text-body-sm text-on-surface-variant mb-sm">
+        选择该资源所属的应用分层（写入 label
+        <code class="font-mono text-code-sm bg-surface-container px-1 rounded">layer.aliangboard.io</code>，保存后即时重排）。
+      </p>
+      <div class="flex flex-wrap gap-xs">
+        <button v-for="t in TIER_OPTIONS" :key="t.value" @click="applyLayer(t.value)" :disabled="layerSaving"
+          class="flex items-center gap-xs px-md py-sm rounded-lg border text-body-sm transition-colors disabled:opacity-50"
+          :class="currentLayerOf(layerTarget) === t.value ? 'bg-primary text-on-primary border-primary font-semibold' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
+          <span class="material-symbols-outlined text-base">{{ t.icon }}</span>{{ t.label }}
+        </button>
+      </div>
+    </Modal>
   </section>
 </template>

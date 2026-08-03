@@ -8,6 +8,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
 
 const router = useRouter()
@@ -125,6 +126,7 @@ const nodeHealthPct = computed(() => {
       <template #name="{ row }">
         <div class="flex flex-col">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <span v-if="readMeta(row).title" class="text-body-xs text-primary">{{ readMeta(row).title }}</span>
           <span class="font-mono text-code-sm text-on-surface-variant">{{ row.sha }}</span>
         </div>
       </template>

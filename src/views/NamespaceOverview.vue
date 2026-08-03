@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import { readMeta, fmtDate, imageTag } from '@/composables/useBusinessMeta'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +32,23 @@ function tierMeta(color) { return colorMap[color] || colorMap.surface }
 function tierTextColor(c) { return tierMeta(c).text }
 function tierBg(c) { return tierMeta(c).bg }
 function tierChip(c) { return `${tierMeta(c).bg} ${tierMeta(c).text} ${tierMeta(c).border}` }
+
+// 卡片健康信号：管理 Pod 的最大重启次数（>0 显示徽标，>3 标红）
+function maxRestarts(w) {
+  const pods = store.getWorkloadPods?.(w.name, w.namespace) || []
+  return pods.reduce((m, p) => Math.max(m, p.restarts || 0), 0)
+}
+// 业务元数据：从 labels/annotations 读 title/description 等（aliangboard.io/* 体系）
+const metaCache = new WeakMap()
+function metaOf(w) {
+  if (!w) return {}
+  if (!metaCache.has(w)) metaCache.set(w, readMeta(w))
+  return metaCache.get(w)
+}
+function imgBase(image) {
+  if (!image) return ''
+  return image.split('@')[0].replace(/:[^/]*$/, '')   // 去 tag/digest，留 registry/repo
+}
 
 function statusDot(status) {
   return {
@@ -159,10 +177,31 @@ function goToWorkload(w) {
                 class="group p-sm rounded-lg border border-outline-variant bg-surface-container-low hover:shadow-card-hover hover:-translate-y-0.5 hover:border-primary transition-all cursor-pointer">
                 <div class="flex items-center justify-between mb-xs">
                   <span class="w-2 h-2 rounded-full shrink-0" :class="statusDot(w.status)"></span>
-                  <span class="text-label-caps text-on-surface-variant opacity-60">{{ w.type }}</span>
+                  <div class="flex items-center gap-xs">
+                    <span v-if="maxRestarts(w) > 0" class="flex items-center gap-0.5 text-body-xs font-semibold" :class="maxRestarts(w) > 3 ? 'text-error' : 'text-tertiary-container'" :title="`管理 Pod 共 ${maxRestarts(w)} 次重启`">
+                      <span class="material-symbols-outlined text-sm">restart_alt</span>{{ maxRestarts(w) }}
+                    </span>
+                    <span class="px-1 rounded bg-surface-container text-label-caps text-on-surface-variant">{{ w.type }}</span>
+                  </div>
                 </div>
-                <p class="font-mono text-code-sm font-semibold text-on-surface truncate">{{ w.name }}</p>
-                <p class="text-body-xs text-on-surface-variant mt-xs">{{ w.replicas }} · {{ w.age }}</p>
+                <!-- 标题：label aliangboard.io/title 优先，否则用 name -->
+                <p class="text-body-sm font-semibold text-on-surface truncate" :title="metaOf(w).title ? w.name : ''">{{ metaOf(w).title || w.name }}</p>
+                <p v-if="metaOf(w).title" class="font-mono text-code-xs text-on-surface-variant truncate">{{ w.name }}</p>
+                <p v-if="metaOf(w).description" class="text-body-xs text-on-surface-variant truncate mt-xs" :title="metaOf(w).description">{{ metaOf(w).description }}</p>
+                <!-- 镜像：repo + 版本 tag 高亮 -->
+                <div class="flex items-center gap-0.5 mt-xs min-w-0">
+                  <span class="font-mono text-code-xs text-on-surface-variant truncate">{{ imgBase(w.image) }}</span>
+                  <span v-if="imageTag(w.image)" class="font-mono text-code-xs text-primary shrink-0">:{{ imageTag(w.image) }}</span>
+                </div>
+                <!-- 业务元数据：owner / version（来自 aliangboard.io/* 标签，有才显示） -->
+                <div v-if="metaOf(w).owner || metaOf(w).version" class="flex items-center gap-0.5 mt-xs flex-wrap">
+                  <span v-if="metaOf(w).owner" class="inline-flex items-center gap-0.5 px-1.5 rounded bg-surface-container text-body-xs text-on-surface-variant border border-outline-variant/60"><span class="material-symbols-outlined text-xs">group</span>{{ metaOf(w).owner }}</span>
+                  <span v-if="metaOf(w).version" class="inline-flex items-center gap-0.5 px-1.5 rounded bg-surface-container text-body-xs text-primary border border-outline-variant/60"><span class="material-symbols-outlined text-xs">sell</span>{{ metaOf(w).version }}</span>
+                </div>
+                <div class="flex items-center justify-between text-body-xs text-on-surface-variant mt-xs">
+                  <span class="font-mono">{{ w.replicas }}</span>
+                  <span class="font-mono">{{ fmtDate(w.createdAt) }}</span>
+                </div>
               </div>
             </div>
           </div>
