@@ -584,37 +584,37 @@ async function handleDeploy() {
 
 <template>
   <div class="animate-fade-in max-w-4xl mx-auto">
-    <div class="mb-xl">
+    <div class="mb-md">
       <Breadcrumbs v-if="route.params.namespace" :items="[
         { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
         { label: 'Deploy New App' }
       ]" />
-      <h2 class="text-display-lg text-on-surface" :class="route.params.namespace ? 'mt-sm' : ''">Deploy New App</h2>
-      <p class="text-on-surface-variant text-body-md mt-1">Deploy to namespace <span class="text-primary font-medium">{{ route.params.namespace || form.namespace }}</span></p>
+      <h2 class="text-headline-lg text-on-surface font-bold" :class="route.params.namespace ? 'mt-sm' : ''">Deploy New App</h2>
+      <p class="text-on-surface-variant text-body-sm mt-xs">Deploy to namespace <span class="text-primary font-medium">{{ route.params.namespace || form.namespace }}</span></p>
     </div>
 
     <!-- Deploy Success -->
-    <div v-if="showDeploySuccess" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-xl shadow-card text-center">
-      <div class="w-20 h-20 rounded-full bg-primary-container/20 flex items-center justify-center mx-auto mb-lg">
-        <span class="material-symbols-outlined text-primary text-4xl">check_circle</span>
+    <div v-if="showDeploySuccess" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
+      <div class="w-16 h-16 rounded-full bg-primary-container/20 flex items-center justify-center mx-auto mb-md">
+        <span class="material-symbols-outlined text-primary text-2xl">check_circle</span>
       </div>
-      <h3 class="text-headline-lg text-on-surface mb-sm">Deployment Successful!</h3>
-      <p class="text-body-md text-on-surface-variant mb-lg">Application <span class="text-primary font-semibold">{{ form.name }}</span> has been deployed to namespace <span class="font-semibold">{{ form.namespace }}</span></p>
+      <h3 class="text-headline-md text-on-surface mb-xs">Deployment Successful!</h3>
+      <p class="text-body-sm text-on-surface-variant mb-md">Application <span class="text-primary font-semibold">{{ form.name }}</span> has been deployed to namespace <span class="font-semibold">{{ form.namespace }}</span></p>
       <div class="flex justify-center gap-sm">
-        <button @click="router.push({ name: 'NsWorkloads', params: { namespace: form.namespace } })" class="px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+        <button @click="router.push({ name: 'NsWorkloads', params: { namespace: form.namespace } })" class="px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold hover:opacity-90">
           View Workloads
         </button>
-        <button @click="router.push({ name: 'NsPods', params: { namespace: form.namespace } })" class="px-lg py-sm border border-outline-variant rounded-lg hover:bg-surface-container-high">
+        <button @click="router.push({ name: 'NsPods', params: { namespace: form.namespace } })" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high">
           View Pods
         </button>
-        <button @click="showDeploySuccess = false; currentStep = 0; resetForm()" class="px-lg py-sm border border-outline-variant rounded-lg hover:bg-surface-container-high">
+        <button @click="showDeploySuccess = false; currentStep = 0; resetForm()" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high">
           Deploy Another
         </button>
       </div>
     </div>
 
     <!-- Step Indicator -->
-    <div v-if="!showDeploySuccess" class="flex items-center mb-xl">
+    <div v-if="!showDeploySuccess" class="flex items-center mb-md">
       <div v-for="(step, idx) in steps" :key="idx" class="flex items-center">
         <div
           class="flex items-center gap-sm cursor-pointer"
@@ -622,118 +622,118 @@ async function handleDeploy() {
           @click="idx < currentStep ? currentStep = idx : null"
         >
           <div
-            class="w-10 h-10 rounded-full flex items-center justify-center text-on-primary font-semibold transition-all"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-on-primary font-semibold transition-all text-body-sm"
             :class="idx === currentStep ? 'bg-primary' : idx < currentStep ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container text-on-surface-variant'"
           >
-            <span v-if="idx < currentStep" class="material-symbols-outlined">check</span>
+            <span v-if="idx < currentStep" class="material-symbols-outlined text-sm">check</span>
             <span v-else>{{ idx + 1 }}</span>
           </div>
-          <span class="text-body-md font-medium hidden md:inline">{{ step.title }}</span>
+          <span class="text-body-sm font-medium hidden md:inline">{{ step.title }}</span>
         </div>
         <div v-if="idx < steps.length - 1" class="w-8 md:w-16 h-0.5 mx-1" :class="idx < currentStep ? 'bg-primary' : 'bg-outline-variant'"></div>
       </div>
     </div>
 
     <!-- Step Content -->
-    <div v-if="!showDeploySuccess" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-xl shadow-card">
+    <div v-if="!showDeploySuccess" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md">
 
       <!-- Step 1: Basic Info -->
       <div v-if="currentStep === 0">
-        <h3 class="text-headline-md mb-lg">Basic Information</h3>
+        <h3 class="text-headline-sm font-bold mb-md">Basic Information</h3>
         <!-- 快速开始模板 -->
-        <div class="mb-lg p-md bg-primary-container/5 border border-primary/20 rounded-lg">
-          <p class="text-body-sm font-medium text-on-surface mb-sm flex items-center gap-xs">
-            <span class="material-symbols-outlined text-primary text-base">bolt</span>快速开始模板（一键填充镜像/端口/资源）
+        <div class="mb-md p-md bg-primary-container/5 border border-primary/20 rounded-lg">
+          <p class="text-body-xs font-medium text-on-surface mb-xs flex items-center gap-xs">
+            <span class="material-symbols-outlined text-primary text-sm">bolt</span>快速开始模板（一键填充镜像/端口/资源）
           </p>
           <div class="flex flex-wrap gap-sm">
-            <button v-for="t in quickTemplates" :key="t.id" @click="applyTemplate(t)" class="flex items-center gap-xs px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-body-sm font-medium hover:border-primary hover:text-primary transition-colors">
-              <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+            <button v-for="t in quickTemplates" :key="t.id" @click="applyTemplate(t)" class="flex items-center gap-xs px-sm py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-body-xs font-medium hover:border-primary hover:text-primary transition-colors">
+              <span class="material-symbols-outlined text-xs">{{ t.icon }}</span>{{ t.label }}
             </button>
           </div>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">App Name *</label>
-            <input v-model="form.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="my-application" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">App Name *</label>
+            <input v-model="form.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="my-application" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Namespace *</label>
-            <div v-if="route.params.namespace" class="w-full bg-primary/5 border border-primary/30 rounded-lg px-md py-sm text-body-md text-primary font-medium">
-              <span class="material-symbols-outlined text-sm align-middle mr-1">lock</span>{{ route.params.namespace }}
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Namespace *</label>
+            <div v-if="route.params.namespace" class="w-full bg-primary/5 border border-primary/30 rounded-lg px-md py-sm text-body-sm text-primary font-medium">
+              <span class="material-symbols-outlined text-xs align-middle mr-1">lock</span>{{ route.params.namespace }}
             </div>
-            <select v-else v-model="form.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary">
+            <select v-else v-model="form.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-primary focus:border-primary">
               <option v-for="ns in store.namespaceList" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
             </select>
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Workload Type</label>
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Workload Type</label>
             <div class="flex flex-wrap gap-sm">
               <button v-for="wt in workloadTypes" :key="wt" @click="form.workloadType = wt"
-                class="px-lg py-sm rounded-lg border font-medium text-body-md transition-all"
+                class="px-md py-xs rounded-lg border font-medium text-body-sm transition-all"
                 :class="form.workloadType === wt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'"
               >{{ wt }}</button>
             </div>
           </div>
           <div v-if="!['DaemonSet','Job','CronJob'].includes(form.workloadType)">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label>
-            <input v-model.number="form.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Replicas</label>
+            <input v-model.number="form.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
           </div>
           <!-- Job 专属配置 -->
-          <div v-if="form.workloadType === 'Job'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-md p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Completions</label><input v-model.number="form.jobConfig.completions" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Parallelism</label><input v-model.number="form.jobConfig.parallelism" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Backoff Limit</label><input v-model.number="form.jobConfig.backoffLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Active Deadline (s)</label><input v-model.number="form.jobConfig.activeDeadlineSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="可选" /></div>
+          <div v-if="form.workloadType === 'Job'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-sm p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Completions</label><input v-model.number="form.jobConfig.completions" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Parallelism</label><input v-model.number="form.jobConfig.parallelism" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Backoff Limit</label><input v-model.number="form.jobConfig.backoffLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Active Deadline (s)</label><input v-model.number="form.jobConfig.activeDeadlineSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="可选" /></div>
           </div>
           <!-- CronJob 专属配置 -->
-          <div v-if="form.workloadType === 'CronJob'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-md p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
+          <div v-if="form.workloadType === 'CronJob'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-sm p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
             <div class="md:col-span-2">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Schedule (Cron 表达式)</label>
-              <input v-model="form.cronConfig.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="*/5 * * * *" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Schedule (Cron 表达式)</label>
+              <input v-model="form.cronConfig.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="*/5 * * * *" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Concurrency Policy</label>
-              <select v-model="form.cronConfig.concurrencyPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Concurrency Policy</label>
+              <select v-model="form.cronConfig.concurrencyPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option>Allow</option><option>Forbid</option><option>Replace</option>
               </select>
             </div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">成功历史保留</label><input v-model.number="form.cronConfig.successfulJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">失败历史保留</label><input v-model.number="form.cronConfig.failedJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">成功历史保留</label><input v-model.number="form.cronConfig.successfulJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">失败历史保留</label><input v-model.number="form.cronConfig.failedJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
           </div>
           <!-- 业务元数据（aliangboard.io/* 标签体系：写入后卡片/详情自动展示） -->
           <div class="md:col-span-2 mt-xs p-md rounded-lg border border-outline-variant/60 bg-surface-container-lowest">
-            <label class="text-label-caps text-on-surface-variant block mb-sm">业务元数据 <span class="text-tertiary-container normal-case">写入 aliangboard.io/* 标签，用于卡片标题 / 负责人 / 版本等展示</span></label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-md">
+            <label class="text-body-xs text-on-surface-variant block mb-sm">业务元数据 <span class="text-tertiary-container normal-case">写入 aliangboard.io/* 标签，用于卡片标题 / 负责人 / 版本等展示</span></label>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
               <div>
                 <label class="text-body-xs text-on-surface-variant block mb-xs">显示名 (title)</label>
-                <input v-model="form.metaTitle" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="如：用户中心（留空则用应用名）" />
+                <input v-model="form.metaTitle" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="如：用户中心（留空则用应用名）" />
               </div>
               <div>
                 <label class="text-body-xs text-on-surface-variant block mb-xs">负责人/团队 (owner)</label>
-                <input v-model="form.metaOwner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="team-pay" />
+                <input v-model="form.metaOwner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="team-pay" />
               </div>
               <div>
                 <label class="text-body-xs text-on-surface-variant block mb-xs">业务版本 (version)</label>
-                <input v-model="form.metaVersion" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="v2.3.1" />
+                <input v-model="form.metaVersion" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="v2.3.1" />
               </div>
               <div>
                 <label class="text-body-xs text-on-surface-variant block mb-xs">标签组 (tags，逗号分隔)</label>
-                <input v-model="form.metaTags" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="core,public" />
+                <input v-model="form.metaTags" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="core,public" />
               </div>
               <div class="md:col-span-2">
                 <label class="text-body-xs text-on-surface-variant block mb-xs">描述 (description)</label>
-                <textarea v-model="form.metaDescription" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary h-16 resize-none" placeholder="该服务的用途说明（写入 annotation）"></textarea>
+                <textarea v-model="form.metaDescription" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary h-16 resize-none" placeholder="该服务的用途说明（写入 annotation）"></textarea>
               </div>
             </div>
           </div>
           <div class="md:col-span-2">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier) <span class="text-tertiary-container normal-case">决定在分层拓扑中的归属</span></label>
+            <label class="text-body-xs text-on-surface-variant block mb-xs">服务分层 (Tier) <span class="text-tertiary-container normal-case">决定在分层拓扑中的归属</span></label>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
               <button v-for="t in tierOptions" :key="t.value" @click="form.tier = t.value"
-                class="flex flex-col items-start gap-xs px-md py-sm rounded-lg border text-left transition-all"
+                class="flex flex-col items-start gap-xs px-sm py-xs rounded-lg border text-left transition-all"
                 :class="form.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
-                <span class="flex items-center gap-xs text-body-sm font-medium">
-                  <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+                <span class="flex items-center gap-xs text-body-xs font-medium">
+                  <span class="material-symbols-outlined text-xs">{{ t.icon }}</span>{{ t.label }}
                 </span>
                 <span class="text-body-xs opacity-70">{{ t.desc }}</span>
               </button>
@@ -742,15 +742,15 @@ async function handleDeploy() {
         </div>
 
         <!-- Labels -->
-        <h4 class="text-headline-sm mt-xl mb-md">Labels</h4>
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">Labels</h4>
         <div class="flex flex-col gap-sm">
           <div v-for="(lbl, idx) in form.labels" :key="idx" class="flex gap-sm items-center">
-            <input v-model="lbl.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
-            <input v-model="lbl.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="value" />
-            <button v-if="form.labels.length > 1" @click="removeLabel(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <input v-model="lbl.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
+            <input v-model="lbl.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
+            <button v-if="form.labels.length > 1" @click="removeLabel(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addLabel" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Label
+          <button @click="addLabel" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Label
           </button>
         </div>
       </div>

@@ -124,25 +124,25 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'RBAC' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
-      <h2 class="text-display-lg text-on-surface">RBAC</h2>
+    <div class="flex justify-between items-end mt-sm mb-md">
+      <h2 class="text-headline-lg text-on-surface font-bold">RBAC</h2>
       <div class="flex gap-sm">
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-          <span class="material-symbols-outlined">add</span> Create Role
+        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+          <span class="material-symbols-outlined text-sm">add</span> Create Role
         </button>
-        <button @click="showCreateSAModal = true" class="flex items-center gap-sm px-md py-sm border border-outline-variant font-semibold rounded-lg hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">add</span> Create SA
+        <button @click="showCreateSAModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant font-semibold rounded-lg text-body-sm hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">add</span> Create SA
         </button>
       </div>
     </div>
-    <div class="flex flex-wrap border-b border-outline-variant mb-lg">
-      <button @click="activeTab = 'roles'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">Roles</button>
-      <button @click="activeTab = 'serviceaccounts'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'serviceaccounts' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">ServiceAccounts</button>
-      <button @click="activeTab = 'rolebindings'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors" :class="activeTab === 'rolebindings' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">RoleBindings</button>
-      <button @click="activeTab = 'clusterroles'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterroles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+    <div class="flex flex-wrap border-b border-outline-variant mb-md">
+      <button @click="activeTab = 'roles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">Roles</button>
+      <button @click="activeTab = 'serviceaccounts'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'serviceaccounts' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">ServiceAccounts</button>
+      <button @click="activeTab = 'rolebindings'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'rolebindings' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">RoleBindings</button>
+      <button @click="activeTab = 'clusterroles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterroles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         <span class="material-symbols-outlined text-sm">public</span>ClusterRoles
       </button>
-      <button @click="activeTab = 'clusterrolebindings'" class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterrolebindings' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+      <button @click="activeTab = 'clusterrolebindings'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterrolebindings' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         <span class="material-symbols-outlined text-sm">public</span>ClusterRoleBindings
       </button>
     </div>
@@ -183,7 +183,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- RoleBindings Tab -->
     <div v-if="activeTab === 'rolebindings'" class="flex flex-col gap-md">
       <div class="flex justify-end">
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-md py-sm border border-outline-variant font-semibold rounded-lg hover:bg-surface-container transition-colors text-body-sm">
+        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant font-semibold rounded-lg text-body-sm hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-sm">add</span> Create RoleBinding
         </button>
       </div>
@@ -220,7 +220,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-primary">public</span>
           <p class="text-body-sm text-on-surface">集群级角色（ClusterRole）对所有命名空间生效</p>
         </div>
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
+        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
           <span class="material-symbols-outlined text-sm">add</span> Create ClusterRole
         </button>
       </div>
@@ -250,7 +250,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-primary">public</span>
           <p class="text-body-sm text-on-surface">集群级角色绑定（ClusterRoleBinding）跨命名空间授权</p>
         </div>
-        <button @click="showCreateCRBModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
+        <button @click="showCreateCRBModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
           <span class="material-symbols-outlined text-sm">add</span> Create ClusterRoleBinding
         </button>
       </div>

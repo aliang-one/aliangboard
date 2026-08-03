@@ -97,18 +97,18 @@ function handleDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'Ingress' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Ingress</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg font-bold text-on-surface">Ingress</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> New Ingress
       </button>
     </div>
 
     <!-- 搜索框 -->
-    <div class="flex items-center gap-md mb-lg">
+    <div class="flex items-center gap-md mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或域名搜索..." />
@@ -117,38 +117,38 @@ function handleDelete() {
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsIngress.length }}</span>
     </div>
 
-    <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Hosts</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Path</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Backend</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">TLS</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Hosts</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Path</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Backend</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">TLS</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-lg">language</span>
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm text-primary font-semibold">{{ row.hosts }}</span></td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm">{{ row.path }}</span></td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.backend }}</span></td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><span class="font-mono text-code-sm text-primary font-semibold">{{ row.hosts }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-code-sm">{{ row.path }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.backend }}</span></td>
+            <td class="px-md py-2">
               <div class="flex items-center gap-xs">
                 <span class="material-symbols-outlined text-lg" :class="row.tls ? 'text-primary' : 'text-on-surface-variant'">{{ row.tls ? 'lock' : 'lock_open' }}</span>
                 <span class="text-body-sm" :class="row.tls ? 'text-primary' : 'text-on-surface-variant'">{{ row.tls ? 'Enabled' : 'None' }}</span>
               </div>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
                 <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="View Details">
                   <span class="material-symbols-outlined text-lg">open_in_new</span>
@@ -161,15 +161,15 @@ function handleDelete() {
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ searchQuery ? 'search_off' : 'language' }}</span>
-      <p class="text-on-surface-variant mt-md">{{ searchQuery ? `没有匹配 "${searchQuery}" 的 Ingress` : 'No ingress rules in this namespace' }}</p>
-      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除搜索</button>
-      <button v-else @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Ingress</button>
+    <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ searchQuery ? 'search_off' : 'language' }}</span>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ searchQuery ? `没有匹配 "${searchQuery}" 的 Ingress` : 'No ingress rules in this namespace' }}</p>
+      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container">清除搜索</button>
+      <button v-else @click="showCreateModal = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">Create Ingress</button>
     </div>
   </section>
 

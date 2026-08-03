@@ -97,26 +97,28 @@ async function doDelete() {
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">RBAC</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">Manage Role-Based Access Control: Roles, RoleBindings, and ServiceAccounts.</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">RBAC</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">Manage Role-Based Access Control: Roles, RoleBindings, and ServiceAccounts.</p>
       </div>
       <div class="flex gap-sm">
-        <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">verified_user</span> 权限模拟
+        <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-base">verified_user</span> 权限模拟
         </button>
-        <button @click="createRole" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
-          <span class="material-symbols-outlined">add</span> Create Role
+        <button @click="createRole" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+          <span class="material-symbols-outlined text-base">add</span> Create Role
         </button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
-        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
-      >{{ tab.label }}</button>
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+      >{{ tab.label }}
+        <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
+      </button>
     </div>
 
     <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" @row-click="openRole">
@@ -128,10 +130,10 @@ async function doDelete() {
       </template>
       <template #namespace="{ row }">
         <span v-if="row.namespace" class="font-mono text-code-sm">{{ row.namespace }}</span>
-        <span v-else class="px-2 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded">CLUSTER-WIDE</span>
+        <span v-else class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-body-xs rounded font-medium">CLUSTER-WIDE</span>
       </template>
       <template #scope="{ row }">
-        <span class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ row.scope }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.scope }}</span>
       </template>
       <template #bindings="{ row }">
         <span class="font-mono text-code-sm font-bold">{{ row.bindings }}</span>

@@ -82,81 +82,81 @@ function handleDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'LimitRanges' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">LimitRanges</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsLimitRanges.length }} LimitRanges in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg text-on-surface font-bold">LimitRanges</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsLimitRanges.length }} LimitRanges in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New LimitRange
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-sm">add</span> New LimitRange
       </button>
     </div>
 
-    <div v-if="store.nsLimitRanges.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div v-if="store.nsLimitRanges.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Default CPU</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Default Memory</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Max CPU</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Max Memory</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Default CPU</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Default Memory</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Max CPU</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Max Memory</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-lg">tune</span>
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+                <span class="material-symbols-outlined text-secondary text-sm">tune</span>
+                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-sm font-mono rounded">
+            <td class="px-md py-2">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-xs font-mono rounded">
                 {{ row.defaultCPU }}
               </span>
             </td>
-            <td class="px-lg py-md">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-sm font-mono rounded">
+            <td class="px-md py-2">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-xs font-mono rounded">
                 {{ row.defaultMemory }}
               </span>
             </td>
-            <td class="px-lg py-md">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-sm font-mono rounded">
+            <td class="px-md py-2">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-xs font-mono rounded">
                 {{ row.maxCPU }}
               </span>
             </td>
-            <td class="px-lg py-md">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-sm font-mono rounded">
+            <td class="px-md py-2">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-xs font-mono rounded">
                 {{ row.maxMemory }}
               </span>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+                <button @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
             </td>
           </tr>
           <tr v-if="!store.nsLimitRanges.length">
-            <td :colspan="7" class="px-lg py-xl text-center">
-              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant">暂无数据</p>
+            <td :colspan="7" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">tune</span>
-      <p class="text-on-surface-variant mt-md">No LimitRanges in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create LimitRange</button>
+    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">tune</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">No LimitRanges in this namespace</p>
+      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create LimitRange</button>
     </div>
   </section>
 

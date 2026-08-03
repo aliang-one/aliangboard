@@ -28,63 +28,64 @@ async function sync() {
 
 <template>
   <div class="animate-fade-in" v-if="ns">
-    <div class="flex flex-col md:flex-row md:items-end justify-between mb-xl gap-md">
+    <div class="flex flex-col md:flex-row md:items-end justify-between mb-md gap-sm">
       <div>
         <Breadcrumbs :items="[
           { label: 'Namespaces', route: '/namespaces' },
           { label: ns.name }
         ]" />
-        <div class="flex items-center gap-sm mt-2">
-          <span class="material-symbols-outlined text-lg text-on-surface-variant">folder_open</span>
-          <span class="text-label-caps text-on-surface-variant uppercase">Namespace Explorer</span>
+        <div class="flex items-center gap-xs mt-xs">
+          <span class="material-symbols-outlined text-base text-on-surface-variant">folder_open</span>
+          <span class="text-body-xs text-on-surface-variant uppercase tracking-wider">Namespace Explorer</span>
         </div>
-        <h2 class="text-display-lg text-on-surface">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
+        <h2 class="text-headline-lg text-on-surface font-bold">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
-        <button @click="sync" :disabled="syncing" class="px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors flex items-center gap-sm disabled:opacity-50">
-          <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+        <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50">
+          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
       </div>
     </div>
 
-    <div class="grid grid-cols-12 gap-gutter">
+    <div class="grid grid-cols-12 gap-md">
       <!-- Resource Quotas -->
-      <section class="col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-        <div class="flex items-center justify-between mb-lg">
-          <h3 class="text-headline-sm">Resource Quotas</h3>
-          <span class="material-symbols-outlined text-primary">analytics</span>
+      <section class="col-span-12 lg:col-span-4 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">analytics</span>
+          <span class="text-body-sm font-semibold">Resource Quotas</span>
         </div>
-        <div class="space-y-xl">
+        <div class="p-md space-y-md">
           <div>
             <ProgressBar :value="62" show-label label="CPU Usage" />
-            <p class="font-mono text-code-sm text-on-surface-variant mt-1">7.4 / 12 Cores</p>
+            <p class="font-mono text-code-xs text-on-surface-variant mt-1">7.4 / 12 Cores</p>
           </div>
           <div>
             <ProgressBar :value="75" show-label label="Memory Usage" color="primary" />
-            <p class="font-mono text-code-sm text-on-surface-variant mt-1">24.1 / 32 GiB</p>
+            <p class="font-mono text-code-xs text-on-surface-variant mt-1">24.1 / 32 GiB</p>
           </div>
-          <div class="grid grid-cols-2 gap-md pt-md border-t border-outline-variant">
+          <div class="grid grid-cols-2 gap-md pt-sm border-t border-outline-variant/40">
             <div>
-              <p class="text-on-surface-variant text-body-sm mb-xs">Pods</p>
-              <p class="text-headline-sm">{{ ns.pods }} / 50</p>
+              <p class="text-on-surface-variant text-body-xs mb-xs">Pods</p>
+              <p class="text-body-md font-semibold">{{ ns.pods }} / 50</p>
             </div>
             <div>
-              <p class="text-on-surface-variant text-body-sm mb-xs">Services</p>
-              <p class="text-headline-sm">{{ ns.services }} / 20</p>
+              <p class="text-on-surface-variant text-body-xs mb-xs">Services</p>
+              <p class="text-body-md font-semibold">{{ ns.services }} / 20</p>
             </div>
           </div>
         </div>
       </section>
 
       <!-- Distribution Map -->
-      <section class="col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-        <div class="flex items-center justify-between mb-lg">
-          <h3 class="text-headline-sm">Workload Distribution</h3>
-          <span class="flex items-center gap-xs text-body-sm px-sm py-1 bg-primary/10 text-primary rounded-full">
-            <span class="w-2 h-2 bg-primary rounded-full animate-pulse-status"></span> Healthy
+      <section class="col-span-12 lg:col-span-8 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">grid_view</span>
+          <span class="text-body-sm font-semibold">Workload Distribution</span>
+          <span class="ml-auto flex items-center gap-xs text-body-xs px-sm py-0.5 bg-primary/10 text-primary rounded">
+            <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-status"></span> Healthy
           </span>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-md">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-md p-md">
           <div
             v-for="group in [
               { name: 'Deployments', icon: 'layers', items: nsWorkloads.filter(w => w.type === 'Deployment').slice(0, 6) },
@@ -92,13 +93,13 @@ async function sync() {
               { name: 'DaemonSets', icon: 'settings_slow_motion', items: nsWorkloads.filter(w => w.type === 'DaemonSet').slice(0, 6) },
             ]"
             :key="group.name"
-            class="p-md rounded-lg border border-outline-variant bg-surface-container-low hover:border-primary transition-colors"
+            class="p-sm rounded-lg border border-outline-variant bg-surface-container-low hover:border-primary transition-colors"
           >
-            <div class="flex items-center justify-between mb-md">
-              <span class="text-label-caps uppercase text-on-surface-variant">{{ group.name }}</span>
-              <span class="material-symbols-outlined text-lg">{{ group.icon }}</span>
+            <div class="flex items-center justify-between mb-sm">
+              <span class="text-body-xs uppercase text-on-surface-variant">{{ group.name }}</span>
+              <span class="material-symbols-outlined text-base">{{ group.icon }}</span>
             </div>
-            <div class="grid grid-cols-3 gap-sm">
+            <div class="grid grid-cols-3 gap-xs">
               <div
                 v-for="(item, idx) in group.items.length ? group.items : [{ status: 'empty' }]"
                 :key="idx"
@@ -113,27 +114,29 @@ async function sync() {
       </section>
 
       <!-- Workloads Table -->
-      <section class="col-span-12 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="p-lg pb-md">
-          <h3 class="text-headline-sm">Workloads ({{ nsWorkloads.length }})</h3>
+      <section class="col-span-12 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
+          <span class="text-body-sm font-semibold">Workloads</span>
+          <span class="text-body-xs text-on-surface-variant ml-auto">{{ nsWorkloads.length }}</span>
         </div>
         <table class="w-full text-left">
           <thead>
-            <tr class="bg-surface-container-low border-y border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Replicas</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+            <tr class="bg-surface-container-low/50 border-b border-outline-variant">
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Replicas</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/50 cursor-pointer" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })">
-              <td class="px-lg py-md font-semibold text-on-surface text-body-md">{{ w.name }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ w.type }}</td>
-              <td class="px-lg py-md"><StatusChip :status="w.status" /></td>
-              <td class="px-lg py-md font-mono text-code-sm">{{ w.replicas }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ w.age }}</td>
+          <tbody class="divide-y divide-outline-variant/15">
+            <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/40 cursor-pointer" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })">
+              <td class="px-md py-2 font-semibold text-on-surface text-body-sm">{{ w.name }}</td>
+              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ w.type }}</td>
+              <td class="px-md py-2"><StatusChip :status="w.status" size="sm" /></td>
+              <td class="px-md py-2 font-mono text-code-xs">{{ w.replicas }}</td>
+              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ w.age }}</td>
             </tr>
           </tbody>
         </table>

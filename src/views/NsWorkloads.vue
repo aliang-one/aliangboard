@@ -93,42 +93,42 @@ function handleDelete() {
       { label: 'Workloads' }
     ]" />
 
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Workloads</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg font-bold text-on-surface">Workloads</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+      <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">rocket_launch</span> New Workload
       </router-link>
     </div>
 
     <!-- Type Summary -->
-    <div class="grid grid-cols-4 gap-sm mb-lg">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Deployment' ? 'All' : 'Deployment'">
-        <span class="material-symbols-outlined text-primary text-lg">view_carousel</span>
+    <div class="grid grid-cols-4 gap-sm mb-md">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Deployment' ? 'All' : 'Deployment'">
+        <span class="material-symbols-outlined text-primary text-base">view_carousel</span>
         <span class="text-body-sm text-on-surface-variant">Deployments</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ deployCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'StatefulSet' ? 'All' : 'StatefulSet'">
-        <span class="material-symbols-outlined text-secondary text-lg">database</span>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'StatefulSet' ? 'All' : 'StatefulSet'">
+        <span class="material-symbols-outlined text-secondary text-base">database</span>
         <span class="text-body-sm text-on-surface-variant">StatefulSets</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ stsCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'DaemonSet' ? 'All' : 'DaemonSet'">
-        <span class="material-symbols-outlined text-tertiary text-lg">settings_slow_motion</span>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'DaemonSet' ? 'All' : 'DaemonSet'">
+        <span class="material-symbols-outlined text-tertiary text-base">settings_slow_motion</span>
         <span class="text-body-sm text-on-surface-variant">DaemonSets</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ dsCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Job' ? 'All' : 'Job'">
-        <span class="material-symbols-outlined text-on-surface-variant text-lg">schedule</span>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Job' ? 'All' : 'Job'">
+        <span class="material-symbols-outlined text-on-surface-variant text-base">schedule</span>
         <span class="text-body-sm text-on-surface-variant">Jobs</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ jobCount }}</span>
       </div>
     </div>
 
     <!-- Filters -->
-    <div class="flex flex-wrap items-center gap-sm mb-lg">
+    <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索名称或镜像..." />
@@ -143,33 +143,33 @@ function handleDelete() {
     </div>
 
     <!-- Table -->
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Replicas</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Image</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-12"></th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Replicas</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Image</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-12"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="goDetail(row)">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="goDetail(row)">
+            <td class="px-md py-2">
               <div class="flex flex-col">
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
                 <span v-if="readMeta(row).title" class="text-body-xs text-primary">{{ readMeta(row).title }}</span>
                 <span class="font-mono text-code-xs text-on-surface-variant">{{ row.sha }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
-              <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
+            <td class="px-md py-2">
+              <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
             </td>
-            <td class="px-lg py-md"><StatusChip :status="row.status" size="sm" /></td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><StatusChip :status="row.status" size="sm" /></td>
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
                 <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full" :class="replicaPercent(row.replicas) === 100 ? 'bg-primary' : replicaPercent(row.replicas) === 0 ? 'bg-error' : 'bg-tertiary-container'" :style="{ width: replicaPercent(row.replicas) + '%' }"></div>
@@ -177,22 +177,22 @@ function handleDelete() {
                 <span class="font-mono text-code-sm font-bold" :class="replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
               </div>
             </td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.image }}</span></td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.image }}</span></td>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2">
               <DropdownMenu :items="menuItems(row)" />
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="7" class="px-lg py-xl text-center">
-              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-on-surface-variant">No workloads found matching your filters</p>
+            <td colspan="7" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
+              <p class="text-body-sm text-on-surface-variant">No workloads found matching your filters</p>
             </td>
           </tr>
         </tbody>
       </table>
       <!-- 分页 -->
-      <div v-if="filtered.length" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="filtered.length" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
         <Pagination
           :total="filtered.length"
           :page-size="pageSize"

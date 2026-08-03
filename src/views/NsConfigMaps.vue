@@ -96,92 +96,92 @@ function handleBatchDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'ConfigMaps' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">ConfigMaps</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg text-on-surface font-bold">ConfigMaps</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New ConfigMap
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-sm">add</span> New ConfigMap
       </button>
     </div>
 
     <!-- 搜索框 -->
-    <div class="flex items-center gap-md mb-lg">
+    <div class="flex items-center gap-sm mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称或数据 key 搜索..." />
+        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称或数据 key 搜索..." />
         <button v-if="search" @click="search = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsConfigMaps.length }}</span>
+      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsConfigMaps.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-body-sm font-medium text-primary">已选 {{ selected.size }} 项</span>
-        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-body-sm font-semibold hover:opacity-90">
+        <span class="text-body-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-body-xs font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-sm">delete</span>批量删除
         </button>
-        <button @click="selected = new Set()" class="text-body-sm text-on-surface-variant hover:text-on-surface">取消</button>
+        <button @click="selected = new Set()" class="text-body-xs text-on-surface-variant hover:text-on-surface">取消</button>
       </div>
     </div>
 
-    <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md w-10">
+            <th class="px-md py-2 w-10">
               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Data Keys</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Preview</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Data Keys</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Preview</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md" @click.stop>
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2" @click.stop>
               <input type="checkbox" :checked="selected.has(row.name)" @change="toggleSelect(row.name)" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-lg">description</span>
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+                <span class="material-symbols-outlined text-secondary text-sm">description</span>
+                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-surface-container text-body-sm font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-body-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
+            <td class="px-md py-2">
               <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded">{{ k }}</span>
-                <span v-if="Object.keys(row.data || {}).length > 4" class="text-label-caps text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
+                <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-body-xs rounded">{{ k }}</span>
+                <span v-if="Object.keys(row.data || {}).length > 4" class="text-body-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
               </div>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+                <button @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td :colspan="6" class="px-lg py-xl text-center">
-              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant">暂无数据</p>
+            <td :colspan="6" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
-      <p class="text-on-surface-variant mt-md">{{ search ? `没有匹配 "${search}" 的 ConfigMap` : 'No ConfigMaps in this namespace' }}</p>
-      <button v-if="search" @click="search = ''" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除搜索</button>
-      <button v-else @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create ConfigMap</button>
+    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? `没有匹配 "${search}" 的 ConfigMap` : 'No ConfigMaps in this namespace' }}</p>
+      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除搜索</button>
+      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create ConfigMap</button>
     </div>
   </section>
 

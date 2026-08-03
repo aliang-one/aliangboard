@@ -85,37 +85,37 @@ function handleDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'Services' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Services</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg font-bold text-on-surface">Services</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> New Service
       </button>
     </div>
 
     <!-- Type Summary -->
-    <div class="grid grid-cols-3 gap-sm mb-lg">
-      <div class="bg-surface-container-lowest border rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'ClusterIP' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'ClusterIP' ? 'All' : 'ClusterIP'">
-        <span class="material-symbols-outlined text-primary text-lg">hub</span>
+    <div class="grid grid-cols-3 gap-sm mb-md">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'ClusterIP' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'ClusterIP' ? 'All' : 'ClusterIP'">
+        <span class="material-symbols-outlined text-primary text-base">hub</span>
         <span class="text-body-sm text-on-surface-variant">ClusterIP</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ clusterIPCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'NodePort' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'NodePort' ? 'All' : 'NodePort'">
-        <span class="material-symbols-outlined text-secondary text-lg">lan</span>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'NodePort' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'NodePort' ? 'All' : 'NodePort'">
+        <span class="material-symbols-outlined text-secondary text-base">lan</span>
         <span class="text-body-sm text-on-surface-variant">NodePort</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ nodePortCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'LoadBalancer' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'LoadBalancer' ? 'All' : 'LoadBalancer'">
-        <span class="material-symbols-outlined text-tertiary text-lg">public</span>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'LoadBalancer' ? 'border-primary bg-primary/5' : 'border-outline-variant'" @click="typeFilter = typeFilter === 'LoadBalancer' ? 'All' : 'LoadBalancer'">
+        <span class="material-symbols-outlined text-tertiary text-base">public</span>
         <span class="text-body-sm text-on-surface-variant">LoadBalancer</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ lbCount }}</span>
       </div>
     </div>
 
     <!-- Search -->
-    <div class="mb-lg">
+    <div class="mb-md">
       <div class="relative max-w-xs">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-sm py-sm text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="Search by name or IP..." />
@@ -123,40 +123,40 @@ function handleDelete() {
     </div>
 
     <!-- Table -->
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Cluster IP</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">External IP</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Ports</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Selector</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Cluster IP</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">External IP</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Ports</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Selector</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-lg">hub</span>
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md"><span class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ row.type }}</span></td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm">{{ row.clusterIP }}</span></td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm" :class="row.externalIP !== '-' ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ row.externalIP }}</span></td>
-            <td class="px-lg py-md"><span class="font-mono text-code-sm">{{ row.ports }}</span></td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-code-sm">{{ row.clusterIP }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-code-sm" :class="row.externalIP !== '-' ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ row.externalIP }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-code-sm">{{ row.ports }}</span></td>
+            <td class="px-md py-2">
               <div v-if="row.selector && Object.keys(row.selector).length" class="flex flex-wrap gap-0.5 max-w-[220px]">
                 <span v-for="(v, k) in row.selector" :key="k" class="font-mono text-code-xs px-1.5 py-0.5 bg-surface-container rounded text-on-surface-variant border border-outline-variant/60">{{ k }}={{ v }}</span>
               </div>
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
                 <button @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="View Details">
                   <span class="material-symbols-outlined text-lg">open_in_new</span>
@@ -168,11 +168,11 @@ function handleDelete() {
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="8" class="px-lg py-xl text-center text-on-surface-variant">No services found</td>
+            <td colspan="8" class="px-md py-md text-center text-body-sm text-on-surface-variant">No services found</td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>

@@ -38,20 +38,20 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Nodes</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">Monitor and manage cluster nodes. {{ store.healthyNodes }} of {{ store.totalNodes }} healthy.</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">Nodes</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">Monitor and manage cluster nodes. {{ store.healthyNodes }} of {{ store.totalNodes }} healthy.</p>
       </div>
       <div class="flex gap-sm">
-        <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+        <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
       </div>
     </div>
 
     <!-- 搜索框 -->
-    <div class="flex items-center gap-md mb-lg">
+    <div class="flex items-center gap-md mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称、角色或 IP 搜索..." />
@@ -77,7 +77,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
         <StatusChip :status="row.status === 'Ready' ? 'Ready' : 'NotReady'" />
       </template>
       <template #roles="{ row }">
-        <span class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ row.roles }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.roles }}</span>
       </template>
       <template #cpu="{ row }">
         <div class="w-24">

@@ -78,74 +78,80 @@ function saveEdit() {
     ]" />
 
     <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
-          <span class="material-symbols-outlined text-primary text-3xl">hub</span>
+    <div class="flex items-center justify-between mt-sm mb-md">
+      <div class="flex items-center gap-sm">
+        <div class="w-10 h-10 rounded-xl bg-primary-container/20 flex items-center justify-center">
+          <span class="material-symbols-outlined text-primary text-xl">hub</span>
         </div>
         <div>
-          <h1 class="text-display-lg text-on-surface">{{ svc.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
-            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ svc.type }}</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ svc.age }}</span>
-            <span class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ svc.namespace }}</span></span>
+          <h1 class="text-headline-lg text-on-surface font-bold">{{ svc.name }}</h1>
+          <div class="flex items-center gap-sm mt-xs">
+            <span class="px-2 py-0.5 bg-primary-container/10 text-primary text-body-xs rounded-full font-medium">{{ svc.type }}</span>
+            <span class="text-body-xs text-on-surface-variant">Age: {{ svc.age }}</span>
+            <span class="text-body-xs text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ svc.namespace }}</span></span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+      <div class="flex gap-xs">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-error/30 text-error font-semibold rounded-lg text-body-sm hover:bg-error-container/10 transition-colors">
+          <span class="material-symbols-outlined text-sm">delete</span> Delete
         </button>
-        <button @click="showPortForward = true" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">cable</span> Port Forward
+        <button @click="showPortForward = true" class="flex items-center gap-sm px-3 py-1.5 bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant text-body-sm hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">cable</span> Port Forward
         </button>
-        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+        <button @click="openEdit" class="flex items-center gap-sm px-3 py-1.5 bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant text-body-sm hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">edit</span> Edit
         </button>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex border-b border-outline-variant mb-md">
       <button v-for="tab in ['overview', 'endpoints', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
-        :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        class="px-lg py-2 border-b-2 text-body-sm font-medium capitalize transition-colors"
+        :class="activeTab === tab ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
     </div>
 
     <!-- Overview Tab -->
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
-      <div class="lg:col-span-8 flex flex-col gap-lg">
+    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-sm">
+      <div class="lg:col-span-8 flex flex-col gap-sm">
         <!-- Connection Info -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Connection Info</h3>
-          <div class="grid grid-cols-2 gap-md">
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Cluster IP</p>
-              <p class="font-mono text-code-md text-primary font-semibold">{{ svc.clusterIP }}</p>
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">cable</span>
+            <span class="text-body-sm font-semibold">Connection Info</span>
+          </div>
+          <div class="p-md grid grid-cols-2 gap-sm">
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Cluster IP</p>
+              <p class="font-mono text-body-sm text-primary font-semibold">{{ svc.clusterIP }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">External IP</p>
-              <p class="font-mono text-code-md" :class="svc.externalIP !== '-' ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ svc.externalIP }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">External IP</p>
+              <p class="font-mono text-body-sm" :class="svc.externalIP !== '-' ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ svc.externalIP }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Type</p>
-              <p class="text-body-md font-semibold text-on-surface">{{ svc.type }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Type</p>
+              <p class="text-body-sm font-semibold text-on-surface">{{ svc.type }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Ports</p>
-              <p class="font-mono text-code-md text-on-surface">{{ svc.ports }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Ports</p>
+              <p class="font-mono text-body-sm text-on-surface">{{ svc.ports }}</p>
             </div>
           </div>
         </div>
 
         <!-- Selector -->
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Selector</h3>
-          <div class="flex flex-wrap gap-sm">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">filter_alt</span>
+            <span class="text-body-sm font-semibold">Selector</span>
+          </div>
+          <div class="p-md flex flex-wrap gap-xs">
             <span v-for="(val, key) in svc.selector" :key="key"
-              class="px-md py-xs bg-primary-container/10 text-primary text-body-sm rounded-full border border-primary/20">
+              class="px-sm py-xs bg-primary-container/10 text-primary text-body-xs rounded-full border border-primary/20">
               <span class="font-semibold">{{ key }}</span>: {{ val }}
             </span>
           </div>
@@ -153,21 +159,24 @@ function saveEdit() {
       </div>
 
       <!-- Right Sidebar -->
-      <div class="lg:col-span-4 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
-          <div class="space-y-md">
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Endpoints</span>
-              <span class="text-body-md font-semibold text-primary">{{ endpoints.length }}</span>
+      <div class="lg:col-span-4 flex flex-col gap-sm">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">info</span>
+            <span class="text-body-sm font-semibold">Summary</span>
+          </div>
+          <div class="px-md py-sm">
+            <div class="flex justify-between items-center py-1.5 border-b border-outline-variant/30">
+              <span class="text-body-xs text-on-surface-variant">Endpoints</span>
+              <span class="text-body-sm font-semibold text-primary">{{ endpoints.length }}</span>
             </div>
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Session Affinity</span>
-              <span class="text-body-md text-on-surface">None</span>
+            <div class="flex justify-between items-center py-1.5 border-b border-outline-variant/30">
+              <span class="text-body-xs text-on-surface-variant">Session Affinity</span>
+              <span class="text-body-sm text-on-surface">None</span>
             </div>
-            <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
-              <span class="text-body-md text-on-surface">{{ svc.age }}</span>
+            <div class="flex justify-between items-center py-1.5">
+              <span class="text-body-xs text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface">{{ svc.age }}</span>
             </div>
           </div>
         </div>
@@ -176,38 +185,39 @@ function saveEdit() {
 
     <!-- Endpoints Tab -->
     <div v-if="activeTab === 'endpoints'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Endpoint Pods ({{ endpoints.length }})</h3>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">layers</span>
+          <span class="text-body-sm font-semibold">Endpoint Pods ({{ endpoints.length }})</span>
         </div>
         <table v-if="endpoints.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Pod Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">IP</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Pod Name</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">IP</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Node</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="pod in endpoints" :key="pod.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: pod.name } })">
-              <td class="px-lg py-md">
+          <tbody class="divide-y divide-outline-variant/15">
+            <tr v-for="pod in endpoints" :key="pod.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: pod.name } })">
+              <td class="px-md py-2">
                 <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">layers</span>
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ pod.name }}</span>
+                  <span class="material-symbols-outlined text-secondary text-sm">layers</span>
+                  <span class="font-mono text-body-xs font-semibold text-on-surface">{{ pod.name }}</span>
                 </div>
               </td>
-              <td class="px-lg py-md font-mono text-code-sm text-primary">{{ pod.ip }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ pod.node }}</td>
-              <td class="px-lg py-md"><StatusChip :status="pod.status" size="sm" /></td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ pod.age }}</td>
+              <td class="px-md py-2 font-mono text-body-xs text-primary">{{ pod.ip }}</td>
+              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ pod.node }}</td>
+              <td class="px-md py-2"><StatusChip :status="pod.status" size="sm" /></td>
+              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ pod.age }}</td>
             </tr>
           </tbody>
         </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">search_off</span>
-          <p class="mt-sm">No pods match this service's selector</p>
+        <div v-else class="p-md text-center text-on-surface-variant">
+          <span class="material-symbols-outlined text-2xl">search_off</span>
+          <p class="text-body-sm mt-xs">No pods match this service's selector</p>
         </div>
       </div>
     </div>

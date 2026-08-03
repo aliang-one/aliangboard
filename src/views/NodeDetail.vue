@@ -55,110 +55,120 @@ async function handleDrain() {
 
 <template>
   <div class="animate-fade-in" v-if="node">
-    <div class="mb-lg">
+    <div class="mb-md">
       <Breadcrumbs :items="[
         { label: 'Nodes', route: '/nodes' },
         { label: node.name }
       ]" />
-      <div class="flex items-center justify-between mt-sm mb-xl">
-        <div class="flex items-center gap-lg">
-          <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
-            <span class="material-symbols-outlined text-primary text-3xl">dns</span>
+      <div class="flex items-center justify-between mt-sm mb-md">
+        <div class="flex items-center gap-md">
+          <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center">
+            <span class="material-symbols-outlined text-primary text-2xl">dns</span>
           </div>
           <div>
-            <h1 class="text-display-lg text-on-surface">{{ node.name }}</h1>
-            <div class="flex items-center gap-md mt-xs">
+            <h1 class="text-headline-lg text-on-surface font-bold">{{ node.name }}</h1>
+            <div class="flex items-center gap-sm mt-xs">
               <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" />
-              <span class="text-body-sm text-on-surface-variant">{{ node.ip }}</span>
-              <span class="text-body-sm text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
-              <span v-if="isCordoned" class="px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded-full font-medium">CORDONED</span>
+              <span class="text-body-xs text-on-surface-variant">{{ node.ip }}</span>
+              <span class="text-body-xs text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
+              <span v-if="isCordoned" class="px-1.5 py-0.5 bg-tertiary-container/10 text-tertiary-container text-body-xs rounded font-medium">CORDONED</span>
             </div>
           </div>
         </div>
-        <div class="flex gap-sm">
-          <button v-if="isCordoned" @click="handleUncordon" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-            <span class="material-symbols-outlined">lock_open</span> Uncordon
+        <div class="flex gap-xs">
+          <button v-if="isCordoned" @click="handleUncordon" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-colors">
+            <span class="material-symbols-outlined text-base">lock_open</span> Uncordon
           </button>
-          <button v-else @click="showCordonModal = true" class="flex items-center gap-sm px-md py-sm border border-outline-variant font-semibold rounded-lg hover:bg-surface-container transition-colors">
-            <span class="material-symbols-outlined">lock</span> Cordon
+          <button v-else @click="showCordonModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+            <span class="material-symbols-outlined text-base">lock</span> Cordon
           </button>
-          <button @click="showDrainModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-            <span class="material-symbols-outlined">output</span> Drain
+          <button @click="showDrainModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">
+            <span class="material-symbols-outlined text-base">output</span> Drain
           </button>
         </div>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button v-for="tab in ['overview', 'pods', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
-        :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        class="px-lg py-2 text-body-sm font-medium capitalize transition-colors relative"
+        :class="activeTab === tab ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'">
         {{ tab }}
+        <span v-if="activeTab === tab" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
     </div>
 
     <!-- Overview Tab -->
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-12 gap-gutter">
-      <div class="col-span-12 lg:col-span-8 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Resource Usage</h3>
-          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-2 gap-xl">
+    <div v-if="activeTab === 'overview'" class="grid grid-cols-12 gap-md">
+      <div class="col-span-12 lg:col-span-8 flex flex-col gap-sm">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
+            <span class="text-body-sm font-semibold">Resource Usage</span>
+          </div>
+          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-2 gap-md p-md">
             <div>
               <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
-              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
+              <p class="font-mono text-code-xs text-on-surface-variant mt-1">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
               <p v-if="node.usedCpu != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(node.usedCpu) }} / {{ formatCpu(node.allocCpu) }}</p>
             </div>
             <div>
               <ProgressBar :value="node.memory || 0" size="lg" show-label label="Memory" />
-              <p class="font-mono text-code-sm text-on-surface-variant mt-2">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
+              <p class="font-mono text-code-xs text-on-surface-variant mt-1">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
               <p v-if="node.usedMem != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
             </div>
           </div>
-          <div v-else class="flex items-center gap-sm text-on-surface-variant py-md">
-            <span class="material-symbols-outlined">sensors_off</span>
+          <div v-else class="flex items-center gap-sm text-on-surface-variant p-md">
+            <span class="material-symbols-outlined text-lg">sensors_off</span>
             <span class="text-body-sm">指标不可用（集群未安装 metrics-server 或缺少 metrics 读取权限）</span>
           </div>
         </div>
 
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-          <div class="p-lg pb-md"><h3 class="text-headline-sm">Conditions</h3></div>
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">checklist</span>
+            <span class="text-body-sm font-semibold">Conditions</span>
+          </div>
           <table class="w-full text-left">
             <thead>
-              <tr class="bg-surface-container-low border-y border-outline-variant">
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Last Transition</th>
+              <tr class="bg-surface-container-low/50 border-b border-outline-variant">
+                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
+                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Last Transition</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="(val, key) in node.conditions" :key="key" class="hover:bg-surface-container-low/50">
-                <td class="px-lg py-md text-body-md font-medium">{{ key }}</td>
-                <td class="px-lg py-md">
-                  <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full" :class="val ? 'bg-primary-container' : 'bg-error'"></span>
-                    <span class="text-body-sm" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
+            <tbody class="divide-y divide-outline-variant/15">
+              <tr v-for="(val, key) in node.conditions" :key="key" class="hover:bg-surface-container-low/40">
+                <td class="px-md py-2 text-body-sm font-medium">{{ key }}</td>
+                <td class="px-md py-2">
+                  <span class="flex items-center gap-xs">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="val ? 'bg-primary-container' : 'bg-error'"></span>
+                    <span class="text-body-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
                   </span>
                 </td>
-                <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ node.age }} ago</td>
+                <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ node.age }} ago</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <div class="col-span-12 lg:col-span-4 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">System Info</h3>
-          <div class="space-y-md">
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Kernel</span><span class="font-mono text-code-sm">{{ node.kernel }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Kubelet</span><span class="font-mono text-code-sm">{{ node.version }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Role</span><span class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant">{{ node.roles }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Internal IP</span><span class="font-mono text-code-sm text-primary">{{ node.ip }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
-            <div class="flex justify-between"><span class="text-body-sm text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
+      <div class="col-span-12 lg:col-span-4 flex flex-col gap-sm">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">info</span>
+            <span class="text-body-sm font-semibold">System Info</span>
+          </div>
+          <div class="px-md py-sm space-y-sm">
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Kernel</span><span class="font-mono text-code-xs">{{ node.kernel }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Kubelet</span><span class="font-mono text-code-xs">{{ node.version }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Role</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant">{{ node.roles }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Internal IP</span><span class="font-mono text-code-xs text-primary">{{ node.ip }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
+            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
           </div>
         </div>
       </div>
@@ -166,40 +176,42 @@ async function handleDrain() {
 
     <!-- Pods Tab -->
     <div v-if="activeTab === 'pods'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Pods on this Node ({{ nodePods.length }})</h3>
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
+          <span class="text-body-sm font-semibold">Pods on this Node</span>
+          <span class="text-body-xs text-on-surface-variant ml-auto">{{ nodePods.length }}</span>
         </div>
         <table v-if="nodePods.length" class="w-full text-left border-collapse">
           <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Namespace</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">CPU</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+            <tr class="bg-surface-container-low/50 border-b border-outline-variant">
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Namespace</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Restarts</th>
+              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="p in nodePods" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="$router.push(`/ns/${p.namespace}/pods/${p.name}`)">
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">layers</span>
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
+          <tbody class="divide-y divide-outline-variant/15">
+            <tr v-for="p in nodePods" :key="p.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="$router.push(`/ns/${p.namespace}/pods/${p.name}`)">
+              <td class="px-md py-2">
+                <div class="flex items-center gap-xs">
+                  <span class="material-symbols-outlined text-secondary text-sm">layers</span>
+                  <span class="font-mono text-code-xs font-semibold text-on-surface">{{ p.name }}</span>
                 </div>
               </td>
-              <td class="px-lg py-md"><span class="text-body-sm text-primary font-medium">{{ p.namespace }}</span></td>
-              <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
-              <td class="px-lg py-md font-mono text-code-sm">{{ p.cpu || '—' }}</td>
-              <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
+              <td class="px-md py-2"><span class="text-body-xs text-primary font-medium">{{ p.namespace }}</span></td>
+              <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
+              <td class="px-md py-2 font-mono text-code-xs">{{ p.cpu || '—' }}</td>
+              <td class="px-md py-2 text-body-xs">{{ p.restarts }}</td>
+              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ p.age }}</td>
             </tr>
           </tbody>
         </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">search_off</span>
-          <p class="mt-sm">No pods running on this node</p>
+        <div v-else class="py-md text-center text-on-surface-variant">
+          <span class="material-symbols-outlined text-2xl">search_off</span>
+          <p class="text-body-sm mt-xs">No pods running on this node</p>
         </div>
       </div>
     </div>
@@ -211,11 +223,11 @@ async function handleDrain() {
   </div>
 
   <!-- Not Found -->
-  <div v-else class="animate-fade-in text-center py-xxl">
-    <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">Node Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">Node "{{ route.params.name }}" not found</p>
-    <button @click="$router.push('/nodes')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Nodes</button>
+  <div v-else class="animate-fade-in text-center py-xl">
+    <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
+    <h2 class="text-headline-lg text-on-surface font-bold mt-md">Node Not Found</h2>
+    <p class="text-body-sm text-on-surface-variant mt-xs">Node "{{ route.params.name }}" not found</p>
+    <button @click="$router.push('/nodes')" class="mt-md px-lg py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">Back to Nodes</button>
   </div>
 
   <!-- Cordon Modal -->
