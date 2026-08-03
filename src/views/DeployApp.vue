@@ -6,6 +6,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 import { yamlScalar } from '@/composables/useYaml'
+import { TIER_OPTIONS } from '@/composables/useLayering'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,6 +68,12 @@ function makeForm() {
   // Labels
   labels: [{ key: 'app', value: '' }],
   annotations: [],
+  // 业务元数据（aliangboard.io/* 标签体系）：title/owner/version/tags 进 label，description 进 annotation
+  metaTitle: '',
+  metaOwner: '',
+  metaVersion: '',
+  metaTags: '',
+  metaDescription: '',
   // Scheduling & Update Strategy
   nodeSelectors: [],
   tolerations: [],
@@ -174,15 +181,7 @@ const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
 const availablePriorityClasses = computed(() => store.priorityClassList.map(p => p.name))
 const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
 
-const tierOptions = [
-  { value: 'web', label: '表现层 Web', icon: 'web', desc: '前端应用、用户界面' },
-  { value: 'gateway', label: '网关层 Gateway', icon: 'dns', desc: 'API 网关、流量入口' },
-  { value: 'svc', label: '服务层 Service', icon: 'apps', desc: '业务逻辑服务' },
-  { value: 'cloud', label: '中间件 Middleware', icon: 'cloud', desc: '消息队列、缓存等中间件' },
-  { value: 'db', label: '持久层 Database', icon: 'database', desc: '数据库、有状态存储' },
-  { value: 'monitor', label: '监控层 Monitor', icon: 'monitoring', desc: '监控、日志、可观测性' },
-  { value: 'default', label: '默认层 Default', icon: 'workspaces', desc: '未分类或系统组件' },
-]
+const tierOptions = TIER_OPTIONS
 
 const resourcePresets = [
   { label: '小', cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi' },
@@ -198,11 +197,11 @@ function applyPreset(p) {
 }
 
 const quickTemplates = [
-  { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'web' },
-  { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'db' },
-  { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'db' },
-  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'svc' },
-  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'svc' },
+  { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'presentation' },
+  { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'middleware' },
+  { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'persistence' },
+  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice/business' },
+  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice/business' },
 ]
 function applyTemplate(t) {
   form.value.image = t.image
@@ -225,7 +224,15 @@ const previewYAML = computed(() => {
   const labels = {}
   f.labels.forEach(l => { if (l.key) labels[l.key] = l.value || f.name })
   labels.app = labels.app || f.name
-  labels.tier = f.tier
+  labels['aliangboard.io/layer'] = f.tier
+  if (f.metaTitle) labels['aliangboard.io/title'] = f.metaTitle
+  if (f.metaOwner) labels['aliangboard.io/owner'] = f.metaOwner
+  if (f.metaVersion) labels['aliangboard.io/version'] = f.metaVersion
+  if (f.metaTags) labels['aliangboard.io/tags'] = f.metaTags
+  // annotations（description 走 annotation，免 label 63 字符限制）
+  const annotations = {}
+  f.annotations.forEach(a => { if (a.key) annotations[a.key] = a.value })
+  if (f.metaDescription) annotations['aliangboard.io/description'] = f.metaDescription
 
   const portsYaml = f.ports
     .filter(p => p.containerPort)
@@ -313,7 +320,13 @@ metadata:
   name: ${f.name}
   namespace: ${f.namespace}
   labels:
-${Object.entries(labels).map(([k, v]) => `    ${k}: ${v}`).join('\n')}
+${Object.entries(labels).map(([k, v]) => `    ${k}: ${v}`).join('\n')}`
+  if (Object.keys(annotations).length) {
+    yaml += `
+  annotations:
+${Object.entries(annotations).map(([k, v]) => `    ${k}: ${v}`).join('\n')}`
+  }
+  yaml += `
 spec:`
   if (isCron) {
     yaml += `
@@ -508,7 +521,14 @@ async function handleDeploy() {
     replicas: f.replicas + '/' + f.replicas,
     image: f.image,
     sha: 'sha:' + Math.random().toString(16).slice(2, 8),
-    labels: { app: f.name, tier: f.tier },
+    labels: Object.assign(
+      { app: f.name, 'aliangboard.io/layer': f.tier },
+      f.metaTitle && { 'aliangboard.io/title': f.metaTitle },
+      f.metaOwner && { 'aliangboard.io/owner': f.metaOwner },
+      f.metaVersion && { 'aliangboard.io/version': f.metaVersion },
+      f.metaTags && { 'aliangboard.io/tags': f.metaTags },
+    ),
+    annotations: f.metaDescription ? { 'aliangboard.io/description': f.metaDescription } : {},
     tier: f.tier,
     strategy: f.strategy,
     nodeSelectors: f.nodeSelectors.filter(n => n.key),
@@ -679,9 +699,31 @@ async function handleDeploy() {
             <div><label class="text-label-caps text-on-surface-variant block mb-xs">成功历史保留</label><input v-model.number="form.cronConfig.successfulJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
             <div><label class="text-label-caps text-on-surface-variant block mb-xs">失败历史保留</label><input v-model.number="form.cronConfig.failedJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
           </div>
-          <div class="md:col-span-2">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Description</label>
-            <textarea v-model="form.description" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary h-20 resize-none" placeholder="Optional description..."></textarea>
+          <!-- 业务元数据（aliangboard.io/* 标签体系：写入后卡片/详情自动展示） -->
+          <div class="md:col-span-2 mt-xs p-md rounded-lg border border-outline-variant/60 bg-surface-container-lowest">
+            <label class="text-label-caps text-on-surface-variant block mb-sm">业务元数据 <span class="text-tertiary-container normal-case">写入 aliangboard.io/* 标签，用于卡片标题 / 负责人 / 版本等展示</span></label>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-md">
+              <div>
+                <label class="text-body-xs text-on-surface-variant block mb-xs">显示名 (title)</label>
+                <input v-model="form.metaTitle" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="如：用户中心（留空则用应用名）" />
+              </div>
+              <div>
+                <label class="text-body-xs text-on-surface-variant block mb-xs">负责人/团队 (owner)</label>
+                <input v-model="form.metaOwner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="team-pay" />
+              </div>
+              <div>
+                <label class="text-body-xs text-on-surface-variant block mb-xs">业务版本 (version)</label>
+                <input v-model="form.metaVersion" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="v2.3.1" />
+              </div>
+              <div>
+                <label class="text-body-xs text-on-surface-variant block mb-xs">标签组 (tags，逗号分隔)</label>
+                <input v-model="form.metaTags" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="core,public" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="text-body-xs text-on-surface-variant block mb-xs">描述 (description)</label>
+                <textarea v-model="form.metaDescription" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary h-16 resize-none" placeholder="该服务的用途说明（写入 annotation）"></textarea>
+              </div>
+            </div>
           </div>
           <div class="md:col-span-2">
             <label class="text-label-caps text-on-surface-variant block mb-xs">服务分层 (Tier) <span class="text-tertiary-container normal-case">决定在分层拓扑中的归属</span></label>

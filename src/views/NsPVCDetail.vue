@@ -1,8 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { pvcFileApi } from '@/api/client'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -47,6 +49,39 @@ function saveEdit() {
   })
   showEditModal.value = false
 }
+
+// === PVC 文件浏览（只读）：网关起 busybox helper Pod 只读挂载 + exec ls/cat ===
+const fpath = ref('/')
+const fentries = ref([])
+const ffile = ref(null)        // 当前预览文件 { name, content, truncated, binary }
+const floading = ref(false)
+const ferror = ref('')
+const fInited = ref(false)
+const joinPath = (base, name) => (base.replace(/\/$/, '') + '/' + name).replace(/\/+/g, '/')
+async function browsePvc(p) {
+  if (!store.remoteMode) { ferror.value = '仅连接集群后可浏览'; return }
+  floading.value = true; ferror.value = ''; ffile.value = null
+  try {
+    const r = await pvcFileApi.list({ namespace: route.params.namespace, pvc: route.params.name, path: p || '/' })
+    fpath.value = r.path; fentries.value = r.entries; fInited.value = true
+  } catch (e) { ferror.value = e.message || '浏览失败' }
+  finally { floading.value = false }
+}
+async function openFEntry(e) {
+  if (e.type === 'dir') { browsePvc(joinPath(fpath.value, e.name)); return }
+  floading.value = true; ferror.value = ''
+  try {
+    const r = await pvcFileApi.read({ namespace: route.params.namespace, pvc: route.params.name, path: joinPath(fpath.value, e.name) })
+    ffile.value = { ...r, name: e.name }
+  } catch (e) { ferror.value = e.message || '读取失败' }
+  finally { floading.value = false }
+}
+function fup() {
+  if (fpath.value === '/' || !fpath.value) return
+  const parts = fpath.value.replace(/\/$/, '').split('/').filter(Boolean); parts.pop()
+  browsePvc('/' + parts.join('/'))
+}
+watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
 </script>
 
 <template>
@@ -82,7 +117,7 @@ function saveEdit() {
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['overview', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['overview', 'files', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
@@ -154,6 +189,42 @@ function saveEdit() {
               <span class="text-body-sm text-on-surface-variant">Reclaim Policy</span>
               <span class="text-body-md text-on-surface">{{ sc.reclaimPolicy }}</span>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'files'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="flex items-center gap-sm px-lg py-md border-b border-outline-variant bg-surface-container-low">
+          <button @click="fup" :disabled="fpath === '/'" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg disabled:opacity-30" title="上一级">
+            <span class="material-symbols-outlined text-lg">arrow_upward</span>
+          </button>
+          <span class="material-symbols-outlined text-on-surface-variant">folder_open</span>
+          <span class="font-mono text-code-sm text-on-surface flex-1 truncate">{{ fpath }}</span>
+          <button @click="browsePvc(fpath)" :disabled="floading" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg" title="刷新">
+            <span class="material-symbols-outlined text-lg" :class="floading ? 'animate-spin' : ''">refresh</span>
+          </button>
+        </div>
+        <div class="p-lg">
+          <p v-if="ferror" class="text-body-sm text-error py-sm">{{ ferror }}</p>
+          <p v-else-if="floading" class="text-body-sm text-on-surface-variant py-sm">加载中…（首次会在 PVC 所在命名空间起一个 busybox 浏览器 Pod，可能需几秒拉镜像）</p>
+          <template v-else-if="!ffile">
+            <p v-if="!fentries.length" class="text-body-sm text-on-surface-variant text-center py-md">空目录</p>
+            <div v-for="e in fentries" :key="e.name" @click="openFEntry(e)" class="flex items-center gap-sm px-sm py-xs rounded-lg hover:bg-surface-container-low cursor-pointer">
+              <span class="material-symbols-outlined text-lg" :class="e.type === 'dir' ? 'text-primary' : 'text-on-surface-variant'">{{ e.type === 'dir' ? 'folder' : 'description' }}</span>
+              <span class="font-mono text-code-sm text-on-surface">{{ e.name }}</span>
+            </div>
+          </template>
+          <div v-else>
+            <div class="flex items-center justify-between mb-sm">
+              <span class="font-mono text-code-sm text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined text-base text-on-surface-variant">description</span>{{ ffile.name }}</span>
+              <button @click="ffile = null" class="text-body-xs text-primary hover:underline">← 返回列表</button>
+            </div>
+            <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">二进制文件，无法文本预览。</p>
+            <pre v-else class="bg-[#0b1c30] text-surface-variant p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-on-surface-variant/60">
+
+…（内容过长已截断预览）</span></pre>
           </div>
         </div>
       </div>

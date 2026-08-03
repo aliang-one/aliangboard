@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 
 const store = useClusterStore()
@@ -24,6 +25,7 @@ const knownSubjects = computed(() => {
   return Array.from(set)
 })
 
+// 本地 RBAC 规则推演（任意 subject）
 function runCheck() {
   result.value = store.checkAccess({
     subjectKind: subjectKind.value,
@@ -32,6 +34,20 @@ function runCheck() {
     resource: resource.value,
     namespace: namespace.value || undefined,
   })
+}
+
+// 服务端真值：SelfSubjectAccessReview（仅对当前登录用户）
+const serverResult = ref(null)
+const serverChecking = ref(false)
+async function runServerCheck() {
+  serverChecking.value = true
+  serverResult.value = await store.checkAccessServer({
+    verb: verb.value,
+    resource: resource.value,
+    namespace: namespace.value || '',
+  })
+  serverChecking.value = false
+  if (!serverResult.value.ok) notify('error', serverResult.value.error)
 }
 </script>
 
@@ -93,19 +109,25 @@ function runCheck() {
               </datalist>
             </div>
           </div>
-          <button @click="runCheck" class="mt-lg flex items-center gap-sm px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined">play_arrow</span> 检查权限
-          </button>
+          <div class="mt-lg flex items-center gap-sm flex-wrap">
+            <button @click="runCheck" class="flex items-center gap-sm px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+              <span class="material-symbols-outlined">play_arrow</span> 规则推演
+            </button>
+            <button @click="runServerCheck" :disabled="serverChecking" class="flex items-center gap-sm px-lg py-sm border border-outline-variant text-on-surface rounded-lg font-semibold hover:bg-surface-container-high disabled:opacity-50">
+              <span class="material-symbols-outlined" :class="serverChecking ? 'animate-spin' : ''">verified</span> 服务端 can-i
+            </button>
+          </div>
+          <p class="text-body-xs text-on-surface-variant mt-xs">「规则推演」为本地 RBAC 推算（可填任意 subject）；「服务端 can-i」走 SelfSubjectAccessReview，仅返回当前登录用户的服务端真值。</p>
         </div>
       </div>
 
       <!-- 结果 -->
       <div class="lg:col-span-5">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card sticky top-md">
-          <h3 class="text-headline-sm mb-md">结果</h3>
+          <h3 class="text-headline-sm mb-md">结果（规则推演）</h3>
           <div v-if="!result" class="py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-4xl">help_outline</span>
-            <p class="mt-sm text-body-sm">填写条件后点击「检查权限」</p>
+            <p class="mt-sm text-body-sm">填写条件后点击「规则推演」</p>
           </div>
           <div v-else>
             <div class="flex items-center gap-md p-lg rounded-lg mb-md"
@@ -128,6 +150,30 @@ function runCheck() {
               <p>未匹配到任何授予该操作的 Role/ClusterRole。</p>
               <p class="mt-xs">提示：尝试 <span class="font-mono">admin@kubezen.io</span>（绑定 admin 集群角色，通配权限）或 <span class="font-mono">developers</span> 组。</p>
             </div>
+          </div>
+        </div>
+
+        <!-- 服务端真值（SelfSubjectAccessReview，仅当前登录用户） -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card mt-lg">
+          <div class="flex items-center justify-between mb-md">
+            <h3 class="text-headline-sm">服务端真值（当前用户）</h3>
+            <span class="text-label-caps text-on-surface-variant">SelfSubjectAccessReview</span>
+          </div>
+          <div v-if="!serverResult" class="py-md text-center text-on-surface-variant text-body-sm">
+            点击「服务端 can-i」查询当前登录用户的服务端判定（kubectl auth can-i 的服务端语义）。
+          </div>
+          <div v-else-if="!serverResult.ok" class="text-body-sm text-error">{{ serverResult.error }}</div>
+          <div v-else>
+            <div class="flex items-center gap-md p-md rounded-lg mb-sm"
+              :class="serverResult.allowed ? 'bg-primary-container/10 text-primary' : 'bg-error-container/10 text-error'">
+              <span class="material-symbols-outlined text-3xl">{{ serverResult.allowed ? 'check_circle' : 'cancel' }}</span>
+              <div>
+                <p class="text-headline-sm font-bold">{{ serverResult.allowed ? '允许 (yes)' : '拒绝 (no)' }}</p>
+                <p class="text-body-sm font-mono">当前用户 对 <span class="text-on-surface font-mono">{{ resource }}</span> 执行 <span class="text-on-surface font-mono">{{ verb }}</span></p>
+              </div>
+            </div>
+            <p v-if="serverResult.reason" class="text-body-sm text-on-surface-variant">原因：<span class="font-mono text-code-sm">{{ serverResult.reason }}</span></p>
+            <p v-if="serverResult.evaluationError" class="text-body-xs text-error mt-xs">评估错误：{{ serverResult.evaluationError }}</p>
           </div>
         </div>
       </div>

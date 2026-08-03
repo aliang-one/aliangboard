@@ -7,7 +7,8 @@ import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
-import { useResourceApply } from '@/composables/useResourceApply'
+import Modal from '@/components/common/Modal.vue'
+import { notify } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,16 +69,83 @@ spec:
 `
 })
 
-const { applyYaml } = useResourceApply()
 const expandedInst = ref(new Set())
+const instYaml = ref({})          // instKey -> 实时 YAML（GET 对象后 dump，去掉 managedFields）
+const instLoading = ref(new Set())
 const instKey = (inst) => inst.name + (inst.namespace || '')
+
+// 展开时拉取实例的实时对象并 dump 为 YAML（比静态模板准确：含 labels/annotations/真实 spec）
+async function ensureInstYaml(inst, force = false) {
+  const k = instKey(inst)
+  if (!force && (instYaml.value[k] != null || instLoading.value.has(k))) return
+  const s = new Set(instLoading.value); s.add(k); instLoading.value = s
+  try {
+    const obj = await api.k8s(store.crInstancePath(crd.value, inst))
+    if (obj?.metadata) delete obj.metadata.managedFields
+    instYaml.value = { ...instYaml.value, [k]: yamlDump(obj) }
+  } catch {
+    // 无权限或读取失败：保留模板回退（instYamlModel 退回 generateCRYaml）
+  } finally {
+    const s2 = new Set(instLoading.value); s2.delete(k); instLoading.value = s2
+  }
+}
 function toggleInst(inst) {
   const s = new Set(expandedInst.value)
   const k = instKey(inst)
-  if (s.has(k)) s.delete(k); else s.add(k)
+  if (s.has(k)) s.delete(k); else { s.add(k); ensureInstYaml(inst) }
   expandedInst.value = s
 }
-const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
+// 实时 YAML 优先；未加载完或失败时回退静态模板
+const instYamlModel = (inst) => instYaml.value[instKey(inst)] ?? store.generateCRYaml(crd.value, inst)
+
+// 保存编辑（通用 server-side apply，适用于任意 CR kind）+ 局部刷新
+async function applyInstYaml(yaml) {
+  const r = await store.applyCRYaml(crd.value.name, yaml)
+  notify(r.ok ? 'success' : 'error', r.ok ? `${r.kind}/${r.name} 已更新` : (r.error || '应用失败'))
+  if (r.ok) {
+    // spec 可能被 defaulter/webhook 改动：重新拉取当前展开行的实时 YAML
+    const open = [...expandedInst.value]
+    if (open.length === 1) {
+      const inst = crd.value.instances.find(i => instKey(i) === open[0])
+      if (inst) ensureInstYaml(inst, true)
+    }
+  }
+  return r
+}
+
+// 删除实例
+const showDeleteInst = ref(false)
+const deleteInstTarget = ref(null)
+function confirmDeleteInst(inst) { deleteInstTarget.value = inst; showDeleteInst.value = true }
+async function handleDeleteInst() {
+  const inst = deleteInstTarget.value
+  if (!inst) return
+  try {
+    await store.deleteCRInstance(crd.value, inst)
+    const k = instKey(inst); const m = { ...instYaml.value }; delete m[k]; instYaml.value = m
+    expandedInst.value = new Set([...expandedInst.value].filter(x => x !== k))
+    notify('success', `${crd.value.kind}/${inst.name} 已删除`)
+  } catch (e) { notify('error', e.message || '删除失败') }
+  showDeleteInst.value = false; deleteInstTarget.value = null
+}
+
+// 创建实例（通用 YAML apply：按 CRD 的 group/version/kind 生成骨架）
+const showCreateInst = ref(false)
+const createYaml = ref('')
+function openCreateInst() {
+  const c = crd.value; if (!c) return
+  const meta = c.namespaced
+    ? `metadata:\n  name: ${c.kind.toLowerCase()}-sample\n  namespace: default`
+    : `metadata:\n  name: ${c.kind.toLowerCase()}-sample`
+  createYaml.value = `apiVersion: ${c.group}/${c.version}\nkind: ${c.kind}\n${meta}\nspec:\n  # 按 ${c.kind} 的 OpenAPI schema 填写\n`
+  showCreateInst.value = true
+}
+async function handleCreateInst(yaml) {
+  const r = await store.applyCRYaml(crd.value.name, yaml)
+  notify(r.ok ? 'success' : 'error', r.ok ? `${r.kind}/${r.name} 已创建` : (r.error || '创建失败'))
+  if (r.ok) showCreateInst.value = false
+  return r
+}
 </script>
 
 <template>
@@ -205,7 +273,15 @@ const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
             <span class="material-symbols-outlined text-primary">list_alt</span>
             <span class="text-headline-sm text-on-surface">{{ crd.kind }} 实例</span>
           </div>
-          <span class="text-body-sm text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+          <div class="flex items-center gap-md">
+            <span class="text-body-sm text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <button
+              @click="openCreateInst"
+              class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
+            >
+              <span class="material-symbols-outlined text-sm">add</span> 创建实例
+            </button>
+          </div>
         </div>
         <table v-if="crd.instances && crd.instances.length" class="w-full">
           <thead>
@@ -214,7 +290,7 @@ const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">NAMESPACE</th>
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">STATUS</th>
               <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">AGE</th>
-              <th class="text-right px-md py-sm text-label-caps text-on-surface-variant w-16">YAML</th>
+              <th class="text-right px-md py-sm text-label-caps text-on-surface-variant w-24">ACTIONS</th>
             </tr>
           </thead>
           <tbody>
@@ -237,14 +313,19 @@ const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
                   <span class="text-body-sm text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
                 </td>
                 <td class="px-md py-md text-right">
-                  <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? '收起' : '查看 / 编辑 YAML'">
-                    <span class="material-symbols-outlined text-lg transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
-                  </button>
+                  <div class="flex gap-1 justify-end">
+                    <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? '收起' : '查看 / 编辑 YAML'">
+                      <span class="material-symbols-outlined text-lg transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
+                    </button>
+                    <button @click="confirmDeleteInst(inst)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除实例">
+                      <span class="material-symbols-outlined text-lg">delete</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="expandedInst.has(instKey(inst))">
                 <td colspan="5" class="px-md py-md bg-surface-container-low">
-                  <YamlEditor :model-value="crYamlOf(inst)" :readonly="false" height="360px" @save="applyYaml" />
+                  <YamlEditor :model-value="instYamlModel(inst)" :readonly="false" height="360px" @save="applyInstYaml" />
                 </td>
               </tr>
             </template>
@@ -261,6 +342,32 @@ const crYamlOf = (inst) => store.generateCRYaml(crd.value, inst)
     <div v-if="activeTab === 'yaml'">
       <YamlEditor :model-value="realYaml || staticYaml" :readonly="true" height="560px" />
     </div>
+
+    <!-- 创建实例 Modal（通用 YAML apply） -->
+    <Modal v-model="showCreateInst" :title="`创建 ${crd.kind} 实例`" width="max-w-2xl">
+      <p class="text-body-sm text-on-surface-variant mb-sm">
+        编辑 YAML 后应用（server-side apply）。骨架按
+        <span class="font-mono">{{ crd.group }}/{{ crd.version }} · {{ crd.kind }}</span> 生成。
+      </p>
+      <YamlEditor v-model="createYaml" :readonly="false" height="320px" @save="handleCreateInst" />
+      <template #actions>
+        <button @click="showCreateInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="handleCreateInst(createYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">应用创建</button>
+      </template>
+    </Modal>
+
+    <!-- 删除实例 Modal -->
+    <Modal v-model="showDeleteInst" :title="`删除 ${crd.kind} 实例`" width="max-w-md">
+      <p class="text-body-md text-on-surface-variant">
+        确认删除 <span class="font-mono text-on-surface font-semibold">{{ crd.kind }}/{{ deleteInstTarget?.name }}</span>
+        <span v-if="deleteInstTarget?.namespace">（namespace <span class="font-mono">{{ deleteInstTarget.namespace }}</span>）</span>？
+      </p>
+      <p class="text-body-sm text-error mt-sm">此操作不可撤销。</p>
+      <template #actions>
+        <button @click="showDeleteInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="handleDeleteInst" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      </template>
+    </Modal>
   </div>
 
   <!-- Not Found 兜底 -->
