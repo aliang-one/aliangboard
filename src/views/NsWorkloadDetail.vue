@@ -150,7 +150,7 @@ const memRefLines = computed(() => {
   return r
 })
 
-const activeTab = ref('dashboard')
+const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 const showScaleModal = ref(false)
 const scaleReplicas = ref(1)
@@ -431,18 +431,18 @@ async function saveTemplate() {
 
     <!-- Tabs -->
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in (isRolloutType ? ['dashboard', 'overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['dashboard', 'overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in (isRolloutType ? ['overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
     </div>
 
-    <!-- Dashboard Tab（Kuboard 风格：左 timeline + 右 指标/Pod） -->
-    <div v-if="activeTab === 'dashboard'" class="flex gap-lg">
-      <!-- 左侧：版本历史 timeline -->
-      <div v-if="isRolloutType && revisions.length" class="w-[240px] shrink-0 hidden lg:block">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card sticky top-0 max-h-[calc(100vh-200px)] overflow-y-auto">
+    <!-- Overview Tab（合并 Dashboard：左 timeline+labels+summary，右 指标+Pod+容器+详情） -->
+    <div v-if="activeTab === 'overview'" class="flex gap-lg">
+      <!-- 左侧 sidebar：timeline + labels + summary -->
+      <div class="w-[240px] shrink-0 hidden lg:block flex flex-col gap-md sticky top-0 self-start max-h-[calc(100vh-160px)] overflow-y-auto">
+        <div v-if="isRolloutType && revisions.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
           <h3 class="text-label-caps text-on-surface-variant mb-md px-xs flex items-center gap-xs">
             <span class="material-symbols-outlined text-sm">history</span> 版本历史
           </h3>
@@ -468,9 +468,40 @@ async function saveTemplate() {
             </div>
           </div>
         </div>
+        <!-- Labels -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
+          <h3 class="text-label-caps text-on-surface-variant mb-sm px-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">label</span> Labels</h3>
+          <div class="flex flex-wrap gap-1">
+            <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-sm py-xs bg-primary-container/10 text-primary text-body-xs rounded-full border border-primary/20">
+              <span class="font-semibold">{{ key }}</span>: {{ val }}
+            </span>
+          </div>
+        </div>
+        <!-- Summary -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-card">
+          <h3 class="text-label-caps text-on-surface-variant mb-sm px-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">analytics</span> Summary</h3>
+          <div class="space-y-xs">
+            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
+              <span class="text-body-xs text-on-surface-variant">Pods</span>
+              <span class="text-body-sm font-semibold text-primary">{{ managedPods.length }}</span>
+            </div>
+            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
+              <span class="text-body-xs text-on-surface-variant">Running</span>
+              <span class="text-body-sm font-semibold text-primary">{{ managedPods.filter(p => p.status === 'Running').length }}</span>
+            </div>
+            <div class="flex justify-between items-center py-xs border-b border-outline-variant/20">
+              <span class="text-body-xs text-on-surface-variant">Replicas</span>
+              <span class="text-body-sm font-semibold">{{ workload.replicas }}</span>
+            </div>
+            <div class="flex justify-between items-center py-xs">
+              <span class="text-body-xs text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface">{{ workload.age }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- 右侧：指标 + Pod -->
+      <!-- 右侧：指标 + Pod + 容器 + 详情 -->
       <div class="flex-1 min-w-0 flex flex-col gap-md">
         <!-- 运行指标 -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
@@ -561,11 +592,58 @@ async function saveTemplate() {
             <p class="text-body-sm text-on-surface-variant mt-sm">暂无管理 Pod</p>
           </div>
         </div>
+
+        <!-- Containers -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <div class="flex items-center justify-between mb-md">
+            <div class="flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-xl">inventory_2</span><h3 class="text-headline-sm">Containers</h3></div>
+            <span class="text-body-sm text-on-surface-variant">{{ containers.length }} 个</span>
+          </div>
+          <div v-if="containers.length" class="flex flex-col gap-sm">
+            <div v-for="(c, i) in containers" :key="i" class="flex items-center gap-md p-sm bg-surface-container-low rounded-lg">
+              <div class="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary">inventory_2</span></div>
+              <div class="flex-1 min-w-0"><p class="text-body-sm font-semibold truncate">{{ c.name }}</p><p class="font-mono text-code-xs text-primary truncate">{{ c.image }}</p></div>
+              <div class="text-right shrink-0 hidden sm:block"><p class="text-label-caps text-on-surface-variant">Ports</p><p class="font-mono text-code-xs">{{ fmtPorts(c) }}</p></div>
+              <div class="text-right shrink-0 hidden sm:block"><p class="text-label-caps text-on-surface-variant">Resources</p><p class="font-mono text-code-xs">{{ fmtResources(c.resources) }}</p></div>
+            </div>
+          </div>
+          <p v-else class="text-body-sm text-on-surface-variant">未提供容器详情（可在 YAML 标签页查看）</p>
+        </div>
+
+        <!-- 详情概要 -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <h3 class="text-headline-sm mb-md">详情</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">TYPE</p><p class="text-body-sm font-semibold">{{ workload.type }}</p></div>
+            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">IMAGE</p><p class="font-mono text-code-xs text-primary truncate">{{ workload.image }}</p></div>
+            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">{{ replicasLabel }}</p><p class="text-body-sm font-semibold">{{ workload.replicas }}</p></div>
+            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">REVISION</p><p class="font-mono text-code-xs">{{ workload.sha }}</p></div>
+            <div v-if="isCronJob" class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">SCHEDULE</p><p class="font-mono text-code-xs text-primary">{{ workload.schedule }}</p></div>
+            <div class="p-sm rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant">AGE</p><p class="text-body-sm font-semibold">{{ workload.age }}</p></div>
+          </div>
+        </div>
+
+        <!-- 配置依赖 -->
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <div class="flex items-center justify-between mb-md">
+            <div class="flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-xl">link</span><h3 class="text-headline-sm">配置依赖</h3></div>
+            <span class="text-body-sm text-on-surface-variant">{{ configRefs.length }} 个引用</span>
+          </div>
+          <div v-if="configRefs.length" class="flex flex-wrap gap-sm">
+            <div v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })"
+              class="flex items-center gap-xs px-md py-xs bg-surface-container-low rounded-lg cursor-pointer hover:bg-surface-container transition-colors">
+              <span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>
+              <span class="font-mono text-code-xs font-semibold text-on-surface">{{ ref.name }}</span>
+              <span class="text-body-xs text-on-surface-variant">{{ ref.kind }}</span>
+            </div>
+          </div>
+          <p v-else class="text-body-sm text-on-surface-variant flex items-center gap-sm"><span class="material-symbols-outlined">link_off</span>此 Workload 未引用任何 ConfigMap / Secret</p>
+        </div>
       </div>
     </div>
 
-    <!-- Overview Tab -->
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
+    <!-- Legacy Overview (已合并到上方) -->
+    <div v-if="false" class="hidden">
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">Overview</h3>
