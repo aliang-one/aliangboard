@@ -1,7 +1,7 @@
 // Namespace 应用分层：把工作负载 / Service / Ingress 按一套分层体系归类。
 //
 // 归类优先级：
-//   1) 显式 label `layer.aliangboard.io` 或 annotation（权威，支持 microservice/business 等子层）
+//   1) 显式 label `layer.aliangboard.io` 或 annotation（权威，支持 microservice-business 等子层）
 //   2) 名称 / 镜像 启发式关键词匹配
 //   3) 默认：Job/CronJob → 杂项；其余 → 微服务/业务层
 
@@ -11,9 +11,9 @@ export const LAYER_TAXONOMY = [
   { key: 'gateway', label: '网关', en: 'Gateway', icon: 'alt_route', color: 'primary', desc: 'API 网关 / 入口代理 / Ingress 控制器' },
   {
     key: 'microservice', label: '微服务层', en: 'Microservice', icon: 'hub', color: 'tertiary', desc: '微服务应用', children: [
-      { key: 'microservice/business', label: '业务层', en: 'Business', icon: 'storefront', color: 'tertiary', desc: '核心业务服务' },
-      { key: 'microservice/support', label: '支持服务', en: 'Support', icon: 'support_agent', color: 'tertiary', desc: '鉴权 / 配置 / 调度等支撑服务' },
-      { key: 'microservice/misc', label: '杂项', en: 'Misc', icon: 'widgets', color: 'surface', desc: '批处理任务 / 其它' },
+      { key: 'microservice-business', label: '业务层', en: 'Business', icon: 'storefront', color: 'tertiary', desc: '核心业务服务' },
+      { key: 'microservice-support', label: '支持服务', en: 'Support', icon: 'support_agent', color: 'tertiary', desc: '鉴权 / 配置 / 调度等支撑服务' },
+      { key: 'microservice-misc', label: '杂项', en: 'Misc', icon: 'widgets', color: 'surface', desc: '批处理任务 / 其它' },
     ],
   },
   { key: 'middleware', label: '中间件', en: 'Middleware', icon: 'sync_alt', color: 'secondary', desc: '消息队列 / 缓存 / 注册中心' },
@@ -24,17 +24,21 @@ export const LAYER_TAXONOMY = [
 ]
 
 const ALIASES = {
-  microservice: 'microservice/business',
-  business: 'microservice/business', ms: 'microservice/business',
-  support: 'microservice/support', helper: 'microservice/support',
-  misc: 'microservice/misc', other: 'microservice/misc', batch: 'microservice/misc',
+  microservice: 'microservice-business',
+  business: 'microservice-business', ms: 'microservice-business',
+  support: 'microservice-support', helper: 'microservice-support',
+  misc: 'microservice-misc', other: 'microservice-misc', batch: 'microservice-misc',
+  // 旧 / 形式向后兼容（K8s label value 不允许 /，已改为 -，但集群里可能有旧值）
+  'microservice/business': 'microservice-business',
+  'microservice/support': 'microservice-support',
+  'microservice/misc': 'microservice-misc',
   // 旧 tier 体系（TIER_META: web/gateway/svc/cloud/db/monitor/default）向后兼容
   web: 'presentation',
-  svc: 'microservice/business',
+  svc: 'microservice-business',
   cloud: 'middleware',
   db: 'persistence',
   monitor: 'monitoring',
-  default: 'microservice/business',
+  default: 'microservice-business',
 }
 const KNOWN = new Set([...LAYER_TAXONOMY.flatMap(n => [n.key, ...(n.children || []).map(c => c.key)]), 'unclassified'])
 
@@ -63,8 +67,8 @@ export function classifyResource(res) {
   for (const [key, words] of Object.entries(KEYWORDS)) {
     if (words.some(w => hay.includes(w))) return key
   }
-  if (res.type === 'Job' || res.type === 'CronJob' || res.kind === 'Job' || res.kind === 'CronJob') return 'microservice/misc'
-  return 'microservice/business'
+  if (res.type === 'Job' || res.type === 'CronJob' || res.kind === 'Job' || res.kind === 'CronJob') return 'microservice-misc'
+  return 'microservice-business'
 }
 
 // 按分层体系分组（仅返回有资源的层；microservice 展开为子层）

@@ -200,8 +200,8 @@ const quickTemplates = [
   { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'presentation' },
   { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'middleware' },
   { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'persistence' },
-  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice/business' },
-  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice/business' },
+  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
+  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
 ]
 function applyTemplate(t) {
   form.value.image = t.image
