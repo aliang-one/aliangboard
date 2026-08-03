@@ -39,6 +39,20 @@ async function readBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
+// 解析镜像引用 → { registry, repo }：registry 为含 . 或 : 或 localhost 的首段
+// 形如 registry.liang.home/library/app:v1 → { registry:'registry.liang.home', repo:'library/app' }
+function parseImageRef(image) {
+  let s = String(image || '').trim().split('@')[0] // 去 digest
+  const slash = s.indexOf('/')
+  const colon = s.lastIndexOf(':')
+  if (colon > slash) s = s.slice(0, colon) // 去 tag（仅当 : 在最后一个 / 之后）
+  const firstSlash = s.indexOf('/')
+  const head = firstSlash > -1 ? s.slice(0, firstSlash) : ''
+  const isRegistry = head && (head.includes('.') || head.includes(':') || head === 'localhost')
+  if (isRegistry) return { registry: head, repo: s.slice(firstSlash + 1) }
+  return { registry: '', repo: s } // 无 registry → 视为官方镜像（docker.io）
+}
+
 function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
   const session = token ? sessions.get(token) : null
@@ -676,6 +690,40 @@ async function handle(req, res) {
       return sendJson(res, 200, { ok: true, job: job?.metadata?.name || '' })
     } catch (error) {
       return sendJson(res, error.status || 422, { message: error?.message || '触发 CronJob 失败' })
+    }
+  }
+
+  // 镜像仓库可用版本：查询 registry v2 /v2/<repo>/tags/list
+  // 支持自签证书（跳过 TLS 校验）、明文 http 自动回退、可选 basic auth（私有仓库）
+  if (req.method === 'POST' && url.pathname === '/api/registry/tags') {
+    try {
+      const input = await readBody(req)
+      const ref = parseImageRef(String(input.image || ''))
+      if (!ref.registry || !ref.repo) return sendJson(res, 400, { message: '无法解析镜像仓库地址（需含 registry 主机，如 registry.example.com/repo/app）' })
+      const headers = {}
+      if (input.username || input.password) {
+        headers.authorization = 'Basic ' + Buffer.from(`${input.username || ''}:${input.password || ''}`).toString('base64')
+      }
+      const agent = new UndiciAgent({ connect: { rejectUnauthorized: false } })
+      const path = `/v2/${ref.repo}/tags/list?n=100`
+      let r
+      try {
+        r = await kubeFetch(`https://${ref.registry}${path}`, { headers, dispatcher: agent })
+      } catch (e) {
+        // https 不可达（明文 registry / 端口未开 TLS）→ 回退 http
+        r = await kubeFetch(`http://${ref.registry}${path}`, { headers, dispatcher: agent })
+      }
+      if (r.status === 401) return sendJson(res, 401, { message: 'Registry 需要认证，请填写账号密码', needsAuth: true })
+      if (r.status === 404) return sendJson(res, 404, { message: `仓库 ${ref.repo} 不存在` })
+      if (!r.ok) {
+        const t = await r.text().catch(() => '')
+        return sendJson(res, 502, { message: `Registry 返回 ${r.status}：${t.slice(0, 200)}` })
+      }
+      const data = await r.json()
+      const tags = Array.isArray(data.tags) ? data.tags.slice().sort().reverse() : []
+      return sendJson(res, 200, { registry: ref.registry, repo: ref.repo, tags })
+    } catch (error) {
+      return sendJson(res, 502, { message: `无法访问 Registry：${error?.message || error}` })
     }
   }
 
