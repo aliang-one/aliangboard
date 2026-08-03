@@ -26,6 +26,11 @@ const items = computed(() => {
 const groups = computed(() => groupByLayer(items.value))
 const totalClassified = computed(() => items.value.length - (groups.value.find(g => g.key === 'unclassified')?.count || 0))
 
+// 3 列布局：left=监控 | center=主应用流 | right=中间件
+const leftGroups = computed(() => groups.value.filter(g => g.column === 'left'))
+const centerGroups = computed(() => groups.value.filter(g => g.column === 'center'))
+const rightGroups = computed(() => groups.value.filter(g => g.column === 'right'))
+
 const KIND_ICON = { Deployment: 'work', StatefulSet: 'work', DaemonSet: 'work', ReplicaSet: 'work', Job: 'schedule', CronJob: 'schedule', Service: 'share', Ingress: 'alt_route' }
 
 function goTo(it) {
@@ -85,68 +90,99 @@ async function applyLayer(key) {
       </p>
     </div>
 
-    <!-- 分层卡片 -->
-    <div v-if="groups.length" class="flex flex-col gap-md">
-      <div v-for="g in groups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <!-- 层头 -->
-        <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low/50">
-          <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
-            <span class="material-symbols-outlined text-base">{{ g.icon }}</span>
+    <!-- 3 列分层布局：左=监控 | 中=主应用流 | 右=中间件 -->
+    <div v-if="groups.length" class="grid grid-cols-1 xl:grid-cols-[220px_1fr_220px] gap-md">
+      <!-- 左列：监控层 -->
+      <div v-if="leftGroups.length" class="flex flex-col gap-sm">
+        <div v-for="g in leftGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
+            <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
+            <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
+            <span class="text-body-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
           </div>
-          <div class="min-w-0">
-            <div class="flex items-center gap-sm">
-              <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
-              <span class="px-2 py-0.5 rounded-full bg-primary-container/15 text-primary text-body-xs font-semibold">{{ g.count }}</span>
-            </div>
-            <p class="text-body-xs text-on-surface-variant truncate">{{ g.desc }}</p>
-          </div>
-        </div>
-
-        <!-- 微服务层：子层 -->
-        <div v-if="g.children" class="divide-y divide-outline-variant/15">
-          <div v-for="sub in g.children" :key="sub.key" class="px-md py-2">
-            <div class="flex items-center gap-sm mb-xs">
-              <span class="material-symbols-outlined text-on-surface-variant text-base">{{ sub.icon }}</span>
-              <h4 class="text-body-sm font-semibold text-on-surface">{{ sub.label }}</h4>
-              <span class="text-body-xs text-on-surface-variant">{{ sub.items.length }}</span>
-              <span class="text-body-xs text-on-surface-variant opacity-70">· {{ sub.desc }}</span>
-            </div>
-            <div class="flex flex-wrap gap-sm">
-              <div v-for="it in sub.items" :key="it._kind + it.name" class="relative group/chip">
-                <button @click="goTo(it)"
-                  class="group flex items-center gap-sm px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
-                  <span class="material-symbols-outlined text-on-surface-variant text-base group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
-                  <span class="font-mono text-code-xs text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
-                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
-                </button>
-                <button @click.stop="setLayer(it)" title="修改分层"
-                  class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center">
-                  <span class="material-symbols-outlined text-xs">layers</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 普通层：资源 chips -->
-        <div v-else class="p-md">
-          <div class="flex flex-wrap gap-sm">
+          <div class="p-sm flex flex-col gap-xs">
             <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
-              <button @click="goTo(it)"
-                class="group flex items-center gap-sm px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/10 transition-all">
-                <span class="material-symbols-outlined text-on-surface-variant text-base group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
-                <span class="font-mono text-code-xs text-on-surface group-hover:text-primary truncate max-w-[220px]">{{ it.name }}</span>
-                <span class="text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}</span>
-                <StatusChip v-if="it.status" :status="it.status" size="sm" />
+              <button @click="goTo(it)" class="group w-full flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary transition-all">
+                <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
               </button>
-              <button @click.stop="setLayer(it)" title="修改分层"
-                class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center">
-                <span class="material-symbols-outlined text-xs">layers</span>
-              </button>
+              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
             </div>
           </div>
         </div>
       </div>
+      <!-- 空左列占位 -->
+      <div v-else class="hidden xl:block"></div>
+
+      <!-- 中列：主应用流 -->
+      <div class="flex flex-col gap-sm">
+        <div v-for="g in centerGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <!-- 层头 -->
+          <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40 bg-surface-container-low/40">
+            <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span></div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-xs"><h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3><span class="px-1.5 py-0.5 rounded bg-primary-container/15 text-primary text-body-xs font-semibold">{{ g.count }}</span></div>
+              <p class="text-body-xs text-on-surface-variant truncate">{{ g.desc }}</p>
+            </div>
+          </div>
+          <!-- 微服务子层 -->
+          <div v-if="g.children" class="divide-y divide-outline-variant/10">
+            <div v-for="sub in g.children" :key="sub.key" class="px-md py-2">
+              <div class="flex items-center gap-xs mb-xs">
+                <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ sub.icon }}</span>
+                <h4 class="text-body-xs font-semibold text-on-surface">{{ sub.label }}</h4>
+                <span class="text-body-xs text-on-surface-variant">{{ sub.items.length }}</span>
+              </div>
+              <div class="flex flex-wrap gap-xs">
+                <div v-for="it in sub.items" :key="it._kind + it.name" class="relative group/chip">
+                  <button @click="goTo(it)" class="group flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/5 transition-all">
+                    <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                    <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
+                    <span class="text-body-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
+                  </button>
+                  <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 普通层 chips -->
+          <div v-else class="p-md">
+            <div class="flex flex-wrap gap-xs">
+              <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
+                <button @click="goTo(it)" class="group flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/5 transition-all">
+                  <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                  <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
+                  <span class="text-body-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
+                  <StatusChip v-if="it.status" :status="it.status" size="sm" />
+                </button>
+                <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右列：中间件 -->
+      <div v-if="rightGroups.length" class="flex flex-col gap-sm">
+        <div v-for="g in rightGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
+            <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
+            <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
+            <span class="text-body-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
+          </div>
+          <div class="p-sm flex flex-col gap-xs">
+            <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
+              <button @click="goTo(it)" class="group w-full flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary transition-all">
+                <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
+                <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
+              </button>
+              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 空右列占位 -->
+      <div v-else class="hidden xl:block"></div>
     </div>
 
     <!-- 空状态 -->

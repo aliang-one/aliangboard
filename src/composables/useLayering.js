@@ -7,20 +7,20 @@
 
 // 分层体系（顺序即展示顺序；microservice 含子层）。color 供 NamespaceOverview 的 tierBg/Text/Chip 复用。
 export const LAYER_TAXONOMY = [
-  { key: 'presentation', label: '展现层', en: 'Presentation', icon: 'desktop_windows', color: 'secondary', desc: '前端 / UI / 静态站点' },
-  { key: 'gateway', label: '网关', en: 'Gateway', icon: 'alt_route', color: 'primary', desc: 'API 网关 / 入口代理 / Ingress 控制器' },
+  { key: 'presentation', label: '展现层', en: 'Presentation', icon: 'desktop_windows', color: 'secondary', column: 'center', desc: '前端 / UI / 静态站点' },
+  { key: 'gateway', label: '网关', en: 'Gateway', icon: 'alt_route', color: 'primary', column: 'center', desc: 'API 网关 / 入口代理 / Ingress 控制器' },
   {
-    key: 'microservice', label: '微服务层', en: 'Microservice', icon: 'hub', color: 'tertiary', desc: '微服务应用', children: [
+    key: 'microservice', label: '微服务层', en: 'Microservice', icon: 'hub', color: 'tertiary', column: 'center', desc: '微服务应用', children: [
       { key: 'microservice-business', label: '业务层', en: 'Business', icon: 'storefront', color: 'tertiary', desc: '核心业务服务' },
       { key: 'microservice-support', label: '支持服务', en: 'Support', icon: 'support_agent', color: 'tertiary', desc: '鉴权 / 配置 / 调度等支撑服务' },
       { key: 'microservice-misc', label: '杂项', en: 'Misc', icon: 'widgets', color: 'surface', desc: '批处理任务 / 其它' },
     ],
   },
-  { key: 'middleware', label: '中间件', en: 'Middleware', icon: 'sync_alt', color: 'secondary', desc: '消息队列 / 缓存 / 注册中心' },
-  { key: 'persistence', label: '持久层', en: 'Database', icon: 'database', color: 'error', desc: '关系型 / 文档型 / 搜索数据库' },
-  { key: 'storage', label: '存储', en: 'Storage', icon: 'storage', color: 'primary', desc: '对象 / 文件存储' },
-  { key: 'monitoring', label: '监控层', en: 'Monitor', icon: 'monitoring', color: 'secondary', desc: '指标 / 日志 / 链路追踪' },
-  { key: 'unclassified', label: '未分类', en: 'Unclassified', icon: 'label', color: 'surface', desc: '未能自动识别——可用 label layer.aliangboard.io 显式归类' },
+  { key: 'middleware', label: '中间件', en: 'Middleware', icon: 'sync_alt', color: 'secondary', column: 'right', desc: '消息队列 / 缓存 / 注册中心' },
+  { key: 'persistence', label: '持久层', en: 'Database', icon: 'database', color: 'error', column: 'center', desc: '关系型 / 文档型 / 搜索数据库' },
+  { key: 'storage', label: '存储', en: 'Storage', icon: 'storage', color: 'primary', column: 'center', desc: '对象 / 文件存储' },
+  { key: 'monitoring', label: '监控层', en: 'Monitor', icon: 'monitoring', color: 'secondary', column: 'left', desc: '指标 / 日志 / 链路追踪' },
+  { key: 'unclassified', label: '未分类', en: 'Unclassified', icon: 'label', color: 'surface', column: 'center', desc: '未能自动识别——可用 label layer.aliangboard.io 显式归类' },
 ]
 
 const ALIASES = {
@@ -71,7 +71,7 @@ export function classifyResource(res) {
   return 'microservice-business'
 }
 
-// 按分层体系分组（仅返回有资源的层；microservice 展开为子层）
+// 按分层体系分组（仅返回有资源的层；microservice 展开为子层；附带 column 信息供 3 列布局）
 export function groupByLayer(items) {
   const buckets = {}
   for (const it of items) {
@@ -85,10 +85,10 @@ export function groupByLayer(items) {
         .map(sub => ({ ...sub, items: buckets[sub.key] || [] }))
         .filter(s => s.items.length)
       const count = subs.reduce((n, s) => n + s.items.length, 0)
-      if (count) result.push({ ...node, items: [], children: subs, count })
+      if (count) result.push({ ...node, items: [], children: subs, count, column: node.column || 'center' })
     } else {
       const its = buckets[node.key] || []
-      if (its.length) result.push({ ...node, items: its, count: its.length })
+      if (its.length) result.push({ ...node, items: its, count: its.length, column: node.column || 'center' })
     }
   }
   return result
