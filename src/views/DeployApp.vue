@@ -757,48 +757,48 @@ async function handleDeploy() {
 
       <!-- Step 2: Container Config -->
       <div v-if="currentStep === 1">
-        <h3 class="text-headline-md mb-lg">Container Configuration</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+        <h3 class="text-headline-sm font-bold mb-md">Container Configuration</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Container Name</label>
-            <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="main" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Container Name</label>
+            <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="main" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Image URL *</label>
-            <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Image URL *</label>
+            <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Pull Policy</label>
-            <select v-model="form.pullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Pull Policy</label>
+            <select v-model="form.pullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>IfNotPresent</option><option>Always</option><option>Never</option>
             </select>
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Command (optional)</label>
-            <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/bin/sh -c" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Command (optional)</label>
+            <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="/bin/sh -c" />
           </div>
           <div class="md:col-span-2">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Args (optional)</label>
-            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="--port 8080 --debug" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Args (optional)</label>
+            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="--port 8080 --debug" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Working Dir</label>
-            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/app" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Working Dir</label>
+            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
           </div>
-          <div class="flex items-center gap-lg pt-xl">
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-body-sm">stdin</span></label>
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-body-sm">tty（分配 TTY）</span></label>
+          <div class="flex items-center gap-md pt-sm">
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-body-xs">stdin</span></label>
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-body-xs">tty（分配 TTY）</span></label>
           </div>
           <div class="md:col-span-2">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Image Pull Secrets</label>
-            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Image Pull Secrets</label>
+            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">None</option>
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
             </select>
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">ServiceAccount（运行身份）</label>
-            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">ServiceAccount（运行身份）</label>
+            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">Default</option>
               <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
             </select>
@@ -806,60 +806,60 @@ async function handleDeploy() {
         </div>
 
         <!-- Container Ports -->
-        <h4 class="text-headline-sm mt-xl mb-md">Container Ports</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">Container Ports</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center">
-            <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Port (e.g. 8080)" />
-            <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
+            <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>TCP</option><option>UDP</option>
             </select>
-            <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addPort" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Port
+          <button @click="addPort" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Port
           </button>
         </div>
 
         <!-- Resources -->
-        <div class="flex items-center justify-between mt-xl mb-md flex-wrap gap-sm">
-          <h4 class="text-headline-sm">Resources</h4>
+        <div class="flex items-center justify-between mt-md mb-xs flex-wrap gap-sm">
+          <h4 class="text-body-sm font-semibold">Resources</h4>
           <div class="flex gap-xs">
             <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-body-xs font-medium rounded border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
           </div>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
-          <div><label class="text-label-caps text-on-surface-variant block mb-xs">CPU Request</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-          <div><label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-          <div><label class="text-label-caps text-on-surface-variant block mb-xs">Memory Request</label><input v-model="form.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-          <div><label class="text-label-caps text-on-surface-variant block mb-xs">Memory Limit</label><input v-model="form.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU Request</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU Limit</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">Memory Request</label><input v-model="form.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">Memory Limit</label><input v-model="form.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
         </div>
 
         <!-- Env Vars -->
-        <h4 class="text-headline-sm mt-xl mb-md">Environment Variables</h4>
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">Environment Variables</h4>
         <div class="flex flex-col gap-sm">
           <div v-for="(env, idx) in form.envVars" :key="idx" class="flex gap-sm items-center">
-            <input v-model="env.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="KEY" />
-            <input v-model="env.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="value" />
-            <button @click="removeEnvVar(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <input v-model="env.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
+            <input v-model="env.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
+            <button @click="removeEnvVar(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addEnvVar" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Variable
+          <button @click="addEnvVar" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Variable
           </button>
         </div>
 
         <!-- Env From -->
-        <h4 class="text-headline-sm mt-xl mb-md">Env From</h4>
-        <div class="grid grid-cols-2 gap-md mb-xl">
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">Env From</h4>
+        <div class="grid grid-cols-2 gap-sm mb-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">From ConfigMap</label>
-            <select v-model="form.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">From ConfigMap</label>
+            <select v-model="form.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">None</option>
               <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
             </select>
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">From Secret</label>
-            <select v-model="form.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">From Secret</label>
+            <select v-model="form.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">None</option>
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
             </select>
@@ -867,172 +867,172 @@ async function handleDeploy() {
         </div>
 
         <!-- 单 Key 引用 -->
-        <h4 class="text-headline-sm mt-xl mb-md">单 Key 引用 (ConfigMap / Secret)</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">单 Key 引用 (ConfigMap / Secret)</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ENV_NAME" />
-            <select v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+            <select v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">ConfigMap</option>
               <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
             </select>
-            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
-            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
+            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ENV_NAME" />
-            <select v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+            <select v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">Secret</option>
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
             </select>
-            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
-            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
+            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div class="flex gap-sm">
-            <button @click="addEnvCMKey" class="flex items-center gap-xs px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span> From ConfigMap</button>
-            <button @click="addEnvSecretKey" class="flex items-center gap-xs px-md py-sm text-tertiary-container font-medium text-body-sm hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span> From Secret</button>
+            <button @click="addEnvCMKey" class="flex items-center gap-xs px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> From ConfigMap</button>
+            <button @click="addEnvSecretKey" class="flex items-center gap-xs px-md py-xs text-tertiary-container font-medium text-body-xs hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> From Secret</button>
           </div>
         </div>
 
         <!-- 高级设置（默认折叠）-->
-        <div class="mt-xl border border-outline-variant rounded-xl overflow-hidden">
-          <button type="button" @click="showAdvanced = !showAdvanced" class="w-full flex items-center justify-between px-lg py-md bg-surface-container-low hover:bg-surface-container transition-colors">
-            <span class="flex items-center gap-sm text-body-md font-semibold">
-              <span class="material-symbols-outlined text-on-surface-variant">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</span>
+        <div class="mt-md border border-outline-variant rounded-xl overflow-hidden">
+          <button type="button" @click="showAdvanced = !showAdvanced" class="w-full flex items-center justify-between px-md py-sm bg-surface-container-low hover:bg-surface-container transition-colors">
+            <span class="flex items-center gap-sm text-body-sm font-semibold">
+              <span class="material-symbols-outlined text-on-surface-variant text-base">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</span>
               高级设置
               <span class="text-body-xs text-on-surface-variant font-normal opacity-70">探针 · 多容器 · 安全上下文 · 生命周期</span>
             </span>
             <span class="text-body-xs text-primary font-medium">{{ showAdvanced ? '收起' : '展开' }}</span>
           </button>
-          <div v-show="showAdvanced" class="p-lg border-t border-outline-variant">
+          <div v-show="showAdvanced" class="p-md border-t border-outline-variant">
         <!-- 健康探针 -->
-        <h4 class="text-headline-sm mb-md">健康探针 (Health Probes)</h4>
+        <h4 class="text-body-sm font-semibold mb-xs">健康探针 (Health Probes)</h4>
         <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
           <label class="flex items-center justify-between px-md py-sm cursor-pointer">
-            <span class="flex items-center gap-sm text-body-md font-medium capitalize">
-              <span class="material-symbols-outlined text-primary text-lg">{{ pName === 'liveness' ? 'favorite' : pName === 'readiness' ? 'check_circle' : 'rocket_launch' }}</span>
+            <span class="flex items-center gap-sm text-body-sm font-medium capitalize">
+              <span class="material-symbols-outlined text-primary text-base">{{ pName === 'liveness' ? 'favorite' : pName === 'readiness' ? 'check_circle' : 'rocket_launch' }}</span>
               {{ pName }} Probe
             </span>
             <input type="checkbox" v-model="form[pName].enabled" class="rounded text-primary h-4 w-4" />
           </label>
-          <div v-if="form[pName].enabled" class="px-md pb-md grid grid-cols-2 md:grid-cols-4 gap-md">
+          <div v-if="form[pName].enabled" class="px-md pb-sm grid grid-cols-2 md:grid-cols-4 gap-sm">
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">类型</label>
-              <select v-model="form[pName].type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">类型</label>
+              <select v-model="form[pName].type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option>
               </select>
             </div>
             <div v-if="form[pName].type === 'http'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">HTTP Path</label>
-              <input v-model="form[pName].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">HTTP Path</label>
+              <input v-model="form[pName].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" />
             </div>
             <div v-if="form[pName].type !== 'exec'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Port</label>
-              <input v-model.number="form[pName].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Port</label>
+              <input v-model.number="form[pName].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
             <div v-if="form[pName].type === 'exec'" class="col-span-2">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Exec Command</label>
-              <input v-model="form[pName].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="cat /tmp/ready" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Exec Command</label>
+              <input v-model="form[pName].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="cat /tmp/ready" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Initial Delay (s)</label>
-              <input v-model.number="form[pName].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Initial Delay (s)</label>
+              <input v-model.number="form[pName].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Period (s)</label>
-              <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Period (s)</label>
+              <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Timeout (s)</label>
-              <input v-model.number="form[pName].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Timeout (s)</label>
+              <input v-model.number="form[pName].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Failure Threshold</label>
-              <input v-model.number="form[pName].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Failure Threshold</label>
+              <input v-model.number="form[pName].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Success Threshold</label>
-              <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Success Threshold</label>
+              <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
           </div>
         </div>
 
         <!-- 额外工作容器 (Sidecar) -->
-        <h4 class="text-headline-sm mt-xl mb-md">额外工作容器 (Sidecar)</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">额外工作容器 (Sidecar)</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-md mb-sm">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="sidecar name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="image" />
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem limit" />
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="mem limit" />
             </div>
-            <button @click="removeExtraContainer(idx)" class="mt-sm text-body-sm text-error hover:underline">移除该容器</button>
+            <button @click="removeExtraContainer(idx)" class="mt-sm text-body-xs text-error hover:underline">移除该容器</button>
           </div>
-          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Sidecar Container
+          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Sidecar Container
           </button>
         </div>
 
         <!-- 初始容器 (Init) -->
-        <h4 class="text-headline-sm mt-xl mb-md">初始容器 (Init Containers)</h4>
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">初始容器 (Init Containers)</h4>
         <div class="flex flex-col gap-sm">
           <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-md mb-sm">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="init name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="image" />
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
             </div>
-            <div class="grid grid-cols-2 gap-md mb-sm">
-              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="command" />
-              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="args" />
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs font-mono" placeholder="command" />
+              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs font-mono" placeholder="args" />
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-md">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="mem limit" />
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-xs" placeholder="mem limit" />
             </div>
-            <button @click="removeInitContainer(idx)" class="mt-sm text-body-sm text-error hover:underline">移除该容器</button>
+            <button @click="removeInitContainer(idx)" class="mt-sm text-body-xs text-error hover:underline">移除该容器</button>
           </div>
-          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Init Container
+          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Init Container
           </button>
         </div>
 
         <!-- 安全上下文 -->
-        <h4 class="text-headline-sm mt-xl mb-md">Security Context（安全上下文）</h4>
-        <div class="border border-outline-variant rounded-lg mb-xl">
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">Security Context（安全上下文）</h4>
+        <div class="border border-outline-variant rounded-lg mb-md">
           <label class="flex items-center justify-between px-md py-sm cursor-pointer">
-            <span class="text-body-md font-medium">启用自定义安全上下文</span>
+            <span class="text-body-sm font-medium">启用自定义安全上下文</span>
             <input type="checkbox" v-model="form.securityContext.enabled" class="rounded text-primary h-4 w-4" />
           </label>
-          <div v-if="form.securityContext.enabled" class="px-md pb-md grid grid-cols-2 gap-md">
+          <div v-if="form.securityContext.enabled" class="px-md pb-sm grid grid-cols-2 gap-sm">
             <div class="col-span-2 flex items-center gap-sm px-sm py-sm bg-error-container/10 border border-error/30 rounded-lg">
               <input type="checkbox" v-model="form.securityContext.privileged" class="rounded text-error h-4 w-4" id="priv" />
-              <label for="priv" class="text-body-sm font-medium text-error flex items-center gap-xs"><span class="material-symbols-outlined text-base">warning</span>privileged（特权模式）— 危险：等同主机 root 权限</label>
+              <label for="priv" class="text-body-xs font-medium text-error flex items-center gap-xs"><span class="material-symbols-outlined text-sm">warning</span>privileged（特权模式）— 危险：等同主机 root 权限</label>
             </div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Run As User</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="1000" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Run As Group</label><input v-model.number="form.securityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="1000" /></div>
-            <div class="flex items-center gap-sm pt-xl"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-body-sm">runAsNonRoot（非特权）</label></div>
-            <div class="flex items-center gap-sm pt-xl"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-body-sm">readOnlyRootFilesystem</label></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Add Capabilities</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="NET_BIND_SERVICE" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Drop Capabilities</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="ALL" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Run As User</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Run As Group</label><input v-model.number="form.securityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+            <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-body-xs">runAsNonRoot（非特权）</label></div>
+            <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-body-xs">readOnlyRootFilesystem</label></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Add Capabilities</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="NET_BIND_SERVICE" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Drop Capabilities</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ALL" /></div>
           </div>
         </div>
 
         <!-- 生命周期钩子 -->
-        <h4 class="text-headline-sm mb-md">Lifecycle Hooks（生命周期钩子）</h4>
-        <div class="grid grid-cols-2 gap-md">
+        <h4 class="text-body-sm font-semibold mb-xs">Lifecycle Hooks（生命周期钩子）</h4>
+        <div class="grid grid-cols-2 gap-sm">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">PostStart (exec)</label>
-            <input v-model="form.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/bin/sh -c 'echo started'" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">PostStart (exec)</label>
+            <input v-model="form.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'echo started'" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">PreStop (exec)</label>
-            <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/bin/sh -c 'sleep 10'" />
+            <label class="text-body-xs text-on-surface-variant block mb-xs">PreStop (exec)</label>
+            <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'sleep 10'" />
           </div>
         </div>
           </div>
@@ -1041,123 +1041,123 @@ async function handleDeploy() {
 
       <!-- Step 3: Volumes -->
       <div v-if="currentStep === 2">
-        <h3 class="text-headline-md mb-lg">Volumes（数据卷挂载）</h3>
+        <h3 class="text-headline-sm font-bold mb-md">Volumes（数据卷挂载）</h3>
 
-        <h4 class="text-headline-sm mb-md">Volume Mounts</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mb-xs">Volume Mounts</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(vol, idx) in form.volumeMounts" :key="idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="flex gap-sm items-center mb-sm">
-              <select v-model="vol.type" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-medium">
+            <div class="flex gap-sm items-center mb-xs">
+              <select v-model="vol.type" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-medium">
                 <option value="pvc">PVC</option>
                 <option value="emptyDir">emptyDir</option>
                 <option value="hostPath">hostPath</option>
                 <option value="configMap">ConfigMap</option>
                 <option value="secret">Secret</option>
               </select>
-              <input v-model="vol.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="Volume Name" />
-              <button @click="removeVolume(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+              <input v-model="vol.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="Volume Name" />
+              <button @click="removeVolume(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
             </div>
-            <div class="grid grid-cols-2 gap-md mb-sm">
+            <div class="grid grid-cols-2 gap-sm mb-xs">
               <div>
-                <label class="text-label-caps text-on-surface-variant block mb-xs">Mount Path</label>
-                <input v-model="vol.mountPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/data" />
+                <label class="text-body-xs text-on-surface-variant block mb-xs">Mount Path</label>
+                <input v-model="vol.mountPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/data" />
               </div>
               <div>
-                <label class="text-label-caps text-on-surface-variant block mb-xs">Sub Path (可选)</label>
-                <input v-model="vol.subPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="" />
+                <label class="text-body-xs text-on-surface-variant block mb-xs">Sub Path (可选)</label>
+                <input v-model="vol.subPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="" />
               </div>
             </div>
             <!-- 按卷类型显示来源 -->
             <div v-if="vol.type === 'pvc'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">PVC</label>
-              <select v-model="vol.pvcName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">PVC</label>
+              <select v-model="vol.pvcName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="">选择 PVC</option>
                 <option v-for="pvc in availablePVCs" :key="pvc" :value="pvc">{{ pvc }}</option>
               </select>
             </div>
             <div v-else-if="vol.type === 'hostPath'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Host Path</label>
-              <input v-model="vol.hostPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/var/lib/data" />
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Host Path</label>
+              <input v-model="vol.hostPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/var/lib/data" />
             </div>
             <div v-else-if="vol.type === 'configMap'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">ConfigMap</label>
-              <select v-model="vol.cmName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">ConfigMap</label>
+              <select v-model="vol.cmName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="">选择 ConfigMap</option>
                 <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
               </select>
             </div>
             <div v-else-if="vol.type === 'secret'">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Secret</label>
-              <select v-model="vol.secretName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Secret</label>
+              <select v-model="vol.secretName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="">选择 Secret</option>
                 <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
               </select>
             </div>
-            <p v-else class="text-body-sm text-on-surface-variant">emptyDir：临时空目录，Pod 删除即失效。</p>
+            <p v-else class="text-body-xs text-on-surface-variant">emptyDir：临时空目录，Pod 删除即失效。</p>
           </div>
-          <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Volume
+          <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Volume
           </button>
         </div>
       </div>
 
       <!-- Step 4: Scheduling & Update -->
       <div v-if="currentStep === 3">
-        <h3 class="text-headline-md mb-lg">调度与更新策略</h3>
+        <h3 class="text-headline-sm font-bold mb-md">调度与更新策略</h3>
 
         <!-- 更新策略 -->
-        <h4 class="text-headline-sm mb-md">更新策略 (Update Strategy)</h4>
-        <div v-if="['Deployment','StatefulSet','DaemonSet'].includes(form.workloadType)" class="flex flex-col gap-md mb-xl">
+        <h4 class="text-body-sm font-semibold mb-xs">更新策略 (Update Strategy)</h4>
+        <div v-if="['Deployment','StatefulSet','DaemonSet'].includes(form.workloadType)" class="flex flex-col gap-sm mb-md">
           <div class="flex gap-sm">
             <button v-for="s in ['RollingUpdate','Recreate']" :key="s" @click="form.strategy = s"
-              class="px-lg py-sm rounded-lg border font-medium text-body-md transition-all"
+              class="px-md py-xs rounded-lg border font-medium text-body-sm transition-all"
               :class="form.strategy === s ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">{{ s }}</button>
           </div>
-          <div v-if="form.strategy === 'RollingUpdate'" class="grid grid-cols-3 gap-md">
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Max Surge</label><input v-model="form.maxSurge" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="25%" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Max Unavailable</label><input v-model="form.maxUnavailable" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="25%" /></div>
-            <div><label class="text-label-caps text-on-surface-variant block mb-xs">Revision History</label><input v-model.number="form.revisionHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+          <div v-if="form.strategy === 'RollingUpdate'" class="grid grid-cols-3 gap-sm">
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Max Surge</label><input v-model="form.maxSurge" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="25%" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Max Unavailable</label><input v-model="form.maxUnavailable" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="25%" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">Revision History</label><input v-model.number="form.revisionHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
           </div>
         </div>
-        <p v-else class="text-body-sm text-on-surface-variant mb-xl">Job / CronJob 不适用滚动更新策略。</p>
+        <p v-else class="text-body-xs text-on-surface-variant mb-md">Job / CronJob 不适用滚动更新策略。</p>
 
         <!-- 节点调度 -->
-        <h4 class="text-headline-sm mb-md">节点调度 (Node Selector)</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mb-xs">节点调度 (Node Selector)</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(ns, idx) in form.nodeSelectors" :key="idx" class="flex gap-sm items-center">
-            <input v-model="ns.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="label key (e.g. disktype)" />
-            <input v-model="ns.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="value (e.g. ssd)" />
-            <button @click="removeNodeSelector(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <input v-model="ns.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="label key (e.g. disktype)" />
+            <input v-model="ns.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value (e.g. ssd)" />
+            <button @click="removeNodeSelector(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Node Selector
+          <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Node Selector
           </button>
         </div>
 
         <!-- 污点容忍 -->
-        <h4 class="text-headline-sm mb-md">污点容忍 (Tolerations)</h4>
-        <div class="flex flex-col gap-sm mb-xl">
+        <h4 class="text-body-sm font-semibold mb-xs">污点容忍 (Tolerations)</h4>
+        <div class="flex flex-col gap-sm mb-md">
           <div v-for="(t, idx) in form.tolerations" :key="idx" class="flex gap-sm items-center flex-wrap">
-            <input v-model="t.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key" />
-            <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <input v-model="t.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
+            <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>Equal</option><option>Exists</option>
             </select>
-            <input v-if="t.operator === 'Equal'" v-model="t.value" class="flex-1 min-w-[80px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="value" />
-            <select v-model="t.effect" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <input v-if="t.operator === 'Equal'" v-model="t.value" class="flex-1 min-w-[80px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value" />
+            <select v-model="t.effect" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option>
             </select>
-            <button @click="removeToleration(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined">delete</span></button>
+            <button @click="removeToleration(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addToleration" class="self-start flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Toleration
+          <button @click="addToleration" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Toleration
           </button>
         </div>
 
         <!-- 优先级 -->
-        <h4 class="text-headline-sm mb-md">优先级 (PriorityClass)</h4>
+        <h4 class="text-body-sm font-semibold mb-xs">优先级 (PriorityClass)</h4>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">PriorityClass</label>
-          <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+          <label class="text-body-xs text-on-surface-variant block mb-xs">PriorityClass</label>
+          <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
             <option value="">None</option>
             <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
           </select>
@@ -1166,19 +1166,19 @@ async function handleDeploy() {
 
       <!-- Step 5: Service & Ingress -->
       <div v-if="currentStep === 4">
-        <h3 class="text-headline-md mb-lg">Service & Ingress</h3>
+        <h3 class="text-headline-sm font-bold mb-md">Service & Ingress</h3>
 
-        <div class="flex items-center gap-sm mb-lg">
+        <div class="flex items-center gap-sm mb-md">
           <input v-model="form.createService" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" id="createSvc" />
-          <label for="createSvc" class="text-body-md font-medium cursor-pointer">Create Service</label>
+          <label for="createSvc" class="text-body-sm font-medium cursor-pointer">Create Service</label>
         </div>
 
-        <div v-if="form.createService" class="mb-xl">
-          <div class="mb-md">
-            <label class="text-label-caps text-on-surface-variant block mb-sm">Service Type</label>
+        <div v-if="form.createService" class="mb-md">
+          <div class="mb-xs">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Service Type</label>
             <div class="flex flex-wrap gap-sm">
               <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" @click="form.serviceType = st"
-                class="px-lg py-sm rounded-lg border font-medium text-body-md transition-all"
+                class="px-md py-xs rounded-lg border font-medium text-body-sm transition-all"
                 :class="form.serviceType === st ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'"
               >{{ st }}</button>
             </div>
@@ -1186,49 +1186,49 @@ async function handleDeploy() {
 
           <!-- ExternalName -->
           <div v-if="form.serviceType === 'ExternalName'">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">External Name</label>
-            <input v-model="form.externalName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="my-service.example.com" />
-            <p class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>ExternalName 把 Service 映射到外部 DNS 名称（无需 selector/ports）</p>
+            <label class="text-body-xs text-on-surface-variant block mb-xs">External Name</label>
+            <input v-model="form.externalName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="my-service.example.com" />
+            <p class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs"><span class="material-symbols-outlined text-xs">info</span>ExternalName 把 Service 映射到外部 DNS 名称（无需 selector/ports）</p>
           </div>
 
           <!-- 多端口编辑器 -->
           <div v-else>
-            <label class="text-label-caps text-on-surface-variant block mb-sm">Service Ports（可配多个，如 http + https）</label>
+            <label class="text-body-xs text-on-surface-variant block mb-xs">Service Ports（可配多个，如 http + https）</label>
             <div class="flex flex-col gap-sm">
               <div v-for="(sp, idx) in form.servicePorts" :key="idx" class="flex flex-wrap gap-xs items-center p-sm bg-surface-container-low rounded-lg border border-outline-variant">
-                <input v-model="sp.name" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="名称" />
-                <input v-model="sp.port" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="port" />
-                <span class="text-on-surface-variant text-body-sm">→</span>
-                <input v-model="sp.targetPort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="targetPort" />
-                <select v-model="sp.protocol" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
+                <input v-model="sp.name" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="名称" />
+                <input v-model="sp.port" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="port" />
+                <span class="text-on-surface-variant text-body-xs">→</span>
+                <input v-model="sp.targetPort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="targetPort" />
+                <select v-model="sp.protocol" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs">
                   <option>TCP</option><option>UDP</option>
                 </select>
-                <input v-if="form.serviceType === 'NodePort'" v-model="sp.nodePort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="nodePort" />
-                <button v-if="form.servicePorts.length > 1" @click="removeServicePort(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+                <input v-if="form.serviceType === 'NodePort'" v-model="sp.nodePort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="nodePort" />
+                <button v-if="form.servicePorts.length > 1" @click="removeServicePort(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
-              <button @click="addServicePort" class="self-start flex items-center gap-xs px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-                <span class="material-symbols-outlined text-sm">add</span> Add Port
+              <button @click="addServicePort" class="self-start flex items-center gap-xs px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-xs">add</span> Add Port
               </button>
             </div>
             <p v-if="form.ports.filter(p => p.containerPort).length" class="text-body-xs text-on-surface-variant mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">arrow_forward</span>容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span> 可填入 targetPort
+              <span class="material-symbols-outlined text-xs">arrow_forward</span>容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span> 可填入 targetPort
             </p>
             <p v-else-if="form.serviceType === 'NodePort'" class="text-body-xs text-tertiary-container mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">info</span>NodePort 可在每行指定 nodePort（留空则自动分配）
+              <span class="material-symbols-outlined text-xs">info</span>NodePort 可在每行指定 nodePort（留空则自动分配）
             </p>
           </div>
         </div>
 
-        <div class="mt-lg">
+        <div class="mt-md">
           <label class="flex items-center gap-sm cursor-pointer">
             <input v-model="form.createIngress" type="checkbox" class="rounded text-primary h-4 w-4" />
-            <span class="text-body-md font-medium">Create Ingress</span>
+            <span class="text-body-sm font-medium">Create Ingress</span>
           </label>
-          <div v-if="form.createIngress" class="mt-md">
+          <div v-if="form.createIngress" class="mt-sm">
             <!-- ingressClassName -->
-            <div class="mb-md">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Ingress Class</label>
-              <select v-model="form.ingressClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <div class="mb-xs">
+              <label class="text-body-xs text-on-surface-variant block mb-xs">Ingress Class</label>
+              <select v-model="form.ingressClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="">None</option>
                 <option>nginx</option>
                 <option>traefik</option>
@@ -1237,49 +1237,49 @@ async function handleDeploy() {
             </div>
 
             <!-- 多 Rule 编辑器 -->
-            <label class="text-label-caps text-on-surface-variant block mb-sm">路由规则 Rules（多域名 + 每 host 多 path）</label>
-            <div class="flex flex-col gap-md">
+            <label class="text-body-xs text-on-surface-variant block mb-xs">路由规则 Rules（多域名 + 每 host 多 path）</label>
+            <div class="flex flex-col gap-sm">
               <div v-for="(rule, rIdx) in form.ingressRules" :key="rIdx" class="border border-outline-variant rounded-lg p-md bg-surface-container-low">
-                <div class="flex gap-sm items-center mb-sm">
-                  <span class="material-symbols-outlined text-primary text-lg">language</span>
-                  <input v-model="rule.host" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="app.example.com" />
-                  <button v-if="form.ingressRules.length > 1" @click="removeIngressRule(rIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+                <div class="flex gap-sm items-center mb-xs">
+                  <span class="material-symbols-outlined text-primary text-base">language</span>
+                  <input v-model="rule.host" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" />
+                  <button v-if="form.ingressRules.length > 1" @click="removeIngressRule(rIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
                 </div>
                 <!-- paths -->
-                <div class="flex flex-col gap-xs mb-sm">
+                <div class="flex flex-col gap-xs mb-xs">
                   <div v-for="(p, pIdx) in rule.paths" :key="pIdx" class="flex gap-xs items-center">
-                    <input v-model="p.path" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="/api" />
-                    <select v-model="p.pathType" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
+                    <input v-model="p.path" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="/api" />
+                    <select v-model="p.pathType" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs">
                       <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
                     </select>
-                    <button v-if="rule.paths.length > 1" @click="removeIngressPath(rIdx, pIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">close</span></button>
+                    <button v-if="rule.paths.length > 1" @click="removeIngressPath(rIdx, pIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">close</span></button>
                   </div>
                   <button @click="addIngressPath(rIdx)" class="self-start flex items-center gap-xs px-sm py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded">
-                    <span class="material-symbols-outlined text-sm">add</span> Add Path
+                    <span class="material-symbols-outlined text-xs">add</span> Add Path
                   </button>
                 </div>
                 <!-- TLS -->
                 <label class="flex items-center gap-sm cursor-pointer mt-xs">
                   <input type="checkbox" v-model="rule.tls" class="rounded text-primary h-4 w-4" />
-                  <span class="text-body-sm">TLS（HTTPS）</span>
-                  <input v-if="rule.tls" v-model="rule.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono" placeholder="tls secret 名（留空自动生成）" />
+                  <span class="text-body-xs">TLS（HTTPS）</span>
+                  <input v-if="rule.tls" v-model="rule.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" placeholder="tls secret 名（留空自动生成）" />
                 </label>
               </div>
-              <button @click="addIngressRule" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
+              <button @click="addIngressRule" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-xs hover:bg-primary-container/10 rounded-lg">
                 <span class="material-symbols-outlined text-sm">add</span> Add Rule（多域名）
               </button>
             </div>
             <p class="text-body-xs text-on-surface-variant mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">info</span>每个 Rule 一个域名，可配多个 path 与 pathType（Prefix/Exact），后端统一指向 {{ form.name }}-svc
+              <span class="material-symbols-outlined text-xs">info</span>每个 Rule 一个域名，可配多个 path 与 pathType（Prefix/Exact），后端统一指向 {{ form.name }}-svc
             </p>
 
             <!-- 网关性能调优（nginx 注解，留空=默认）-->
-            <details class="mt-md border border-outline-variant rounded-lg p-md bg-surface-container-low">
-              <summary class="cursor-pointer text-body-sm font-semibold text-on-surface flex items-center gap-sm">
-                <span class="material-symbols-outlined text-primary text-lg">tune</span> 网关性能调优（高级 · nginx 注解）
+            <details class="mt-sm border border-outline-variant rounded-lg p-md bg-surface-container-low">
+              <summary class="cursor-pointer text-body-xs font-semibold text-on-surface flex items-center gap-sm">
+                <span class="material-symbols-outlined text-primary text-base">tune</span> 网关性能调优（高级 · nginx 注解）
               </summary>
-              <p class="text-body-xs text-on-surface-variant mt-sm mb-md">参数以 <code class="font-mono bg-surface-container px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
-              <div class="flex flex-col gap-md">
+              <p class="text-body-xs text-on-surface-variant mt-sm mb-xs">参数以 <code class="font-mono bg-surface-container px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
+              <div class="flex flex-col gap-sm">
                 <div v-for="g in PERF_GROUPS" :key="g.title" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
                   <div class="flex items-center gap-sm mb-sm">
                     <span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span>
@@ -1317,57 +1317,57 @@ async function handleDeploy() {
 
       <!-- Step 6: Review & Deploy -->
       <div v-if="currentStep === 5">
-        <h3 class="text-headline-md mb-lg">Review & Deploy</h3>
+        <h3 class="text-headline-sm font-bold mb-md">Review & Deploy</h3>
 
         <!-- Summary Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-md mb-lg">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-sm mb-md">
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
-            <span class="material-symbols-outlined text-primary text-2xl">info</span>
-            <p class="text-headline-md font-bold mt-sm">{{ form.name || '—' }}</p>
-            <p class="text-body-sm text-on-surface-variant">{{ form.workloadType }}</p>
+            <span class="material-symbols-outlined text-primary text-base">info</span>
+            <p class="text-body-sm font-bold mt-xs">{{ form.name || '—' }}</p>
+            <p class="text-body-xs text-on-surface-variant">{{ form.workloadType }}</p>
           </div>
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
-            <span class="material-symbols-outlined text-secondary text-2xl">layers</span>
-            <p class="text-headline-md font-bold mt-sm">{{ form.replicas }}</p>
-            <p class="text-body-sm text-on-surface-variant">Replicas</p>
+            <span class="material-symbols-outlined text-secondary text-base">layers</span>
+            <p class="text-body-sm font-bold mt-xs">{{ form.replicas }}</p>
+            <p class="text-body-xs text-on-surface-variant">Replicas</p>
           </div>
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
-            <span class="material-symbols-outlined text-tertiary text-2xl">hub</span>
-            <p class="text-headline-md font-bold mt-sm">{{ form.createService ? form.serviceType : '—' }}</p>
-            <p class="text-body-sm text-on-surface-variant">{{ form.createService ? 'Service' : 'No Service' }}</p>
+            <span class="material-symbols-outlined text-tertiary text-base">hub</span>
+            <p class="text-body-sm font-bold mt-xs">{{ form.createService ? form.serviceType : '—' }}</p>
+            <p class="text-body-xs text-on-surface-variant">{{ form.createService ? 'Service' : 'No Service' }}</p>
           </div>
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
-            <span class="material-symbols-outlined text-on-surface-variant text-2xl">language</span>
-            <p class="text-headline-md font-bold mt-sm">{{ form.createIngress ? (form.ingressRules.find(r => r.host)?.host || '—') : '—' }}</p>
-            <p class="text-body-sm text-on-surface-variant">{{ form.createIngress ? 'Ingress' : 'No Ingress' }}</p>
+            <span class="material-symbols-outlined text-on-surface-variant text-base">language</span>
+            <p class="text-body-sm font-bold mt-xs">{{ form.createIngress ? (form.ingressRules.find(r => r.host)?.host || '—') : '—' }}</p>
+            <p class="text-body-xs text-on-surface-variant">{{ form.createIngress ? 'Ingress' : 'No Ingress' }}</p>
           </div>
         </div>
 
         <!-- YAML Preview -->
-        <h4 class="text-headline-sm mb-md">YAML Preview</h4>
+        <h4 class="text-body-sm font-semibold mb-xs">YAML Preview</h4>
         <YamlEditor :model-value="previewYAML" :readonly="true" height="400px" />
       </div>
 
       <!-- Actions -->
-      <div class="flex justify-between mt-xl pt-lg border-t border-outline-variant">
-        <button v-if="currentStep > 0" @click="prevStep" class="flex items-center gap-sm px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">
-          <span class="material-symbols-outlined">arrow_back</span> Back
+      <div class="flex justify-between mt-md pt-md border-t border-outline-variant">
+        <button v-if="currentStep > 0" @click="prevStep" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+          <span class="material-symbols-outlined text-sm">arrow_back</span> Back
         </button>
         <div v-else></div>
         <div class="flex gap-sm">
-          <button @click="router.push(`/ns/${form.namespace}`)" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+          <button @click="router.push(`/ns/${form.namespace}`)" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">Cancel</button>
           <button v-if="currentStep < steps.length - 1" @click="nextStep" :disabled="!canProceed"
-            class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
-            Next <span class="material-symbols-outlined">arrow_forward</span>
+            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
+            Next <span class="material-symbols-outlined text-sm">arrow_forward</span>
           </button>
           <button v-else @click="handleDeploy" :disabled="deployLoading"
-            class="flex items-center gap-sm px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50">
-            <span class="material-symbols-outlined" :class="deployLoading ? 'animate-spin' : ''">{{ deployLoading ? 'progress_activity' : 'rocket_launch' }}</span>
+            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50">
+            <span class="material-symbols-outlined text-sm" :class="deployLoading ? 'animate-spin' : ''">{{ deployLoading ? 'progress_activity' : 'rocket_launch' }}</span>
             {{ deployLoading ? 'Deploying...' : 'Deploy' }}
           </button>
         </div>
       </div>
-      <p v-if="deployError" class="mt-md rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-body-sm text-error">{{ deployError }}</p>
+      <p v-if="deployError" class="mt-sm rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-body-xs text-error">{{ deployError }}</p>
     </div>
   </div>
 </template>
