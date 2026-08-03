@@ -111,8 +111,13 @@ async function applyLayer(key) {
           </div>
         </div>
       </div>
-      <!-- 空左列占位 -->
-      <div v-else class="hidden xl:block"></div>
+      <!-- 空左列占位（仍显示标题，让用户知道监控层位置） -->
+      <div v-else class="hidden xl:flex">
+        <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
+          <span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span>
+          <p class="text-body-xs text-on-surface-variant mt-xs">监控层<br>（暂无）</p>
+        </div>
+      </div>
 
       <!-- 中列：主应用流 -->
       <div class="flex flex-col gap-sm">
@@ -182,7 +187,12 @@ async function applyLayer(key) {
         </div>
       </div>
       <!-- 空右列占位 -->
-      <div v-else class="hidden xl:block"></div>
+      <div v-else class="hidden xl:flex">
+        <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
+          <span class="material-symbols-outlined text-2xl text-surface-container-high">sync_alt</span>
+          <p class="text-body-xs text-on-surface-variant mt-xs">中间件<br>（暂无）</p>
+        </div>
+      </div>
     </div>
 
     <!-- 空状态 -->
