@@ -23,6 +23,66 @@ store.setNamespace(route.params.namespace)
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
 // 业务元数据（aliangboard.io/* 标签体系：title/description/owner/version/tags 等）
 const meta = computed(() => readMeta(workload.value))
+
+// === 网络暴露关系：Deployment → Service → Ingress ===
+const containerPorts = computed(() => {
+  const out = []
+  for (const c of (containers.value || [])) for (const p of (c.ports || [])) out.push({ container: c.name, port: p.containerPort, name: p.name, protocol: p.protocol || 'TCP' })
+  return out
+})
+// Pod 标签 = Service selector 的匹配对象（优先 pod template labels，回退 metadata labels）
+const podLabels = computed(() => workload.value?.raw?.spec?.template?.metadata?.labels || workload.value?.labels || {})
+const relatedServices = computed(() => {
+  const ns = route.params.namespace
+  const sel = podLabels.value
+  return (store.serviceList || []).filter(s => s.namespace === ns && s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
+})
+const relatedServiceNames = computed(() => new Set(relatedServices.value.map(s => s.name)))
+const relatedIngresses = computed(() => {
+  const ns = route.params.namespace
+  return (store.ingressList || []).filter(ing => ing.namespace === ns && (ing.rules || []).some(r => (r.http?.paths || []).some(p => {
+    const be = p.backend?.service || p.backend
+    return relatedServiceNames.value.has(be?.name)
+  })))
+})
+// 暴露 Service（selector 自动 = podLabels）
+const showExposeModal = ref(false)
+const exposeForm = ref({ name: '', type: 'ClusterIP', ports: [] })
+function openExpose() {
+  const base = workload.value?.name || 'app'
+  exposeForm.value = { name: `${base}-svc`, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol })) : [{ port: 80, targetPort: 8080, protocol: 'TCP' }] }
+  showExposeModal.value = true
+}
+async function saveExpose() {
+  try {
+    await store.addService({
+      name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '',
+      ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','),
+      selector: { ...podLabels.value },
+    })
+    notify('success', `已创建 Service ${exposeForm.value.name}`); showExposeModal.value = false
+  } catch (e) { notify('error', e.message || '创建 Service 失败') }
+}
+// 加 Ingress 映射（host/path → service:port）
+const showIngressMapModal = ref(false)
+const ingressMapForm = ref({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
+function openIngressMap() {
+  const svc = relatedServices.value[0]
+  const firstPort = svc?.ports?.split(',')[0]?.split(':')[0] || '80'
+  ingressMapForm.value = { host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
+  showIngressMapModal.value = true
+}
+async function saveIngressMap() {
+  const f = ingressMapForm.value
+  if (!f.serviceName) { notify('error', '请选择目标 Service'); return }
+  try {
+    await store.addIngress({
+      name: `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '',
+      rules: [{ host: f.host, path: f.path, pathType: f.pathType, serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 }],
+    })
+    notify('success', `已创建 Ingress ${f.host || '*'}${f.path} → ${f.serviceName}:${f.servicePort}`); showIngressMapModal.value = false
+  } catch (e) { notify('error', e.message || '创建 Ingress 失败') }
+}
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('deployment', workload.value))
 
@@ -188,6 +248,7 @@ function openEdit() {
     readinessEnabled: !!c0.readinessProbe,
     readinessPath: c0.readinessProbe?.httpGet?.path ?? '/ready',
     readinessPort: c0.readinessProbe?.httpGet?.port ?? 8080,
+    ports: (c0.ports || []).map(p => ({ containerPort: p.containerPort, protocol: p.protocol || 'TCP' })),
   }
   showEditModal.value = true
 }
@@ -224,6 +285,7 @@ async function saveEdit() {
           requests: { ...(editForm.value.cpuReq ? { cpu: editForm.value.cpuReq } : {}), ...(editForm.value.memReq ? { memory: editForm.value.memReq } : {}) },
           limits: { ...(editForm.value.cpuLim ? { cpu: editForm.value.cpuLim } : {}), ...(editForm.value.memLim ? { memory: editForm.value.memLim } : {}) },
         }
+        c0.ports = (editForm.value.ports || []).filter(p => p.containerPort).map(p => ({ containerPort: Number(p.containerPort), protocol: p.protocol || 'TCP' }))
         c0.livenessProbe = editForm.value.livenessEnabled
           ? { httpGet: { path: editForm.value.livenessPath, port: Number(editForm.value.livenessPort) || 8080 } }
           : undefined
@@ -367,7 +429,7 @@ async function saveTemplate() {
 
     <!-- Tabs -->
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in (isRolloutType ? ['overview', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in (isRolloutType ? ['overview', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
@@ -620,6 +682,54 @@ async function saveTemplate() {
     </div>
 
     <!-- Events Tab -->
+    <!-- Network Tab：Deployment → Service → Ingress 关系链 -->
+    <div v-if="activeTab === 'network'" class="flex flex-col gap-lg">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+        <h3 class="text-headline-sm mb-md">容器端口 (containerPort)</h3>
+        <div v-if="containerPorts.length" class="flex flex-wrap gap-sm">
+          <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-code-sm px-md py-xs bg-surface-container-low rounded-lg border border-outline-variant">{{ p.container }}: <span class="text-primary font-semibold">{{ p.port }}</span>/{{ p.protocol }}<span v-if="p.name" class="text-on-surface-variant"> · {{ p.name }}</span></span>
+        </div>
+        <p v-else class="text-body-sm text-on-surface-variant">未定义容器端口（在 Edit 里添加 ports，或用 Edit Template）</p>
+      </div>
+
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low">
+          <h3 class="text-headline-sm">关联 Service（暴露端口）</h3>
+          <button @click="openExpose" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90"><span class="material-symbols-outlined text-sm">share</span> 暴露</button>
+        </div>
+        <div v-if="relatedServices.length" class="divide-y divide-outline-variant/30">
+          <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="flex items-center gap-md px-lg py-md hover:bg-surface-container-low/50 cursor-pointer">
+            <span class="material-symbols-outlined text-primary">hub</span>
+            <div class="flex-1 min-w-0"><p class="font-semibold text-on-surface truncate">{{ s.name }}</p><p class="font-mono text-code-xs text-on-surface-variant truncate">{{ s.ports }} · {{ s.clusterIP }}</p></div>
+            <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant shrink-0">{{ s.type }}</span>
+            <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+          </div>
+        </div>
+        <div v-else class="px-lg py-xl text-center"><span class="material-symbols-outlined text-4xl text-surface-container-high">share</span><p class="text-on-surface-variant mt-sm text-body-sm">暂无关联 Service。点「暴露」创建（selector 自动匹配本 Deployment 的 Pod 标签）。</p></div>
+      </div>
+
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+        <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low">
+          <h3 class="text-headline-sm">关联 Ingress（外部路由）</h3>
+          <button @click="openIngressMap" :disabled="!relatedServices.length" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40" :title="relatedServices.length ? '创建 Ingress 映射' : '先创建 Service 再映射'"><span class="material-symbols-outlined text-sm">alt_route</span> 加 Ingress 映射</button>
+        </div>
+        <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/30">
+          <template v-for="ing in relatedIngresses" :key="ing.name">
+            <div v-for="(r, ri) in (ing.rules || [])" :key="ing.name + ri" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: ing.name } })" class="flex items-center gap-md px-lg py-md hover:bg-surface-container-low/50 cursor-pointer">
+              <span class="material-symbols-outlined text-primary">alt_route</span>
+              <div class="flex-1 min-w-0">
+                <p class="font-mono text-code-sm text-on-surface truncate"><span class="text-primary font-semibold">{{ r.host || '*' }}</span>{{ (r.http?.paths?.[0]?.path) || '/' }} <span class="text-on-surface-variant">→</span> {{ r.http?.paths?.[0]?.backend?.service?.name || r.http?.paths?.[0]?.backend?.serviceName }}:{{ r.http?.paths?.[0]?.backend?.service?.port?.number || r.http?.paths?.[0]?.backend?.servicePort }}</p>
+                <p class="text-body-xs text-on-surface-variant">via Ingress <span class="font-mono">{{ ing.name }}</span>{{ ing.className ? ' · ' + ing.className : '' }}{{ ing.tls ? ' · TLS' : '' }}</p>
+              </div>
+              <span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            </div>
+          </template>
+        </div>
+        <div v-else class="px-lg py-xl text-center"><span class="material-symbols-outlined text-4xl text-surface-container-high">alt_route</span><p class="text-on-surface-variant mt-sm text-body-sm">{{ relatedServices.length ? '暂无 Ingress 路由到本服务。点「加 Ingress 映射」创建。' : '先暴露 Service，再创建 Ingress 映射。' }}</p></div>
+      </div>
+      <p class="text-body-xs text-on-surface-variant px-sm">链路：外部请求 → Ingress(host/path) → Service(port→targetPort) → 本 Deployment 的 Pod(containerPort)。点任一项进入详情页编辑（Ingress 详情页可编辑 rules/TLS/Class/annotations）。</p>
+    </div>
+
     <div v-if="activeTab === 'events'" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
       <table v-if="store.nsEvents.length" class="w-full text-left">
         <thead>
@@ -722,6 +832,17 @@ async function saveTemplate() {
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">CPU 上限</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="500m" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存请求</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="256Mi" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">内存上限</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="512Mi" /></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-xs">
+            <label class="text-body-xs text-on-surface-variant">容器端口 (containerPort)</label>
+            <button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="text-body-xs text-primary hover:underline">+ 添加</button>
+          </div>
+          <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs mb-xs">
+            <input v-model.number="p.containerPort" type="number" class="w-32 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8080" />
+            <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="TCP" />
+            <button @click="editForm.ports.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
@@ -858,6 +979,49 @@ async function saveTemplate() {
     <template #actions>
       <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="saveTemplate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Apply Template</button>
+    </template>
+  </Modal>
+
+  <!-- 暴露为 Service -->
+  <Modal v-model="showExposeModal" title="暴露为 Service" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div class="grid grid-cols-2 gap-md">
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service 名称</label><input v-model="exposeForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" /></div>
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">类型</label><select v-model="exposeForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md"><option>ClusterIP</option><option>NodePort</option><option>LoadBalancer</option></select></div>
+      </div>
+      <p class="text-body-xs text-on-surface-variant">Selector 自动 = 本 Deployment 的 Pod 标签（{{ Object.keys(podLabels).length }} 个）。端口映射 port:targetPort：</p>
+      <div v-for="(p, i) in exposeForm.ports" :key="i" class="flex items-center gap-xs">
+        <input v-model.number="p.port" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="port" />
+        <span class="text-on-surface-variant">:</span>
+        <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="targetPort" />
+        <input v-model="p.protocol" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="TCP" />
+        <button @click="exposeForm.ports.splice(i, 1)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">close</span></button>
+      </div>
+      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-body-xs text-primary hover:underline">+ 添加端口</button>
+    </div>
+    <template #actions>
+      <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="saveExpose" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">创建</button>
+    </template>
+  </Modal>
+
+  <!-- 加 Ingress 映射 -->
+  <Modal v-model="showIngressMapModal" title="加 Ingress 映射" width="max-w-lg">
+    <div class="flex flex-col gap-md">
+      <div><label class="text-label-caps text-on-surface-variant block mb-xs">Host</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="app.example.com（留空=任意）" /></div>
+      <div class="grid grid-cols-2 gap-md">
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="/" /></div>
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path Type</label><select v-model="ingressMapForm.pathType" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md"><option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option></select></div>
+      </div>
+      <div class="grid grid-cols-2 gap-md">
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">目标 Service</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
+        <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service Port</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="80" /></div>
+      </div>
+      <p class="text-body-xs text-on-surface-variant">创建新 Ingress <span class="font-mono">{{ (workload?.name || 'app') + '-ingress' }}</span>，路由 {{ ingressMapForm.host || '*' }}{{ ingressMapForm.path }} → {{ ingressMapForm.serviceName || '?' }}:{{ ingressMapForm.servicePort }}。</p>
+    </div>
+    <template #actions>
+      <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">创建</button>
     </template>
   </Modal>
 </template>
