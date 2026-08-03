@@ -1433,6 +1433,9 @@ export const useClusterStore = defineStore('cluster', () => {
       cpu: ratio(usedCpu, reqCpu, m => Math.round(m) + 'm'),
       memory: ratio(usedMem, reqMem, k => Math.round(k / 1024) + 'Mi'),
       usedCpu, usedMem, reqCpu, reqMem,
+      // 保留原始对象：详情页需要 ownerReferences（关联 ReplicaSet/版本）、
+      // status.conditions（生命周期）、status.containerStatuses（容器状态/重启/启动时间）
+      raw: item,
     }
   }
 

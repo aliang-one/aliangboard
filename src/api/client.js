@@ -106,6 +106,11 @@ export const portForwardApi = {
   remove: id => request(`/api/portforward/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 
+// 镜像仓库可用版本（registry v2 /tags/list）：改版本时下拉选择而非手填。
+export const registryApi = {
+  tags: payload => request('/api/registry/tags', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // Pod 文件浏览（基于一次性 exec：ls / cat / 写入），仅远端模式可用。
 export const podFileApi = {
   list: payload => request('/api/podfile/list', { method: 'POST', body: JSON.stringify(payload) }),
