@@ -157,108 +157,119 @@ async function handleCreateInst(yaml) {
     ]" />
 
     <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
-          <span class="material-symbols-outlined text-primary text-3xl">extension</span>
+    <div class="flex items-start justify-between mt-sm mb-md">
+      <div class="flex items-center gap-md">
+        <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
+          <span class="material-symbols-outlined text-primary text-2xl">extension</span>
         </div>
         <div>
-          <div class="flex items-center gap-md">
-            <h1 class="text-display-lg text-on-surface font-mono">{{ crd.name }}</h1>
-            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-body-sm font-semibold rounded">{{ crd.kind }}</span>
+          <div class="flex items-baseline gap-sm flex-wrap">
+            <h1 class="text-headline-lg text-on-surface font-mono font-bold">{{ crd.name }}</h1>
+            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-body-xs font-semibold rounded">{{ crd.kind }}</span>
           </div>
-          <div class="flex items-center gap-md mt-xs">
-            <span class="font-mono text-code-sm text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
-            <span class="text-on-surface-variant">·</span>
+          <div class="flex items-center gap-sm mt-xs flex-wrap">
+            <span class="font-mono text-code-xs text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
+            <span class="text-on-surface-variant/40">·</span>
             <span
-              class="text-body-sm font-semibold inline-flex items-center gap-1"
+              class="text-body-xs font-semibold inline-flex items-center gap-1"
               :class="crd.scope === 'Namespaced' ? 'text-tertiary-container' : 'text-secondary'"
             >
-              <span class="material-symbols-outlined text-sm">{{ crd.scope === 'Namespaced' ? 'folder' : 'public' }}</span>
+              <span class="material-symbols-outlined text-xs">{{ crd.scope === 'Namespaced' ? 'folder' : 'public' }}</span>
               {{ crd.scope }}
             </span>
-            <span class="text-on-surface-variant">·</span>
-            <span class="text-body-sm text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <span class="text-on-surface-variant/40">·</span>
+            <span class="text-body-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
+      <div class="flex gap-xs shrink-0">
         <button
           @click="router.push('/crds')"
-          class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
         >
-          <span class="material-symbols-outlined">arrow_back</span> 返回列表
+          <span class="material-symbols-outlined text-sm">arrow_back</span> 返回列表
         </button>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
-        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
-      >{{ tab.label }}</button>
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+      >{{ tab.label }}<span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span></button>
     </div>
 
     <!-- Overview Tab -->
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
+    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-md">
       <div class="lg:col-span-8">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">概览</h3>
-          <div class="grid grid-cols-2 gap-md">
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">GROUP</p>
-              <p class="font-mono text-code-md text-primary font-semibold">{{ crd.group }}</p>
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">info</span>
+            <span class="text-body-sm font-semibold">概览</span>
+          </div>
+          <div class="p-md grid grid-cols-2 gap-sm">
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">GROUP</p>
+              <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.group }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">VERSION</p>
-              <p class="font-mono text-code-md text-primary font-semibold">{{ crd.version }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">VERSION</p>
+              <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.version }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">KIND</p>
-              <p class="text-body-md text-on-surface font-semibold">{{ crd.kind }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">KIND</p>
+              <p class="text-body-sm text-on-surface font-semibold">{{ crd.kind }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">SCOPE</p>
-              <p class="text-body-md text-on-surface font-semibold">{{ crd.scope }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">SCOPE</p>
+              <p class="text-body-sm text-on-surface font-semibold">{{ crd.scope }}</p>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">NAMESPACED</p>
-              <span class="material-symbols-outlined" :class="crd.namespaced ? 'text-primary' : 'text-outline-variant'">
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">NAMESPACED</p>
+              <span class="material-symbols-outlined text-sm align-middle" :class="crd.namespaced ? 'text-primary' : 'text-outline-variant'">
                 {{ crd.namespaced ? 'check_circle' : 'cancel' }}
               </span>
-              <span class="ml-1 text-body-md" :class="crd.namespaced ? 'text-on-surface' : 'text-on-surface-variant'">
+              <span class="ml-1 text-body-sm" :class="crd.namespaced ? 'text-on-surface' : 'text-on-surface-variant'">
                 {{ crd.namespaced ? '是' : '否' }}
               </span>
             </div>
-            <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">FULL NAME</p>
-              <p class="font-mono text-code-sm text-on-surface break-all">{{ crd.name }}</p>
+            <div class="p-sm rounded-lg bg-surface-container-low">
+              <p class="text-body-xs text-on-surface-variant mb-xs">FULL NAME</p>
+              <p class="font-mono text-code-xs text-on-surface break-all">{{ crd.name }}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="lg:col-span-4 flex flex-col gap-lg">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">描述</h3>
-          <p class="text-body-md text-on-surface-variant leading-relaxed">
-            {{ crd.description || '暂无描述信息。' }}
-          </p>
+      <div class="lg:col-span-4 flex flex-col gap-md">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">description</span>
+            <span class="text-body-sm font-semibold">描述</span>
+          </div>
+          <div class="p-md">
+            <p class="text-body-sm text-on-surface-variant leading-relaxed">
+              {{ crd.description || '暂无描述信息。' }}
+            </p>
+          </div>
         </div>
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">实例统计</h3>
-          <div class="space-y-md">
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">实例总数</span>
-              <span class="font-mono text-code-md text-primary font-semibold">{{ crd.instances?.length || 0 }}</span>
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">analytics</span>
+            <span class="text-body-sm font-semibold">实例统计</span>
+          </div>
+          <div class="p-md space-y-sm">
+            <div class="flex justify-between items-center py-xs border-b border-outline-variant/30">
+              <span class="text-body-xs text-on-surface-variant">实例总数</span>
+              <span class="font-mono text-code-sm text-primary font-semibold">{{ crd.instances?.length || 0 }}</span>
             </div>
-            <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Scope</span>
-              <span class="text-body-md text-on-surface">{{ crd.scope }}</span>
+            <div class="flex justify-between items-center py-xs">
+              <span class="text-body-xs text-on-surface-variant">Scope</span>
+              <span class="text-body-sm text-on-surface">{{ crd.scope }}</span>
             </div>
           </div>
         </div>
@@ -267,17 +278,17 @@ async function handleCreateInst(yaml) {
 
     <!-- Instances Tab -->
     <div v-if="activeTab === 'instances'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant bg-surface-container-low">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/50">
           <div class="flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary">list_alt</span>
-            <span class="text-headline-sm text-on-surface">{{ crd.kind }} 实例</span>
+            <span class="material-symbols-outlined text-primary text-lg">list_alt</span>
+            <span class="text-body-sm font-semibold">{{ crd.kind }} 实例</span>
           </div>
-          <div class="flex items-center gap-md">
-            <span class="text-body-sm text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+          <div class="flex items-center gap-sm">
+            <span class="text-body-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
             <button
               @click="openCreateInst"
-              class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
+              class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
             >
               <span class="material-symbols-outlined text-sm">add</span> 创建实例
             </button>
@@ -285,55 +296,55 @@ async function handleCreateInst(yaml) {
         </div>
         <table v-if="crd.instances && crd.instances.length" class="w-full">
           <thead>
-            <tr class="border-b border-outline-variant bg-surface-container-low">
-              <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">NAME</th>
-              <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">NAMESPACE</th>
-              <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">STATUS</th>
-              <th class="text-left px-md py-sm text-label-caps text-on-surface-variant">AGE</th>
-              <th class="text-right px-md py-sm text-label-caps text-on-surface-variant w-24">ACTIONS</th>
+            <tr class="border-b border-outline-variant bg-surface-container-low/50">
+              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAME</th>
+              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAMESPACE</th>
+              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">STATUS</th>
+              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">AGE</th>
+              <th class="text-right px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">ACTIONS</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="inst in crd.instances" :key="inst.name + (inst.namespace || '')">
-              <tr class="border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-low transition-colors">
-                <td class="px-md py-md">
+              <tr class="border-b border-outline-variant/15 last:border-0 hover:bg-surface-container-low/40 transition-colors">
+                <td class="px-md py-2">
                   <div class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-on-surface-variant text-lg">deployed_code</span>
-                    <span class="font-mono text-code-md text-on-surface font-semibold">{{ inst.name }}</span>
+                    <span class="material-symbols-outlined text-on-surface-variant text-base">deployed_code</span>
+                    <span class="font-mono text-code-sm text-on-surface font-semibold">{{ inst.name }}</span>
                   </div>
                 </td>
-                <td class="px-md py-md">
-                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-sm text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
-                  <span v-else class="text-on-surface-variant text-body-sm">-</span>
+                <td class="px-md py-2">
+                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
+                  <span v-else class="text-on-surface-variant text-body-xs">-</span>
                 </td>
-                <td class="px-md py-md">
-                  <StatusChip :status="inst.status || 'Unknown'" />
+                <td class="px-md py-2">
+                  <StatusChip :status="inst.status || 'Unknown'" size="sm" />
                 </td>
-                <td class="px-md py-md">
-                  <span class="text-body-sm text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
+                <td class="px-md py-2">
+                  <span class="text-body-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
                 </td>
-                <td class="px-md py-md text-right">
+                <td class="px-md py-2 text-right">
                   <div class="flex gap-1 justify-end">
                     <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? '收起' : '查看 / 编辑 YAML'">
-                      <span class="material-symbols-outlined text-lg transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
+                      <span class="material-symbols-outlined text-base transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
                     </button>
                     <button @click="confirmDeleteInst(inst)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除实例">
-                      <span class="material-symbols-outlined text-lg">delete</span>
+                      <span class="material-symbols-outlined text-base">delete</span>
                     </button>
                   </div>
                 </td>
               </tr>
               <tr v-if="expandedInst.has(instKey(inst))">
-                <td colspan="5" class="px-md py-md bg-surface-container-low">
+                <td colspan="5" class="px-md py-2 bg-surface-container-low/40">
                   <YamlEditor :model-value="instYamlModel(inst)" :readonly="false" height="360px" @save="applyInstYaml" />
                 </td>
               </tr>
             </template>
           </tbody>
         </table>
-        <div v-else class="px-md py-xxl text-center">
-          <span class="material-symbols-outlined text-5xl text-surface-container-high">inbox</span>
-          <p class="text-body-md text-on-surface-variant mt-md">该 CRD 暂无实例</p>
+        <div v-else class="px-md py-md text-center">
+          <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
+          <p class="text-body-sm text-on-surface-variant mt-xs">该 CRD 暂无实例</p>
         </div>
       </div>
     </div>
@@ -371,13 +382,13 @@ async function handleCreateInst(yaml) {
   </div>
 
   <!-- Not Found 兜底 -->
-  <div v-else class="animate-fade-in text-center py-xxl">
-    <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">CRD 未找到</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">找不到名为 <span class="font-mono text-on-surface font-semibold">{{ route.params.name }}</span> 的自定义资源定义。</p>
+  <div v-else class="animate-fade-in text-center py-md">
+    <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
+    <h2 class="text-headline-lg text-on-surface mt-xs">CRD 未找到</h2>
+    <p class="text-body-sm text-on-surface-variant mt-xs">找不到名为 <span class="font-mono text-on-surface font-semibold">{{ route.params.name }}</span> 的自定义资源定义。</p>
     <button
       @click="router.push('/crds')"
-      class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 transition-opacity"
+      class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold hover:opacity-90 transition-opacity"
     >返回 CRD 列表</button>
   </div>
 </template>

@@ -130,21 +130,21 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Configuration</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">Manage ConfigMaps, Secrets, ResourceQuotas, and auto-scaling configurations.</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">Configuration</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">Manage ConfigMaps, Secrets, ResourceQuotas, and auto-scaling configurations.</p>
       </div>
-      <button @click="createNew" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
-        <span class="material-symbols-outlined">add</span> Create New
+      <button @click="createNew" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-sm">add</span> Create New
       </button>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
-        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
-      >{{ tab.label }}</button>
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+      >{{ tab.label }}<span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span></button>
     </div>
 
     <!-- ConfigMaps -->
@@ -214,10 +214,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
-    <div v-else-if="activeTab === 'resourcequotas'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
-      <span class="material-symbols-outlined text-5xl text-surface-container-high">pie_chart</span>
-      <p class="text-on-surface-variant mt-md">未发现 ResourceQuota。</p>
-      <button @click="createNew" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create ResourceQuota</button>
+    <div v-else-if="activeTab === 'resourcequotas'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">pie_chart</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">未发现 ResourceQuota。</p>
+      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">Create ResourceQuota</button>
     </div>
 
     <!-- LimitRanges -->
@@ -240,10 +240,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
-    <div v-else-if="activeTab === 'limitranges'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
-      <span class="material-symbols-outlined text-5xl text-surface-container-high">tune</span>
-      <p class="text-on-surface-variant mt-md">未发现 LimitRange。</p>
-      <button @click="createNew" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create LimitRange</button>
+    <div v-else-if="activeTab === 'limitranges'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">tune</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">未发现 LimitRange。</p>
+      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">Create LimitRange</button>
     </div>
 
     <!-- HPA -->
@@ -268,10 +268,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </template>
     </DataTable>
-    <div v-else-if="activeTab === 'hpas'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
-      <span class="material-symbols-outlined text-5xl text-surface-container-high">timeline</span>
-      <p class="text-on-surface-variant mt-md">未发现 HorizontalPodAutoscaler。</p>
-      <button @click="createNew" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create HPA</button>
+    <div v-else-if="activeTab === 'hpas'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">timeline</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">未发现 HorizontalPodAutoscaler。</p>
+      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">Create HPA</button>
     </div>
 
     <!-- Delete Confirm Modal -->

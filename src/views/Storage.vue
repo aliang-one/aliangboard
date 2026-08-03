@@ -133,31 +133,33 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Storage</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">Manage persistent storage, volumes, and storage classes.</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">Storage</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">Manage persistent storage, volumes, and storage classes.</p>
       </div>
-      <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New PVC
+      <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-base">add</span> New PVC
       </button>
-      <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New PV
+      <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-base">add</span> New PV
       </button>
-      <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New StorageClass
+      <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-base">add</span> New StorageClass
       </button>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
-        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
-      >{{ tab.label }}</button>
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+      >{{ tab.label }}
+        <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
+      </button>
     </div>
 
     <!-- PVC Tab -->
@@ -169,7 +171,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <StatusChip :status="row.status" />
       </template>
       <template #storageClass="{ row }">
-        <span class="px-2 py-0.5 bg-surface-container rounded text-body-sm border border-outline-variant">{{ row.storageClass }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs border border-outline-variant">{{ row.storageClass }}</span>
       </template>
       <template #pagination>
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
@@ -202,7 +204,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-          <span v-if="row.default" class="px-2 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded">DEFAULT</span>
+          <span v-if="row.default" class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-body-xs rounded font-medium">DEFAULT</span>
         </div>
       </template>
       <template #default="{ row }">

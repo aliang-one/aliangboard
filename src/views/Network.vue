@@ -41,26 +41,28 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-lg">
+    <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Network</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">Manage Services, Ingress, Endpoints, and NetworkPolicies.</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">Network</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">Manage Services, Ingress, Endpoints, and NetworkPolicies.</p>
       </div>
       <div class="flex gap-sm">
-        <button @click="newServiceOrIngress" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container">
-          <span class="material-symbols-outlined">add</span> New Service
+        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-base">add</span> New Service
         </button>
-        <button @click="newServiceOrIngress" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90">
-          <span class="material-symbols-outlined">add</span> New Ingress
+        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+          <span class="material-symbols-outlined text-base">add</span> New Ingress
         </button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
-        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
-      >{{ tab.label }}</button>
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+      >{{ tab.label }}
+        <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
+      </button>
     </div>
 
     <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" title="No services" />
@@ -69,7 +71,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
       <template #type="{ row }">
-        <span class="px-2 py-0.5 bg-surface-container rounded-full text-label-caps text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
       </template>
       <template #clusterIP="{ row }">
         <span class="font-mono text-code-sm">{{ row.clusterIP }}</span>
@@ -104,15 +106,15 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </template>
     </DataTable>
 
-    <div v-if="activeTab === 'endpoints'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
-      <span class="material-symbols-outlined text-5xl text-surface-container-high">lan</span>
-      <p class="text-on-surface-variant mt-md">Endpoints are auto-discovered from Services.</p>
+    <div v-if="activeTab === 'endpoints'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">lan</span>
+      <p class="text-body-sm text-on-surface-variant mt-xs">Endpoints are auto-discovered from Services.</p>
     </div>
 
-    <div v-if="activeTab === 'networkpolicies'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-2xl text-center">
-      <span class="material-symbols-outlined text-5xl text-surface-container-high">security</span>
-      <p class="text-on-surface-variant mt-md">No NetworkPolicies defined.</p>
-      <button @click="newNetworkPolicy" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Create NetworkPolicy</button>
+    <div v-if="activeTab === 'networkpolicies'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">security</span>
+      <p class="text-body-sm text-on-surface-variant mt-xs">No NetworkPolicies defined.</p>
+      <button @click="newNetworkPolicy" class="mt-md px-3 py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">Create NetworkPolicy</button>
     </div>
   </section>
 </template>

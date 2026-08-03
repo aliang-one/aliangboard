@@ -13,55 +13,58 @@ const timeRange = ref('24h')
 <template>
   <div class="animate-fade-in">
     <!-- Page Header -->
-    <div class="flex flex-col gap-sm mb-xl">
-      <h1 class="text-display-lg text-on-surface">Cluster Overview</h1>
-      <p class="text-body-lg text-on-surface-variant">Real-time performance metrics and operational health for {{ store.cluster.name }}.</p>
+    <div class="flex flex-col gap-sm mb-md">
+      <h1 class="text-headline-lg text-on-surface font-bold">Cluster Overview</h1>
+      <p class="text-body-sm text-on-surface-variant mt-xs">Real-time performance metrics and operational health for {{ store.cluster.name }}.</p>
     </div>
 
     <!-- Summary Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-gutter mb-xl">
-      <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-md mb-md">
+      <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL NODES</p>
-          <h3 class="text-display-lg text-primary">{{ store.cluster.nodeCount }}</h3>
+          <h3 class="text-headline-lg text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
           <p class="text-body-sm text-primary flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">check_circle</span> {{ store.healthyNodes }}/{{ store.totalNodes }} Operational
           </p>
         </div>
-        <span class="material-symbols-outlined text-surface-container-high text-5xl">dns</span>
+        <span class="material-symbols-outlined text-surface-container-high text-2xl">dns</span>
       </div>
 
-      <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
+      <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL PODS</p>
-          <h3 class="text-display-lg text-primary">{{ store.cluster.podCount }}</h3>
+          <h3 class="text-headline-lg text-primary font-bold">{{ store.cluster.podCount }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">cached</span> Running smoothly
           </p>
         </div>
-        <span class="material-symbols-outlined text-surface-container-high text-5xl">layers</span>
+        <span class="material-symbols-outlined text-surface-container-high text-2xl">layers</span>
       </div>
 
-      <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
+      <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">ACTIVE EVENTS</p>
-          <h3 class="text-display-lg text-tertiary">{{ store.cluster.activeEvents }}</h3>
+          <h3 class="text-headline-lg text-tertiary font-bold">{{ store.cluster.activeEvents }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">info</span> Last 60 minutes
           </p>
         </div>
-        <span class="material-symbols-outlined text-surface-container-high text-5xl">notifications_active</span>
+        <span class="material-symbols-outlined text-surface-container-high text-2xl">notifications_active</span>
       </div>
     </div>
 
     <!-- Main Layout: 2/3 Content, 1/3 Sidebar -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-xl">
-      <div class="lg:col-span-8 flex flex-col gap-gutter">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-md">
+      <div class="lg:col-span-8 flex flex-col gap-sm">
         <!-- Resource Usage Charts -->
-        <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card">
-          <div class="flex justify-between items-center mb-lg">
-            <h2 class="text-headline-sm">Resource Usage</h2>
-            <div class="flex items-center gap-md">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
+            <div class="flex items-center gap-sm">
+              <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
+              <span class="text-body-sm font-semibold">Resource Usage</span>
+            </div>
+            <div class="flex items-center gap-sm">
               <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-body-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" title="集群未安装 metrics-server 或当前凭证无 metrics 读取权限">
                 <span class="material-symbols-outlined text-sm">sensors_off</span> 指标不可用
               </span>
@@ -76,9 +79,9 @@ const timeRange = ref('24h')
               </div>
             </div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-xl">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-md p-md">
             <!-- CPU Chart -->
-            <div class="flex flex-col gap-md">
+            <div class="flex flex-col gap-sm">
               <div class="flex justify-between items-end">
                 <div>
                   <p class="text-label-caps text-on-surface-variant">CPU UTILIZATION</p>
@@ -98,7 +101,7 @@ const timeRange = ref('24h')
               </div>
             </div>
             <!-- Memory Chart -->
-            <div class="flex flex-col gap-md">
+            <div class="flex flex-col gap-sm">
               <div class="flex justify-between items-end">
                 <div>
                   <p class="text-label-caps text-on-surface-variant">MEMORY ALLOCATION</p>
@@ -121,19 +124,19 @@ const timeRange = ref('24h')
         </div>
 
         <!-- Node Health Grid -->
-        <div class="flex flex-col gap-md">
-          <div class="flex justify-between items-center">
-            <h2 class="text-headline-sm">Node Health</h2>
+        <div class="flex flex-col gap-sm">
+          <div class="flex justify-between items-center px-md">
+            <span class="text-body-sm font-semibold">Node Health</span>
             <router-link to="/nodes" class="text-primary font-semibold flex items-center gap-xs text-body-sm">
               View all nodes <span class="material-symbols-outlined text-md">arrow_forward</span>
             </router-link>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-md">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-sm">
             <router-link
               v-for="node in store.nodeList.slice(0, 6)"
               :key="node.name"
               :to="`/nodes/${node.name}`"
-              class="bg-surface-container-lowest p-md rounded-lg border border-outline-variant shadow-card hover:border-primary transition-colors group"
+              class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant hover:border-primary transition-colors group"
             >
               <div class="flex justify-between items-start mb-sm">
                 <div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">
@@ -160,17 +163,21 @@ const timeRange = ref('24h')
 
       <!-- Recent Events Sidebar -->
       <div class="lg:col-span-4">
-        <div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-card sticky top-[5.5rem]">
-          <h2 class="text-headline-sm mb-lg">Recent Events</h2>
-          <div class="flex flex-col gap-md">
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant sticky top-[5.5rem]">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">notifications</span>
+            <span class="text-body-sm font-semibold">Recent Events</span>
+            <span class="text-body-xs text-on-surface-variant ml-auto">{{ store.eventList.length }}</span>
+          </div>
+          <div class="flex flex-col gap-sm p-md">
             <div
               v-for="(event, idx) in store.eventList"
               :key="idx"
-              class="flex gap-md border-b border-outline-variant pb-md last:border-0 last:pb-0"
+              class="flex gap-sm border-b border-outline-variant/30 pb-sm last:border-0 last:pb-0"
             >
               <div class="mt-1">
                 <div
-                  class="w-8 h-8 rounded-full flex items-center justify-center"
+                  class="w-7 h-7 rounded-full flex items-center justify-center"
                   :class="{
                     'bg-primary-container text-on-primary-container': event.color === 'primary',
                     'bg-tertiary-fixed-dim text-on-tertiary-fixed': event.color === 'tertiary',
@@ -183,16 +190,18 @@ const timeRange = ref('24h')
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex justify-between items-start mb-xs">
-                  <h4 class="text-body-md font-semibold text-on-surface truncate">{{ event.reason }}</h4>
-                  <span class="font-mono text-code-sm text-on-surface-variant whitespace-nowrap ml-sm">{{ event.time }}</span>
+                  <h4 class="text-body-sm font-semibold text-on-surface truncate">{{ event.reason }}</h4>
+                  <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap ml-sm">{{ event.time }}</span>
                 </div>
-                <p class="text-body-sm text-on-surface-variant">{{ event.message }}</p>
+                <p class="text-body-xs text-on-surface-variant">{{ event.message }}</p>
               </div>
             </div>
           </div>
-          <button @click="router.push('/audit-logs')" class="w-full mt-lg py-sm border border-outline-variant rounded-lg text-on-surface-variant font-semibold text-body-sm hover:bg-surface-container-low transition-colors">
-            Show More Events
-          </button>
+          <div class="px-md pb-md">
+            <button @click="router.push('/audit-logs')" class="w-full py-1.5 border border-outline-variant rounded-lg text-on-surface-variant font-medium text-body-sm hover:bg-surface-container transition-colors">
+              Show More Events
+            </button>
+          </div>
         </div>
       </div>
     </div>

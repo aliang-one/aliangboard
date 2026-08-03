@@ -71,93 +71,93 @@ function hpaStatus(status) {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'HPA' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">HorizontalPodAutoscalers</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg text-on-surface font-bold">HorizontalPodAutoscalers</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> Create HPA
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-sm">add</span> Create HPA
       </button>
     </div>
 
-    <div v-if="store.nsHPAs.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div v-if="store.nsHPAs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Target</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Min/Max Replicas</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Current Replicas</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">CPU Target</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">CPU Current</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Target</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Min/Max Replicas</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Current Replicas</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU Target</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU Current</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-lg">speed</span>
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+                <span class="material-symbols-outlined text-secondary text-sm">speed</span>
+                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex flex-col">
                 <span class="text-body-sm font-medium text-on-surface">{{ row.targetName }}</span>
-                <span class="text-label-caps text-on-surface-variant">{{ row.targetKind }}</span>
+                <span class="text-body-xs text-on-surface-variant">{{ row.targetKind }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
-              <span class="font-mono text-code-sm">
+            <td class="px-md py-2">
+              <span class="font-mono text-body-xs">
                 <span class="text-on-surface font-semibold">{{ row.minReplicas }}</span>
                 <span class="text-on-surface-variant mx-xs">/</span>
                 <span class="text-on-surface font-semibold">{{ row.maxReplicas }}</span>
               </span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
                 <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all duration-500" :class="row.currentReplicas >= row.maxReplicas ? 'bg-error' : row.currentReplicas > row.minReplicas ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: (row.maxReplicas ? Math.round((row.currentReplicas / row.maxReplicas) * 100) : 0) + '%' }"></div>
                 </div>
-                <span class="font-mono text-code-sm font-bold text-primary">{{ row.currentReplicas }}</span>
+                <span class="font-mono text-body-xs font-bold text-primary">{{ row.currentReplicas }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
-              <span class="font-mono text-code-sm text-on-surface-variant">{{ row.cpuTarget }}%</span>
+            <td class="px-md py-2">
+              <span class="font-mono text-body-xs text-on-surface-variant">{{ row.cpuTarget }}%</span>
             </td>
-            <td class="px-lg py-md">
-              <span class="font-mono text-code-sm" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
+            <td class="px-md py-2">
+              <span class="font-mono text-body-xs" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <StatusChip :status="row.status" size="sm" />
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+                <button @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
             </td>
           </tr>
           <tr v-if="!store.nsHPAs.length">
-            <td :colspan="9" class="px-lg py-xl text-center">
-              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant">暂无数据</p>
+            <td :colspan="9" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
+              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">speed</span>
-      <p class="text-on-surface-variant mt-md">No HorizontalPodAutoscalers in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create HPA</button>
+    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">speed</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">No HorizontalPodAutoscalers in this namespace</p>
+      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create HPA</button>
     </div>
   </section>
 

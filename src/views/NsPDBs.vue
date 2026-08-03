@@ -96,105 +96,105 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'PodDisruptionBudgets' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">中断预算 (PDBs)</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">
+        <h2 class="text-headline-lg text-on-surface font-bold">中断预算 (PDBs)</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">
           {{ store.nsPDBs.length }} 个 PodDisruptionBudget · 保证自愿驱逐时最小可用副本数
         </p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New PDB
+      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+        <span class="material-symbols-outlined text-sm">add</span> New PDB
       </button>
     </div>
 
     <!-- Search -->
-    <div class="flex flex-wrap items-center gap-md mb-lg">
+    <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称搜索 PDB..." />
+        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称搜索 PDB..." />
         <button v-if="search" @click="search = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsPDBs.length }}</span>
+      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsPDBs.length }}</span>
     </div>
 
-    <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Selector</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Budget</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Allowed Disruptions</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Healthy</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Selector</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Budget</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Allowed Disruptions</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Healthy</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-primary text-lg">shield</span>
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+                <span class="material-symbols-outlined text-primary text-sm">shield</span>
+                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-label-caps text-on-surface-variant rounded border border-outline-variant font-mono">
+                <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-body-xs text-on-surface-variant rounded border border-outline-variant font-mono">
                   {{ k }}={{ v }}
                 </span>
               </div>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex flex-col">
-                <span v-if="row.minAvailable" class="text-body-sm text-on-surface font-mono">
+                <span v-if="row.minAvailable" class="text-body-xs text-on-surface font-mono">
                   <span class="text-on-surface-variant">minAvailable:</span> {{ row.minAvailable }}
                 </span>
-                <span v-else-if="row.maxUnavailable" class="text-body-sm text-on-surface font-mono">
+                <span v-else-if="row.maxUnavailable" class="text-body-xs text-on-surface font-mono">
                   <span class="text-on-surface-variant">maxUnavailable:</span> {{ row.maxUnavailable }}
                 </span>
-                <span v-else class="text-body-sm text-on-surface-variant">—</span>
+                <span v-else class="text-body-xs text-on-surface-variant">—</span>
               </div>
             </td>
-            <td class="px-lg py-md">
-              <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-body-sm font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
+            <td class="px-md py-2">
+              <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-body-xs font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
                 {{ row.allowedDisruptions }}
               </span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div class="flex items-center gap-xs">
-                <span class="text-body-sm font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
-                <span class="text-on-surface-variant text-body-sm">/</span>
-                <span class="text-body-sm font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
-                <span v-if="!isHealthy(row)" class="material-symbols-outlined text-error text-base" title="不健康">warning</span>
+                <span class="text-body-xs font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
+                <span class="text-on-surface-variant text-body-xs">/</span>
+                <span class="text-body-xs font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
+                <span v-if="!isHealthy(row)" class="material-symbols-outlined text-error text-sm" title="不健康">warning</span>
               </div>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-lg py-md" @click.stop>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
+            <td class="px-md py-2" @click.stop>
               <div class="flex gap-1">
                 <button @click="router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
-                  <span class="material-symbols-outlined text-lg">open_in_new</span>
+                  <span class="material-symbols-outlined text-sm">open_in_new</span>
                 </button>
                 <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
-                  <span class="material-symbols-outlined text-lg">delete</span>
+                  <span class="material-symbols-outlined text-sm">delete</span>
                 </button>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
-      <span class="material-symbols-outlined text-4xl text-surface-container-high">{{ search ? 'search_off' : 'shield' }}</span>
-      <p class="text-on-surface-variant mt-md">{{ search ? '没有匹配的 PodDisruptionBudget' : '当前命名空间暂无 PodDisruptionBudget' }}</p>
-      <button v-if="search" @click="search = ''" class="mt-md px-md py-sm border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除筛选</button>
-      <button v-else @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create PDB</button>
+    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
+      <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'shield' }}</span>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? '没有匹配的 PodDisruptionBudget' : '当前命名空间暂无 PodDisruptionBudget' }}</p>
+      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除筛选</button>
+      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create PDB</button>
     </div>
   </section>
 

@@ -119,14 +119,14 @@ function handleCreate() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'Pods' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">Pods</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-lg font-bold text-on-surface">Pods</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <div class="flex items-center gap-sm">
         <button v-if="store.remoteMode" @click="toggleLive"
-          class="flex items-center gap-sm px-md py-sm rounded-lg font-semibold border transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border transition-colors"
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
           :title="store.podWatchLive ? '正在实时监听 Pod 变化（watch），点击停止' : '开启实时监听 Pod 变化（watch=true）'">
           <span class="material-symbols-outlined">{{ store.podWatchLive ? 'pause' : 'play_arrow' }}</span>
@@ -134,30 +134,30 @@ function handleCreate() {
             <span v-if="store.podWatchLive" class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>
           </span>
         </button>
-        <button @click="showCreateModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> Create Pod
         </button>
       </div>
     </div>
 
     <!-- Status Summary Bar -->
-    <div class="grid grid-cols-4 gap-sm mb-lg">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm">
+    <div class="grid grid-cols-4 gap-sm mb-md">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
         <span class="w-2.5 h-2.5 rounded-full bg-on-surface-variant"></span>
         <span class="text-body-sm text-on-surface-variant">Total</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ store.nsPods.length }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
         <span class="w-2.5 h-2.5 rounded-full bg-primary"></span>
         <span class="text-body-sm text-on-surface-variant">Running</span>
         <span class="text-body-md font-bold text-primary ml-auto">{{ runningCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-tertiary transition-colors" @click="statusFilter = statusFilter === 'Pending' ? 'All' : 'Pending'">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-tertiary transition-colors" @click="statusFilter = statusFilter === 'Pending' ? 'All' : 'Pending'">
         <span class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
         <span class="text-body-sm text-on-surface-variant">Pending</span>
         <span class="text-body-md font-bold text-tertiary-container ml-auto">{{ pendingCount }}</span>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm flex items-center gap-sm cursor-pointer hover:border-error transition-colors" @click="statusFilter = statusFilter === 'Failed' ? 'All' : 'Failed'">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-error transition-colors" @click="statusFilter = statusFilter === 'Failed' ? 'All' : 'Failed'">
         <span class="w-2.5 h-2.5 rounded-full bg-error"></span>
         <span class="text-body-sm text-on-surface-variant">Failed</span>
         <span class="text-body-md font-bold text-error ml-auto">{{ failedCount }}</span>
@@ -165,7 +165,7 @@ function handleCreate() {
     </div>
 
     <!-- Filters -->
-    <div class="flex flex-wrap items-center gap-sm mb-lg">
+    <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="Search pods by name or IP..." />
@@ -180,24 +180,24 @@ function handleCreate() {
     </div>
 
     <!-- Pods Table -->
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">IP</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Restarts</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Node</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">CPU</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Memory</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-12"></th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">IP</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Restarts</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Node</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Memory</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-12"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <tr v-for="p in paginated" :key="p.name" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
-            <td class="px-lg py-md">
+        <tbody class="divide-y divide-outline-variant/15">
+          <tr v-for="p in paginated" :key="p.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
+            <td class="px-md py-2">
               <div class="flex items-center gap-sm">
                 <span class="w-2 h-2 rounded-full shrink-0" :class="{
                   'bg-primary animate-pulse-status': p.status === 'Running',
@@ -208,15 +208,15 @@ function handleCreate() {
                 <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
               </div>
             </td>
-            <td class="px-lg py-md"><span class="font-mono text-code-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
-            <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2"><span class="font-mono text-code-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
+            <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
+            <td class="px-md py-2">
               <span class="text-body-sm" :class="p.restarts > 3 ? 'text-error font-semibold' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <span class="font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div v-if="p.cpu && p.cpu !== '0/0'" class="flex items-center gap-sm">
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="cpuPercent(p.cpu) > 80 ? 'bg-error' : cpuPercent(p.cpu) > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPercent(p.cpu) + '%' }"></div>
@@ -225,7 +225,7 @@ function handleCreate() {
               </div>
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2">
               <div v-if="p.memory && p.memory !== '0/0'" class="flex items-center gap-sm">
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="memPercent(p.memory) > 80 ? 'bg-error' : memPercent(p.memory) > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPercent(p.memory) + '%' }"></div>
@@ -234,21 +234,21 @@ function handleCreate() {
               </div>
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
-            <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
-            <td class="px-lg py-md">
+            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ p.age }}</td>
+            <td class="px-md py-2">
               <DropdownMenu :items="menuItems(p)" />
             </td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="9" class="px-lg py-xl text-center">
-              <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-on-surface-variant">No pods found matching your filters</p>
+            <td colspan="9" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
+              <p class="text-body-sm text-on-surface-variant">No pods found matching your filters</p>
             </td>
           </tr>
         </tbody>
       </table>
       <!-- 分页 -->
-      <div v-if="filtered.length" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="filtered.length" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
         <Pagination
           :total="filtered.length"
           :page-size="pageSize"

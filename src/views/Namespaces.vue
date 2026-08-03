@@ -108,25 +108,25 @@ function submitDelete() {
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex flex-col gap-md mb-lg">
+    <div class="flex flex-col gap-md mb-md">
       <div class="flex justify-between items-end">
         <div>
-          <div class="flex items-center gap-sm text-on-surface-variant mb-sm">
-            <span class="material-symbols-outlined text-lg">folder_open</span>
-            <span class="text-label-caps uppercase tracking-wider">Namespace Explorer</span>
+          <div class="flex items-center gap-xs text-on-surface-variant mb-xs">
+            <span class="material-symbols-outlined text-base">folder_open</span>
+            <span class="text-body-xs uppercase tracking-wider">Namespace Explorer</span>
           </div>
-          <h2 class="text-display-lg text-on-surface">Namespaces</h2>
-          <p class="text-on-surface-variant text-body-md mt-1">Browse and manage Kubernetes namespaces.</p>
+          <h2 class="text-headline-lg text-on-surface font-bold">Namespaces</h2>
+          <p class="text-on-surface-variant text-body-sm mt-xs">Browse and manage Kubernetes namespaces.</p>
         </div>
         <div class="flex gap-sm">
-          <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            <span class="material-symbols-outlined" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+          <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
           </button>
           <button
-            class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-opacity"
+            class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity"
             @click="openCreate"
           >
-            <span class="material-symbols-outlined">add</span> New Namespace
+            <span class="material-symbols-outlined text-base">add</span> New Namespace
           </button>
         </div>
       </div>

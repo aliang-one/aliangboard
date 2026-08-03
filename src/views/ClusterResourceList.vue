@@ -176,73 +176,73 @@ const ageOf = ts => {
 <template>
   <section v-if="cfg" class="animate-fade-in">
     <Breadcrumbs :items="[{ label: cfg.title }]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
+    <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-display-lg text-on-surface">{{ cfg.title }}</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ items.length }} 项 · {{ namespaced ? '命名空间级' : '集群级' }}资源（实时读取）</p>
+        <h2 class="text-headline-lg text-on-surface font-bold">{{ cfg.title }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ items.length }} 项 · {{ namespaced ? '命名空间级' : '集群级' }}资源（实时读取）</p>
       </div>
       <button
         @click="load"
-        class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
+        class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
       >
-        <span class="material-symbols-outlined">refresh</span> 刷新
+        <span class="material-symbols-outlined text-sm">refresh</span> 刷新
       </button>
     </div>
 
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
+    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th v-if="namespaced" class="px-lg py-md text-label-caps text-on-surface-variant">Namespace</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Detail</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+          <tr class="bg-surface-container-low/50 border-b border-outline-variant">
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
+            <th v-if="namespaced" class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Namespace</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Detail</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-outline-variant/30">
+        <tbody class="divide-y divide-outline-variant/15">
           <template v-for="it in paginated" :key="rowKey(it)">
-            <tr class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
+            <tr class="hover:bg-surface-container-low/40 transition-colors">
+              <td class="px-md py-2">
                 <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">{{ cfg.icon }}</span>
-                  <span class="font-semibold text-on-surface font-mono text-code-md">{{ it.metadata.name }}</span>
+                  <span class="material-symbols-outlined text-secondary text-base">{{ cfg.icon }}</span>
+                  <span class="font-semibold text-on-surface font-mono text-code-sm">{{ it.metadata.name }}</span>
                 </div>
               </td>
-              <td v-if="namespaced" class="px-lg py-md">
-                <span v-if="it.metadata.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-sm text-on-surface-variant border border-outline-variant">{{ it.metadata.namespace }}</span>
-                <span v-else class="text-on-surface-variant text-body-sm">-</span>
+              <td v-if="namespaced" class="px-md py-2">
+                <span v-if="it.metadata.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ it.metadata.namespace }}</span>
+                <span v-else class="text-on-surface-variant text-body-xs">-</span>
               </td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ cfg.summary(it) }}</td>
-              <td class="px-lg py-md"><StatusChip :status="cfg.status(it)" /></td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
-              <td class="px-lg py-md" @click.stop>
+              <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ cfg.summary(it) }}</td>
+              <td class="px-md py-2"><StatusChip :status="cfg.status(it)" size="sm" /></td>
+              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
+              <td class="px-md py-2" @click.stop>
                 <div class="flex gap-1">
                   <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看 / 编辑 YAML">
-                    <span class="material-symbols-outlined text-lg transition-transform" :class="expanded.has(rowKey(it)) ? 'rotate-180' : ''">expand_more</span>
+                    <span class="material-symbols-outlined text-base transition-transform" :class="expanded.has(rowKey(it)) ? 'rotate-180' : ''">expand_more</span>
                   </button>
                   <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
-                    <span class="material-symbols-outlined text-lg">delete</span>
+                    <span class="material-symbols-outlined text-base">delete</span>
                   </button>
                 </div>
               </td>
             </tr>
             <tr v-if="expanded.has(rowKey(it))">
-              <td :colspan="colCount" class="px-lg py-md bg-surface-container-low">
+              <td :colspan="colCount" class="px-md py-2 bg-surface-container-low/40">
                 <YamlEditor :model-value="yamlOf(it)" :readonly="false" height="360px" @save="applyYaml" />
               </td>
             </tr>
           </template>
           <tr v-if="!items.length && !loading">
-            <td :colspan="colCount" class="px-lg py-xxl text-center">
-              <span class="material-symbols-outlined text-5xl text-surface-container-high">inbox</span>
-              <p class="text-body-md text-on-surface-variant mt-md">暂无数据</p>
+            <td :colspan="colCount" class="px-md py-md text-center">
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
+              <p class="text-body-sm text-on-surface-variant mt-xs">暂无数据</p>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
       </div>
     </div>
