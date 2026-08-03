@@ -364,10 +364,21 @@ export const useClusterStore = defineStore('cluster', () => {
     const namespace = ns || currentNamespace.value
     const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
     if (!wl) return []
-    // Match pods by labels - find pods that share the workload's app label
+    // 优先用 spec.selector.matchLabels（K8s 官方 Pod 选择器，最准确）
+    const tpl = wl.raw?.spec?.template || wl.raw?.spec?.jobTemplate?.spec?.template
+    const selector = wl.raw?.spec?.selector?.matchLabels
+    if (selector && Object.keys(selector).length) {
+      return podList.value.filter(p => p.namespace === namespace &&
+        Object.entries(selector).every(([k, v]) => p.labels?.[k] === v))
+    }
+    // 回退 1：用 pod template labels（pods 继承的是 template labels，不是 metadata labels）
+    const tplApp = tpl?.metadata?.labels?.app
+    if (tplApp) return podList.value.filter(p => p.namespace === namespace && p.labels?.app === tplApp)
+    // 回退 2：用 workload metadata labels.app
     const appLabel = wl.labels?.app
-    if (!appLabel) return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
-    return podList.value.filter(p => p.namespace === namespace && p.labels?.app === appLabel)
+    if (appLabel) return podList.value.filter(p => p.namespace === namespace && p.labels?.app === appLabel)
+    // 回退 3：名称前缀匹配
+    return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
   }
 
   // 反查：哪些 workload 引用了指定的 ConfigMap / Secret
