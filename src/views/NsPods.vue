@@ -3,6 +3,7 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
+import { notify } from '@/composables/useToast'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
@@ -84,12 +85,19 @@ function confirmDelete(row) {
   deleteTarget.value = row
   showDeleteModal.value = true
 }
-function handleDelete() {
-  if (deleteTarget.value) {
-    store.deletePod(deleteTarget.value.name, route.params.namespace)
+async function handleDelete() {
+  const p = deleteTarget.value
+  if (!p) return
+  try {
+    await store.deletePod(p.name, route.params.namespace)
+    notify('success', `已删除 Pod ${p.name}，控制器将重建并重新拉镜像`)
+    showDeleteModal.value = false
+    deleteTarget.value = null
+    // Deployment/控制器会立即重建 Pod → 延时轻量刷新看到新 Pod（重新拉镜像）；开启 Live watch 时则自动更新
+    setTimeout(() => store.refreshPods(), 1500)
+  } catch (e) {
+    notify('error', e.message || '删除 Pod 失败')
   }
-  showDeleteModal.value = false
-  deleteTarget.value = null
 }
 
 // 创建 Pod
@@ -121,7 +129,7 @@ function handleCreate() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg font-bold text-on-surface">Pods</h2>
+        <h2 class="text-headline-md font-bold text-on-surface">Pods</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <div class="flex items-center gap-sm">
@@ -184,15 +192,15 @@ function handleCreate() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">IP</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Restarts</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Node</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Memory</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-12"></th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">IP</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Restarts</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Node</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Memory</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-12"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -208,7 +216,7 @@ function handleCreate() {
                 <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
               </div>
             </td>
-            <td class="px-md py-2"><span class="font-mono text-code-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
+            <td class="px-md py-2"><span class="font-mono text-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
             <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
             <td class="px-md py-2">
               <span class="text-body-sm" :class="p.restarts > 3 ? 'text-error font-semibold' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span>
@@ -221,7 +229,7 @@ function handleCreate() {
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="cpuPercent(p.cpu) > 80 ? 'bg-error' : cpuPercent(p.cpu) > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPercent(p.cpu) + '%' }"></div>
                 </div>
-                <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap">{{ p.cpu }}</span>
+                <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ p.cpu }}</span>
               </div>
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
@@ -230,13 +238,18 @@ function handleCreate() {
                 <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :class="memPercent(p.memory) > 80 ? 'bg-error' : memPercent(p.memory) > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPercent(p.memory) + '%' }"></div>
                 </div>
-                <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap">{{ p.memory }}</span>
+                <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ p.memory }}</span>
               </div>
               <span v-else class="text-on-surface-variant text-body-sm">-</span>
             </td>
             <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ p.age }}</td>
             <td class="px-md py-2">
-              <DropdownMenu :items="menuItems(p)" />
+              <div class="flex items-center justify-end gap-1">
+                <button @click.stop="confirmDelete(p)" title="删除 Pod（控制器将重建并重新拉镜像）" class="p-1 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors">
+                  <span class="material-symbols-outlined text-base">delete</span>
+                </button>
+                <DropdownMenu :items="menuItems(p)" />
+              </div>
             </td>
           </tr>
           <tr v-if="!filtered.length">

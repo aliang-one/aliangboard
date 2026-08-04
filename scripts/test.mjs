@@ -102,7 +102,7 @@ test('K8s 资源量解析：CPU→毫核、内存→Ki（覆盖各后缀与裸�
 test('应用分层 classifyResource：label 覆盖、启发式、默认（业务/杂项）', () => {
   // label 权威覆盖
   assert.equal(classifyResource({ name: 'anything', labels: { 'layer.aliangboard.io': 'storage' } }), 'storage')
-  assert.equal(classifyResource({ name: 'x', annotations: { 'layer.aliangboard.io': 'microservice/support' } }), 'microservice/support')
+  assert.equal(classifyResource({ name: 'x', annotations: { 'layer.aliangboard.io': 'microservice/support' } }), 'microservice-support')
   assert.equal(classifyResource({ name: 'x', labels: { layer: 'gateway' } }), 'gateway')
   // 启发式：名称 / 镜像
   assert.equal(classifyResource({ name: 'api-gateway', image: 'nginx:1.25' }), 'gateway')
@@ -111,8 +111,8 @@ test('应用分层 classifyResource：label 覆盖、启发式、默认（业务
   assert.equal(classifyResource({ name: 'prometheus-server' }), 'monitoring')
   assert.equal(classifyResource({ name: 'frontend-web', image: 'node:18' }), 'presentation')
   // 默认：普通工作负载 → 业务；Job/CronJob → 杂项
-  assert.equal(classifyResource({ name: 'order-service', type: 'Deployment' }), 'microservice/business')
-  assert.equal(classifyResource({ name: 'cleanup-job', type: 'CronJob' }), 'microservice/misc')
+  assert.equal(classifyResource({ name: 'order-service', type: 'Deployment' }), 'microservice-business')
+  assert.equal(classifyResource({ name: 'cleanup-job', type: 'CronJob' }), 'microservice-misc')
   // 未知 label 值 → 未分类
   assert.equal(classifyResource({ name: 'x', labels: { 'layer.aliangboard.io': 'galaxy' } }), 'unclassified')
 })
@@ -127,8 +127,8 @@ test('应用分层 groupByLayer：microservice 展开为子层、空层被过滤
   assert.ok(keys.includes('middleware') && keys.includes('microservice'), '应含中间件与微服务层')
   const ms = groups.find(g => g.key === 'microservice')
   const subKeys = ms.children.map(c => c.key)
-  assert.ok(subKeys.includes('microservice/business') && subKeys.includes('microservice/misc'), '微服务层应含业务与杂项子层')
-  assert.equal(ms.children.find(c => c.key === 'microservice/business').items.length, 1)
+  assert.ok(subKeys.includes('microservice-business') && subKeys.includes('microservice-misc'), '微服务层应含业务与杂项子层')
+  assert.equal(ms.children.find(c => c.key === 'microservice-business').items.length, 1)
   assert.ok(!keys.includes('storage'), '无资源的层不应出现')
 })
 

@@ -1,0 +1,87 @@
+<script setup>
+// 统一的 Pod 卡片：Workload 详情 Pods tab 与 Service 详情 Endpoints 共用同一份展示。
+// 富信息：健康度 + 名称(应用名/实例哈希) + 状态 + 容器数 + IP/节点/镜像/重启 + CPU/MEM 进度条 + 生命周期 conditions。
+// 通过 props 控制差异：选中态、删除键、生命周期、端点 ready 标记。
+import { computed } from 'vue'
+import StatusChip from './StatusChip.vue'
+import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers } from '@/composables/usePod'
+
+const props = defineProps({
+  pod: { type: Object, required: true },
+  // 名称拆分的 base（如 deployment 名）；不传则整名展示
+  nameBase: { type: String, default: '' },
+  selected: { type: Boolean, default: false },
+  clickable: { type: Boolean, default: true },
+  // 端点上下文的就绪标记（null=不展示，取 Pod 自身健康度；true/false 展示 Ready/Not Ready）
+  ready: { default: null },
+  showDelete: { type: Boolean, default: false },
+  showLifecycle: { type: Boolean, default: true },
+})
+const emit = defineEmits(['click', 'delete'])
+
+const pod = computed(() => props.pod || {})
+const health = computed(() => podHealth(pod.value))
+const nameDisp = computed(() => podNameDisplay(pod.value, props.nameBase))
+const containers = computed(() => podContainers(pod.value))
+const conds = computed(() => podConditions(pod.value))
+const cpuPct = computed(() => podCpuPct(pod.value))
+const memPct = computed(() => podMemPct(pod.value))
+const hasMetrics = computed(() => pod.value.cpu || pod.value.memory)
+
+function onClick() { if (props.clickable) emit('click', pod.value) }
+</script>
+
+<template>
+  <div
+    class="text-left rounded-lg border bg-surface-container-lowest px-sm py-2 transition-all"
+    :class="[podCardClass(pod), selected ? 'ring-2 ring-primary border-primary/50' : '', clickable ? 'cursor-pointer' : '']"
+    @click="onClick"
+  >
+    <!-- 行1：健康度点 + 名称 + 状态 + 容器数 + 端点就绪 + 健康标签 + 年龄 + 删除 -->
+    <div class="flex items-center gap-sm">
+      <span class="w-2 h-2 rounded-full shrink-0" :class="[health.dot, pod.status === 'Running' ? 'animate-pulse-status' : '']"></span>
+      <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0" :title="pod.name">{{ nameDisp.base }}<span class="text-on-surface-variant/40 font-normal">{{ nameDisp.suffix }}</span></span>
+      <StatusChip :status="pod.status" size="sm" />
+      <span v-if="containers.length > 1" class="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5 shrink-0" :title="`${containers.length} 个容器`"><span class="material-symbols-outlined" style="font-size:11px">inventory_2</span>{{ containers.length }}</span>
+      <span v-if="ready !== null" class="text-[10px] px-1 rounded font-medium shrink-0" :class="ready ? 'bg-primary-container/15 text-primary' : 'bg-tertiary-container/15 text-tertiary-container'">{{ ready ? 'Ready' : 'Not Ready' }}</span>
+      <span class="text-xs shrink-0" :class="health.text">{{ health.label }}</span>
+      <span class="text-[11px] text-on-surface-variant ml-auto shrink-0">{{ pod.age }}</span>
+      <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" title="删除 Pod（控制器会重建并重新拉镜像）"><span class="material-symbols-outlined text-sm">delete</span></button>
+    </div>
+
+    <!-- 行2：状态 + 重启 + IP + 节点 + 镜像 -->
+    <div class="flex items-center gap-1.5 mt-1 text-[11px] text-on-surface-variant/70 flex-wrap">
+      <span class="flex items-center gap-0.5" :class="health.text"><span class="w-1 h-1 rounded-full" :class="health.dot"></span>{{ pod.status }}</span>
+      <span v-if="pod.restarts > 0" class="flex items-center gap-0.5" :class="pod.restarts > 3 ? 'text-error' : 'text-tertiary-container'" :title="`重启 ${pod.restarts} 次`"><span class="material-symbols-outlined" style="font-size:12px">restart_alt</span>{{ pod.restarts }}</span>
+      <span v-if="pod.ip" class="font-mono text-primary">{{ pod.ip }}</span>
+      <span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined" style="font-size:12px">dns</span><span class="font-mono truncate max-w-[110px]" :title="pod.node">{{ pod.node || '—' }}</span></span>
+      <template v-if="pod.image">
+        <span class="text-on-surface-variant/40">·</span>
+        <span class="font-mono truncate max-w-[180px]" :title="pod.image">{{ imgBase(pod.image) }}<span class="text-primary">:{{ imgTag(pod.image) || 'latest' }}</span></span>
+      </template>
+    </div>
+
+    <!-- 行3：CPU / MEM 进度条 -->
+    <div v-if="hasMetrics" class="flex items-center gap-md text-[11px] mt-1">
+      <div v-if="pod.cpu" class="flex items-center gap-1">
+        <span class="text-on-surface-variant/50 w-6">CPU</span>
+        <div class="w-14 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="cpuPct > 80 ? 'bg-error' : cpuPct > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPct + '%' }"></div></div>
+        <span class="font-mono text-on-surface-variant/70">{{ pod.cpu }}</span>
+      </div>
+      <div v-if="pod.memory" class="flex items-center gap-1">
+        <span class="text-on-surface-variant/50 w-6">MEM</span>
+        <div class="w-14 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="memPct > 80 ? 'bg-error' : memPct > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPct + '%' }"></div></div>
+        <span class="font-mono text-on-surface-variant/70">{{ pod.memory }}</span>
+      </div>
+    </div>
+
+    <!-- 行4：生命周期 conditions（调度/初始化/容器/就绪）-->
+    <div v-if="showLifecycle && conds" class="flex items-center gap-1 mt-1">
+      <template v-for="ck in [{ k: 'scheduled', l: '调度' }, { k: 'initialized', l: '初始化' }, { k: 'containersReady', l: '容器' }, { k: 'podReady', l: '就绪' }]" :key="ck.k">
+        <span class="flex items-center gap-0.5 text-[10px]" :class="condChip(conds[ck.k]).ok ? 'text-primary' : 'text-on-surface-variant/35'">
+          <span class="material-symbols-outlined" style="font-size:11px">{{ condChip(conds[ck.k]).ok ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ ck.l }}
+        </span>
+      </template>
+    </div>
+  </div>
+</template>

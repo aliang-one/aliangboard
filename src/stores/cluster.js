@@ -784,9 +784,23 @@ export const useClusterStore = defineStore('cluster', () => {
             spec.template = tpl2
           }
         }
+        // 更新策略 + 历史版本上限（Deployment 级 spec，不在 pod 模板）
+        if (updates.strategy) {
+          spec.strategy = { type: updates.strategy }
+          if (updates.strategy === 'RollingUpdate') {
+            const ru = {}
+            if (updates.maxSurge != null && updates.maxSurge !== '') ru.maxSurge = updates.maxSurge
+            if (updates.maxUnavailable != null && updates.maxUnavailable !== '') ru.maxUnavailable = updates.maxUnavailable
+            if (Object.keys(ru).length) spec.strategy.rollingUpdate = ru
+          }
+        }
+        if (updates.revisionHistoryLimit != null && updates.revisionHistoryLimit !== '') spec.revisionHistoryLimit = Number(updates.revisionHistoryLimit)
         if (Object.keys(spec).length) patch.spec = spec
         if (Object.keys(patch).length) {
           await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, '工作负载', () => { workloadList.value[idx] = before })
+          // 本地镜像远端 spec（策略/历史上限）以便 UI 立即反映
+          if (spec.strategy) wl.raw.spec.strategy = spec.strategy
+          if (spec.revisionHistoryLimit != null) wl.raw.spec.revisionHistoryLimit = spec.revisionHistoryLimit
         }
       }
     }
@@ -843,6 +857,53 @@ export const useClusterStore = defineStore('cluster', () => {
     const img = template?.spec?.containers?.[0]?.image
     if (img) wl.image = img
     wl.age = 'Just now'
+  }
+
+  // 业务元数据编辑：一次 merge-patch 同时写 Deployment.metadata.labels/annotations + Pod 模板 labels（与创建一致）。
+  // - labels/annotations：期望「全量 map」（视图已并入系统保留键的旧值）；removedLabels/removedAnnotations：需删除的键（merge-patch 用 null 删除）。
+  // - templateLabels：期望的 Pod 模板 labels 全量（镜像业务/自定义标签，与创建落点一致）；null 则不触碰 Pod 模板。
+  // 乐观更新本地状态，远端失败回滚。仅 Deployment/StatefulSet/DaemonSet。
+  async function updateWorkloadMeta(name, ns, payload) {
+    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
+    if (idx === -1) throw new Error('工作负载不存在')
+    const wl = workloadList.value[idx]
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
+    if (!plural) throw new Error(`暂不支持编辑 ${wl.type || '该工作负载'} 的元数据，请使用 YAML 编辑`)
+    const { labels = {}, annotations = {}, removedLabels = [], removedAnnotations = [], templateLabels = null } = payload || {}
+    const tag = aliangTag() // managed-by + last-edited 自动 tag
+    const outLabels = { ...labels, ...tag.labels }
+    removedLabels.forEach(k => { outLabels[k] = null })
+    const outAnnotations = { ...annotations, ...tag.annotations }
+    removedAnnotations.forEach(k => { outAnnotations[k] = null })
+    const patch = { metadata: { labels: outLabels, annotations: outAnnotations } }
+    if (templateLabels) patch.spec = { template: { metadata: { labels: templateLabels } } }
+
+    const before = JSON.parse(JSON.stringify(wl))
+    // 乐观本地更新（mock 模式亦生效）
+    const liveLabels = { ...(wl.labels || {}) }
+    Object.entries(labels).forEach(([k, v]) => { liveLabels[k] = v })
+    removedLabels.forEach(k => { delete liveLabels[k] })
+    const liveAnn = { ...(wl.annotations || {}), ...tag.annotations }
+    Object.entries(annotations).forEach(([k, v]) => { liveAnn[k] = v })
+    removedAnnotations.forEach(k => { delete liveAnn[k] })
+    wl.labels = liveLabels
+    wl.annotations = liveAnn
+    const newLayer = liveLabels['aliangboard.io/layer'] || liveLabels['layer.aliangboard.io']
+    if (newLayer) wl.tier = newLayer
+    if (wl.raw) {
+      wl.raw.metadata = wl.raw.metadata || {}
+      wl.raw.metadata.labels = liveLabels
+      wl.raw.metadata.annotations = liveAnn
+      if (templateLabels && wl.raw.spec?.template) {
+        wl.raw.spec.template.metadata = wl.raw.spec.template.metadata || {}
+        wl.raw.spec.template.metadata.labels = { ...(wl.raw.spec.template.metadata.labels || {}), ...templateLabels }
+      }
+    }
+    if (remoteMode.value) {
+      await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, '元数据', () => { workloadList.value[idx] = before })
+    } else {
+      notify('success', '元数据已保存')
+    }
   }
 
   async function scaleWorkload(name, ns, replicas) {
@@ -948,6 +1009,12 @@ export const useClusterStore = defineStore('cluster', () => {
       return pod
     }
     return null
+  }
+
+  // 轻量刷新 Pod 列表（仅重取 pods，不拉全套资源）：删 Pod 后控制器重建，延时调用即可看到新 Pod（重新拉镜像）
+  async function refreshPods() {
+    if (!remoteMode.value) return
+    await refetch('/api/v1/pods', podList, item => mapPod(item))
   }
 
   // === CRUD: NetworkPolicies ===
@@ -1601,8 +1668,10 @@ export const useClusterStore = defineStore('cluster', () => {
       type: String(item.type || 'Normal').toLowerCase(),   // normal | warning
       reason: item.reason || '',
       message: item.message || '',
+      count: item.count || 1,
       namespace: item.metadata?.namespace || io.namespace || '',
       time: ageOf(ts),
+      age: ageOf(ts),
       icon, color,
       relatedKind: io.kind || '',
       relatedName: io.name || '',
@@ -1706,19 +1775,41 @@ export const useClusterStore = defineStore('cluster', () => {
     description: item.description || '',
     age: ageOf(item.metadata?.creationTimestamp),
   })
-  const mapService = item => ({
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    type: item.spec?.type || 'ClusterIP',
-    clusterIP: item.spec?.clusterIP || 'None',
-    externalIP: (item.status?.loadBalancer?.ingress || []).map(i => i.ip || i.hostname).join(',') || '-',
-    externalName: item.spec?.externalName || '',
-    ports: (item.spec?.ports || []).map(p => `${p.port}:${p.targetPort ?? p.port}/${p.protocol || 'TCP'}`).join(','),
-    selector: item.spec?.selector || {},
-    age: ageOf(item.metadata?.creationTimestamp),
-    labels: item.metadata?.labels || {},
-    annotations: item.metadata?.annotations || {},
-  })
+  const mapService = item => {
+    const spec = item.spec || {}, status = item.status || {}
+    const ports = spec.ports || []
+    const lbIngress = (status.loadBalancer?.ingress || []).map(i => ({ ip: i.ip || '', hostname: i.hostname || '', ports: i.ports || [] })).filter(i => i.ip || i.hostname)
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      type: spec.type || 'ClusterIP',
+      clusterIP: spec.clusterIP || 'None',
+      clusterIPs: spec.clusterIPs || (spec.clusterIP ? [spec.clusterIP] : []),
+      externalIP: lbIngress.length ? lbIngress.map(i => i.ip || i.hostname).join(',') : ((spec.externalIPs || []).join(',') || '-'),
+      externalIPs: spec.externalIPs || [],
+      externalName: spec.externalName || '',
+      // 扁平端口字符串（generateYAML 无损回写仍读此字段，保持兼容）
+      ports: ports.map(p => `${p.port}:${p.targetPort ?? p.port}/${p.protocol || 'TCP'}`).join(','),
+      // 结构化端口（详情页表格用，含 nodePort / 名称，扁平字符串会丢失这些）
+      portList: ports.map(p => ({ name: p.name || '', port: p.port, targetPort: p.targetPort ?? p.port, protocol: p.protocol || 'TCP', nodePort: p.nodePort || null, appProtocol: p.appProtocol || '' })),
+      selector: spec.selector || {},
+      sessionAffinity: spec.sessionAffinity || 'None',
+      sessionAffinityTimeout: spec.sessionAffinityConfig?.clientIP?.timeoutSeconds,
+      externalTrafficPolicy: spec.externalTrafficPolicy || '',
+      internalTrafficPolicy: spec.internalTrafficPolicy || 'Cluster',
+      ipFamilyPolicy: spec.ipFamilyPolicy || '',
+      ipFamilies: spec.ipFamilies || [],
+      publishNotReadyAddresses: !!spec.publishNotReadyAddresses,
+      allocateLoadBalancerNodePorts: spec.allocateLoadBalancerNodePorts,
+      loadBalancerClass: spec.loadBalancerClass || '',
+      healthCheckNodePort: spec.healthCheckNodePort || null,
+      lbIngress,
+      lbIngressReady: lbIngress.length > 0,
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+    }
+  }
   const mapIngress = item => ({
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
@@ -1837,9 +1928,9 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
-  async function hydrateCoreResources() {
+  async function hydrateCoreResources(opts = {}) {
     if (!remoteMode.value) return
-    connectionState.value = 'loading'
+    if (!opts.silent) connectionState.value = 'loading'
     const requests = await Promise.allSettled([
       api.k8s('/api/v1/nodes'),
       api.k8s('/api/v1/pods?limit=1000'),
@@ -1884,7 +1975,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const podMetric = (ns, name) => (metricsAvailable ? (podMetricMap.get(`${ns}/${name}`) || null) : null)
 
     if (!namespaceData) {
-      connectionState.value = 'error'
+      if (!opts.silent) connectionState.value = 'error'
       const failure = requests[2].status === 'rejected' ? requests[2].reason : null
       throw new Error(failure?.message || '无法读取 Namespace，请检查 Kubernetes RBAC 权限')
     }
@@ -1949,8 +2040,11 @@ export const useClusterStore = defineStore('cluster', () => {
       memoryTrend: memT.trend, memoryTrendUp: memT.up,
     }
     // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
-    try { await hydrateExtendedResources() } catch { /* 容错：部分资源无权限时忽略 */ }
-    connectionState.value = 'connected'
+    // lite 模式（滚动发布自动刷新）：跳过较重的扩展资源（ConfigMap/Secret/RBAC 等），只更新运行态
+    if (!opts.lite) {
+      try { await hydrateExtendedResources() } catch { /* 容错：部分资源无权限时忽略 */ }
+    }
+    if (!opts.silent) connectionState.value = 'connected'
     // CRD 及其实例可能较多，异步拉取不阻塞首屏
     hydrateCRDs().catch(() => {})
     return { failed: requests.filter(r => r.status === 'rejected').length }
@@ -2079,31 +2173,48 @@ export const useClusterStore = defineStore('cluster', () => {
     const scalar = yamlScalar
 
     if (type === 'service') {
-      // 从扁平 ports 字符串（如 "80:8080/TCP,443:8443/TCP"）还原多端口，保证回写无损
-      const portsYaml = (resource.ports || '80:80/TCP').split(',').filter(Boolean).map(p => {
-        const m = String(p).trim().match(/^(\d+)\s*:\s*([^/]+?)\s*\/?\s*(\w+)?$/) || [, 80, 80, 'TCP']
-        const port = m[1]
-        const target = m[2]
-        const proto = m[3] || 'TCP'
-        return `    - port: ${port}
-      targetPort: ${isNaN(target) ? target : Number(target)}
-      protocol: ${proto}`
+      const isExtName = resource.type === 'ExternalName'
+      // 端口：优先用结构化 portList（含 name/nodePort/appProtocol，无损），否则解析扁平 ports 字符串
+      const portSrc = (!isExtName && resource.portList?.length)
+        ? resource.portList
+        : (!isExtName ? String(resource.ports || '80:80/TCP').split(',').filter(Boolean).map(p => {
+            const m = String(p).trim().match(/^(\d+)\s*:\s*([^/]+?)\s*\/?\s*(\w+)?$/) || [, 80, 80, 'TCP']
+            return { name: '', port: Number(m[1]) || 80, targetPort: isNaN(m[2]) ? m[2] : Number(m[2]), protocol: m[3] || 'TCP', nodePort: null, appProtocol: '' }
+          }) : [])
+      const portsYaml = portSrc.map(p => {
+        const tgt = p.targetPort
+        const lines = [`    - port: ${p.port}`]
+        if (p.name) lines.push(`      name: ${p.name}`)
+        if (tgt != null && tgt !== '') lines.push(`      targetPort: ${isNaN(tgt) ? tgt : Number(tgt)}`)
+        lines.push(`      protocol: ${p.protocol || 'TCP'}`)
+        if (p.appProtocol) lines.push(`      appProtocol: ${p.appProtocol}`)
+        if (p.nodePort) lines.push(`      nodePort: ${p.nodePort}`)
+        return lines.join('\n')
       }).join('\n')
-      const selEntries = resource.selector && Object.keys(resource.selector).length
-        ? Object.entries(resource.selector).map(([k, v]) => `    ${k}: ${v}`).join('\n')
-        : `    app: ${name}`
-      const lbExtra = resource.type === 'LoadBalancer' ? '\n  externalTrafficPolicy: Cluster' : ''
+      const selObj = resource.selector || {}
+      const selEntries = Object.keys(selObj).length
+        ? Object.entries(selObj).map(([k, v]) => `    ${k}: ${v}`).join('\n')
+        : (!isExtName ? `    app: ${name}` : '')
+      const selBlock = selEntries ? `\n  selector:\n${selEntries}` : ''
+      const portsBlock = portSrc.length ? `\n  ports:\n${portsYaml}` : ''
+      // 可选 spec 字段：仅在有值 / 非默认时输出，保持无损且不污染默认服务
+      const extras = []
+      if (isExtName && resource.externalName) extras.push(`  externalName: ${resource.externalName}`)
+      if (resource.sessionAffinity && resource.sessionAffinity !== 'None') {
+        extras.push(`  sessionAffinity: ${resource.sessionAffinity}`)
+        if (resource.sessionAffinityTimeout != null) extras.push(`  sessionAffinityConfig:\n    clientIP:\n      timeoutSeconds: ${resource.sessionAffinityTimeout}`)
+      }
+      if (resource.externalTrafficPolicy) extras.push(`  externalTrafficPolicy: ${resource.externalTrafficPolicy}`)
+      if (resource.internalTrafficPolicy && resource.internalTrafficPolicy !== 'Cluster') extras.push(`  internalTrafficPolicy: ${resource.internalTrafficPolicy}`)
+      if (resource.publishNotReadyAddresses) extras.push(`  publishNotReadyAddresses: true`)
+      const extraYaml = extras.length ? '\n' + extras.join('\n') : ''
       return `apiVersion: v1
 kind: Service
 metadata:
   name: ${name}
   namespace: ${ns}
 spec:
-  type: ${resource.type || 'ClusterIP'}
-  selector:
-${selEntries}
-  ports:
-${portsYaml}${lbExtra}`
+  type: ${resource.type || 'ClusterIP'}${selBlock}${portsBlock}${extraYaml}`
     }
 
     if (type === 'ingress') {
@@ -3076,7 +3187,7 @@ status:
     // CRUD: IngressClass / RuntimeClass（集群级）
     getIngressClassByName, addIngressClass, updateIngressClass, deleteIngressClass, getRuntimeClassByName, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
-    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
+    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods
     addPod, deletePod,
     // CRUD: NetworkPolicies
@@ -3102,6 +3213,8 @@ status:
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
+    // Pod 列表轻量刷新（删 Pod 后看重建）
+    refreshPods,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
