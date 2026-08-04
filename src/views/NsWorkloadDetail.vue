@@ -125,7 +125,15 @@ const STATUS_META = {
 }
 const rollout = computed(() => {
   const wl = workload.value
-  if (!wl?.raw) return null
+  if (!wl) return null
+  // mock / 无 raw：从扁平 replicas 字段合成状态，避免概览卡缺失
+  if (!wl.raw) {
+    const desired = Number(wl.replicas?.split('/')[1]) || 1
+    const ready = Number(wl.replicas?.split('/')[0]) || 0
+    const level = ready >= desired && desired > 0 ? 'healthy' : ready === 0 ? 'failed' : 'warning'
+    const reason = ready >= desired ? '所有副本就绪' : ready === 0 ? '副本均未就绪，检查事件/日志' : `${ready}/${desired} 副本就绪`
+    return { desired, updated: ready, ready, total: ready, oldCount: 0, level, reason, newW: 100, oldW: 0, meta: STATUS_META[level] }
+  }
   const st = wl.raw.status || {}
   const spec = wl.raw.spec || {}
   const isDaemon = wl.type === 'DaemonSet'
@@ -185,7 +193,16 @@ const revYamlContent = ref('')
 const revYamlTitle = ref('')
 function viewRevYaml(rev) {
   revYamlTitle.value = `Rev ${rev.rev} · ${rev.rsName || ''}`
-  revYamlContent.value = rev._template ? yamlDump(rev._template) : '# 无 template 数据'
+  if (rev._template) {
+    revYamlContent.value = yamlDump(rev._template)
+  } else {
+    // mock / 无 template：按该版本镜像合成 Pod 模板，避免编辑器空白
+    const desired = Number(workload.value?.replicas?.split('/')[1]) || 1
+    revYamlContent.value = yamlDump({
+      metadata: { labels: { app: workload.value?.name, 'pod-template-hash': String(rev.rev) } },
+      spec: { replicas: desired, containers: [{ name: workload.value?.name, image: rev.image }] },
+    })
+  }
   showRevYamlModal.value = true
 }
 const showDeleteRevModal = ref(false)
@@ -278,7 +295,11 @@ async function quickScale(delta) {
 // === 容器 ===
 const containers = computed(() => {
   const raw = workload.value?.raw
-  if (!raw) return []
+  if (!raw) {
+    // mock / 无 raw：从扁平字段合成单容器，避免容器区空白
+    const w = workload.value || {}
+    return w.image ? [{ name: w.name, image: w.image }] : []
+  }
   const spec = raw.spec || {}
   const tpl = spec.template || spec.jobTemplate?.spec?.template
   return tpl?.spec?.containers || []
@@ -904,14 +925,24 @@ const showTemplateModal = ref(false)
 const templateYaml = ref('')
 function openTemplateEditor() {
   const rawTpl = workload.value?.raw?.spec?.template
-  templateYaml.value = rawTpl ? yamlDump(rawTpl) : ''
+  if (rawTpl) {
+    templateYaml.value = yamlDump(rawTpl)
+  } else {
+    // 无 raw（mock / 数据未含原始对象）：从扁平字段合成 Pod 模板，避免编辑器空白
+    const w = workload.value || {}
+    const desired = Number(w.replicas?.split('/')[1]) || 1
+    templateYaml.value = yamlDump({
+      metadata: { labels: { app: w.name, ...(w.labels || {}) } },
+      spec: {
+        replicas: desired,
+        containers: [{ name: w.name, image: w.image || 'nginx:latest' }],
+      },
+    })
+  }
   showTemplateModal.value = true
 }
 async function saveTemplate(yamlStr) {
   try {
-    const tpl = yamlDump ? null : null // placeholder
-    const obj = JSON.parse(JSON.stringify(workload.value?.raw?.spec?.template || {}))
-    // 简化：用 js-yaml load 解析
     const { load: yamlLoad } = await import('js-yaml')
     const parsed = yamlLoad(yamlStr)
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
