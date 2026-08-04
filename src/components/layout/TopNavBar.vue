@@ -2,10 +2,12 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useAuthStore } from '@/stores/auth'
 import { api, clearSession } from '@/api/client'
 
 const router = useRouter()
 const store = useClusterStore()
+const authStore = useAuthStore()
 
 const searchQuery = ref('')
 const showClusterDropdown = ref(false)
@@ -93,11 +95,9 @@ function goClusters() {
 }
 
 async function logout() {
-  // 停止后台实时监听（Pod/Event Watch），避免带着失效 token 反复 401；并重置命名空间作用域
   try { store.stopPodWatch() } catch { /* 未启动时忽略 */ }
   try { store.stopEventWatch() } catch { /* 未启动时忽略 */ }
-  try { await api.logout() } catch { /* 会话已失效时仍清理本地状态 */ }
-  clearSession()
+  authStore.logout()
   router.push('/login')
 }
 </script>
@@ -238,8 +238,9 @@ async function logout() {
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
       <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" title="退出登录">
-        <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">A</div>
-        <span class="text-body-sm font-semibold">Admin</span>
+        <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ (authStore.user?.displayName || authStore.user?.username || 'U').charAt(0).toUpperCase() }}</div>
+        <span class="text-body-sm font-semibold">{{ authStore.user?.displayName || authStore.user?.username || 'User' }}</span>
+        <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
         <span class="material-symbols-outlined text-on-surface-variant text-body-sm">logout</span>
       </button>
     </div>

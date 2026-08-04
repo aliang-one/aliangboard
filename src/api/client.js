@@ -111,6 +111,14 @@ export const registryApi = {
   tags: payload => request('/api/registry/tags', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
+// 终端会话管理（任务栏：CRUD + 持久化）
+export const terminalApi = {
+  list: () => request('/api/terminals'),
+  create: t => request('/api/terminals', { method: 'POST', body: JSON.stringify(t) }),
+  update: (id, patch) => request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: id => request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
 // Pod 文件浏览（基于一次性 exec：ls / cat / 写入），仅远端模式可用。
 export const podFileApi = {
   list: payload => request('/api/podfile/list', { method: 'POST', body: JSON.stringify(payload) }),
@@ -153,6 +161,51 @@ export const resourceTreeApi = {
     request(`/api/resource/tree?${new URLSearchParams({ namespace, kind, name, apiVersion: apiVersion || 'v1' })}`),
 }
 
+// === 平台认证 API（Layer 1: 用户身份）===
+export function getPlatformToken() {
+  return localStorage.getItem('aliangboard.platform') || ''
+}
+function platformHeaders() {
+  const t = getPlatformToken()
+  return t ? { 'x-platform-token': t } : {}
+}
+async function platformRequest(path, options = {}) {
+  const headers = { ...(options.body ? { 'content-type': 'application/json' } : {}), ...platformHeaders(), ...(options.headers || {}) }
+  const response = await fetch(`${baseUrl}${path}`, { ...options, headers })
+  const text = await response.text()
+  let body = null
+  try { body = text ? JSON.parse(text) : null } catch { body = text }
+  if (!response.ok) {
+    const error = new Error(body?.message || `请求失败：HTTP ${response.status}`)
+    error.status = response.status
+    throw error
+  }
+  return body
+}
+export const authApi = {
+  login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
+  me: () => platformRequest('/api/auth/me'),
+  logout: () => platformRequest('/api/auth/logout', { method: 'POST' }),
+  myClusters: () => platformRequest('/api/my-clusters'),
+  connectCluster: id => platformRequest('/api/connect-cluster', { method: 'POST', body: JSON.stringify({ clusterId: id }) }),
+}
+// Admin API
+export const adminApi = {
+  users: {
+    list: () => platformRequest('/api/admin/users'),
+    create: payload => platformRequest('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformRequest(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    patch: (id, patch) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    resetPassword: (id, newPassword) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
+    assignClusters: (id, clusterIds) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}/clusters`, { method: 'PUT', body: JSON.stringify({ clusterIds }) }),
+  },
+  clusters: {
+    list: () => platformRequest('/api/admin/clusters'),
+    create: payload => platformRequest('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformRequest(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
+}
+
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。
@@ -167,16 +220,18 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
   if (token) params.set('session', token)
   const ws = new WebSocket(`${proto}://${host}/api/exec?${params}`)
   ws.binaryType = 'arraybuffer'
-  const decoder = new TextDecoder()
+  // stdout/stderr 直传原始字节给 xterm（term.write 接受 Uint8Array，内部正确处理 UTF-8/ANSI/二进制），
+  // 避免共享 TextDecoder 把非 ASCII 字节解成替换符、或跨帧 stream 状态错乱。
+  const utf8 = new TextDecoder()
   ws.onmessage = ev => {
     const buf = new Uint8Array(ev.data)
     if (!buf.length) return
     const type = buf[0]
-    const payload = decoder.decode(buf.subarray(1), { stream: true })
+    const payload = buf.subarray(1)
     if (type === 1) onStdout?.(payload)
     else if (type === 2) onStderr?.(payload)
-    else if (type === 3) { try { onExit?.(JSON.parse(payload || '{}')) } catch { onExit?.({}) } }
-    else if (type === 4) onError?.(payload)
+    else if (type === 3) { try { onExit?.(JSON.parse(utf8.decode(payload) || '{}')) } catch { onExit?.({}) } }
+    else if (type === 4) onError?.(utf8.decode(payload))
   }
   ws.onerror = () => onError?.('exec 连接异常（请确认已连接集群、容器已就绪且镜像内存在 shell）')
   ws.onclose = () => onClose?.()

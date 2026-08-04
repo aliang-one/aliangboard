@@ -8,6 +8,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import PodCard from '@/components/common/PodCard.vue'
 
 const route = useRoute()
 const store = useClusterStore()
@@ -182,33 +183,9 @@ async function handleDrain() {
           <span class="text-body-sm font-semibold">Pods on this Node</span>
           <span class="text-xs text-on-surface-variant ml-auto">{{ nodePods.length }}</span>
         </div>
-        <table v-if="nodePods.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Restarts</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="p in nodePods" :key="p.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="$router.push(`/ns/${p.namespace}/pods/${p.name}`)">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-xs">
-                  <span class="material-symbols-outlined text-secondary text-sm">layers</span>
-                  <span class="font-mono text-xs font-semibold text-on-surface">{{ p.name }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2"><span class="text-xs text-primary font-medium">{{ p.namespace }}</span></td>
-              <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
-              <td class="px-md py-2 font-mono text-xs">{{ p.cpu || '—' }}</td>
-              <td class="px-md py-2 text-xs">{{ p.restarts }}</td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ p.age }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="nodePods.length" class="p-sm flex flex-col gap-xs max-h-[60vh] overflow-y-auto">
+          <PodCard v-for="p in nodePods" :key="p.name" :pod="p" show-namespace @click="(pod) => $router.push(`/ns/${pod.namespace}/pods/${pod.name}`)" />
+        </div>
         <div v-else class="py-md text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-2xl">search_off</span>
           <p class="text-body-sm mt-xs">No pods running on this node</p>

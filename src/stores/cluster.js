@@ -297,6 +297,20 @@ export const useClusterStore = defineStore('cluster', () => {
     return workloadList.value.find(w => w.name === name && (!namespace || w.namespace === namespace))
   }
 
+  // 按需拉取单个工作负载并 upsert 进 workloadList。
+  // Job/CronJob 不在 hydrateCoreResources 的批量拉取里；从 Pod 详情跳转或直接链接进入时用此补齐。
+  async function fetchWorkload(type, name, ns) {
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
+    if (!plural) throw new Error(`不支持的工作负载类型 ${type}`)
+    const gv = type === 'Job' || type === 'CronJob' ? '/apis/batch/v1' : '/apis/apps/v1'
+    const data = await api.k8s(`${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
+    const wl = mapWorkload(data, type)
+    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns && w.type === type)
+    if (idx >= 0) workloadList.value[idx] = wl
+    else workloadList.value.push(wl)
+    return wl
+  }
+
   function getPodByName(name, ns) {
     const namespace = ns || currentNamespace.value
     return podList.value.find(p => p.name === name && (!namespace || p.namespace === namespace))
@@ -3164,7 +3178,7 @@ status:
     nsTieredWorkloads, TIER_META, clusterRoles, nsPDBs,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
-    setNamespace, getWorkloadByName, getPodByName, getNodeByName, getNamespaceByName,
+    setNamespace, getWorkloadByName, fetchWorkload, getPodByName, getNodeByName, getNamespaceByName,
     getServiceByName, getIngressByName, getConfigMapByName, getSecretByName, getPVCByName,
     getNetworkPolicyByName, getHPAByName, getResourceQuotaByName, getLimitRangeByName,
     getRoleByName, getServiceAccountByName, getRoleBindingByName, getWorkloadPods,

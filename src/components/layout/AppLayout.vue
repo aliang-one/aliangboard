@@ -2,15 +2,24 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
+import TerminalWindow from '@/components/terminal/TerminalWindow.vue'
+import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useTerminalStore } from '@/stores/terminals'
 
 const store = useClusterStore()
+const termStore = useTerminalStore()
 
 // footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
 const lastUpdated = ref('')
 let timer = null
 function tick() { lastUpdated.value = new Date().toLocaleTimeString() }
-onMounted(() => { tick(); timer = setInterval(tick, 1000) })
+onMounted(() => {
+  tick(); timer = setInterval(tick, 1000)
+  termStore.loadPersisted() // 恢复持久化的终端会话（刷新不掉线）
+  // 进入主界面后后台水合集群资源（不阻塞页面渲染，用户先看到框架再逐步加载）
+  if (store.remoteMode) store.hydrateCoreResources({ silent: true })
+})
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
@@ -49,6 +58,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>
       </footer>
+      <!-- 终端任务栏（底部，类似 Windows taskbar） -->
+      <TerminalTaskbar />
     </div>
+    <!-- 浮动终端窗口：用 v-show（不销毁）而非 v-if，最小化时保持 exec WS + xterm buffer 活跃 -->
+    <TerminalWindow v-for="t in termStore.allTerminals" :key="t.id" :terminal="t" v-show="t.status === 'open'" />
   </div>
 </template>

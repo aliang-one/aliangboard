@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { Readable, Writable, PassThrough } from 'node:stream'
 import net from 'node:net'
 import { WebSocketServer } from 'ws'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
@@ -34,8 +34,117 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   createdAt INTEGER NOT NULL
 )`)
 const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+// 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
+db.exec(`CREATE TABLE IF NOT EXISTS terminals (
+  id TEXT PRIMARY KEY,
+  sessionToken TEXT NOT NULL,
+  name TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  podName TEXT NOT NULL,
+  container TEXT,
+  command TEXT,
+  status TEXT DEFAULT 'minimized',
+  createdAt INTEGER NOT NULL
+)`)
 const stmtDelete = db.prepare('DELETE FROM sessions WHERE token = ?')
 const stmtAll = db.prepare('SELECT * FROM sessions')
+
+// === 平台用户管理 + 集群管理 ===
+db.exec(`CREATE TABLE IF NOT EXISTS platform_users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  passwordHash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  displayName TEXT,
+  createdAt INTEGER NOT NULL,
+  disabled INTEGER DEFAULT 0
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS clusters (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  apiServer TEXT NOT NULL,
+  authMethod TEXT NOT NULL DEFAULT 'token',
+  authHeader TEXT,
+  ca TEXT, cert TEXT, key TEXT,
+  insecure INTEGER DEFAULT 0,
+  version TEXT,
+  createdBy TEXT,
+  createdAt INTEGER NOT NULL
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS user_clusters (
+  userId TEXT NOT NULL,
+  clusterId TEXT NOT NULL,
+  assignedBy TEXT,
+  assignedAt INTEGER NOT NULL,
+  PRIMARY KEY (userId, clusterId)
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
+  token TEXT PRIMARY KEY,
+  userId TEXT NOT NULL,
+  username TEXT NOT NULL,
+  role TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  k8sSessionToken TEXT
+)`)
+// scrypt 密码：格式 saltHex:hashHex:N:r:p
+const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1
+function hashPassword(password) {
+  const salt = randomBytes(16)
+  const hash = scryptSync(password, salt, 64, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P })
+  return `${salt.toString('hex')}:${hash.toString('hex')}:${SCRYPT_N}:${SCRYPT_R}:${SCRYPT_P}`
+}
+function verifyPassword(password, stored) {
+  try {
+    const [saltHex, hashHex, N, r, p] = stored.split(':')
+    const salt = Buffer.from(saltHex, 'hex')
+    const expected = Buffer.from(hashHex, 'hex')
+    const actual = scryptSync(password, salt, expected.length, { N: +N, r: +r, p: +p })
+    return timingSafeEqual(expected, actual)
+  } catch { return false }
+}
+// 首次启动 admin 种子
+function seedAdminIfNeeded() {
+  const count = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin'").get().c
+  if (count > 0) return
+  const adminUser = process.env.ADMIN_USERNAME
+  const adminPass = process.env.ADMIN_PASSWORD
+  if (!adminUser || !adminPass) { console.warn('[auth] 未设置 ADMIN_USERNAME/ADMIN_PASSWORD，无法创建管理员；旧 K8s 直连模式仍可用'); return }
+  db.prepare('INSERT INTO platform_users (id, username, passwordHash, role, displayName, createdAt) VALUES (?,?,?,?,?,?)')
+    .run(randomUUID(), adminUser, hashPassword(adminPass), 'admin', 'Administrator', Date.now())
+  console.log(`[auth] 已创建管理员: ${adminUser}`)
+}
+// 平台 session（内存 Map + SQLite 持久化）
+const platformSessions = new Map()  // token -> {userId, username, role, createdAt, k8sSessionToken}
+function loadPersistedPlatformSessions() {
+  try {
+    const rows = db.prepare('SELECT * FROM platform_sessions').all()
+    for (const r of rows) platformSessions.set(r.token, r)
+    if (rows.length) console.log(`[auth] 已恢复 ${rows.length} 个平台会话`)
+  } catch (e) { console.error('[auth] 恢复平台会话失败', e?.message) }
+}
+function platformUserFromRequest(req) {
+  const token = req.headers['x-platform-token']
+  if (!token) return null
+  const ps = platformSessions.get(token)
+  if (!ps) return null
+  if (Date.now() - ps.createdAt > sessionTtl) {
+    platformSessions.delete(token)
+    try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
+    return null
+  }
+  return ps
+}
+function requirePlatform(req, res) {
+  const ps = platformUserFromRequest(req)
+  if (!ps) { sendJson(res, 401, { message: '未登录或平台会话已过期' }); return null }
+  return ps
+}
+function requireAdmin(req, res) {
+  const ps = requirePlatform(req, res)
+  if (!ps) return null
+  if (ps.role !== 'admin') { sendJson(res, 403, { message: '需要管理员权限' }); return null }
+  return ps
+}
 // 持久化一个会话（仅存可序列化字段；dispatcher 是运行期对象，重载时重建）
 function persistSession(token, session) {
   try {
@@ -419,7 +528,8 @@ async function attachEphemeral(session, namespace, pod, spec) {
   if (spec.targetContainerName) container.targetContainerName = spec.targetContainerName
   list.push(container)
   const body = { kind: 'EphemeralContainers', apiVersion: 'v1', metadata: { name: pod, namespace }, spec: { ephemeralContainers: list } }
-  return (await requestKubernetes(session, subPath, { method: 'PUT', body: JSON.stringify(body) })).body
+  // ephemeralcontainers 子资源只支持 POST（PUT 会落到 Pod handler → "cannot be handled as a Pod"）
+  return (await requestKubernetes(session, subPath, { method: 'POST', body: JSON.stringify(body) })).body
 }
 
 // 手动触发 CronJob（kubectl create job --from 语义）：读 jobTemplate 创建一个 Job，
@@ -735,6 +845,61 @@ async function handle(req, res) {
     }
   }
 
+  // === 终端会话管理（任务栏：CRUD + 持久化） ===
+  // GET    /api/terminals           → 列出当前登录用户的终端会话
+  // POST   /api/terminals           → 创建（打开新终端）
+  // PATCH  /api/terminals/:id       → 更新（重命名 / 最小化 / 恢复）
+  // DELETE /api/terminals/:id       → 关闭并删除
+  if (url.pathname === '/api/terminals') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    try {
+      if (req.method === 'GET') {
+        const rows = db.prepare('SELECT * FROM terminals WHERE sessionToken = ? ORDER BY createdAt').all(token)
+        return sendJson(res, 200, { terminals: rows.map(r => ({ ...r, status: 'minimized' })) }) // 刷新后全部最小化
+      }
+      if (req.method === 'POST') {
+        const input = await readBody(req)
+        const id = `term-${randomUUID().slice(0, 8)}`
+        const term = {
+          id, sessionToken: token,
+          name: input.name || `${input.podName}/${input.container || 'main'}`,
+          namespace: input.namespace, podName: input.podName,
+          container: input.container || '', command: input.command || 'sh',
+          status: 'open', createdAt: Date.now(),
+        }
+        db.prepare('INSERT INTO terminals (id, sessionToken, name, namespace, podName, container, command, status, createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(term.id, term.sessionToken, term.name, term.namespace, term.podName, term.container, term.command, term.status, term.createdAt)
+        return sendJson(res, 200, term)
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
+  }
+  if (url.pathname.startsWith('/api/terminals/')) {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    const id = decodeURIComponent(url.pathname.slice('/api/terminals/'.length))
+    try {
+      if (req.method === 'PATCH') {
+        const input = await readBody(req)
+        const fields = []
+        const vals = []
+        for (const k of ['name', 'status']) { if (input[k] != null) { fields.push(`${k} = ?`); vals.push(input[k]) } }
+        if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+        vals.push(id, token)
+        db.prepare(`UPDATE terminals SET ${fields.join(', ')} WHERE id = ? AND sessionToken = ?`).run(...vals)
+        return sendJson(res, 200, { ok: true })
+      }
+      if (req.method === 'DELETE') {
+        db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(id, token)
+        return sendJson(res, 200, { ok: true })
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
+  }
+
   // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
   if (req.method === 'POST' && url.pathname === '/api/pod/debug') {
     const session = sessionFromRequest(req)
@@ -822,7 +987,12 @@ async function handle(req, res) {
     }
   }
 
-  if (!url.pathname.startsWith('/api/k8s/')) return sendJson(res, 404, { message: 'Not found' })
+  // K8s 代理 vs 平台 API 路由分发
+  const isK8s = url.pathname.startsWith('/api/k8s/')
+  const isPlatform = url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/my-clusters') || url.pathname.startsWith('/api/connect-cluster')
+  if (!isK8s && !isPlatform) return sendJson(res, 404, { message: 'Not found' })
+
+  if (isK8s) {
   const session = sessionFromRequest(req)
   if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
 
@@ -878,6 +1048,189 @@ async function handle(req, res) {
   } catch (error) {
     return sendJson(res, error.status || 502, { message: error.message || 'Kubernetes API 请求失败', details: error.details })
   }
+  } // end if (isK8s)
+
+  // ====== 平台认证 API ======
+  if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+    try {
+      const { username, password } = await readBody(req)
+      if (!username || !password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
+      const user = db.prepare('SELECT * FROM platform_users WHERE username=?').get(username)
+      if (!user || user.disabled || !verifyPassword(password, user.passwordHash))
+        return sendJson(res, 401, { message: '用户名或密码错误' })
+      const token = randomUUID()
+      const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
+      platformSessions.set(token, ps)
+      db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
+      return sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
+    } catch (e) { return sendJson(res, 500, { message: e?.message || '登录失败' }) }
+  }
+  if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
+    return sendJson(res, 200, { user })
+  }
+  if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+    const token = req.headers['x-platform-token']
+    if (token) { platformSessions.delete(token); try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ } }
+    return sendJson(res, 200, { ok: true })
+  }
+
+  // ====== 集群选择（Layer 2） ======
+  if (url.pathname === '/api/my-clusters' && req.method === 'GET') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    let rows
+    if (ps.role === 'admin') {
+      rows = db.prepare('SELECT id,name,apiServer,version,authMethod,createdAt FROM clusters ORDER BY name').all()
+    } else {
+      rows = db.prepare(`SELECT c.id,c.name,c.apiServer,c.version,c.authMethod,c.createdAt FROM clusters c
+        JOIN user_clusters uc ON uc.clusterId=c.id WHERE uc.userId=? ORDER BY c.name`).all(ps.userId)
+    }
+    return sendJson(res, 200, { clusters: rows })
+  }
+  if (url.pathname === '/api/connect-cluster' && req.method === 'POST') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    try {
+      const { clusterId } = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      if (ps.role !== 'admin') {
+        const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps.userId, clusterId)
+        if (!assigned) return sendJson(res, 403, { message: '无权访问此集群' })
+      }
+      // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致）
+      const apiServer = normalizeServer(cluster.apiServer)
+      const dispatcher = buildDispatcher({ ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
+      const k8sSession = { apiServer, authHeader: cluster.authHeader, dispatcher, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure, createdAt: Date.now() }
+      const probe = await requestKubernetes(k8sSession, '/version')
+      k8sSession.version = probe.body?.gitVersion || 'unknown'
+      const k8sToken = randomUUID()
+      sessions.set(k8sToken, k8sSession)
+      persistSession(k8sToken, k8sSession)
+      // 更新平台会话的 k8sSessionToken
+      ps.k8sSessionToken = k8sToken
+      platformSessions.set(req.headers['x-platform-token'], ps)
+      db.prepare('UPDATE platform_sessions SET k8sSessionToken=? WHERE token=?').run(k8sToken, req.headers['x-platform-token'])
+      return sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version } })
+    } catch (e) { return sendJson(res, e.status || 502, { message: e?.message || '连接集群失败' }) }
+  }
+
+  // ====== Admin: 集群管理 ======
+  if (url.pathname === '/api/admin/clusters' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,createdBy,createdAt FROM clusters ORDER BY createdAt DESC').all()
+    return sendJson(res, 200, { clusters: rows })
+  }
+  if (url.pathname === '/api/admin/clusters' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      if (!input.name) return sendJson(res, 400, { message: '集群名称不能为空' })
+      // 解析凭据（复用 POST /api/session 的逻辑）
+      let apiServer, authHeader = null, ca, cert, key
+      if (input.kubeconfig) {
+        const parsed = parseKubeconfig(input.kubeconfig)
+        apiServer = normalizeServer(parsed.server)
+        ca = certMaterial(parsed.cluster, 'certificate-authority-data', 'certificate-authority')
+        cert = certMaterial(parsed.user, 'client-certificate-data', 'client-certificate')
+        key = certMaterial(parsed.user, 'client-key-data', 'client-key')
+        if (parsed.user?.token) authHeader = `Bearer ${parsed.user.token}`
+        else if (parsed.user?.username != null) authHeader = `Basic ${Buffer.from(`${parsed.user.username}:${parsed.user.password || ''}`).toString('base64')}`
+      } else if (input.token) {
+        apiServer = normalizeServer(input.apiServer)
+        authHeader = `Bearer ${input.token}`
+      } else if (input.username) {
+        apiServer = normalizeServer(input.apiServer)
+        authHeader = `Basic ${Buffer.from(`${input.username}:${input.password || ''}`).toString('base64')}`
+      } else if (input.cert || input.authHeader) {
+        // 直接传 PEM 凭据（客户端证书 / 已构造的 authHeader）
+        apiServer = normalizeServer(input.apiServer)
+        authHeader = input.authHeader || null
+        ca = input.ca || null
+        cert = input.cert || null
+        key = input.key || null
+      } else { return sendJson(res, 400, { message: '缺少凭据（token / 账密 / kubeconfig / 客户端证书）' }) }
+      const insecure = input.insecure === true
+      // 探测版本
+      const dispatcher = buildDispatcher({ ca, cert, key, insecure })
+      const probe = await requestKubernetes({ apiServer, authHeader, dispatcher, ca, cert, key, insecure }, '/version')
+      const version = probe.body?.gitVersion || 'unknown'
+      const id = randomUUID()
+      db.prepare('INSERT INTO clusters (id,name,apiServer,authMethod,authHeader,ca,cert,key,insecure,version,createdBy,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, input.name, apiServer.toString(), input.kubeconfig ? 'kubeconfig' : input.token ? 'token' : 'basic', authHeader, ca || null, cert || null, key || null, insecure ? 1 : 0, version, ps.username, Date.now())
+      return sendJson(res, 200, { cluster: { id, name: input.name, apiServer: apiServer.toString().replace(/\/$/, ''), version } })
+    } catch (e) { return sendJson(res, e.status || 502, { message: e?.message || '添加集群失败（凭据无效或无法连接）' }) }
+  }
+  if (url.pathname.startsWith('/api/admin/clusters/') && req.method === 'DELETE') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = decodeURIComponent(url.pathname.slice('/api/admin/clusters/'.length))
+    db.prepare('DELETE FROM clusters WHERE id=?').run(id)
+    db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
+    return sendJson(res, 200, { ok: true })
+  }
+
+  // ====== Admin: 用户管理 ======
+  if (url.pathname === '/api/admin/users' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const users = db.prepare('SELECT id,username,role,displayName,createdAt,disabled FROM platform_users ORDER BY createdAt').all()
+    for (const u of users) u.clusterIds = db.prepare('SELECT clusterId FROM user_clusters WHERE userId=?').all(u.id).map(r => r.clusterId)
+    return sendJson(res, 200, { users })
+  }
+  if (url.pathname === '/api/admin/users' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const { username, password, role, displayName } = await readBody(req)
+      if (!username || !password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
+      if (role && !['admin', 'user'].includes(role)) return sendJson(res, 400, { message: '角色只能是 admin 或 user' })
+      const existing = db.prepare('SELECT 1 FROM platform_users WHERE username=?').get(username)
+      if (existing) return sendJson(res, 409, { message: '用户名已存在' })
+      const id = randomUUID()
+      db.prepare('INSERT INTO platform_users (id,username,passwordHash,role,displayName,createdAt) VALUES (?,?,?,?,?,?)')
+        .run(id, username, hashPassword(password), role || 'user', displayName || null, Date.now())
+      return sendJson(res, 200, { user: { id, username, role: role || 'user', displayName, createdAt: Date.now(), clusterIds: [] } })
+    } catch (e) { return sendJson(res, 500, { message: e?.message || '创建用户失败' }) }
+  }
+  if (url.pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
+    const target = db.prepare('SELECT role FROM platform_users WHERE id=?').get(id)
+    if (!target) return sendJson(res, 404, { message: '用户不存在' })
+    const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
+    if (target.role === 'admin' && adminCount <= 1) return sendJson(res, 400, { message: '不能删除最后一个管理员' })
+    db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
+    db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
+    return sendJson(res, 200, { ok: true })
+  }
+  if (url.pathname.startsWith('/api/admin/users/') && req.method === 'PATCH') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
+    const input = await readBody(req)
+    const fields = [], vals = []
+    for (const k of ['role', 'displayName', 'disabled']) { if (input[k] != null) { fields.push(`${k}=?`); vals.push(input[k]) } }
+    if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+    vals.push(id)
+    db.prepare(`UPDATE platform_users SET ${fields.join(',')} WHERE id=?`).run(...vals)
+    return sendJson(res, 200, { ok: true })
+  }
+  if (url.pathname.match(/\/api\/admin\/users\/[^/]+\/reset-password$/) && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const userId = url.pathname.split('/')[4]
+    const { newPassword } = await readBody(req)
+    if (!newPassword) return sendJson(res, 400, { message: '新密码不能为空' })
+    db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
+    return sendJson(res, 200, { ok: true })
+  }
+  if (url.pathname.match(/\/api\/admin\/users\/[^/]+\/clusters$/) && req.method === 'PUT') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const userId = url.pathname.split('/')[4]
+    const { clusterIds } = await readBody(req)
+    db.prepare('DELETE FROM user_clusters WHERE userId=?').run(userId)
+    if (Array.isArray(clusterIds)) {
+      const stmt = db.prepare('INSERT INTO user_clusters (userId,clusterId,assignedBy,assignedAt) VALUES (?,?,?,?)')
+      for (const cid of clusterIds) stmt.run(userId, cid, ps.username, Date.now())
+    }
+    return sendJson(res, 200, { clusterIds: clusterIds || [] })
+  }
 }
 
 const httpServer = createServer((req, res) => {
@@ -900,6 +1253,8 @@ httpServer.on('upgrade', (req, socket, head) => {
 })
 
 loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不掉线）
+seedAdminIfNeeded()
+loadPersistedPlatformSessions()
 
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)

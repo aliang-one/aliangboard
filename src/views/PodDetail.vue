@@ -9,8 +9,8 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import ResourceTopology from '@/components/common/ResourceTopology.vue'
-import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
+import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 
@@ -22,13 +22,17 @@ if (route.params.namespace) store.setNamespace(route.params.namespace)
 const pod = computed(() => store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
 
+// 支持 hash 直达 tab：PodCard 等快速入口跳转到 PodDetail 时带 #terminal/#files/#exec/#logs
+const HASH_TAB = { '#logs': 'logs', '#log': 'logs', '#files': 'files', '#file': 'files', '#terminal': 'terminal', '#exec': 'terminal', '#term': 'terminal', '#yaml': 'yaml', '#events': 'events', '#event': 'events' }
+watch(() => route.hash, h => { const t = HASH_TAB[(h || '').toLowerCase()]; if (t) activeTab.value = t }, { immediate: true })
+
 // 多容器 Pod：可选择查看哪个容器的日志 / exec 进哪个容器（含本会话注入的调试容器）
 const debugContainers = ref([])
 const containers = computed(() => {
   const base = pod.value?.containers?.length ? pod.value.containers : ['main']
   return [...new Set([...base, ...debugContainers.value])]
 })
-const termMode = ref('exec')   // 'exec' 开新 shell | 'attach' 连主进程 stdio
+const termMode = ref('exec')
 const selectedContainer = ref('')
 watch(pod, (p) => { if (p && !selectedContainer.value) selectedContainer.value = (p.containers?.[0] || 'main') }, { immediate: true })
 
@@ -268,6 +272,32 @@ watch(() => pod.value?.name, () => { debugContainers.value = [] })   // 切换 P
 // === 事件：远端按 involvedObject 过滤该 Pod 的事件；演示模式回退全量 nsEvents ===
 const podEvents = computed(() => store.remoteMode ? store.eventsFor('Pod', pod.value?.name, pod.value?.namespace) : store.nsEvents)
 
+// === 所属工作负载：pod → ownerReferences（Deployment 通常经 ReplicaSet 间接拥有）===
+const owningWorkload = computed(() => {
+  const raw = pod.value?.raw
+  const refs = raw?.metadata?.ownerReferences || []
+  const ctrl = refs.find(r => r.controller) || refs[0]
+  if (!ctrl) return null
+  const ns = raw?.metadata?.namespace || route.params.namespace
+  const WL = { Deployment: 'deployment', StatefulSet: 'statefulset', DaemonSet: 'daemonset', Job: 'job', CronJob: 'cronjob' }
+  if (WL[ctrl.kind]) return { kind: ctrl.kind, type: WL[ctrl.kind], name: ctrl.name, ns }
+  if (ctrl.kind === 'ReplicaSet') {
+    // ReplicaSet 名 = <deployment>-<templatehash>；在已加载的工作负载里找最长前缀匹配的 Deployment
+    const rs = ctrl.name
+    const deps = (store.workloadList || []).filter(w => w.namespace === ns && w.type === 'Deployment' && (rs === w.name || rs.startsWith(w.name + '-')))
+    if (deps.length) {
+      const best = deps.reduce((a, b) => (b.name.length > a.name.length ? b : a))
+      return { kind: 'Deployment', type: 'deployment', name: best.name, ns }
+    }
+  }
+  return null
+})
+function goToWorkload() {
+  const o = owningWorkload.value
+  if (!o) return
+  router.push({ name: 'NsWorkloadDetail', params: { namespace: o.ns, type: o.type, name: o.name } })
+}
+
 // === 事件关联资源跳转 ===
 function goToRelated(event) {
   if (!event.relatedKind || !event.relatedName) return
@@ -305,6 +335,11 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         </div>
       </div>
       <div class="flex gap-2">
+        <button v-if="owningWorkload" @click="goToWorkload" :title="`跳转到所属 ${owningWorkload.kind}：${owningWorkload.name}`" class="flex items-center gap-2 px-md py-2 border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors">
+          <span class="material-symbols-outlined">workspaces</span>
+          <span class="font-medium text-body-md">{{ owningWorkload.kind }}</span>
+          <span class="material-symbols-outlined text-base">arrow_forward</span>
+        </button>
         <button v-if="store.remoteMode" @click="exportPod" title="导出真实 YAML（kubectl get -o yaml）" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">download</span>
           <span class="font-medium text-body-md">Export</span>
@@ -394,9 +429,9 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           <YamlEditor v-else :model-value="podYaml" readonly height="600px" />
         </div>
 
-        <!-- Terminal View -->
-        <div v-if="activeTab === 'terminal'" class="flex-1">
-          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center gap-md border-b border-outline-variant">
+        <!-- Terminal View（内嵌，auto-connect） -->
+        <div v-if="activeTab === 'terminal'" class="flex-1 flex flex-col min-h-0">
+          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center gap-md border-b border-outline-variant shrink-0">
             <div class="flex items-center gap-xs">
               <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
               <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
@@ -412,7 +447,9 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
               <span class="material-symbols-outlined text-body-md">bug_report</span> kubectl debug
             </button>
           </div>
-          <InteractiveTerminal :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" :attach="termMode === 'attach'" />
+          <div class="flex-1 min-h-0">
+            <InteractiveTerminal class="h-full" :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" :attach="termMode === 'attach'" :auto-connect="true" />
+          </div>
         </div>
 
         <!-- Files View（文件浏览器 / kubectl cp）-->
