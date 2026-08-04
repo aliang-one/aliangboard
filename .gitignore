@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 运行时数据（Gateway 会话持久化的 SQLite 库，含凭据，勿入库）
+data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
