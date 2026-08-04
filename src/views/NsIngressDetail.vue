@@ -168,14 +168,14 @@ function saveEditLabel() {
           <span class="material-symbols-outlined text-primary text-2xl">language</span>
         </div>
         <div>
-          <h1 class="text-headline-lg font-bold text-on-surface">{{ ing.name }}</h1>
+          <h1 class="text-headline-md font-bold text-on-surface">{{ ing.name }}</h1>
           <div class="flex items-center gap-xs mt-xs flex-wrap">
-            <span class="px-2 py-0.5 bg-primary/8 text-primary text-body-xs rounded-md font-medium">Ingress</span>
+            <span class="px-2 py-0.5 bg-primary/8 text-primary text-xs rounded-md font-medium">Ingress</span>
             <span class="flex items-center gap-xs text-body-sm" :class="ing.tls ? 'text-primary' : 'text-on-surface-variant'">
               <span class="material-symbols-outlined text-base">{{ ing.tls ? 'lock' : 'lock_open' }}</span>
               {{ ing.tls ? 'TLS Enabled' : 'No TLS' }}
             </span>
-            <span class="text-body-xs text-on-surface-variant">Age: {{ ing.age }}</span>
+            <span class="text-xs text-on-surface-variant">Age: {{ ing.age }}</span>
           </div>
         </div>
       </div>
@@ -204,19 +204,19 @@ function saveEditLabel() {
           </div>
           <div class="p-md grid grid-cols-2 gap-sm">
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Hosts</p>
+              <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Hosts</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ ing.hosts }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
               <div class="flex items-center justify-between mb-xs">
-                <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider">Ingress Class</p>
+                <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Ingress Class</p>
                 <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 IngressClass"><span class="material-symbols-outlined text-base">edit</span></button>
               </div>
               <p class="text-body-sm text-on-surface">{{ ing.className || '（默认）' }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
               <div class="flex items-center justify-between mb-xs">
-                <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider">TLS</p>
+                <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">TLS</p>
                 <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 TLS"><span class="material-symbols-outlined text-base">edit</span></button>
               </div>
               <div class="flex items-center gap-sm">
@@ -225,8 +225,8 @@ function saveEditLabel() {
               </div>
             </div>
             <div v-if="ing.tlsSecret" class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">TLS Secret</p>
-              <p class="font-mono text-code-xs text-on-surface">{{ ing.tlsSecret }}</p>
+              <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">TLS Secret</p>
+              <p class="font-mono text-xs text-on-surface">{{ ing.tlsSecret }}</p>
             </div>
           </div>
         </div>
@@ -261,18 +261,18 @@ function saveEditLabel() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">alt_route</span>
           <span class="text-body-sm font-semibold">Routing Rules ({{ allRules.length }})</span>
-          <button @click="openRulesEditor" class="ml-auto flex items-center gap-xs px-3 py-1 text-body-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
+          <button @click="openRulesEditor" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
             <span class="material-symbols-outlined text-sm">edit</span> Edit Rules
           </button>
         </div>
         <table v-if="allRules.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Host</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Path</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Path Type</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Backend Service</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Port</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Host</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path Type</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Backend Service</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Port</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
@@ -296,7 +296,7 @@ function saveEditLabel() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">label</span>
           <span class="text-body-sm font-semibold">Annotations ({{ allAnnotations.length }})</span>
-          <button @click="showAddAnnModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-body-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
+          <button @click="showAddAnnModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
             <span class="material-symbols-outlined text-sm">add</span> Add Annotation
           </button>
         </div>
@@ -312,11 +312,11 @@ function saveEditLabel() {
             <div v-if="editingAnn === key" class="flex gap-sm">
               <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
               <div class="flex flex-col gap-xs">
-                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-xs font-semibold">Save</button>
-                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-xs">Cancel</button>
+                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-xs font-semibold">Save</button>
+                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-xs">Cancel</button>
               </div>
             </div>
-            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-xs text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-xs text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
           </div>
           <div v-if="!allAnnotations.length" class="px-md py-md text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-2xl">label</span>
@@ -332,7 +332,7 @@ function saveEditLabel() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">sell</span>
           <span class="text-body-sm font-semibold">Labels ({{ allLabels.length }})</span>
-          <button @click="showAddLabelModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-body-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
+          <button @click="showAddLabelModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
             <span class="material-symbols-outlined text-sm">add</span> Add Label
           </button>
         </div>
@@ -348,11 +348,11 @@ function saveEditLabel() {
             <div v-if="editingLabel === key" class="flex gap-sm">
               <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
               <div class="flex gap-xs">
-                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-xs font-semibold">Save</button>
-                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-xs">Cancel</button>
+                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-xs font-semibold">Save</button>
+                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-xs">Cancel</button>
               </div>
             </div>
-            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-xs text-on-surface-variant break-all">{{ val }}</div>
+            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-xs text-on-surface-variant break-all">{{ val }}</div>
           </div>
           <div v-if="!allLabels.length" class="px-md py-md text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-2xl">label_off</span>
@@ -369,7 +369,7 @@ function saveEditLabel() {
   </div>
   <div v-else class="animate-fade-in text-center py-xl">
     <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">Ingress Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">Ingress Not Found</h2>
     <button @click="router.push({ name: 'NsIngress', params: { namespace: route.params.namespace } })" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg">Back to Ingress</button>
   </div>
 
@@ -487,7 +487,7 @@ function saveEditLabel() {
       <datalist id="ing-tls-secrets">
         <option v-for="s in store.nsSecrets.filter(x => x.type === 'kubernetes.io/tls')" :key="s.name" :value="s.name" />
       </datalist>
-      <p class="text-body-xs text-on-surface-variant mt-xs">TLS hosts 取自当前 rules 的 host；Secret 需为 <code>kubernetes.io/tls</code> 类型。</p>
+      <p class="text-xs text-on-surface-variant mt-xs">TLS hosts 取自当前 rules 的 host；Secret 需为 <code>kubernetes.io/tls</code> 类型。</p>
     </div>
     <template #actions>
       <button @click="showTlsModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>

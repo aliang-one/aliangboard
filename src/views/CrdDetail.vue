@@ -164,21 +164,21 @@ async function handleCreateInst(yaml) {
         </div>
         <div>
           <div class="flex items-baseline gap-sm flex-wrap">
-            <h1 class="text-headline-lg text-on-surface font-mono font-bold">{{ crd.name }}</h1>
-            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-body-xs font-semibold rounded">{{ crd.kind }}</span>
+            <h1 class="text-headline-md text-on-surface font-mono font-bold">{{ crd.name }}</h1>
+            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded">{{ crd.kind }}</span>
           </div>
           <div class="flex items-center gap-sm mt-xs flex-wrap">
-            <span class="font-mono text-code-xs text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
+            <span class="font-mono text-xs text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
             <span class="text-on-surface-variant/40">·</span>
             <span
-              class="text-body-xs font-semibold inline-flex items-center gap-1"
+              class="text-xs font-semibold inline-flex items-center gap-1"
               :class="crd.scope === 'Namespaced' ? 'text-tertiary-container' : 'text-secondary'"
             >
               <span class="material-symbols-outlined text-xs">{{ crd.scope === 'Namespaced' ? 'folder' : 'public' }}</span>
               {{ crd.scope }}
             </span>
             <span class="text-on-surface-variant/40">·</span>
-            <span class="text-body-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
           </div>
         </div>
       </div>
@@ -213,23 +213,23 @@ async function handleCreateInst(yaml) {
           </div>
           <div class="p-md grid grid-cols-2 gap-sm">
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">GROUP</p>
+              <p class="text-xs text-on-surface-variant mb-xs">GROUP</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.group }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">VERSION</p>
+              <p class="text-xs text-on-surface-variant mb-xs">VERSION</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.version }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">KIND</p>
+              <p class="text-xs text-on-surface-variant mb-xs">KIND</p>
               <p class="text-body-sm text-on-surface font-semibold">{{ crd.kind }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">SCOPE</p>
+              <p class="text-xs text-on-surface-variant mb-xs">SCOPE</p>
               <p class="text-body-sm text-on-surface font-semibold">{{ crd.scope }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">NAMESPACED</p>
+              <p class="text-xs text-on-surface-variant mb-xs">NAMESPACED</p>
               <span class="material-symbols-outlined text-sm align-middle" :class="crd.namespaced ? 'text-primary' : 'text-outline-variant'">
                 {{ crd.namespaced ? 'check_circle' : 'cancel' }}
               </span>
@@ -238,8 +238,8 @@ async function handleCreateInst(yaml) {
               </span>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-body-xs text-on-surface-variant mb-xs">FULL NAME</p>
-              <p class="font-mono text-code-xs text-on-surface break-all">{{ crd.name }}</p>
+              <p class="text-xs text-on-surface-variant mb-xs">FULL NAME</p>
+              <p class="font-mono text-xs text-on-surface break-all">{{ crd.name }}</p>
             </div>
           </div>
         </div>
@@ -264,11 +264,11 @@ async function handleCreateInst(yaml) {
           </div>
           <div class="p-md space-y-sm">
             <div class="flex justify-between items-center py-xs border-b border-outline-variant/30">
-              <span class="text-body-xs text-on-surface-variant">实例总数</span>
+              <span class="text-xs text-on-surface-variant">实例总数</span>
               <span class="font-mono text-code-sm text-primary font-semibold">{{ crd.instances?.length || 0 }}</span>
             </div>
             <div class="flex justify-between items-center py-xs">
-              <span class="text-body-xs text-on-surface-variant">Scope</span>
+              <span class="text-xs text-on-surface-variant">Scope</span>
               <span class="text-body-sm text-on-surface">{{ crd.scope }}</span>
             </div>
           </div>
@@ -285,7 +285,7 @@ async function handleCreateInst(yaml) {
             <span class="text-body-sm font-semibold">{{ crd.kind }} 实例</span>
           </div>
           <div class="flex items-center gap-sm">
-            <span class="text-body-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
             <button
               @click="openCreateInst"
               class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
@@ -297,11 +297,11 @@ async function handleCreateInst(yaml) {
         <table v-if="crd.instances && crd.instances.length" class="w-full">
           <thead>
             <tr class="border-b border-outline-variant bg-surface-container-low/50">
-              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAME</th>
-              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAMESPACE</th>
-              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">STATUS</th>
-              <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">AGE</th>
-              <th class="text-right px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">ACTIONS</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAMESPACE</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">STATUS</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">AGE</th>
+              <th class="text-right px-md py-2 text-xs font-medium text-on-surface-variant w-24">ACTIONS</th>
             </tr>
           </thead>
           <tbody>
@@ -314,14 +314,14 @@ async function handleCreateInst(yaml) {
                   </div>
                 </td>
                 <td class="px-md py-2">
-                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
-                  <span v-else class="text-on-surface-variant text-body-xs">-</span>
+                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
+                  <span v-else class="text-on-surface-variant text-xs">-</span>
                 </td>
                 <td class="px-md py-2">
                   <StatusChip :status="inst.status || 'Unknown'" size="sm" />
                 </td>
                 <td class="px-md py-2">
-                  <span class="text-body-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
+                  <span class="text-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
                 </td>
                 <td class="px-md py-2 text-right">
                   <div class="flex gap-1 justify-end">
@@ -384,7 +384,7 @@ async function handleCreateInst(yaml) {
   <!-- Not Found 兜底 -->
   <div v-else class="animate-fade-in text-center py-md">
     <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-xs">CRD 未找到</h2>
+    <h2 class="text-headline-md text-on-surface mt-xs">CRD 未找到</h2>
     <p class="text-body-sm text-on-surface-variant mt-xs">找不到名为 <span class="font-mono text-on-surface font-semibold">{{ route.params.name }}</span> 的自定义资源定义。</p>
     <button
       @click="router.push('/crds')"

@@ -107,11 +107,11 @@ function scalingDescription(h) {
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Scale Target</p>
-              <p class="font-mono text-code-md text-primary font-semibold">{{ hpa.targetKind }}/{{ hpa.targetName }}</p>
+              <p class="font-mono text-code-sm text-primary font-semibold">{{ hpa.targetKind }}/{{ hpa.targetName }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Current Replicas</p>
-              <p class="text-headline-lg text-on-surface font-bold">{{ hpa.currentReplicas }}</p>
+              <p class="text-headline-md text-on-surface font-bold">{{ hpa.currentReplicas }}</p>
             </div>
           </div>
         </div>
@@ -312,11 +312,11 @@ function scalingDescription(h) {
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">Average Utilization</span>
-              <span class="font-mono text-code-md text-primary font-semibold">{{ hpa.cpuTarget }}%</span>
+              <span class="font-mono text-code-sm text-primary font-semibold">{{ hpa.cpuTarget }}%</span>
             </div>
             <div class="flex justify-between items-center py-sm">
               <span class="text-body-sm text-on-surface-variant">Current Utilization</span>
-              <span class="font-mono text-code-md" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentCPU }}%</span>
+              <span class="font-mono text-code-sm" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentCPU }}%</span>
             </div>
           </div>
         </div>
@@ -340,11 +340,11 @@ function scalingDescription(h) {
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">Average Utilization</span>
-              <span class="font-mono text-code-md text-primary font-semibold">{{ hpa.memoryTarget || '-' }}%</span>
+              <span class="font-mono text-code-sm text-primary font-semibold">{{ hpa.memoryTarget || '-' }}%</span>
             </div>
             <div class="flex justify-between items-center py-sm">
               <span class="text-body-sm text-on-surface-variant">Current Utilization</span>
-              <span class="font-mono text-code-md" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentMemory }}%</span>
+              <span class="font-mono text-code-sm" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentMemory }}%</span>
             </div>
           </div>
         </div>
@@ -360,7 +360,7 @@ function scalingDescription(h) {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">HPA Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">HPA Not Found</h2>
     <p class="text-body-md text-on-surface-variant mt-sm">HorizontalPodAutoscaler "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
     <button @click="router.push({ name: 'NsHPA', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to HPAs</button>
   </div>

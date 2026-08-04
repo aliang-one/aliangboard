@@ -43,7 +43,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Network</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Network</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Manage Services, Ingress, Endpoints, and NetworkPolicies.</p>
       </div>
       <div class="flex gap-sm">
@@ -71,7 +71,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
       <template #type="{ row }">
-        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
       </template>
       <template #clusterIP="{ row }">
         <span class="font-mono text-code-sm">{{ row.clusterIP }}</span>

@@ -10,7 +10,8 @@ import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import ResourceTopology from '@/components/common/ResourceTopology.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
-import { api, k8sStream, podFileApi, podDebugApi, exportYaml } from '@/api/client'
+import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
+import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 
 const route = useRoute()
@@ -283,114 +284,8 @@ function goToRelated(event) {
   else if (k === 'Secret') router.push({ name: 'NsSecretDetail', params: { namespace: ns, name } })
 }
 
-// === 文件浏览器（kubectl cp 语义，基于 exec 的 ls / cat / 写入）===
-// 远端模式调用网关 exec 落地真实容器文件；演示数据模式回退到 fakeFs。
-const fakeFs = {
-  '/': [{ n: 'app', t: 'dir' }, { n: 'etc', t: 'dir' }, { n: 'var', t: 'dir' }, { n: 'tmp', t: 'dir' }],
-  '/app': [{ n: 'src', t: 'dir' }, { n: 'config', t: 'dir' }, { n: 'node_modules', t: 'dir' }, { n: 'package.json', t: 'file', s: '1.2 KB', m: '12d ago' }, { n: 'Dockerfile', t: 'file', s: '420 B', m: '45d ago' }, { n: '.env', t: 'file', s: '128 B', m: '5d ago' }],
-  '/app/src': [{ n: 'index.js', t: 'file', s: '3.4 KB', m: '2d ago' }, { n: 'router.js', t: 'file', s: '1.8 KB', m: '5d ago' }, { n: 'app.js', t: 'file', s: '2.1 KB', m: '3d ago' }],
-  '/app/config': [{ n: 'default.json', t: 'file', s: '640 B', m: '12d ago' }, { n: 'production.json', t: 'file', s: '512 B', m: '8d ago' }],
-  '/etc': [{ n: 'hosts', t: 'file', s: '180 B', m: '45d ago' }, { n: 'resolv.conf', t: 'file', s: '92 B', m: '45d ago' }, { n: 'hostname', t: 'file', s: '24 B', m: '45d ago' }],
-}
-const fakeFileContent = {
-  '/app/package.json': '{\n  "name": "frontend-api",\n  "version": "2.4.1",\n  "main": "src/index.js",\n  "scripts": { "start": "node src/index.js" }\n}',
-  '/app/.env': 'DB_HOST=postgres-main-svc\nDB_PORT=5432\nREDIS_URL=redis://redis-svc:6379\nLOG_LEVEL=info',
-  '/app/Dockerfile': 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --production\nCOPY . .\nEXPOSE 8080\nCMD ["node", "src/index.js"]',
-  '/etc/hostname': pod.value?.name || 'pod',
-  '/etc/resolv.conf': 'nameserver 10.96.0.1\nsearch default.svc.cluster.local',
-}
-const currentPath = ref('/app')
-const selectedFile = ref(null)
-const uploadInfo = ref('')
-const fileInput = ref(null)
-const fileLoading = ref(false)
-const fileError = ref('')
-const entries = ref([])
-
-const currentEntries = computed(() => store.remoteMode ? entries.value.map(e => ({ n: e.name, t: e.type })) : (fakeFs[currentPath.value] || []))
-const breadcrumbs_path = computed(() => {
-  const parts = currentPath.value.split('/').filter(Boolean)
-  return [{ n: '/', p: '/' }, ...parts.map((part, i) => ({ n: part, p: '/' + parts.slice(0, i + 1).join('/') }))]
-})
-function joinPath(dir, name) { return dir.endsWith('/') ? dir + name : dir + '/' + name }
-async function loadDir(path) {
-  currentPath.value = path
-  selectedFile.value = null
-  fileError.value = ''
-  if (!store.remoteMode) return
-  fileLoading.value = true
-  try {
-    const res = await podFileApi.list({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path })
-    entries.value = (res.entries || []).slice().sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
-  } catch (e) {
-    fileError.value = e.message || '读取目录失败'
-    entries.value = []
-  } finally {
-    fileLoading.value = false
-  }
-}
-function navigateTo(path) { loadDir(path) }
-function goUp() {
-  if (currentPath.value === '/') return
-  const parts = currentPath.value.split('/').filter(Boolean)
-  parts.pop()
-  navigateTo(parts.length ? '/' + parts.join('/') : '/')
-}
-async function openEntry(entry) {
-  const fp = joinPath(currentPath.value, entry.n)
-  if (entry.t === 'dir') return navigateTo(fp)
-  if (!store.remoteMode) {
-    selectedFile.value = { name: entry.n, path: fp, content: fakeFileContent[fp] || `# ${entry.n}\n# (二进制文件或内容不可预览)`, size: entry.s }
-    return
-  }
-  try {
-    const res = await podFileApi.read({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: fp })
-    selectedFile.value = { name: entry.n, path: res.path, content: res.content, truncated: res.truncated, binary: res.binary }
-  } catch (e) {
-    notify('error', e.message || '读取文件失败')
-  }
-}
-async function downloadFile() {
-  if (!selectedFile.value) return
-  if (!store.remoteMode) {
-    const blob = new Blob([selectedFile.value.content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = selectedFile.value.name; a.click(); URL.revokeObjectURL(url)
-    return
-  }
-  try {
-    const blob = await podFileApi.download({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: selectedFile.value.path })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = selectedFile.value.name; a.click(); URL.revokeObjectURL(url)
-  } catch (e) {
-    notify('error', e.message || '下载失败')
-  }
-}
-function triggerUpload() { fileInput.value?.click() }
-async function onUploadPicked(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  const targetPath = joinPath(currentPath.value, file.name)
-  if (!store.remoteMode) {
-    uploadInfo.value = `已模拟上传 ${file.name} 到 ${currentPath.value}（演示环境）`
-    setTimeout(() => { uploadInfo.value = '' }, 3000); e.target.value = ''; return
-  }
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    let binary = ''
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
-    await podFileApi.write({ namespace: pod.value.namespace, pod: pod.value.name, container: selectedContainer.value, path: targetPath, data: btoa(binary) })
-    uploadInfo.value = `已上传 ${file.name} → ${targetPath}（${file.size} 字节）`
-    notify('success', '上传成功')
-    loadDir(currentPath.value)
-  } catch (err) {
-    notify('error', err.message || '上传失败')
-  } finally {
-    setTimeout(() => { uploadInfo.value = '' }, 3000); e.target.value = ''
-  }
-}
-watch(activeTab, t => { if (t === 'files' && store.remoteMode && !entries.value.length) loadDir(currentPath.value) })
-watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remoteMode) loadDir(currentPath.value) })
+// === 文件浏览器：内嵌到 Files 标签（复用 FileBrowserBody，不走弹窗） ===
+const fbContainer = computed(() => selectedContainer.value || containers.value?.[0] || '')
 </script>
 
 <template>
@@ -473,7 +368,7 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
               <div class="flex items-center gap-2">
                 <input v-model="followLog" type="checkbox" :disabled="logPrevious" class="rounded text-primary focus:ring-primary h-4 w-4" />
                 <span class="text-body-sm" :class="logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant'">Follow</span>
-                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full" :title="store.remoteMode ? '实时流式（follow=true 经 Gateway pipe 透传）' : '模拟实时'">
+                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="store.remoteMode ? '实时流式（follow=true 经 Gateway pipe 透传）' : '模拟实时'">
                   <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ store.remoteMode ? 'LIVE · 流式' : 'LIVE' }}
                 </span>
               </div>
@@ -508,10 +403,10 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
                 <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
-            <span class="text-body-xs text-on-surface-variant">{{ termMode === 'attach' ? 'attach 连接主进程 stdio' : 'exec 进入所选容器' }}</span>
+            <span class="text-xs text-on-surface-variant">{{ termMode === 'attach' ? 'attach 连接主进程 stdio' : 'exec 进入所选容器' }}</span>
             <div v-if="store.remoteMode" class="flex items-center gap-xs">
-              <button @click="termMode = 'exec'" :class="termMode === 'exec' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-body-xs font-medium border transition-colors">Exec</button>
-              <button @click="termMode = 'attach'" :class="termMode === 'attach' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-body-xs font-medium border transition-colors" title="attach 到容器主进程（PID 1）的 stdio">Attach</button>
+              <button @click="termMode = 'exec'" :class="termMode === 'exec' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors">Exec</button>
+              <button @click="termMode = 'attach'" :class="termMode === 'attach' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors" title="attach 到容器主进程（PID 1）的 stdio">Attach</button>
             </div>
             <button v-if="store.remoteMode" @click="openDebug" title="注入临时调试容器（kubectl debug，用于无 shell / distroless 镜像）" class="ml-auto flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-low transition-colors">
               <span class="material-symbols-outlined text-body-md">bug_report</span> kubectl debug
@@ -521,63 +416,17 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
         </div>
 
         <!-- Files View（文件浏览器 / kubectl cp）-->
-        <div v-if="activeTab === 'files'" class="flex-1 flex flex-col">
-          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between gap-md border-b border-outline-variant">
-            <div class="flex items-center gap-xs text-body-sm min-w-0">
-              <button @click="goUp" :disabled="currentPath === '/'" class="p-xs hover:bg-surface-container-low rounded disabled:opacity-30"><span class="material-symbols-outlined text-lg">arrow_upward</span></button>
-              <span class="font-mono text-code-sm text-on-surface-variant truncate">
-                <span v-for="(c, i) in breadcrumbs_path" :key="i" class="cursor-pointer hover:text-primary" @click="navigateTo(c.p)">{{ c.n === '/' ? '/' : c.n + '/' }}</span>
-              </span>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <div v-if="store.remoteMode" class="flex items-center gap-xs">
-                <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-xs font-mono focus:ring-2 focus:ring-primary">
-                  <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
-                </select>
-                <button @click="loadDir(currentPath)" title="刷新" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">refresh</span></button>
-              </div>
-              <button @click="triggerUpload" title="上传文件" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">upload</span></button>
-              <button @click="downloadFile" :disabled="!selectedFile" title="下载文件" class="p-1 hover:bg-surface-container-low rounded disabled:opacity-30"><span class="material-symbols-outlined text-body-md">download</span></button>
-            </div>
+        <div v-if="activeTab === 'files'" class="flex-1 min-h-0 flex flex-col">
+          <!-- 容器选择（多容器时可切换浏览哪个容器的文件系统） -->
+          <div v-if="store.remoteMode && containers.length > 1" class="flex items-center gap-sm pb-sm shrink-0">
+            <span class="text-body-xs text-on-surface-variant">容器</span>
+            <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-xs font-mono focus:ring-2 focus:ring-primary">
+              <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
+            </select>
           </div>
-          <input ref="fileInput" type="file" class="hidden" @change="onUploadPicked" />
-          <p v-if="uploadInfo" class="px-md py-xs bg-primary-container/10 text-primary text-body-sm">{{ uploadInfo }}</p>
-          <p v-if="fileError" class="px-md py-xs bg-error-container/20 text-error text-body-sm">{{ fileError }}</p>
-          <div class="flex-1 grid grid-cols-12 overflow-hidden">
-            <!-- 文件列表 -->
-            <div class="col-span-7 border-r border-outline-variant overflow-y-auto max-h-[560px]">
-              <div v-if="fileLoading" class="px-lg py-md text-body-sm text-on-surface-variant">读取中…</div>
-              <div v-else>
-                <div v-for="entry in currentEntries" :key="entry.n" @click="openEntry(entry)"
-                  class="flex items-center gap-sm px-lg py-sm hover:bg-surface-container-low cursor-pointer border-b border-outline-variant/30">
-                  <span class="material-symbols-outlined text-lg" :class="entry.t === 'dir' ? 'text-secondary' : 'text-on-surface-variant'">{{ entry.t === 'dir' ? 'folder' : 'description' }}</span>
-                  <span class="flex-1 text-body-sm font-medium text-on-surface truncate">{{ entry.n }}</span>
-                  <span v-if="entry.t === 'file'" class="text-body-xs text-on-surface-variant w-16 text-right">{{ entry.m }}</span>
-                  <span v-else class="text-body-xs text-on-surface-variant">目录</span>
-                </div>
-                <p v-if="!currentEntries.length" class="px-lg py-md text-body-sm text-on-surface-variant">空目录</p>
-              </div>
-            </div>
-            <!-- 文件预览 -->
-            <div class="col-span-5 flex flex-col">
-              <div v-if="selectedFile" class="flex-1 flex flex-col">
-                <div class="px-md py-xs bg-surface-container-low border-b border-outline-variant flex items-center justify-between">
-                  <span class="font-mono text-code-sm font-semibold text-primary truncate">{{ selectedFile.name }}</span>
-                  <span class="text-body-xs text-on-surface-variant shrink-0">
-                    <span v-if="selectedFile.binary">二进制</span>
-                    <span v-else-if="selectedFile.truncated">已截断预览</span>
-                    <span v-else>{{ selectedFile.size }}</span>
-                  </span>
-                </div>
-                <pre class="flex-1 bg-[#1a1c1e] p-md font-mono text-code-sm text-surface-variant overflow-auto max-h-[520px] whitespace-pre">{{ selectedFile.binary ? '（二进制文件，内容不可预览，请下载查看）' : selectedFile.content }}</pre>
-              </div>
-              <div v-else class="flex-1 flex items-center justify-center text-on-surface-variant">
-                <div class="text-center">
-                  <span class="material-symbols-outlined text-4xl opacity-30">description</span>
-                  <p class="text-body-sm mt-sm">选择文件查看内容</p>
-                </div>
-              </div>
-            </div>
+          <!-- 文件浏览（内嵌，不走弹窗） -->
+          <div class="flex-1 min-h-0">
+            <FileBrowserBody :namespace="pod.namespace" :pod="pod.name" :container="fbContainer" />
           </div>
         </div>
 
@@ -598,7 +447,7 @@ watch(selectedContainer, () => { if (activeTab.value === 'files' && store.remote
                   <span class="font-mono text-code-sm text-on-surface-variant shrink-0">{{ event.time }}</span>
                 </div>
                 <p class="text-body-sm text-on-surface-variant mt-xs">{{ event.message }}</p>
-                <div v-if="event.relatedKind" class="mt-xs inline-flex items-center gap-xs px-sm py-xs bg-primary-container/10 text-primary text-body-xs rounded-full">
+                <div v-if="event.relatedKind" class="mt-xs inline-flex items-center gap-xs px-sm py-xs bg-primary-container/10 text-primary text-xs rounded-full">
                   <span class="material-symbols-outlined text-sm">link</span>
                   <span class="font-mono">{{ event.relatedKind }}/{{ event.relatedName }}</span>
                   <span class="material-symbols-outlined text-sm">chevron_right</span>

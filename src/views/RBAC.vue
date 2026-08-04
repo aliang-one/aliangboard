@@ -99,7 +99,7 @@ async function doDelete() {
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">RBAC</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">RBAC</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Manage Role-Based Access Control: Roles, RoleBindings, and ServiceAccounts.</p>
       </div>
       <div class="flex gap-sm">
@@ -130,10 +130,10 @@ async function doDelete() {
       </template>
       <template #namespace="{ row }">
         <span v-if="row.namespace" class="font-mono text-code-sm">{{ row.namespace }}</span>
-        <span v-else class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-body-xs rounded font-medium">CLUSTER-WIDE</span>
+        <span v-else class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium">CLUSTER-WIDE</span>
       </template>
       <template #scope="{ row }">
-        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.scope }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.scope }}</span>
       </template>
       <template #bindings="{ row }">
         <span class="font-mono text-code-sm font-bold">{{ row.bindings }}</span>

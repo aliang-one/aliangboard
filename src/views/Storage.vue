@@ -135,7 +135,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Storage</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Storage</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Manage persistent storage, volumes, and storage classes.</p>
       </div>
       <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
@@ -171,7 +171,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <StatusChip :status="row.status" />
       </template>
       <template #storageClass="{ row }">
-        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs border border-outline-variant">{{ row.storageClass }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs border border-outline-variant">{{ row.storageClass }}</span>
       </template>
       <template #pagination>
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
@@ -204,7 +204,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-          <span v-if="row.default" class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-body-xs rounded font-medium">DEFAULT</span>
+          <span v-if="row.default" class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium">DEFAULT</span>
         </div>
       </template>
       <template #default="{ row }">

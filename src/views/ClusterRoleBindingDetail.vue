@@ -88,7 +88,7 @@ const role = computed(() => crb.value?.roleName ? store.getClusterRoleByName(crb
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">ClusterRoleBinding Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">ClusterRoleBinding Not Found</h2>
     <button @click="router.push('/rbac')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
   </section>
 </template>

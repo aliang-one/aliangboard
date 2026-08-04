@@ -209,7 +209,7 @@ const refCount = computed(() =>
           <div v-for="([key, val], idx) in dataEntries" :key="idx" class="px-lg py-md">
             <div class="flex items-center justify-between mb-sm">
               <div class="flex items-center gap-sm">
-                <span class="font-mono text-code-md text-primary font-semibold">{{ key }}</span>
+                <span class="font-mono text-code-sm text-primary font-semibold">{{ key }}</span>
                 <button @click="toggleReveal(key)" class="p-xs text-on-surface-variant hover:text-primary rounded-lg" :title="revealedKeys.has(key) ? 'Hide' : 'Reveal'">
                   <span class="material-symbols-outlined text-lg">{{ revealedKeys.has(key) ? 'visibility_off' : 'visibility' }}</span>
                 </button>
@@ -259,7 +259,7 @@ const refCount = computed(() =>
         <div class="divide-y divide-outline-variant/30">
           <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-lg py-md">
             <div class="flex items-center justify-between mb-sm">
-              <span class="font-mono text-code-md text-primary font-semibold break-all">{{ key }}</span>
+              <span class="font-mono text-code-sm text-primary font-semibold break-all">{{ key }}</span>
               <div class="flex gap-xs shrink-0">
                 <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
                 <button @click="deleteAnnotation(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
@@ -294,7 +294,7 @@ const refCount = computed(() =>
         <div class="divide-y divide-outline-variant/30">
           <div v-for="([key, val], idx) in allLabels" :key="idx" class="px-lg py-md">
             <div class="flex items-center justify-between mb-sm">
-              <span class="font-mono text-code-md text-secondary font-semibold break-all">{{ key }}</span>
+              <span class="font-mono text-code-sm text-secondary font-semibold break-all">{{ key }}</span>
               <div class="flex gap-xs shrink-0">
                 <button v-if="editingLabel !== key" @click="startEditLabel(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">edit</span></button>
                 <button @click="deleteLabel(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
@@ -324,7 +324,7 @@ const refCount = computed(() =>
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">Secret Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">Secret Not Found</h2>
     <button @click="router.push({ name: 'NsSecrets', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Secrets</button>
   </div>
 

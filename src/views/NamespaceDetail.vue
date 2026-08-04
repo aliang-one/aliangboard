@@ -36,9 +36,9 @@ async function sync() {
         ]" />
         <div class="flex items-center gap-xs mt-xs">
           <span class="material-symbols-outlined text-base text-on-surface-variant">folder_open</span>
-          <span class="text-body-xs text-on-surface-variant uppercase tracking-wider">Namespace Explorer</span>
+          <span class="text-xs text-on-surface-variant uppercase tracking-wider">Namespace Explorer</span>
         </div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
         <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50">
@@ -57,19 +57,19 @@ async function sync() {
         <div class="p-md space-y-md">
           <div>
             <ProgressBar :value="62" show-label label="CPU Usage" />
-            <p class="font-mono text-code-xs text-on-surface-variant mt-1">7.4 / 12 Cores</p>
+            <p class="font-mono text-xs text-on-surface-variant mt-1">7.4 / 12 Cores</p>
           </div>
           <div>
             <ProgressBar :value="75" show-label label="Memory Usage" color="primary" />
-            <p class="font-mono text-code-xs text-on-surface-variant mt-1">24.1 / 32 GiB</p>
+            <p class="font-mono text-xs text-on-surface-variant mt-1">24.1 / 32 GiB</p>
           </div>
           <div class="grid grid-cols-2 gap-md pt-sm border-t border-outline-variant/40">
             <div>
-              <p class="text-on-surface-variant text-body-xs mb-xs">Pods</p>
+              <p class="text-on-surface-variant text-xs mb-xs">Pods</p>
               <p class="text-body-md font-semibold">{{ ns.pods }} / 50</p>
             </div>
             <div>
-              <p class="text-on-surface-variant text-body-xs mb-xs">Services</p>
+              <p class="text-on-surface-variant text-xs mb-xs">Services</p>
               <p class="text-body-md font-semibold">{{ ns.services }} / 20</p>
             </div>
           </div>
@@ -81,7 +81,7 @@ async function sync() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">grid_view</span>
           <span class="text-body-sm font-semibold">Workload Distribution</span>
-          <span class="ml-auto flex items-center gap-xs text-body-xs px-sm py-0.5 bg-primary/10 text-primary rounded">
+          <span class="ml-auto flex items-center gap-xs text-xs px-sm py-0.5 bg-primary/10 text-primary rounded">
             <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-status"></span> Healthy
           </span>
         </div>
@@ -96,7 +96,7 @@ async function sync() {
             class="p-sm rounded-lg border border-outline-variant bg-surface-container-low hover:border-primary transition-colors"
           >
             <div class="flex items-center justify-between mb-sm">
-              <span class="text-body-xs uppercase text-on-surface-variant">{{ group.name }}</span>
+              <span class="text-xs uppercase text-on-surface-variant">{{ group.name }}</span>
               <span class="material-symbols-outlined text-base">{{ group.icon }}</span>
             </div>
             <div class="grid grid-cols-3 gap-xs">
@@ -118,25 +118,25 @@ async function sync() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
           <span class="text-body-sm font-semibold">Workloads</span>
-          <span class="text-body-xs text-on-surface-variant ml-auto">{{ nsWorkloads.length }}</span>
+          <span class="text-xs text-on-surface-variant ml-auto">{{ nsWorkloads.length }}</span>
         </div>
         <table class="w-full text-left">
           <thead>
             <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Replicas</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
             <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/40 cursor-pointer" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })">
               <td class="px-md py-2 font-semibold text-on-surface text-body-sm">{{ w.name }}</td>
-              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ w.type }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ w.type }}</td>
               <td class="px-md py-2"><StatusChip :status="w.status" size="sm" /></td>
-              <td class="px-md py-2 font-mono text-code-xs">{{ w.replicas }}</td>
-              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ w.age }}</td>
+              <td class="px-md py-2 font-mono text-xs">{{ w.replicas }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ w.age }}</td>
             </tr>
           </tbody>
         </table>

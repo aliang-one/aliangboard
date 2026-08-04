@@ -80,7 +80,7 @@ function removeCluster(c) {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">集群管理</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">集群管理</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
           共 <span class="text-primary font-semibold">{{ store.clusterList.length }}</span> 个集群，当前为
           <span class="text-primary font-semibold">{{ store.currentCluster }}</span>
@@ -109,7 +109,7 @@ function removeCluster(c) {
           <span class="material-symbols-outlined text-base">close</span>
         </button>
       </div>
-      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.clusterList.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.clusterList.length }}</span>
     </div>
 
     <!-- 卡片网格 -->
@@ -129,7 +129,7 @@ function removeCluster(c) {
             </div>
             <div class="min-w-0">
               <h3 class="text-body-sm text-on-surface font-bold truncate">{{ c.name }}</h3>
-              <p class="text-body-xs text-on-surface-variant truncate">{{ c.version }}</p>
+              <p class="text-xs text-on-surface-variant truncate">{{ c.version }}</p>
             </div>
           </div>
           <StatusChip :status="mapStatus(c.status)" size="sm" />
@@ -139,16 +139,16 @@ function removeCluster(c) {
         <div class="flex flex-wrap items-center gap-xs">
           <span
             v-if="c.name === store.currentCluster"
-            class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-primary text-on-primary text-body-xs font-bold"
+            class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-primary text-on-primary text-xs font-bold"
           >
             <span class="material-symbols-outlined text-xs">check_circle</span>
             CURRENT
           </span>
-          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-body-xs font-medium">
+          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-xs font-medium">
             <span class="material-symbols-outlined text-xs">dns</span>
             {{ c.distribution || 'unknown' }}
           </span>
-          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-surface-container text-on-surface-variant text-body-xs font-medium">
+          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-surface-container text-on-surface-variant text-xs font-medium">
             <span class="material-symbols-outlined text-xs">account_tree</span>
             {{ c.context || '—' }}
           </span>
@@ -157,11 +157,11 @@ function removeCluster(c) {
         <!-- 指标 -->
         <div class="grid grid-cols-2 gap-sm">
           <div class="bg-surface-container-low rounded-lg px-sm py-xs">
-            <p class="text-body-xs text-on-surface-variant">NODES</p>
+            <p class="text-xs text-on-surface-variant">NODES</p>
             <p class="text-body-sm text-on-surface font-bold mt-0.5">{{ c.nodeCount ?? 0 }}</p>
           </div>
           <div class="bg-surface-container-low rounded-lg px-sm py-xs">
-            <p class="text-body-xs text-on-surface-variant">PODS</p>
+            <p class="text-xs text-on-surface-variant">PODS</p>
             <p class="text-body-sm text-on-surface font-bold mt-0.5">{{ c.podCount ?? 0 }}</p>
           </div>
         </div>
@@ -169,7 +169,7 @@ function removeCluster(c) {
         <!-- API Server -->
         <div class="flex items-center gap-sm bg-surface-container-low rounded-lg px-sm py-xs">
           <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0">link</span>
-          <span class="text-body-xs text-on-surface-variant truncate font-mono">{{ c.apiServer }}</span>
+          <span class="text-xs text-on-surface-variant truncate font-mono">{{ c.apiServer }}</span>
         </div>
 
         <!-- 操作区 -->

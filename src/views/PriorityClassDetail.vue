@@ -51,7 +51,7 @@ const activeTab = ref('overview')
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card max-w-2xl">
         <h3 class="text-headline-sm mb-lg">PriorityClass Details</h3>
         <div class="grid grid-cols-2 gap-md">
-          <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">VALUE</p><p class="font-mono text-code-md text-primary font-semibold">{{ pc.value }}</p></div>
+          <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">VALUE</p><p class="font-mono text-code-sm text-primary font-semibold">{{ pc.value }}</p></div>
           <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">GLOBAL DEFAULT</p><p class="text-body-md text-on-surface">{{ pc.globalDefault ? 'true' : 'false' }}</p></div>
           <div class="p-md rounded-lg bg-surface-container-low col-span-2"><p class="text-label-caps text-on-surface-variant mb-xs">DESCRIPTION</p><p class="text-body-md text-on-surface">{{ pc.description || '—' }}</p></div>
         </div>
@@ -64,7 +64,7 @@ const activeTab = ref('overview')
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">PriorityClass Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">PriorityClass Not Found</h2>
     <button @click="router.push('/priorityclasses')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to PriorityClasses</button>
   </section>
 </template>

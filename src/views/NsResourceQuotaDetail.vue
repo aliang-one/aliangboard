@@ -196,7 +196,7 @@ function getPercent(used, hard) {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">ResourceQuota Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">ResourceQuota Not Found</h2>
     <button @click="router.push({ name: 'NsResourceQuotas', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to ResourceQuotas</button>
   </div>
 

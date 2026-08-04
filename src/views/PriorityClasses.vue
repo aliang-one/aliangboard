@@ -143,7 +143,7 @@ function handleDelete() {
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
                   <span
-                    class="font-mono font-bold text-code-lg"
+                    class="font-mono font-bold text-code-sm"
                     :class="isSystem(row.name) ? 'text-error' : row.value >= 1000000 ? 'text-primary' : 'text-on-surface'"
                   >{{ row.value.toLocaleString() }}</span>
                   <span v-if="row.globalDefault" class="px-1.5 py-0.5 bg-primary-container/30 text-primary text-label-caps rounded font-semibold">DEFAULT</span>

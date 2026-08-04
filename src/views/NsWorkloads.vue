@@ -95,7 +95,7 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg font-bold text-on-surface">Workloads</h2>
+        <h2 class="text-headline-md font-bold text-on-surface">Workloads</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
@@ -147,13 +147,13 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Replicas</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Image</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-12"></th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Image</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-12"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -161,8 +161,8 @@ function handleDelete() {
             <td class="px-md py-2">
               <div class="flex flex-col">
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-                <span v-if="readMeta(row).title" class="text-body-xs text-primary">{{ readMeta(row).title }}</span>
-                <span class="font-mono text-code-xs text-on-surface-variant">{{ row.sha }}</span>
+                <span v-if="readMeta(row).title" class="text-xs text-primary">{{ readMeta(row).title }}</span>
+                <span class="font-mono text-xs text-on-surface-variant">{{ row.sha }}</span>
               </div>
             </td>
             <td class="px-md py-2">

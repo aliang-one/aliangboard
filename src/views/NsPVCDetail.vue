@@ -135,7 +135,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Capacity</p>
-              <p class="font-mono text-code-md text-primary font-semibold">{{ pvc.capacity }}</p>
+              <p class="font-mono text-code-sm text-primary font-semibold">{{ pvc.capacity }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Access Modes</p>
@@ -219,7 +219,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
           <div v-else>
             <div class="flex items-center justify-between mb-sm">
               <span class="font-mono text-code-sm text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined text-base text-on-surface-variant">description</span>{{ ffile.name }}</span>
-              <button @click="ffile = null" class="text-body-xs text-primary hover:underline">← 返回列表</button>
+              <button @click="ffile = null" class="text-xs text-primary hover:underline">← 返回列表</button>
             </div>
             <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">二进制文件，无法文本预览。</p>
             <pre v-else class="bg-[#0b1c30] text-surface-variant p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-on-surface-variant/60">
@@ -236,7 +236,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">PVC Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">PVC Not Found</h2>
     <button @click="router.push({ name: 'NsStorage', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Storage</button>
   </div>
 

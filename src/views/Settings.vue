@@ -63,7 +63,7 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Settings</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Settings</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Cluster configuration, component health, and display preferences.</p>
       </div>
     </div>
@@ -137,7 +137,7 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
           <!-- 演示模式提示 -->
           <div v-if="!store.remoteMode" class="mx-md mt-md mb-sm flex items-center gap-sm bg-tertiary-container/10 border border-tertiary/30 rounded-lg px-md py-sm">
             <span class="material-symbols-outlined text-tertiary-container text-base">info</span>
-            <span class="text-body-xs text-on-surface-variant">演示数据模式：以下为静态示例，连接真实集群后将显示实际组件健康。</span>
+            <span class="text-xs text-on-surface-variant">演示数据模式：以下为静态示例，连接真实集群后将显示实际组件健康。</span>
           </div>
 
           <!-- API Server 就绪探针 -->
@@ -146,11 +146,11 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
               <span class="material-symbols-outlined text-on-surface-variant text-sm">api</span>
               <span class="text-body-sm font-medium">API Server (/readyz)</span>
             </div>
-            <span v-if="apiReady === null" class="text-body-xs text-on-surface-variant">检测中…</span>
-            <span v-else-if="apiReady" class="flex items-center gap-sm text-primary font-medium text-body-xs">
+            <span v-if="apiReady === null" class="text-xs text-on-surface-variant">检测中…</span>
+            <span v-else-if="apiReady" class="flex items-center gap-sm text-primary font-medium text-xs">
               <span class="w-2 h-2 bg-primary rounded-full"></span> Ready
             </span>
-            <span v-else class="flex items-center gap-sm text-error font-medium text-body-xs">
+            <span v-else class="flex items-center gap-sm text-error font-medium text-xs">
               <span class="w-2 h-2 bg-error rounded-full"></span> Not Ready
             </span>
           </div>
@@ -168,9 +168,9 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
           <table v-else class="w-full text-left">
             <thead>
               <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Component</th>
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Message</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Component</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
@@ -179,7 +179,7 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
                 <td class="px-md py-2">
                   <span class="flex items-center gap-sm">
                     <span class="w-2 h-2 rounded-full" :class="c.status === 'Healthy' ? 'bg-primary' : 'bg-error'"></span>
-                    <span class="text-body-xs font-medium" :class="c.status === 'Healthy' ? 'text-primary' : 'text-error'">{{ c.status }}</span>
+                    <span class="text-xs font-medium" :class="c.status === 'Healthy' ? 'text-primary' : 'text-error'">{{ c.status }}</span>
                   </span>
                 </td>
                 <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ c.message || '—' }}</td>
@@ -225,21 +225,21 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
             <button @click="resetAll" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium text-on-surface-variant hover:bg-surface-container">Reset All</button>
           </div>
           <div class="p-md space-y-sm">
-            <p class="text-body-xs text-on-surface-variant">勾选要在各列表视图中显示的列，配置保存在浏览器本地并即时生效。</p>
+            <p class="text-xs text-on-surface-variant">勾选要在各列表视图中显示的列，配置保存在浏览器本地并即时生效。</p>
             <div v-for="t in catalog" :key="t.key" class="border border-outline-variant/60 rounded-lg p-md">
               <div class="flex items-center justify-between mb-sm">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-primary text-sm">{{ t.icon }}</span>
                   <span class="text-body-sm font-semibold">{{ t.label }}</span>
                 </div>
-                <button @click="resetTable(t.key)" class="text-body-xs text-on-surface-variant hover:text-primary">Reset</button>
+                <button @click="resetTable(t.key)" class="text-xs text-on-surface-variant hover:text-primary">Reset</button>
               </div>
               <div class="flex flex-wrap gap-xs">
                 <label v-for="col in t.columns" :key="col.key"
                   class="flex items-center gap-xs px-md py-xs rounded-lg border cursor-pointer transition-colors"
                   :class="isHidden(t.key, col.key) ? 'border-outline-variant text-on-surface-variant bg-surface-container-low' : 'border-primary/40 text-primary bg-primary-container/10'">
                   <input type="checkbox" :checked="!isHidden(t.key, col.key)" @change="toggle(t.key, col.key)" class="accent-[var(--md-sys-color-primary)]" />
-                  <span class="text-body-xs">{{ col.label }}</span>
+                  <span class="text-xs">{{ col.label }}</span>
                 </label>
               </div>
             </div>

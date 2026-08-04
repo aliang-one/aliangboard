@@ -232,14 +232,16 @@ export function k8sStream(path, { onMessage, onError, onClose } = {}) {
       if (buffer.trim()) onMessage?.(buffer)
       onClose?.()
     } catch (e) {
-      if (!aborted) onError?.(e)
+      // 主动 abort 是正常停止；AbortError 静默（避免 unhandled rejection 噪音）
+      if (aborted || e?.name === 'AbortError') return
+      onError?.(e)
     }
   })()
   return {
     abort: () => {
       aborted = true
       try { controller.abort() } catch { /* noop */ }
-      try { reader?.cancel() } catch { /* noop */ }
+      try { reader?.cancel?.().catch(() => {}) } catch { /* noop */ }
     },
   }
 }

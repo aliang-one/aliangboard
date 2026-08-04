@@ -110,7 +110,7 @@ function goToWorkload(wl) {
                 <span class="material-symbols-outlined text-lg">{{ meta.icon }}</span>
                 <div>
                   <p class="text-body-sm font-semibold">{{ meta.label }}</p>
-                  <p class="text-body-xs opacity-70">{{ meta.desc }}</p>
+                  <p class="text-xs opacity-70">{{ meta.desc }}</p>
                 </div>
               </div>
               <span class="text-body-lg font-bold">{{ refTypeStats[type] || 0 }}</span>

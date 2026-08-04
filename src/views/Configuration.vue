@@ -132,7 +132,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Configuration</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Configuration</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Manage ConfigMaps, Secrets, ResourceQuotas, and auto-scaling configurations.</p>
       </div>
       <button @click="createNew" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 transition-opacity">

@@ -139,7 +139,7 @@ async function handleDelete() {
               <span class="text-label-caps text-on-surface-variant">Current Healthy</span>
               <span class="text-display-lg font-bold" :class="isHealthy ? 'text-on-surface' : 'text-error'">{{ pdb.currentHealthy }}</span>
             </div>
-            <span class="text-on-surface-variant text-display-md pb-xs">/</span>
+            <span class="text-on-surface-variant text-display-lg pb-xs">/</span>
             <div class="flex flex-col">
               <span class="text-label-caps text-on-surface-variant">Desired Healthy</span>
               <span class="text-display-lg font-bold text-on-surface-variant">{{ pdb.desiredHealthy }}</span>
@@ -209,7 +209,7 @@ async function handleDelete() {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">PodDisruptionBudget Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">PodDisruptionBudget Not Found</h2>
     <button @click="router.push({ name: 'NsPDBs', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to PodDisruptionBudgets</button>
   </div>
 

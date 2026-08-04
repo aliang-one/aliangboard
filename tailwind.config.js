@@ -65,8 +65,9 @@ export default {
         'status-unknown': '#6b7280',
       },
       fontFamily: {
-        'sans': ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        'mono': ['JetBrains Mono', 'Fira Code', 'monospace'],
+        // Latin 优先 Inter；中文回落到 PingFang SC(Mac)/Microsoft YaHei(Win)/思源(Noto CJK)，跨平台一致
+        'sans': ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Source Han Sans CN', 'Noto Sans CJK SC', 'sans-serif'],
+        'mono': ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Consolas', 'monospace'],
       },
       fontSize: {
         'display-lg': ['32px', { lineHeight: '40px', letterSpacing: '-0.02em', fontWeight: '700' }],

@@ -98,7 +98,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'pvc'">
       <div class="flex justify-between items-end mb-md">
         <div>
-          <h2 class="text-headline-lg font-bold text-on-surface">Persistent Volume Claims</h2>
+          <h2 class="text-headline-md font-bold text-on-surface">Persistent Volume Claims</h2>
           <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPVCs.length }} PVCs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
         </div>
         <button @click="showCreatePVC = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
@@ -134,14 +134,14 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Capacity</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Access</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">StorageClass</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Volume</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Capacity</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Access</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">StorageClass</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Volume</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
@@ -188,7 +188,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'storageclass'">
       <div class="flex justify-between items-end mb-md">
         <div>
-          <h2 class="text-headline-lg font-bold text-on-surface">StorageClasses</h2>
+          <h2 class="text-headline-md font-bold text-on-surface">StorageClasses</h2>
           <p class="text-body-sm text-on-surface-variant mt-1">Cluster-wide storage class definitions</p>
         </div>
       </div>
@@ -196,12 +196,12 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Provisioner</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Parameters</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Reclaim Policy</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Default</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Provisioner</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Parameters</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reclaim Policy</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">

@@ -14,7 +14,7 @@ const timeRange = ref('24h')
   <div class="animate-fade-in">
     <!-- Page Header -->
     <div class="flex flex-col gap-sm mb-md">
-      <h1 class="text-headline-lg text-on-surface font-bold">Cluster Overview</h1>
+      <h1 class="text-headline-md text-on-surface font-bold">Cluster Overview</h1>
       <p class="text-body-sm text-on-surface-variant mt-xs">Real-time performance metrics and operational health for {{ store.cluster.name }}.</p>
     </div>
 
@@ -23,7 +23,7 @@ const timeRange = ref('24h')
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL NODES</p>
-          <h3 class="text-headline-lg text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
+          <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
           <p class="text-body-sm text-primary flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">check_circle</span> {{ store.healthyNodes }}/{{ store.totalNodes }} Operational
           </p>
@@ -34,7 +34,7 @@ const timeRange = ref('24h')
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL PODS</p>
-          <h3 class="text-headline-lg text-primary font-bold">{{ store.cluster.podCount }}</h3>
+          <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.podCount }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">cached</span> Running smoothly
           </p>
@@ -45,7 +45,7 @@ const timeRange = ref('24h')
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">ACTIVE EVENTS</p>
-          <h3 class="text-headline-lg text-tertiary font-bold">{{ store.cluster.activeEvents }}</h3>
+          <h3 class="text-headline-md text-tertiary font-bold">{{ store.cluster.activeEvents }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">info</span> Last 60 minutes
           </p>
@@ -65,7 +65,7 @@ const timeRange = ref('24h')
               <span class="text-body-sm font-semibold">Resource Usage</span>
             </div>
             <div class="flex items-center gap-sm">
-              <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-body-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" title="集群未安装 metrics-server 或当前凭证无 metrics 读取权限">
+              <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" title="集群未安装 metrics-server 或当前凭证无 metrics 读取权限">
                 <span class="material-symbols-outlined text-sm">sensors_off</span> 指标不可用
               </span>
               <div class="flex gap-xs">
@@ -167,7 +167,7 @@ const timeRange = ref('24h')
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">notifications</span>
             <span class="text-body-sm font-semibold">Recent Events</span>
-            <span class="text-body-xs text-on-surface-variant ml-auto">{{ store.eventList.length }}</span>
+            <span class="text-xs text-on-surface-variant ml-auto">{{ store.eventList.length }}</span>
           </div>
           <div class="flex flex-col gap-sm p-md">
             <div
@@ -191,9 +191,9 @@ const timeRange = ref('24h')
               <div class="flex-1 min-w-0">
                 <div class="flex justify-between items-start mb-xs">
                   <h4 class="text-body-sm font-semibold text-on-surface truncate">{{ event.reason }}</h4>
-                  <span class="font-mono text-code-xs text-on-surface-variant whitespace-nowrap ml-sm">{{ event.time }}</span>
+                  <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap ml-sm">{{ event.time }}</span>
                 </div>
-                <p class="text-body-xs text-on-surface-variant">{{ event.message }}</p>
+                <p class="text-xs text-on-surface-variant">{{ event.message }}</p>
               </div>
             </div>
           </div>

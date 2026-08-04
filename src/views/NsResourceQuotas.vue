@@ -100,7 +100,7 @@ function getPercent(used, hard) {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">ResourceQuotas</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">ResourceQuotas</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsResourceQuotas.length }} ResourceQuotas in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -112,12 +112,12 @@ function getPercent(used, hard) {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Memory</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Pods</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Memory</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Pods</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -130,7 +130,7 @@ function getPercent(used, hard) {
             </td>
             <td class="px-md py-2">
               <div class="flex flex-col gap-xs min-w-[120px]">
-                <div class="flex justify-between text-body-xs">
+                <div class="flex justify-between text-xs">
                   <span class="text-on-surface-variant">{{ row.used?.['limits.cpu'] || '0' }} / {{ row.hard?.['limits.cpu'] || '-' }}</span>
                   <span class="font-medium" :class="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) > 80 ? 'text-error' : 'text-primary'">
                     {{ getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) }}%
@@ -141,7 +141,7 @@ function getPercent(used, hard) {
             </td>
             <td class="px-md py-2">
               <div class="flex flex-col gap-xs min-w-[120px]">
-                <div class="flex justify-between text-body-xs">
+                <div class="flex justify-between text-xs">
                   <span class="text-on-surface-variant">{{ row.used?.['limits.memory'] || '0' }} / {{ row.hard?.['limits.memory'] || '-' }}</span>
                   <span class="font-medium" :class="getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) > 80 ? 'text-error' : 'text-primary'">
                     {{ getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) }}%
@@ -152,7 +152,7 @@ function getPercent(used, hard) {
             </td>
             <td class="px-md py-2">
               <div class="flex flex-col gap-xs min-w-[100px]">
-                <div class="flex justify-between text-body-xs">
+                <div class="flex justify-between text-xs">
                   <span class="text-on-surface-variant">{{ row.used?.pods || '0' }} / {{ row.hard?.pods || '-' }}</span>
                   <span class="font-medium" :class="getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) > 80 ? 'text-error' : 'text-primary'">
                     {{ getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) }}%

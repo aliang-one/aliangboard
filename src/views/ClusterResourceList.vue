@@ -178,7 +178,7 @@ const ageOf = ts => {
     <Breadcrumbs :items="[{ label: cfg.title }]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">{{ cfg.title }}</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ cfg.title }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ items.length }} 项 · {{ namespaced ? '命名空间级' : '集群级' }}资源（实时读取）</p>
       </div>
       <button
@@ -193,12 +193,12 @@ const ageOf = ts => {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th v-if="namespaced" class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Namespace</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Detail</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Detail</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -211,12 +211,12 @@ const ageOf = ts => {
                 </div>
               </td>
               <td v-if="namespaced" class="px-md py-2">
-                <span v-if="it.metadata.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ it.metadata.namespace }}</span>
-                <span v-else class="text-on-surface-variant text-body-xs">-</span>
+                <span v-if="it.metadata.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ it.metadata.namespace }}</span>
+                <span v-else class="text-on-surface-variant text-xs">-</span>
               </td>
               <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ cfg.summary(it) }}</td>
               <td class="px-md py-2"><StatusChip :status="cfg.status(it)" size="sm" /></td>
-              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
               <td class="px-md py-2" @click.stop>
                 <div class="flex gap-1">
                   <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看 / 编辑 YAML">

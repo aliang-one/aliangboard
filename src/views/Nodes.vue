@@ -40,7 +40,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Nodes</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Nodes</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">Monitor and manage cluster nodes. {{ store.healthyNodes }} of {{ store.totalNodes }} healthy.</p>
       </div>
       <div class="flex gap-sm">
@@ -77,7 +77,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
         <StatusChip :status="row.status === 'Ready' ? 'Ready' : 'NotReady'" />
       </template>
       <template #roles="{ row }">
-        <span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ row.roles }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.roles }}</span>
       </template>
       <template #cpu="{ row }">
         <div class="w-24">
