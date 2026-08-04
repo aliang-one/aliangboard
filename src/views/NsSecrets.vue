@@ -156,7 +156,7 @@ function handleBatchDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">Secrets</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">Secrets</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsSecrets.length }} secrets in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -168,7 +168,7 @@ function handleBatchDelete() {
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="flex flex-wrap gap-xs">
         <button v-for="opt in typeOptions" :key="opt" @click="typeFilter = opt"
-          class="px-md py-xs rounded-full text-body-xs font-medium border transition-all"
+          class="px-md py-xs rounded-full text-xs font-medium border transition-all"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
           {{ opt }}
         </button>
@@ -180,13 +180,13 @@ function handleBatchDelete() {
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsSecrets.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsSecrets.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-body-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
-        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-body-xs font-semibold hover:opacity-90">
+        <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-sm">delete</span>批量删除
         </button>
-        <button @click="selected = new Set()" class="text-body-xs text-on-surface-variant hover:text-on-surface">取消</button>
+        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
       </div>
     </div>
 
@@ -197,12 +197,12 @@ function handleBatchDelete() {
             <th class="px-md py-2 w-10">
               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Keys</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Data Preview</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Keys</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Data Preview</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -217,13 +217,13 @@ function handleBatchDelete() {
               </div>
             </td>
             <td class="px-md py-2">
-              <span class="px-2 py-0.5 rounded text-body-xs border" :class="typeColor(row.type)">{{ row.type }}</span>
+              <span class="px-2 py-0.5 rounded text-xs border" :class="typeColor(row.type)">{{ row.type }}</span>
             </td>
-            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-body-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
+            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
             <td class="px-md py-2">
               <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="k in Object.keys(row.data || {}).slice(0, 3)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-body-xs text-on-surface-variant rounded border border-outline-variant">{{ k }}</span>
-                <span v-if="Object.keys(row.data || {}).length > 3" class="text-body-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 3 }}</span>
+                <span v-for="k in Object.keys(row.data || {}).slice(0, 3)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-xs text-on-surface-variant rounded border border-outline-variant">{{ k }}</span>
+                <span v-if="Object.keys(row.data || {}).length > 3" class="text-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 3 }}</span>
               </div>
             </td>
             <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
@@ -297,7 +297,7 @@ function handleBatchDelete() {
           <label class="text-label-caps text-on-surface-variant block mb-xs">密码 (password)</label>
           <input v-model="createForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="••••••" />
         </div>
-        <p class="text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 username / password 两个键</p>
+        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 username / password 两个键</p>
       </div>
 
       <!-- dockerconfigjson -->
@@ -320,7 +320,7 @@ function handleBatchDelete() {
           <label class="text-label-caps text-on-surface-variant block mb-xs">邮箱（可选）</label>
           <input v-model="createForm.registryEmail" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="user@example.com" />
         </div>
-        <p class="text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 .dockerconfigjson（含 base64 认证）</p>
+        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 .dockerconfigjson（含 base64 认证）</p>
       </div>
 
       <!-- tls -->

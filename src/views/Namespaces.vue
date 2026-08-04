@@ -113,9 +113,9 @@ function submitDelete() {
         <div>
           <div class="flex items-center gap-xs text-on-surface-variant mb-xs">
             <span class="material-symbols-outlined text-base">folder_open</span>
-            <span class="text-body-xs uppercase tracking-wider">Namespace Explorer</span>
+            <span class="text-xs uppercase tracking-wider">Namespace Explorer</span>
           </div>
-          <h2 class="text-headline-lg text-on-surface font-bold">Namespaces</h2>
+          <h2 class="text-headline-md text-on-surface font-bold">Namespaces</h2>
           <p class="text-on-surface-variant text-body-sm mt-xs">Browse and manage Kubernetes namespaces.</p>
         </div>
         <div class="flex gap-sm">

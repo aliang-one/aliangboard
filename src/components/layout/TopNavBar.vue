@@ -120,7 +120,7 @@ async function logout() {
           <button v-for="(it, i) in searchResults" :key="i" @click="goResult(it)" class="flex items-center gap-sm w-full px-md py-sm hover:bg-surface-container-low text-left transition-colors border-b border-outline-variant/30 last:border-0">
             <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ ICON_FOR[it.kind] || 'circle' }}</span>
             <span class="font-mono text-code-sm text-on-surface truncate">{{ it.name }}</span>
-            <span class="ml-auto text-body-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
+            <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
           </button>
         </div>
       </div>
@@ -136,7 +136,7 @@ async function logout() {
         >
           <span class="material-symbols-outlined text-lg">hub</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[180px]">
-            <span class="text-body-xs text-on-surface-variant opacity-70">CLUSTER</span>
+            <span class="text-xs text-on-surface-variant opacity-70">CLUSTER</span>
             <span class="text-body-sm font-semibold truncate">{{ currentClusterObj?.name || '—' }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
@@ -172,11 +172,11 @@ async function logout() {
                 <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.status)"></span>
                 <div class="min-w-0">
                   <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
-                  <p class="text-body-xs text-on-surface-variant">{{ c.version }} · {{ c.distribution }}</p>
+                  <p class="text-xs text-on-surface-variant">{{ c.version }} · {{ c.distribution }}</p>
                 </div>
               </div>
               <div class="flex items-center gap-xs shrink-0">
-                <span v-if="c.name === store.currentCluster" class="text-body-xs font-bold text-primary px-sm py-0.5 rounded-full bg-primary-container/30">CURRENT</span>
+                <span v-if="c.name === store.currentCluster" class="text-xs font-bold text-primary px-sm py-0.5 rounded-full bg-primary-container/30">CURRENT</span>
                 <span class="material-symbols-outlined text-base text-on-surface-variant opacity-40">chevron_right</span>
               </div>
             </div>
@@ -197,7 +197,7 @@ async function logout() {
         >
           <span class="material-symbols-outlined text-lg">folder_open</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[160px]">
-            <span class="text-body-xs text-on-surface-variant opacity-70">NAMESPACE</span>
+            <span class="text-xs text-on-surface-variant opacity-70">NAMESPACE</span>
             <span class="text-body-sm font-semibold truncate">{{ currentNs || '未选择' }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
@@ -222,7 +222,7 @@ async function logout() {
               :class="currentNs === ns.name ? 'bg-primary-container/20 text-primary' : 'text-on-surface'"
             >
               <span class="text-body-md font-medium truncate">{{ ns.name }}</span>
-              <span class="text-body-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} pods</span>
+              <span class="text-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} pods</span>
             </div>
             <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">无匹配命名空间</p>
           </div>

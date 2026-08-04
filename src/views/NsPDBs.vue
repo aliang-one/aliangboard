@@ -98,7 +98,7 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">中断预算 (PDBs)</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">中断预算 (PDBs)</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
           {{ store.nsPDBs.length }} 个 PodDisruptionBudget · 保证自愿驱逐时最小可用副本数
         </p>
@@ -117,20 +117,20 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsPDBs.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsPDBs.length }}</span>
     </div>
 
     <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Selector</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Budget</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Allowed Disruptions</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Healthy</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Selector</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Budget</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Allowed Disruptions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Healthy</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -143,32 +143,32 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
             </td>
             <td class="px-md py-2">
               <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-body-xs text-on-surface-variant rounded border border-outline-variant font-mono">
+                <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-xs text-on-surface-variant rounded border border-outline-variant font-mono">
                   {{ k }}={{ v }}
                 </span>
               </div>
             </td>
             <td class="px-md py-2">
               <div class="flex flex-col">
-                <span v-if="row.minAvailable" class="text-body-xs text-on-surface font-mono">
+                <span v-if="row.minAvailable" class="text-xs text-on-surface font-mono">
                   <span class="text-on-surface-variant">minAvailable:</span> {{ row.minAvailable }}
                 </span>
-                <span v-else-if="row.maxUnavailable" class="text-body-xs text-on-surface font-mono">
+                <span v-else-if="row.maxUnavailable" class="text-xs text-on-surface font-mono">
                   <span class="text-on-surface-variant">maxUnavailable:</span> {{ row.maxUnavailable }}
                 </span>
-                <span v-else class="text-body-xs text-on-surface-variant">—</span>
+                <span v-else class="text-xs text-on-surface-variant">—</span>
               </div>
             </td>
             <td class="px-md py-2">
-              <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-body-xs font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
+              <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
                 {{ row.allowedDisruptions }}
               </span>
             </td>
             <td class="px-md py-2">
               <div class="flex items-center gap-xs">
-                <span class="text-body-xs font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
-                <span class="text-on-surface-variant text-body-xs">/</span>
-                <span class="text-body-xs font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
+                <span class="text-xs font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
+                <span class="text-on-surface-variant text-xs">/</span>
+                <span class="text-xs font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
                 <span v-if="!isHealthy(row)" class="material-symbols-outlined text-error text-sm" title="不健康">warning</span>
               </div>
             </td>

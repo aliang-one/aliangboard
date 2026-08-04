@@ -73,7 +73,7 @@ function hpaStatus(status) {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">HorizontalPodAutoscalers</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">HorizontalPodAutoscalers</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -85,15 +85,15 @@ function hpaStatus(status) {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Target</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Min/Max Replicas</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Current Replicas</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU Target</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU Current</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Target</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Min/Max Replicas</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Current Replicas</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU Target</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU Current</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -107,11 +107,11 @@ function hpaStatus(status) {
             <td class="px-md py-2">
               <div class="flex flex-col">
                 <span class="text-body-sm font-medium text-on-surface">{{ row.targetName }}</span>
-                <span class="text-body-xs text-on-surface-variant">{{ row.targetKind }}</span>
+                <span class="text-xs text-on-surface-variant">{{ row.targetKind }}</span>
               </div>
             </td>
             <td class="px-md py-2">
-              <span class="font-mono text-body-xs">
+              <span class="font-mono text-xs">
                 <span class="text-on-surface font-semibold">{{ row.minReplicas }}</span>
                 <span class="text-on-surface-variant mx-xs">/</span>
                 <span class="text-on-surface font-semibold">{{ row.maxReplicas }}</span>
@@ -122,14 +122,14 @@ function hpaStatus(status) {
                 <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all duration-500" :class="row.currentReplicas >= row.maxReplicas ? 'bg-error' : row.currentReplicas > row.minReplicas ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: (row.maxReplicas ? Math.round((row.currentReplicas / row.maxReplicas) * 100) : 0) + '%' }"></div>
                 </div>
-                <span class="font-mono text-body-xs font-bold text-primary">{{ row.currentReplicas }}</span>
+                <span class="font-mono text-xs font-bold text-primary">{{ row.currentReplicas }}</span>
               </div>
             </td>
             <td class="px-md py-2">
-              <span class="font-mono text-body-xs text-on-surface-variant">{{ row.cpuTarget }}%</span>
+              <span class="font-mono text-xs text-on-surface-variant">{{ row.cpuTarget }}%</span>
             </td>
             <td class="px-md py-2">
-              <span class="font-mono text-body-xs" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
+              <span class="font-mono text-xs" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
             </td>
             <td class="px-md py-2">
               <StatusChip :status="row.status" size="sm" />

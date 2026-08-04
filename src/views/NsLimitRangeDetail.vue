@@ -184,7 +184,7 @@ const limitSections = computed(() => {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">LimitRange Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">LimitRange Not Found</h2>
     <button @click="router.push({ name: 'NsLimitRanges', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to LimitRanges</button>
   </div>
 
@@ -195,11 +195,11 @@ const limitSections = computed(() => {
         <label class="text-label-caps text-on-surface-variant block mb-xs">Default Limits</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">CPU</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
             <input v-model="editForm.defaultCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
             <input v-model="editForm.defaultMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -208,11 +208,11 @@ const limitSections = computed(() => {
         <label class="text-label-caps text-on-surface-variant block mb-xs">Default Requests</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">CPU</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
             <input v-model="editForm.defaultRequestCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
             <input v-model="editForm.defaultRequestMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -221,11 +221,11 @@ const limitSections = computed(() => {
         <label class="text-label-caps text-on-surface-variant block mb-xs">Max Limits</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">CPU</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
             <input v-model="editForm.maxCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
             <input v-model="editForm.maxMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -234,11 +234,11 @@ const limitSections = computed(() => {
         <label class="text-label-caps text-on-surface-variant block mb-xs">Min Limits</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">CPU</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
             <input v-model="editForm.minCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-body-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
             <input v-model="editForm.minMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>

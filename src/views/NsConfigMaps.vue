@@ -98,7 +98,7 @@ function handleBatchDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">ConfigMaps</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">ConfigMaps</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -115,13 +115,13 @@ function handleBatchDelete() {
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsConfigMaps.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsConfigMaps.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-body-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
-        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-body-xs font-semibold hover:opacity-90">
+        <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-sm">delete</span>批量删除
         </button>
-        <button @click="selected = new Set()" class="text-body-xs text-on-surface-variant hover:text-on-surface">取消</button>
+        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
       </div>
     </div>
 
@@ -132,11 +132,11 @@ function handleBatchDelete() {
             <th class="px-md py-2 w-10">
               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Data Keys</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Preview</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Data Keys</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Preview</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -150,11 +150,11 @@ function handleBatchDelete() {
                 <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-body-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
+            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
             <td class="px-md py-2">
               <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-body-xs rounded">{{ k }}</span>
-                <span v-if="Object.keys(row.data || {}).length > 4" class="text-body-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
+                <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ k }}</span>
+                <span v-if="Object.keys(row.data || {}).length > 4" class="text-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
               </div>
             </td>
             <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>

@@ -84,7 +84,7 @@ function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">LimitRanges</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">LimitRanges</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsLimitRanges.length }} LimitRanges in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -96,13 +96,13 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Default CPU</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Default Memory</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Max CPU</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Max Memory</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default CPU</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default Memory</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Max CPU</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Max Memory</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -114,22 +114,22 @@ function handleDelete() {
               </div>
             </td>
             <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-xs font-mono rounded">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
                 {{ row.defaultCPU }}
               </span>
             </td>
             <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-body-xs font-mono rounded">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
                 {{ row.defaultMemory }}
               </span>
             </td>
             <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-xs font-mono rounded">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
                 {{ row.maxCPU }}
               </span>
             </td>
             <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-body-xs font-mono rounded">
+              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
                 {{ row.maxMemory }}
               </span>
             </td>

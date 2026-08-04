@@ -104,7 +104,7 @@ function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">NetworkPolicies</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">NetworkPolicies</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsNetworkPolicies.length }} network policies in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -123,7 +123,7 @@ function handleDelete() {
         class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors"
         :class="activeFilter === tab.key ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab.label }}
-        <span class="ml-1 text-body-xs px-1.5 py-0.5 rounded-full" :class="activeFilter === tab.key ? 'bg-primary-container/20 text-primary' : 'bg-surface-container text-on-surface-variant'">
+        <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" :class="activeFilter === tab.key ? 'bg-primary-container/20 text-primary' : 'bg-surface-container text-on-surface-variant'">
           {{ tab.key === 'all' ? store.nsNetworkPolicies.length : filteredPolicies.length }}
         </span>
       </button>
@@ -134,13 +134,13 @@ function handleDelete() {
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Pod Selector</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Policy Types</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Ingress Rules</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Egress Rules</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Pod Selector</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Policy Types</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Ingress Rules</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Egress Rules</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
@@ -152,14 +152,14 @@ function handleDelete() {
                 </div>
               </td>
               <td class="px-md py-2">
-                <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-body-xs rounded-full">All Pods</span>
+                <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-xs rounded-full">All Pods</span>
                 <div v-else class="flex flex-wrap gap-xs max-w-xs">
-                  <span v-for="(val, key) in row.podSelector" :key="key" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-body-xs rounded">{{ key }}={{ val }}</span>
+                  <span v-for="(val, key) in row.podSelector" :key="key" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ key }}={{ val }}</span>
                 </div>
               </td>
               <td class="px-md py-2">
                 <div class="flex gap-xs">
-                  <span v-for="pt in row.policyTypes" :key="pt" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-body-xs font-medium"
+                  <span v-for="pt in row.policyTypes" :key="pt" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
                     :class="pt === 'Ingress' ? 'bg-primary-container/10 text-primary border border-primary/20' : 'bg-tertiary-container/10 text-tertiary border border-tertiary/20'">
                     <span class="material-symbols-outlined text-xs">{{ pt === 'Ingress' ? 'arrow_downward' : 'arrow_upward' }}</span>
                     {{ pt }}
@@ -167,13 +167,13 @@ function handleDelete() {
                 </div>
               </td>
               <td class="px-md py-2">
-                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-body-xs font-bold border border-outline-variant"
+                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
                   :class="ruleCount(row.ingressRules) > 0 ? 'bg-primary-container/10 text-primary' : 'bg-surface-container text-on-surface-variant'">
                   {{ ruleCount(row.ingressRules) }}
                 </span>
               </td>
               <td class="px-md py-2">
-                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-body-xs font-bold border border-outline-variant"
+                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
                   :class="ruleCount(row.egressRules) > 0 ? 'bg-tertiary-container/10 text-tertiary' : 'bg-surface-container text-on-surface-variant'">
                   {{ ruleCount(row.egressRules) }}
                 </span>

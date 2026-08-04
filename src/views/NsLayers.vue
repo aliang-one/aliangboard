@@ -72,7 +72,7 @@ async function applyLayer(key) {
 
     <div class="flex justify-between items-end mt-sm mb-sm">
       <div>
-        <h2 class="text-headline-lg text-on-surface font-bold">应用分层</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">应用分层</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
           命名空间 <span class="text-primary font-medium">{{ route.params.namespace }}</span> 的应用按分层体系归类，共
           <span class="text-primary font-semibold">{{ items.length }}</span> 个资源，已识别
@@ -84,9 +84,9 @@ async function applyLayer(key) {
     <!-- 归类说明 -->
     <div class="flex items-start gap-sm mb-md p-md rounded-lg bg-surface-container-low border border-outline-variant">
       <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0 mt-0.5">info</span>
-      <p class="text-body-xs text-on-surface-variant">
-        默认按名称/镜像启发式归类；要精确控制，可给资源打 label <code class="font-mono text-code-xs bg-surface-container px-1 rounded">layer.aliangboard.io</code>
-        （值如 <code class="font-mono text-code-xs bg-surface-container px-1 rounded">gateway</code>、<code class="font-mono text-code-xs bg-surface-container px-1 rounded">middleware</code>、<code class="font-mono text-code-xs bg-surface-container px-1 rounded">microservice-business</code>、<code class="font-mono text-code-xs bg-surface-container px-1 rounded">microservice-support</code>、<code class="font-mono text-code-xs bg-surface-container px-1 rounded">microservice-misc</code> 等）。
+      <p class="text-xs text-on-surface-variant">
+        默认按名称/镜像启发式归类；要精确控制，可给资源打 label <code class="font-mono text-xs bg-surface-container px-1 rounded">layer.aliangboard.io</code>
+        （值如 <code class="font-mono text-xs bg-surface-container px-1 rounded">gateway</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">middleware</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-business</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-support</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-misc</code> 等）。
       </p>
     </div>
 
@@ -98,7 +98,7 @@ async function applyLayer(key) {
           <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
             <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
             <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
-            <span class="text-body-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
+            <span class="text-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs">
             <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
@@ -115,7 +115,7 @@ async function applyLayer(key) {
       <div v-else class="hidden xl:flex">
         <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
           <span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span>
-          <p class="text-body-xs text-on-surface-variant mt-xs">监控层<br>（暂无）</p>
+          <p class="text-xs text-on-surface-variant mt-xs">监控层<br>（暂无）</p>
         </div>
       </div>
 
@@ -126,8 +126,8 @@ async function applyLayer(key) {
           <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40 bg-surface-container-low/40">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span></div>
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-xs"><h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3><span class="px-1.5 py-0.5 rounded bg-primary-container/15 text-primary text-body-xs font-semibold">{{ g.count }}</span></div>
-              <p class="text-body-xs text-on-surface-variant truncate">{{ g.desc }}</p>
+              <div class="flex items-center gap-xs"><h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3><span class="px-1.5 py-0.5 rounded bg-primary-container/15 text-primary text-xs font-semibold">{{ g.count }}</span></div>
+              <p class="text-xs text-on-surface-variant truncate">{{ g.desc }}</p>
             </div>
           </div>
           <!-- 微服务子层 -->
@@ -135,15 +135,15 @@ async function applyLayer(key) {
             <div v-for="sub in g.children" :key="sub.key" class="px-md py-2">
               <div class="flex items-center gap-xs mb-xs">
                 <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ sub.icon }}</span>
-                <h4 class="text-body-xs font-semibold text-on-surface">{{ sub.label }}</h4>
-                <span class="text-body-xs text-on-surface-variant">{{ sub.items.length }}</span>
+                <h4 class="text-xs font-semibold text-on-surface">{{ sub.label }}</h4>
+                <span class="text-xs text-on-surface-variant">{{ sub.items.length }}</span>
               </div>
               <div class="flex flex-wrap gap-xs">
                 <div v-for="it in sub.items" :key="it._kind + it.name" class="relative group/chip">
                   <button @click="goTo(it)" class="group flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/5 transition-all">
                     <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                     <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
-                    <span class="text-body-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
+                    <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   </button>
                   <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
                 </div>
@@ -157,7 +157,7 @@ async function applyLayer(key) {
                 <button @click="goTo(it)" class="group flex items-center gap-xs px-sm py-xs rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary-container/5 transition-all">
                   <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                   <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
-                  <span class="text-body-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
+                  <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   <StatusChip v-if="it.status" :status="it.status" size="sm" />
                 </button>
                 <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
@@ -173,7 +173,7 @@ async function applyLayer(key) {
           <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
             <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
             <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
-            <span class="text-body-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
+            <span class="text-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs">
             <div v-for="it in g.items" :key="it._kind + it.name" class="relative group/chip">
@@ -190,7 +190,7 @@ async function applyLayer(key) {
       <div v-else class="hidden xl:flex">
         <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
           <span class="material-symbols-outlined text-2xl text-surface-container-high">sync_alt</span>
-          <p class="text-body-xs text-on-surface-variant mt-xs">中间件<br>（暂无）</p>
+          <p class="text-xs text-on-surface-variant mt-xs">中间件<br>（暂无）</p>
         </div>
       </div>
     </div>
@@ -209,7 +209,7 @@ async function applyLayer(key) {
       <div class="flex flex-wrap gap-sm p-md border-t border-outline-variant/50">
         <div v-for="n in LAYER_TAXONOMY" :key="n.key" class="flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded-lg">
           <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ n.icon }}</span>
-          <span class="text-body-xs font-medium text-on-surface">{{ n.label }}</span>
+          <span class="text-xs font-medium text-on-surface">{{ n.label }}</span>
         </div>
       </div>
     </details>

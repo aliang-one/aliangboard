@@ -57,7 +57,7 @@ function go(node) {
         <span v-else class="font-mono text-code-sm">
           <span class="text-on-surface-variant">{{ node.kind }}/</span><span class="text-primary font-semibold">{{ node.name }}</span>
         </span>
-        <span v-if="node.error" class="block text-body-xs text-error">{{ node.error }}</span>
+        <span v-if="node.error" class="block text-xs text-error">{{ node.error }}</span>
       </li>
     </ol>
   </div>

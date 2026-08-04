@@ -37,9 +37,19 @@
   border-radius: 10px;
 }
 
-/* Base */
+/* Base —— 全局字体基线：显式 font-family 让所有元素继承（不依赖工具类），
+   Latin 走 Inter、中文回落各平台系统字体保持一致；开启 Inter 备选字形 + 字体平滑 */
+html { -webkit-text-size-adjust: 100%; }
 body {
   overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Source Han Sans CN', 'Noto Sans CJK SC', sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03'; /* Inter: 单层 a / 更现代字形；缺字重时自动忽略 */
+  font-variant-numeric: tabular-nums;            /* 数字等宽对齐（副本数/指标/表格更整齐）*/
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
+  line-height: 1.5;
 }
 
 /* Transitions */

@@ -48,7 +48,6 @@ const nsNavGroups = [
     label: '工作负载',
     icon: 'work',
     items: [
-      { icon: 'layers', label: '应用分层', routeKey: 'layers' },
       { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
       { icon: 'view_in_ar', label: 'Pods', routeKey: 'pods' },
       { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
@@ -251,7 +250,7 @@ function nsStatusColor(status) {
         <div v-for="group in nsNavGroups" :key="group.label" class="mb-xs">
           <div class="flex items-center gap-xs px-md pt-sm pb-xs">
             <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
-            <p class="text-body-xs text-on-surface-variant font-medium opacity-60">{{ group.label }}</p>
+            <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.label }}</p>
           </div>
           <a
             v-for="item in group.items"
@@ -282,14 +281,14 @@ function nsStatusColor(status) {
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
             <span class="text-body-sm">{{ item.label }}</span>
           </a>
-          <p class="text-body-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">集群资源</p>
+          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">集群资源</p>
           <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
             <span class="text-body-sm">{{ item.label }}</span>
           </a>
-          <p class="text-body-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">审计 / 多集群</p>
+          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">审计 / 多集群</p>
           <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">

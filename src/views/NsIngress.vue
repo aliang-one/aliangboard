@@ -99,7 +99,7 @@ function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg font-bold text-on-surface">Ingress</h2>
+        <h2 class="text-headline-md font-bold text-on-surface">Ingress</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
@@ -121,13 +121,13 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Hosts</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Path</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Backend</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">TLS</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Hosts</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Backend</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">TLS</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -236,7 +236,7 @@ function handleDelete() {
 
     <!-- 性能调优 / 安全与其它：参数分组 -->
     <div v-else class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm">
-      <p class="text-body-xs text-on-surface-variant">参数将以 <code class="font-mono bg-surface-container-low px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
+      <p class="text-xs text-on-surface-variant">参数将以 <code class="font-mono bg-surface-container-low px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
       <div v-for="g in PERF_GROUPS.filter(x => x.tab === createTab)" :key="g.title" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center gap-sm mb-sm">
           <span class="material-symbols-outlined text-primary text-lg">{{ g.icon }}</span>
@@ -244,7 +244,7 @@ function handleDelete() {
         </div>
         <div class="grid grid-cols-2 gap-sm">
           <div v-for="fld in g.fields" :key="fld.key">
-            <label class="text-body-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
             <textarea v-if="fld.area" v-model="adv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
             <select v-else-if="fld.options" v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option v-for="o in fld.options" :key="o" :value="o">{{ o || '默认（不设置）' }}</option>
@@ -258,14 +258,14 @@ function handleDelete() {
       <div v-if="createTab === 'extra'" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center justify-between mb-sm">
           <h4 class="text-body-sm font-semibold text-on-surface">自定义注解（任意 key/value）</h4>
-          <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-body-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>新增</button>
+          <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>新增</button>
         </div>
         <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs">
           <input v-model="a.key" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="annotation key" />
           <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
           <button @click="removeCustomAnnotation(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
-        <p v-if="!customAnnotations.length" class="text-body-xs text-on-surface-variant">暂无自定义注解</p>
+        <p v-if="!customAnnotations.length" class="text-xs text-on-surface-variant">暂无自定义注解</p>
       </div>
     </div>
 

@@ -109,7 +109,7 @@ function saveEdit() {
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Name</p>
-              <p class="font-mono text-code-md text-on-surface font-semibold">{{ sa.name }}</p>
+              <p class="font-mono text-code-sm text-on-surface font-semibold">{{ sa.name }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">Namespace</p>
@@ -206,7 +206,7 @@ function saveEdit() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">ServiceAccount Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">ServiceAccount Not Found</h2>
     <p class="text-body-md text-on-surface-variant mt-sm">ServiceAccount "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
     <button @click="router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
   </div>

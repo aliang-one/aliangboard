@@ -35,7 +35,7 @@ onUnmounted(() => store.stopEventWatch())
       { label: 'Events' }
     ]" />
     <div class="mt-sm mb-md">
-      <h2 class="text-headline-lg text-on-surface font-bold">Events</h2>
+      <h2 class="text-headline-md text-on-surface font-bold">Events</h2>
       <p class="text-on-surface-variant text-body-sm mt-xs">Recent events in namespace <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
     </div>
 
@@ -43,7 +43,7 @@ onUnmounted(() => store.stopEventWatch())
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="flex gap-xs">
         <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
-          class="px-md py-xs rounded-full text-body-xs font-medium border transition-all capitalize"
+          class="px-md py-xs rounded-full text-xs font-medium border transition-all capitalize"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
           {{ opt === 'All' ? '全部' : opt }}
         </button>
@@ -52,8 +52,8 @@ onUnmounted(() => store.stopEventWatch())
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索原因或消息..." />
       </div>
-      <span class="text-body-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsEvents.length }}</span>
-      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-body-xs rounded-full" title="events?watch=true 实时推送（Gateway 流式 pipe）">
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsEvents.length }}</span>
+      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" title="events?watch=true 实时推送（Gateway 流式 pipe）">
         <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE · 流式
       </span>
     </div>
@@ -62,10 +62,10 @@ onUnmounted(() => store.stopEventWatch())
       <table class="w-full text-left">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-14">Type</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Reason</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Message</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Time</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">Type</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reason</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Time</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -83,10 +83,10 @@ onUnmounted(() => store.stopEventWatch())
             </td>
             <td class="px-md py-2">
               <span class="font-semibold text-on-surface text-body-sm">{{ event.reason }}</span>
-              <span class="ml-sm px-2 py-0.5 rounded text-body-xs" :class="event.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ event.type }}</span>
+              <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="event.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ event.type }}</span>
             </td>
             <td class="px-md py-2 text-body-sm text-on-surface-variant max-w-md">{{ event.message }}</td>
-            <td class="px-md py-2 font-mono text-body-xs text-on-surface-variant whitespace-nowrap">{{ event.time }}</td>
+            <td class="px-md py-2 font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ event.time }}</td>
           </tr>
         </tbody>
       </table>

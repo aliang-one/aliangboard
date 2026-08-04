@@ -282,7 +282,7 @@ function saveEdit() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">NetworkPolicy Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">NetworkPolicy Not Found</h2>
     <p class="text-body-md text-on-surface-variant mt-sm">NetworkPolicy "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
     <button @click="router.push({ name: 'NsNetworkPolicies', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to NetworkPolicies</button>
   </div>
@@ -304,7 +304,7 @@ function saveEdit() {
       <div>
         <div class="flex items-center justify-between mb-xs">
           <label class="text-label-caps text-on-surface-variant">Pod Selector</label>
-          <span class="text-body-xs text-on-surface-variant">空表示所有 Pod</span>
+          <span class="text-xs text-on-surface-variant">空表示所有 Pod</span>
         </div>
         <div class="flex flex-col gap-sm">
           <div v-for="(entry, idx) in editPodSelector" :key="idx" class="flex items-center gap-sm">

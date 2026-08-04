@@ -40,7 +40,7 @@ const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-lg font-bold text-on-surface">Endpoints</h2>
+        <h2 class="text-headline-md font-bold text-on-surface">Endpoints</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsEndpoints.length }} endpoints in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
     </div>
@@ -57,12 +57,12 @@ const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Ready</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Addresses</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Ports</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant w-20">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Ready</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Addresses</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Ports</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-20">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">

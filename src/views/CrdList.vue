@@ -52,18 +52,18 @@ const totalInstances = computed(() =>
     <div class="flex flex-col gap-sm mt-sm mb-md">
       <div class="flex items-end justify-between gap-md flex-wrap">
         <div>
-          <h1 class="text-headline-lg text-on-surface font-bold">自定义资源定义 (CRDs)</h1>
+          <h1 class="text-headline-md text-on-surface font-bold">自定义资源定义 (CRDs)</h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
             管理集群中已注册的自定义资源定义及其实例。
           </p>
         </div>
         <div class="flex items-center gap-sm">
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
-            <p class="text-body-xs text-on-surface-variant">CRDS</p>
+            <p class="text-xs text-on-surface-variant">CRDS</p>
             <p class="text-body-sm text-primary font-bold">{{ store.crdList.length }}</p>
           </div>
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
-            <p class="text-body-xs text-on-surface-variant">INSTANCES</p>
+            <p class="text-xs text-on-surface-variant">INSTANCES</p>
             <p class="text-body-sm text-primary font-bold">{{ totalInstances }}</p>
           </div>
         </div>
@@ -87,12 +87,12 @@ const totalInstances = computed(() =>
         <thead>
           <tr class="border-b border-outline-variant bg-surface-container-low/50">
             <th class="w-10 px-md py-2"></th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAME</th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">GROUP / VERSION</th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">KIND</th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">SCOPE</th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">INSTANCES</th>
-            <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">DESCRIPTION</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">GROUP / VERSION</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">KIND</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">SCOPE</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">INSTANCES</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">DESCRIPTION</th>
           </tr>
         </thead>
         <tbody>
@@ -118,18 +118,18 @@ const totalInstances = computed(() =>
                 <span class="font-mono text-code-sm text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
               </td>
               <td class="px-md py-2">
-                <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-body-xs font-semibold rounded">{{ crd.kind }}</span>
+                <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded">{{ crd.kind }}</span>
               </td>
               <td class="px-md py-2">
                 <span
                   v-if="crd.scope === 'Namespaced'"
-                  class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-body-xs font-semibold rounded inline-flex items-center gap-1"
+                  class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs font-semibold rounded inline-flex items-center gap-1"
                 >
                   <span class="material-symbols-outlined text-xs">folder</span> Namespaced
                 </span>
                 <span
                   v-else
-                  class="px-2 py-0.5 bg-secondary-fixed/20 text-secondary text-body-xs font-semibold rounded inline-flex items-center gap-1"
+                  class="px-2 py-0.5 bg-secondary-fixed/20 text-secondary text-xs font-semibold rounded inline-flex items-center gap-1"
                 >
                   <span class="material-symbols-outlined text-xs">public</span> Cluster
                 </span>
@@ -138,7 +138,7 @@ const totalInstances = computed(() =>
                 <span class="font-mono text-code-sm text-on-surface font-semibold">{{ crd.instances?.length || 0 }}</span>
               </td>
               <td class="px-md py-2 max-w-xs">
-                <span class="text-body-xs text-on-surface-variant line-clamp-1">{{ crd.description || '-' }}</span>
+                <span class="text-xs text-on-surface-variant line-clamp-1">{{ crd.description || '-' }}</span>
               </td>
             </tr>
 
@@ -150,18 +150,18 @@ const totalInstances = computed(() =>
                   <div class="flex items-center justify-between px-md py-2 bg-surface-container-low/50 border-b border-outline-variant/50">
                     <div class="flex items-center gap-sm">
                       <span class="material-symbols-outlined text-primary text-base">list_alt</span>
-                      <span class="text-body-xs font-medium text-on-surface">INSTANCES</span>
-                      <span class="text-body-xs text-on-surface-variant">({{ crd.kind }})</span>
+                      <span class="text-xs font-medium text-on-surface">INSTANCES</span>
+                      <span class="text-xs text-on-surface-variant">({{ crd.kind }})</span>
                     </div>
-                    <span class="text-body-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+                    <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
                   </div>
                   <table v-if="crd.instances && crd.instances.length" class="w-full">
                     <thead>
                       <tr class="border-b border-outline-variant/50 bg-surface-container-low/30">
-                        <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAME</th>
-                        <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">NAMESPACE</th>
-                        <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">STATUS</th>
-                        <th class="text-left px-md py-2 text-body-xs font-medium text-on-surface-variant">AGE</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAMESPACE</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">STATUS</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">AGE</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -174,21 +174,21 @@ const totalInstances = computed(() =>
                           <span class="font-mono text-code-sm text-on-surface font-medium">{{ inst.name }}</span>
                         </td>
                         <td class="px-md py-2">
-                          <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
-                          <span v-else class="text-on-surface-variant text-body-xs">-</span>
+                          <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
+                          <span v-else class="text-on-surface-variant text-xs">-</span>
                         </td>
                         <td class="px-md py-2">
                           <StatusChip :status="inst.status || 'Unknown'" size="sm" />
                         </td>
                         <td class="px-md py-2">
-                          <span class="text-body-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
+                          <span class="text-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
                         </td>
                       </tr>
                     </tbody>
                   </table>
                   <div v-else class="px-md py-md text-center">
                     <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-                    <p class="text-body-xs text-on-surface-variant mt-xs">该 CRD 暂无实例</p>
+                    <p class="text-xs text-on-surface-variant mt-xs">该 CRD 暂无实例</p>
                   </div>
                 </div>
               </td>

@@ -63,7 +63,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
           <h3 class="text-headline-sm mb-lg">PersistentVolume Details</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">STATUS</p><StatusChip :status="pv.status" size="sm" /></div>
-            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">CAPACITY</p><p class="font-mono text-code-md text-primary font-semibold">{{ pv.capacity }}</p></div>
+            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">CAPACITY</p><p class="font-mono text-code-sm text-primary font-semibold">{{ pv.capacity }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">ACCESS MODE</p><p class="text-body-md text-on-surface" :title="accessModeLabels[pv.accessModes]">{{ pv.accessModes }} · {{ accessModeLabels[pv.accessModes] || pv.accessModes }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">RECLAIM POLICY</p><p class="text-body-md text-on-surface">{{ pv.reclaimPolicy }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">STORAGECLASS</p><p class="text-body-md text-on-surface">{{ pv.storageClass || '—' }}</p></div>
@@ -104,7 +104,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface mt-md">PersistentVolume Not Found</h2>
+    <h2 class="text-headline-md text-on-surface mt-md">PersistentVolume Not Found</h2>
     <button @click="router.push('/storage')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Storage</button>
   </section>
 </template>

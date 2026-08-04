@@ -125,7 +125,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       { label: 'RBAC' }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
-      <h2 class="text-headline-lg text-on-surface font-bold">RBAC</h2>
+      <h2 class="text-headline-md text-on-surface font-bold">RBAC</h2>
       <div class="flex gap-sm">
         <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
           <span class="material-symbols-outlined text-sm">add</span> Create Role

@@ -143,7 +143,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
         </div>
       </div>
       <div ref="root" class="p-sm" style="height: 460px"></div>
-      <p v-if="statusMsg" class="px-md py-xs text-body-xs text-error bg-error-container/10">{{ statusMsg }}</p>
+      <p v-if="statusMsg" class="px-md py-xs text-xs text-error bg-error-container/10">{{ statusMsg }}</p>
     </template>
   </div>
 </template>

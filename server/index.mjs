@@ -3,10 +3,12 @@ import { Readable, Writable, PassThrough } from 'node:stream'
 import net from 'node:net'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'node:crypto'
-import { URL } from 'node:url'
+import { URL, fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
-import { readFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
+import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -14,6 +16,61 @@ const sessions = new Map()
 const discoveryCache = new Map()
 const sessionTtl = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000)
 const allowedHosts = new Set((process.env.K8S_ALLOWED_HOSTS || '').split(',').map(value => value.trim()).filter(Boolean))
+
+// === 会话持久化（SQLite）：集群访问配置落盘，网关重启后浏览器 token 仍有效，无需重登 ===
+// ⚠️ 库文件含 K8s 凭据（token/账密/客户端证书私钥），须靠主机文件权限保护（默认 0600）。
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const dbPath = process.env.ALIANG_DB || join(__dirname, '..', 'data', 'aliangboard.db')
+mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
+const db = new DatabaseSync(dbPath)
+try { chmodSync(dbPath, 0o600) } catch { /* 部分文件系统不支持，忽略 */ } // 含 K8s 凭据，收紧为仅属主可读写
+db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  apiServer TEXT NOT NULL,
+  authHeader TEXT,
+  ca TEXT, cert TEXT, key TEXT,
+  insecure INTEGER DEFAULT 0,
+  version TEXT,
+  createdAt INTEGER NOT NULL
+)`)
+const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+const stmtDelete = db.prepare('DELETE FROM sessions WHERE token = ?')
+const stmtAll = db.prepare('SELECT * FROM sessions')
+// 持久化一个会话（仅存可序列化字段；dispatcher 是运行期对象，重载时重建）
+function persistSession(token, session) {
+  try {
+    stmtUpsert.run(
+      token,
+      session.apiServer.toString(),
+      session.authHeader || null,
+      session.ca || null, session.cert || null, session.key || null,
+      session.insecure ? 1 : 0,
+      session.version || null,
+      session.createdAt || Date.now(),
+    )
+  } catch (e) { console.error('[sqlite] persistSession 失败', e?.message || e) }
+}
+function removePersistedSession(token) { try { stmtDelete.run(token) } catch { /* noop */ } }
+// 启动时重载：重建 sessions Map（apiServer 用 normalizeServer 复原为 URL 对象，dispatcher 重建）
+function loadPersistedSessions() {
+  let rows = []
+  try { rows = stmtAll.all() } catch (e) { console.error('[sqlite] loadPersistedSessions 失败', e?.message || e); return }
+  for (const r of rows) {
+    try {
+      const session = {
+        apiServer: normalizeServer(r.apiServer),
+        authHeader: r.authHeader,
+        ca: r.ca, cert: r.cert, key: r.key,
+        insecure: !!r.insecure,
+        version: r.version || undefined,
+        createdAt: r.createdAt,
+      }
+      session.dispatcher = buildDispatcher(session)
+      sessions.set(r.token, session)
+    } catch { /* 单条损坏跳过，不影响其他 */ }
+  }
+  if (sessions.size) console.log(`[sqlite] 已恢复 ${sessions.size} 个集群会话`)
+}
 
 if (process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true') {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
@@ -58,6 +115,7 @@ function sessionFromRequest(req) {
   const session = token ? sessions.get(token) : null
   if (session && Date.now() - session.createdAt > sessionTtl) {
     sessions.delete(token)
+    removePersistedSession(token) // 过期：从库中清除
     return null
   }
   return session
@@ -186,11 +244,15 @@ function k8sClient() {
 
 function buildKubeConfig(KubeConfig, session) {
   const kc = new KubeConfig()
+  // 注意：client-node 的 caData/certData/keyData 期望 **base64**（内部 bufferFromFileOrString 会 base64 解码）；
+  // 而 session 里存的是已解码的 PEM（供 undici 直用），这里必须再编码回 base64，否则 TLS 报 `PEM routines::no start line`。
+  const b64 = s => Buffer.from(s, 'utf8').toString('base64')
   const cluster = {
     name: 'aliangboard',
-    server: session.apiServer.toString(),
+    // 去尾斜杠：client-node 的 WebSocketHandler 用字符串拼接 server+path，尾斜杠会导致 `//api/v1/…` 双斜杠 → 404
+    server: session.apiServer.toString().replace(/\/$/, ''),
     skipTLSVerify: !!session.insecure,
-    ...(session.ca ? { caData: session.ca } : {}),
+    ...(session.ca ? { caData: b64(session.ca) } : {}),
   }
   const user = { name: 'aliangboard' }
   const header = session.authHeader || ''
@@ -201,9 +263,9 @@ function buildKubeConfig(KubeConfig, session) {
     user.username = idx >= 0 ? decoded.slice(0, idx) : decoded
     user.password = idx >= 0 ? decoded.slice(idx + 1) : ''
   }
-  // 客户端证书（kubeconfig client-cert/key）：client-node 的 User 支持 certData/keyData
-  if (session.cert) user.certData = session.cert
-  if (session.key) user.keyData = session.key
+  // 客户端证书（kubeconfig client-cert/key）：client-node 的 *Data 期望 base64
+  if (session.cert) user.certData = b64(session.cert)
+  if (session.key) user.keyData = b64(session.key)
   kc.loadFromClusterAndUser(cluster, user)
   return kc
 }
@@ -288,11 +350,24 @@ async function execCapture(session, namespace, pod, container, command) {
   const stdout = [], stderr = []
   const stdoutSink = new Writable({ write(c, _e, cb) { stdout.push(Buffer.from(c)); cb() } })
   const stderrSink = new Writable({ write(c, _e, cb) { stderr.push(Buffer.from(c)); cb() } })
-  const stdin = new PassThrough(); stdin.end()
-  let status = null
-  const conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, false, s => { status = s })
+  const stdin = new PassThrough() // 不立即 end：过早 EOF 会让本集群 kubelet 在命令执行前关闭 exec 会话
+  let conn
+  try {
+    // tty=true：与终端同路径。本集群 client-node 在 tty=false 下 exec 立即 close 无数据；
+    // tty 下输出会带 ANSI/CR，统一剔除后再解析
+    conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true)
+  } catch (e) {
+    console.error(`[exec] 失败 ns=${namespace} pod=${pod} c=${container} cmd=${JSON.stringify(command)} :: ${e?.message || e}`)
+    throw e
+  }
+  // 命令（ls/head/cat）自行退出 → kubelet 关闭 → conn close；不主动关 stdin
   await new Promise(resolve => conn.on('close', resolve))
-  return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status }
+  try { stdin.destroy() } catch { /* noop */ }
+  await new Promise(r => setImmediate(r))
+  const raw = Buffer.concat(stdout).toString('utf8')
+  const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
+  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${raw.length} clean=${clean.length} head=${JSON.stringify(clean.slice(0, 80))}`)
+  return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
 }
 
 // PVC 文件浏览：起一个 busybox 只读挂载该 PVC 的 helper Pod（确定性命名、幂等创建），复用 exec ls/cat。
@@ -494,6 +569,7 @@ async function handle(req, res) {
       const probe = await requestKubernetes(session, '/version')
       session.version = probe.body?.gitVersion || 'unknown'
       sessions.set(sessionId, session)
+      persistSession(sessionId, session) // 落盘：重启后浏览器 token 仍有效
       return sendJson(res, 200, {
         token: sessionId,
         cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: session.version },
@@ -515,6 +591,7 @@ async function handle(req, res) {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     if (token) {
       sessions.delete(token)
+      removePersistedSession(token)
       for (const id of [...forwards.keys()]) if (forwards.get(id).sessionId === token) stopForward(id)
     }
     return sendJson(res, 204, {})
@@ -607,7 +684,7 @@ async function handle(req, res) {
       if (!namespace || !pod) return sendJson(res, 400, { message: '缺少 namespace / pod' })
 
       if (action === 'list') {
-        const result = await execCapture(session, namespace, pod, container, ['ls', '-1Ap', path])
+        const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'ls -1Ap "$1"', 'ls', path])
         const errText = result.stderr.trim()
         if (errText && !result.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
         const entries = result.stdout.toString('utf8').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -617,7 +694,7 @@ async function handle(req, res) {
         return sendJson(res, 200, { path, entries })
       }
       if (action === 'read') {
-        const result = await execCapture(session, namespace, pod, container, ['head', '-c', String(PODFILE_PREVIEW_LIMIT + 1), path])
+        const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'head -c "$1" "$2"', 'head', String(PODFILE_PREVIEW_LIMIT + 1), path])
         const errText = result.stderr.trim()
         if (errText && !result.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
         const truncated = result.stdout.length > PODFILE_PREVIEW_LIMIT
@@ -637,7 +714,7 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true, path, bytes: bytes.length })
       }
       if (action === 'download') {
-        const result = await execCapture(session, namespace, pod, container, ['cat', path])
+        const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'cat "$1"', 'cat', path])
         const errText = result.stderr.trim()
         if (errText && !result.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
         if (result.stdout.length > PODFILE_DOWNLOAD_LIMIT) return sendJson(res, 413, { message: `文件过大（>${Math.round(PODFILE_DOWNLOAD_LIMIT / 1024 / 1024)}MB），请在终端中下载` })
@@ -653,6 +730,7 @@ async function handle(req, res) {
       }
       return sendJson(res, 404, { message: `未知 podfile 操作：${action}` })
     } catch (error) {
+      console.error(`[podfile/${action}]`, error?.status || '', error?.message || error)
       return sendJson(res, error.status || 502, { message: error?.message || 'Pod 文件操作失败' })
     }
   }
@@ -820,6 +898,8 @@ httpServer.on('upgrade', (req, socket, head) => {
   }
   wsServer.handleUpgrade(req, socket, head, ws => handleExec(ws, session, url))
 })
+
+loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不掉线）
 
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)

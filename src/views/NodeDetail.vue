@@ -66,12 +66,12 @@ async function handleDrain() {
             <span class="material-symbols-outlined text-primary text-2xl">dns</span>
           </div>
           <div>
-            <h1 class="text-headline-lg text-on-surface font-bold">{{ node.name }}</h1>
+            <h1 class="text-headline-md text-on-surface font-bold">{{ node.name }}</h1>
             <div class="flex items-center gap-sm mt-xs">
               <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" />
-              <span class="text-body-xs text-on-surface-variant">{{ node.ip }}</span>
-              <span class="text-body-xs text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
-              <span v-if="isCordoned" class="px-1.5 py-0.5 bg-tertiary-container/10 text-tertiary-container text-body-xs rounded font-medium">CORDONED</span>
+              <span class="text-xs text-on-surface-variant">{{ node.ip }}</span>
+              <span class="text-xs text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
+              <span v-if="isCordoned" class="px-1.5 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs rounded font-medium">CORDONED</span>
             </div>
           </div>
         </div>
@@ -110,13 +110,13 @@ async function handleDrain() {
           <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-2 gap-md p-md">
             <div>
               <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
-              <p class="font-mono text-code-xs text-on-surface-variant mt-1">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
-              <p v-if="node.usedCpu != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(node.usedCpu) }} / {{ formatCpu(node.allocCpu) }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
+              <p v-if="node.usedCpu != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(node.usedCpu) }} / {{ formatCpu(node.allocCpu) }}</p>
             </div>
             <div>
               <ProgressBar :value="node.memory || 0" size="lg" show-label label="Memory" />
-              <p class="font-mono text-code-xs text-on-surface-variant mt-1">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
-              <p v-if="node.usedMem != null" class="font-mono text-code-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
+              <p v-if="node.usedMem != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
             </div>
           </div>
           <div v-else class="flex items-center gap-sm text-on-surface-variant p-md">
@@ -133,9 +133,9 @@ async function handleDrain() {
           <table class="w-full text-left">
             <thead>
               <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Type</th>
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-                <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Last Transition</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Last Transition</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
@@ -144,10 +144,10 @@ async function handleDrain() {
                 <td class="px-md py-2">
                   <span class="flex items-center gap-xs">
                     <span class="w-1.5 h-1.5 rounded-full" :class="val ? 'bg-primary-container' : 'bg-error'"></span>
-                    <span class="text-body-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
+                    <span class="text-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
                   </span>
                 </td>
-                <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ node.age }} ago</td>
+                <td class="px-md py-2 text-xs text-on-surface-variant">{{ node.age }} ago</td>
               </tr>
             </tbody>
           </table>
@@ -161,14 +161,14 @@ async function handleDrain() {
             <span class="text-body-sm font-semibold">System Info</span>
           </div>
           <div class="px-md py-sm space-y-sm">
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Kernel</span><span class="font-mono text-code-xs">{{ node.kernel }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Kubelet</span><span class="font-mono text-code-xs">{{ node.version }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Role</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-body-xs text-on-surface-variant">{{ node.roles }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Internal IP</span><span class="font-mono text-code-xs text-primary">{{ node.ip }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
-            <div class="flex justify-between"><span class="text-body-xs text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kernel</span><span class="font-mono text-xs">{{ node.kernel }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kubelet</span><span class="font-mono text-xs">{{ node.version }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Role</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ node.roles }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Internal IP</span><span class="font-mono text-xs text-primary">{{ node.ip }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
           </div>
         </div>
       </div>
@@ -180,17 +180,17 @@ async function handleDrain() {
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
           <span class="text-body-sm font-semibold">Pods on this Node</span>
-          <span class="text-body-xs text-on-surface-variant ml-auto">{{ nodePods.length }}</span>
+          <span class="text-xs text-on-surface-variant ml-auto">{{ nodePods.length }}</span>
         </div>
         <table v-if="nodePods.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Namespace</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">CPU</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Restarts</th>
-              <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Restarts</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
@@ -198,14 +198,14 @@ async function handleDrain() {
               <td class="px-md py-2">
                 <div class="flex items-center gap-xs">
                   <span class="material-symbols-outlined text-secondary text-sm">layers</span>
-                  <span class="font-mono text-code-xs font-semibold text-on-surface">{{ p.name }}</span>
+                  <span class="font-mono text-xs font-semibold text-on-surface">{{ p.name }}</span>
                 </div>
               </td>
-              <td class="px-md py-2"><span class="text-body-xs text-primary font-medium">{{ p.namespace }}</span></td>
+              <td class="px-md py-2"><span class="text-xs text-primary font-medium">{{ p.namespace }}</span></td>
               <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
-              <td class="px-md py-2 font-mono text-code-xs">{{ p.cpu || '—' }}</td>
-              <td class="px-md py-2 text-body-xs">{{ p.restarts }}</td>
-              <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ p.age }}</td>
+              <td class="px-md py-2 font-mono text-xs">{{ p.cpu || '—' }}</td>
+              <td class="px-md py-2 text-xs">{{ p.restarts }}</td>
+              <td class="px-md py-2 text-xs text-on-surface-variant">{{ p.age }}</td>
             </tr>
           </tbody>
         </table>
@@ -225,7 +225,7 @@ async function handleDrain() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xl">
     <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-lg text-on-surface font-bold mt-md">Node Not Found</h2>
+    <h2 class="text-headline-md text-on-surface font-bold mt-md">Node Not Found</h2>
     <p class="text-body-sm text-on-surface-variant mt-xs">Node "{{ route.params.name }}" not found</p>
     <button @click="$router.push('/nodes')" class="mt-md px-lg py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">Back to Nodes</button>
   </div>
