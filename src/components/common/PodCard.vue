@@ -3,6 +3,7 @@
 // 富信息：健康度 + 名称(应用名/实例哈希) + 状态 + 容器数 + IP/节点/镜像/重启 + CPU/MEM 进度条 + 生命周期 conditions。
 // 通过 props 控制差异：选中态、删除键、生命周期、端点 ready 标记。
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import StatusChip from './StatusChip.vue'
 import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers } from '@/composables/usePod'
 
@@ -16,9 +17,15 @@ const props = defineProps({
   ready: { default: null },
   showDelete: { type: Boolean, default: false },
   showLifecycle: { type: Boolean, default: true },
+  // 集群级上下文（如 Node 详情）下展示命名空间；命名空间级页面无需开启
+  showNamespace: { type: Boolean, default: false },
+  // 快速入口：终端（exec）/ 文件浏览；点击导航到 PodDetail 对应 tab
+  showTerminal: { type: Boolean, default: true },
+  showFiles: { type: Boolean, default: true },
 })
 const emit = defineEmits(['click', 'delete'])
 
+const router = useRouter()
 const pod = computed(() => props.pod || {})
 const health = computed(() => podHealth(pod.value))
 const nameDisp = computed(() => podNameDisplay(pod.value, props.nameBase))
@@ -27,8 +34,15 @@ const conds = computed(() => podConditions(pod.value))
 const cpuPct = computed(() => podCpuPct(pod.value))
 const memPct = computed(() => podMemPct(pod.value))
 const hasMetrics = computed(() => pod.value.cpu || pod.value.memory)
+// exec / 文件浏览依赖容器在运行
+const canExec = computed(() => pod.value.status === 'Running')
 
 function onClick() { if (props.clickable) emit('click', pod.value) }
+// 快速打开 PodDetail 的终端 / 文件 tab
+function goPodTab(hash) {
+  if (!canExec.value) return
+  router.push({ name: 'NsPodDetail', params: { namespace: pod.value.namespace, name: pod.value.name }, hash })
+}
 </script>
 
 <template>
@@ -43,9 +57,13 @@ function onClick() { if (props.clickable) emit('click', pod.value) }
       <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0" :title="pod.name">{{ nameDisp.base }}<span class="text-on-surface-variant/40 font-normal">{{ nameDisp.suffix }}</span></span>
       <StatusChip :status="pod.status" size="sm" />
       <span v-if="containers.length > 1" class="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5 shrink-0" :title="`${containers.length} 个容器`"><span class="material-symbols-outlined" style="font-size:11px">inventory_2</span>{{ containers.length }}</span>
+      <span v-if="showNamespace && pod.namespace" class="text-[10px] px-1 rounded font-medium shrink-0 bg-secondary/10 text-secondary" :title="`命名空间 ${pod.namespace}`">{{ pod.namespace }}</span>
       <span v-if="ready !== null" class="text-[10px] px-1 rounded font-medium shrink-0" :class="ready ? 'bg-primary-container/15 text-primary' : 'bg-tertiary-container/15 text-tertiary-container'">{{ ready ? 'Ready' : 'Not Ready' }}</span>
       <span class="text-xs shrink-0" :class="health.text">{{ health.label }}</span>
       <span class="text-[11px] text-on-surface-variant ml-auto shrink-0">{{ pod.age }}</span>
+      <slot name="actions" />
+      <button v-if="showTerminal" @click.stop="goPodTab('#terminal')" :disabled="!canExec" :title="canExec ? '终端（exec 进入容器）' : 'Pod 未运行，无法打开终端'" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">terminal</span></button>
+      <button v-if="showFiles" @click.stop="goPodTab('#files')" :disabled="!canExec" :title="canExec ? '文件浏览' : 'Pod 未运行，无法浏览文件'" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
       <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" title="删除 Pod（控制器会重建并重新拉镜像）"><span class="material-symbols-outlined text-sm">delete</span></button>
     </div>
 

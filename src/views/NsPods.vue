@@ -4,9 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
-import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
-import DropdownMenu from '@/components/common/DropdownMenu.vue'
+import PodCard from '@/components/common/PodCard.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 
@@ -51,31 +50,9 @@ watch([searchQuery, statusFilter, nodeFilter], () => { currentPage.value = 1 })
 function toggleLive() { store.podWatchLive ? store.stopPodWatch() : store.startPodWatch() }
 onUnmounted(() => { if (store.podWatchLive) store.stopPodWatch() })
 
-function cpuPercent(cpu) {
-  if (!cpu || cpu === '0/0') return 0
-  const parts = cpu.split('/')
-  if (parts.length !== 2) return 0
-  const used = parseInt(parts[0]) || 0
-  const total = parseInt(parts[1]) || 1
-  return Math.round((used / total) * 100)
-}
-
-function memPercent(mem) {
-  if (!mem || mem === '0/0') return 0
-  const parts = mem.split('/')
-  if (parts.length !== 2) return 0
-  const usedNum = parseFloat(parts[0]) || 0
-  const totalNum = parseFloat(parts[1]) || 1
-  return Math.round((usedNum / totalNum) * 100)
-}
-
-// 行操作菜单
-function menuItems(row) {
-  return [
-    { label: '查看详情', icon: 'open_in_new', action: () => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: row.name } }) },
-    { label: '导出 YAML', icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${route.params.namespace}/pods/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) },
-    { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
-  ]
+// 行内导出 YAML（PodCard 的 actions 插槽按钮用）
+function exportPod(p) {
+  exportYaml(`/api/v1/namespaces/${route.params.namespace}/pods/${encodeURIComponent(p.name)}`, `${p.name}.yaml`)
 }
 
 // 删除 Pod
@@ -189,77 +166,23 @@ function handleCreate() {
 
     <!-- Pods Table -->
     <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">IP</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Restarts</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Node</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Memory</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-12"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="p in paginated" :key="p.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })">
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="{
-                  'bg-primary animate-pulse-status': p.status === 'Running',
-                  'bg-tertiary-container': p.status === 'Pending',
-                  'bg-error': p.status === 'Failed',
-                  'bg-on-surface-variant': p.status === 'Succeeded',
-                }"></span>
-                <span class="font-mono text-code-sm font-semibold text-on-surface">{{ p.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2"><span class="font-mono text-xs text-on-surface-variant">{{ p.ip || '-' }}</span></td>
-            <td class="px-md py-2"><StatusChip :status="p.status" size="sm" /></td>
-            <td class="px-md py-2">
-              <span class="text-body-sm" :class="p.restarts > 3 ? 'text-error font-semibold' : p.restarts > 0 ? 'text-tertiary-container' : 'text-on-surface-variant'">{{ p.restarts }}</span>
-            </td>
-            <td class="px-md py-2">
-              <span class="font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</span>
-            </td>
-            <td class="px-md py-2">
-              <div v-if="p.cpu && p.cpu !== '0/0'" class="flex items-center gap-sm">
-                <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all" :class="cpuPercent(p.cpu) > 80 ? 'bg-error' : cpuPercent(p.cpu) > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPercent(p.cpu) + '%' }"></div>
-                </div>
-                <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ p.cpu }}</span>
-              </div>
-              <span v-else class="text-on-surface-variant text-body-sm">-</span>
-            </td>
-            <td class="px-md py-2">
-              <div v-if="p.memory && p.memory !== '0/0'" class="flex items-center gap-sm">
-                <div class="w-16 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all" :class="memPercent(p.memory) > 80 ? 'bg-error' : memPercent(p.memory) > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPercent(p.memory) + '%' }"></div>
-                </div>
-                <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ p.memory }}</span>
-              </div>
-              <span v-else class="text-on-surface-variant text-body-sm">-</span>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ p.age }}</td>
-            <td class="px-md py-2">
-              <div class="flex items-center justify-end gap-1">
-                <button @click.stop="confirmDelete(p)" title="删除 Pod（控制器将重建并重新拉镜像）" class="p-1 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors">
-                  <span class="material-symbols-outlined text-base">delete</span>
-                </button>
-                <DropdownMenu :items="menuItems(p)" />
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!filtered.length">
-            <td colspan="9" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-body-sm text-on-surface-variant">No pods found matching your filters</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-if="filtered.length" class="p-sm flex flex-col gap-xs">
+        <PodCard
+          v-for="p in paginated" :key="p.name" :pod="p" show-delete
+          @click="(pod) => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: pod.name } })"
+          @delete="confirmDelete"
+        >
+          <template #actions>
+            <button @click.stop="exportPod(p)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" title="导出 YAML">
+              <span class="material-symbols-outlined text-sm">download</span>
+            </button>
+          </template>
+        </PodCard>
+      </div>
+      <div v-else class="py-md text-center">
+        <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
+        <p class="text-body-sm text-on-surface-variant">No pods found matching your filters</p>
+      </div>
       <!-- 分页 -->
       <div v-if="filtered.length" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
         <Pagination

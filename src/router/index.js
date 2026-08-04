@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useClusterStore } from '@/stores/cluster'
-import { api, clearSession, getSession } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+import { api, clearSession, getSession, getPlatformToken } from '@/api/client'
 
 const routes = [
   {
@@ -9,6 +10,19 @@ const routes = [
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: { title: 'Login' }
+  },
+  {
+    path: '/select-cluster',
+    name: 'SelectCluster',
+    component: () => import('@/views/SelectCluster.vue'),
+    meta: { title: '选择集群' }
+  },
+  {
+    // 独立终端弹窗（新标签页打开），不走 AppLayout（无侧栏/顶栏，纯全屏终端）
+    path: '/terminal-popup',
+    name: 'TerminalPopup',
+    component: () => import('@/views/TerminalPopup.vue'),
+    meta: { title: 'Terminal' }
   },
   {
     path: '/',
@@ -408,6 +422,19 @@ const routes = [
         component: () => import('@/views/NsEvents.vue'),
         meta: { title: 'Events', icon: 'notifications_active', scope: 'namespace' }
       },
+      // === 平台管理（admin only）===
+      {
+        path: 'admin/users',
+        name: 'AdminUsers',
+        component: () => import('@/views/admin/UserManagement.vue'),
+        meta: { title: '用户管理', icon: 'group', scope: 'global', requireAdmin: true }
+      },
+      {
+        path: 'admin/clusters',
+        name: 'AdminClusters',
+        component: () => import('@/views/admin/ClusterManagement.vue'),
+        meta: { title: '集群管理', icon: 'cloud', scope: 'global', requireAdmin: true }
+      },
     ]
   }
 ]
@@ -419,18 +446,38 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const store = useClusterStore()
-  // 未登录（无会话）访问任何非登录页 → 跳登录，避免未授权看到 AppLayout/mock 数据
-  if (to.name !== 'Login' && !getSession()) {
-    return { name: 'Login' }
+  const authStore = useAuthStore()
+  authStore.init()
+  if (to.name === 'TerminalPopup') return
+
+  const isPublic = to.name === 'Login' || to.name === 'SelectCluster'
+
+  // Layer 1: 无平台 token → 跳登录
+  if (!getPlatformToken()) {
+    if (!isPublic) return { name: 'Login' }
+    return
   }
-  if (to.name !== 'Login' && getSession() && !store.remoteMode) {
+  if (!authStore.user) {
+    const user = await authStore.fetchMe()
+    if (!user) return { name: 'Login' }
+  }
+  if (to.name === 'Login') return { name: 'SelectCluster' }
+
+  // Layer 2: 无 K8s session → 跳集群选择（SelectCluster/Login 本身不需要 K8s session）
+  if (!getSession()) {
+    if (!isPublic) return { name: 'SelectCluster' }
+    return // SelectCluster/Login 不需要水合，直接放行
+  }
+  // 已有 K8s session 但未水合 → 仅验证 session 有效，不做全量水合（各页面按需加载）
+  if (!store.remoteMode) {
     try {
       const result = await api.session()
       store.setConnectedCluster(result.cluster)
-      await store.hydrateCoreResources()
+      // 不在这里调 hydrateCoreResources——改为各页面 onMounted 按需加载（避免首次进入拉全集群资源）
+      store.remoteMode = true
     } catch {
       clearSession()
-      return { name: 'Login' }
+      return { name: 'SelectCluster' }
     }
   }
   const namespaceParam = to.params.namespace

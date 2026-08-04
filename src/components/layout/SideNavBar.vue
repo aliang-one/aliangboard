@@ -2,10 +2,12 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const authStore = useAuthStore()
 
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
@@ -31,6 +33,11 @@ const clusterResourcesNav = [
 const clusterOtherNav = [
   { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
   { icon: 'hub', label: 'Clusters', route: '/clusters' },
+]
+// 平台管理（admin only）
+const platformAdminNav = [
+  { icon: 'group', label: '用户管理', route: '/admin/users' },
+  { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
 ]
 const clusterNavOpen = ref(false)
 
@@ -296,6 +303,17 @@ function nsStatusColor(status) {
             <span class="text-body-sm">{{ item.label }}</span>
           </a>
         </div>
+      </div>
+
+      <!-- 平台管理（admin only）-->
+      <div v-if="authStore.isAdmin" class="px-md pt-sm">
+        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs">平台管理</p>
+        <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
+          class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+          :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+          <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+          <span class="text-body-sm">{{ item.label }}</span>
+        </a>
       </div>
     </nav>
 
