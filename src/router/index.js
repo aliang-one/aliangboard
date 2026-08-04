@@ -463,10 +463,16 @@ router.beforeEach(async (to) => {
   }
   if (to.name === 'Login') return { name: 'SelectCluster' }
 
-  // Layer 2: 无 K8s session → 跳集群选择（SelectCluster/Login 本身不需要 K8s session）
+  // Layer 2: 无 K8s session → 尝试自动连接上次集群；失败才跳选择页
   if (!getSession()) {
-    if (!isPublic) return { name: 'SelectCluster' }
-    return // SelectCluster/Login 不需要水合，直接放行
+    const auto = await authStore.tryAutoConnect()
+    if (!auto) {
+      if (!isPublic) return { name: 'SelectCluster' }
+      return
+    }
+    // 自动连接成功 → 设集群状态，继续进入页面
+    store.setConnectedCluster({ apiServer: auto.cluster.apiServer.replace(/\/$/, ''), version: auto.cluster.version })
+    store.remoteMode = true
   }
   // 已有 K8s session 但未水合 → 仅验证 session 有效，不做全量水合（各页面按需加载）
   if (!store.remoteMode) {

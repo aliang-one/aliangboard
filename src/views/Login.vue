@@ -16,7 +16,13 @@ async function handleLogin() {
   errorMessage.value = ''
   try {
     await authStore.login(form.value.username, form.value.password)
-    router.push('/select-cluster')
+    // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
+    const auto = await authStore.tryAutoConnect()
+    if (auto) {
+      window.location.href = '/cluster'
+    } else {
+      router.push('/select-cluster')
+    }
   } catch (error) {
     errorMessage.value = error.message || '登录失败'
   } finally {

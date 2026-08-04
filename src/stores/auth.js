@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi, saveSession, clearSession, getSessionToken } from '@/api/client'
 
+const LAST_CLUSTER_KEY = 'aliangboard.lastCluster'
+
 // 平台用户认证 store（Layer 1）：登录/登出/当前用户/集群连接
 export const useAuthStore = defineStore('auth', () => {
   const token = ref('')           // 平台 session token (X-Platform-Token)
@@ -37,12 +39,26 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Layer 2：连接集群 → 获得 K8s session token
+  // Layer 2：连接集群 → 获得 K8s session token；记住用户选的集群（下次自动连）
   async function connectCluster(clusterId) {
     const res = await authApi.connectCluster(clusterId)
     k8sToken.value = res.token
-    saveSession(res.token, true) // 存 localStorage（跨标签页共享，终端弹窗需要）
+    saveSession(res.token, true)
+    localStorage.setItem(LAST_CLUSTER_KEY, clusterId) // 记住选择
     return res
+  }
+
+  // 自动连接上次使用的集群（登录后调用）。成功返回 cluster 信息，失败返回 null。
+  async function tryAutoConnect() {
+    const lastId = localStorage.getItem(LAST_CLUSTER_KEY)
+    if (!lastId) return null
+    try {
+      return await connectCluster(lastId)
+    } catch {
+      // 上次的集群可能已被删除/凭据失效/权限被收回 → 清除记忆，让用户重新选
+      localStorage.removeItem(LAST_CLUSTER_KEY)
+      return null
+    }
   }
 
   function logout() {
@@ -52,7 +68,8 @@ export const useAuthStore = defineStore('auth', () => {
     k8sToken.value = ''
     localStorage.removeItem('aliangboard.platform')
     clearSession()
+    // 登出不清除 lastCluster——用户下次登录仍自动连上次的集群
   }
 
-  return { token, user, k8sToken, isAdmin, isAuthenticated, init, login, fetchMe, connectCluster, logout }
+  return { token, user, k8sToken, isAdmin, isAuthenticated, init, login, fetchMe, connectCluster, tryAutoConnect, logout }
 })
