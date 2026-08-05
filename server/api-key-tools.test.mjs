@@ -20,7 +20,9 @@ const cluster = { id: 'c1', apiServer: 'https://10.0.0.1:6443', authHeader: 'Bea
 
 // mock requestFn:覆盖 issuer / token / log / list / get / events
 function mockRequestFn() {
-  return async (ctx, path) => {
+  return async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
+    if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
     if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
     if (path.endsWith('/token')) return { body: { status: { token: 'SA-TOKEN', expirationTimestamp: new Date(Date.now() + 600000).toISOString() } } }
     if (path.includes('/log')) return { body: 'line1\nline2\nline3' }
@@ -116,7 +118,39 @@ test('listTools: 返回注册的工具集', () => {
   const db = makeDb()
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   const names = tools.listTools()
-  for (const t of ['get_pod_logs', 'list_resources', 'get_resource', 'get_events']) assert.ok(names.includes(t), `应含 ${t}`)
+  for (const t of ['get_pod_logs', 'list_resources', 'get_resource', 'get_events', 'scale', 'restart']) assert.ok(names.includes(t), `应含 ${t}`)
+})
+
+// --- scale / restart(有界写,operator+)---
+test('scale(operator happy): PATCH scale 子资源,replicas 透传', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'operator' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'scale', { kind: 'deployments', namespace: 'ns', name: 'd1', replicas: 3 })
+  assert.equal(out.replicas, 3); assert.equal(out.kind, 'deployments')
+})
+test('scale: cap 违规(0 / 99)→ 拒;read 档 → policy 拒(authorize 先于 cap)', async () => {
+  const db = makeDb()
+  const op = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'operator' })
+  const read = mintKey(db, { owner: 'b', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(() => tools.callTool(op, cluster, 'scale', { kind: 'deployments', namespace: 'ns', name: 'd1', replicas: 0 }), /1\.\.20/)
+  await assert.rejects(() => tools.callTool(op, cluster, 'scale', { kind: 'deployments', namespace: 'ns', name: 'd1', replicas: 99 }), /1\.\.20/)
+  // read 档:authorize 先拒(policy),不到 cap
+  await assert.rejects(() => tools.callTool(read, cluster, 'scale', { kind: 'deployments', namespace: 'ns', name: 'd1', replicas: 3 }), (e) => e.reason === 'policy')
+})
+test('restart(operator happy): PATCH template annotation,返回 restartedAt', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'operator' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'restart', { kind: 'deployments', namespace: 'ns', name: 'd1' })
+  assert.equal(out.name, 'd1'); assert.ok(out.restartedAt)
+})
+test('scale/restart: read 档均 policy 拒', async () => {
+  const db = makeDb()
+  const read = mintKey(db, { owner: 'b', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(() => tools.callTool(read, cluster, 'restart', { kind: 'deployments', namespace: 'ns', name: 'd1' }), (e) => e.reason === 'policy')
 })
 
 // --- resolveApiKey ---
