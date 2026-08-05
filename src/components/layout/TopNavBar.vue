@@ -86,11 +86,15 @@ function onSearchKeydown(e) {
   else if (e.key === 'Escape') searchQuery.value = ''
 }
 
-// 集群状态 → 圆点颜色
-function clusterStatusColor(status) {
-  if (status === 'Healthy') return 'bg-primary'
-  if (status === 'Degraded') return 'bg-error'
+// 集群健康 → 圆点颜色（来自 store.clusterHealth，控制面优先分级）
+function clusterStatusColor(severity) {
+  if (severity === 'ok') return 'bg-primary'
+  if (severity === 'warn') return 'bg-tertiary-container'
+  if (severity === 'crit') return 'bg-error'
   return 'bg-on-surface-variant'
+}
+function healthOf(name) {
+  return store.clusterHealth   // 单连接下全局 clusterHealth；多集群下拉里均显示当前活跃集群健康
 }
 
 async function selectCluster(apiServer) {
@@ -183,7 +187,7 @@ async function logout() {
               :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
             >
               <div class="flex items-center gap-sm min-w-0">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.status)"></span>
+                <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.join('；') || 'Healthy') : c.status"></span>
                 <div class="min-w-0">
                   <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
                   <p class="text-xs text-on-surface-variant">{{ c.version }} · {{ c.distribution }}</p>

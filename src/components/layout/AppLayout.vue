@@ -32,6 +32,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
       <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary z-[60] animate-pulse"></div>
       <TopNavBar />
+      <!-- 集群健康横幅：Critical / Disconnected -->
+      <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
+        class="px-lg py-sm flex items-center gap-sm text-on-error bg-error/10 border-b border-error/30 text-body-sm">
+        <span class="material-symbols-outlined text-base">crisis_alert</span>
+        <span v-if="store.clusterHealth.status === 'Critical'">控制面异常：{{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }} 就绪 · {{ store.clusterHealth.reasons.join('；') }}</span>
+        <span v-else>集群不可达或未连接：{{ store.clusterHealth.reasons.join('；') }}</span>
+      </div>
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
         <router-view v-slot="{ Component, route }">
           <transition name="fade" mode="out-in">
@@ -47,12 +54,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       <footer class="px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
         <div class="flex items-center gap-lg">
           <div class="flex items-center gap-sm">
-            <span class="w-2 h-2 bg-primary-container rounded-full animate-pulse-status"></span>
-            <span class="text-body-sm text-on-surface-variant">Control Plane: {{ store.cluster.status }}</span>
-          </div>
-          <div class="flex items-center gap-sm">
-            <span class="w-2 h-2 bg-primary-container rounded-full"></span>
-            <span class="text-body-sm text-on-surface-variant">Nodes: {{ store.healthyNodes }}/{{ store.totalNodes }} Online</span>
+            <span class="w-2 h-2 rounded-full" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
+            <span class="text-body-sm text-on-surface-variant">集群: {{ store.clusterHealth.status }} · 控制面 {{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }} · worker {{ store.clusterHealth.workers.ready }}/{{ store.clusterHealth.workers.total }}</span>
           </div>
         </div>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
