@@ -15,7 +15,7 @@ const nsSearch = ref('')
 // 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
 // 选中 namespace 时该板块默认折叠（让命名空间工作为主），无 namespace 时自动展开（此时它是唯一内容）。
 const clusterPrimaryNav = [
-  { icon: 'dashboard', label: 'Cluster Overview', route: '/cluster' },
+  { icon: 'hub', label: 'Clusters', route: '/clusters' },
   { icon: 'dns', label: 'Nodes', route: '/nodes' },
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
   { icon: 'storage', label: '存储', route: '/storage' },
@@ -34,7 +34,6 @@ const clusterResourcesNav = [
 ]
 const clusterOtherNav = [
   { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
-  { icon: 'hub', label: 'Clusters', route: '/clusters' },
 ]
 // 平台管理（admin only）
 const platformAdminNav = [
