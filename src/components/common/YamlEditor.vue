@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import CodeViewer from '@/components/common/CodeViewer.vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -91,19 +92,22 @@ function handleDiscard() {
     </div>
 
     <!-- Single Editor Mode -->
-    <div v-else class="flex">
-      <!-- Line Numbers -->
-      <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20 overflow-hidden" :style="{ minHeight: height, maxHeight: height }">
-        <div v-for="(_, i) in lines" :key="i" class="leading-[18px]">{{ i + 1 }}</div>
+    <div v-else>
+      <!-- 只读模式：代码高亮查看 -->
+      <CodeViewer v-if="readonly" :code="editableContent" lang="yaml" :max-height="height" />
+      <!-- 编辑模式：contenteditable + 行号 -->
+      <div v-else class="flex">
+        <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20 overflow-hidden" :style="{ minHeight: height, maxHeight: height }">
+          <div v-for="(_, i) in lines" :key="i" class="leading-[18px]">{{ i + 1 }}</div>
+        </div>
+        <div
+          class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none whitespace-pre"
+          :style="{ minHeight: height, maxHeight: height }"
+          contenteditable="true"
+          @input="handleInput"
+          v-text="editableContent"
+        ></div>
       </div>
-      <!-- Editor -->
-      <div
-        class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none whitespace-pre"
-        :style="{ minHeight: height, maxHeight: height }"
-        :contenteditable="!readonly"
-        @input="handleInput"
-        v-text="editableContent"
-      ></div>
     </div>
 
     <!-- Action Bar -->
