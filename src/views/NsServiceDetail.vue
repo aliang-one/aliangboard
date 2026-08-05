@@ -209,6 +209,51 @@ function saveEdit() {
   notify('success', 'Service 已更新')
 }
 
+// === 快速添加端口：为当前 Service 追加一个「同类型」端口（类型由 svc.type 决定，不可混类型）===
+const showAddPortModal = ref(false)
+const addPortForm = ref({ port: '', targetPort: '', protocol: 'TCP', nodePort: '' })
+const addingPort = ref(false)
+function openAddPort() {
+  addPortForm.value = { port: '', targetPort: '', protocol: 'TCP', nodePort: '' }
+  showAddPortModal.value = true
+}
+const addPortNeedsNodePort = computed(() => svc.value?.type === 'NodePort' || svc.value?.type === 'LoadBalancer')
+const canAddPort = computed(() => {
+  const p = addPortForm.value
+  return p.port !== '' && p.port != null && /^\d+$/.test(String(p.port)) && Number(p.port) > 0 && Number(p.port) < 65536
+})
+async function saveAddPort() {
+  if (!canAddPort.value || addingPort.value) return
+  addingPort.value = true
+  try {
+    const f = addPortForm.value
+    const tgt = f.targetPort === '' ? f.port : f.targetPort
+    const newRow = {
+      name: '', port: Number(f.port),
+      targetPort: isNaN(tgt) ? tgt : Number(tgt),
+      protocol: f.protocol || 'TCP',
+      nodePort: addPortNeedsNodePort.value && f.nodePort ? Number(f.nodePort) : null,
+      appProtocol: '',
+    }
+    // 重建完整 portList：现有端口（保留结构）+ 新端口
+    const portList = [
+      ...portRows.value.map(p => {
+        const t = p.targetPort === '' || p.targetPort == null ? p.port : p.targetPort
+        return { name: p.name || '', port: Number(p.port), targetPort: isNaN(t) ? t : Number(t), protocol: p.protocol || 'TCP', nodePort: p.nodePort ? Number(p.nodePort) : null, appProtocol: p.appProtocol || '' }
+      }),
+      newRow,
+    ]
+    const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
+    await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
+    showAddPortModal.value = false
+    notify('success', '端口已添加')
+  } catch (e) {
+    notify('error', e.message || '添加端口失败')
+  } finally {
+    addingPort.value = false
+  }
+}
+
 // === 头部 ⋮ 操作菜单 ===
 function actionItems() {
   const items = [
@@ -319,11 +364,17 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <!-- Ports -->
         <div v-if="!isExternalName" class="rounded-lg overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center justify-between">
-            <div class="flex items-center gap-xs">
+            <div class="flex items-center gap-xs min-w-0">
               <span class="material-symbols-outlined text-primary text-base">swap_horiz</span>
-              <span class="text-body-sm font-semibold">Ports</span>
+              <span class="text-body-sm font-semibold">Service Ports</span>
+              <span class="text-[11px] text-on-surface-variant/60 truncate" title="客户端访问的 port → 转发到后端 Pod 的 targetPort">客户端访问 port → Pod 的 targetPort<span v-if="hasNodePort"> · nodePort 为节点对外端口</span></span>
             </div>
-            <span class="text-xs text-on-surface-variant">{{ portRows.length }} 个</span>
+            <div class="flex items-center gap-xs shrink-0">
+              <span class="text-xs text-on-surface-variant">{{ portRows.length }} 个</span>
+              <button v-if="canMutate" @click="openAddPort" class="flex items-center gap-0.5 px-1.5 py-0.5 text-xs font-semibold text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors" title="快速添加一个同类型端口">
+                <span class="material-symbols-outlined text-sm">add</span>添加端口
+              </button>
+            </div>
           </div>
           <table class="w-full text-left border-collapse">
             <thead>
@@ -355,6 +406,11 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
               <span class="text-body-sm font-semibold">Endpoints</span>
             </div>
             <span v-if="!isExternalName" class="text-xs font-medium" :class="endpointsHealthy ? 'text-primary' : 'text-error'">{{ readyCount }}/{{ totalCount }} ready</span>
+          </div>
+          <!-- 提示：后端 Pod = 实际接收流量的进程；其端口对应 Service 的 targetPort，与 Service port 不同 -->
+          <div v-if="!isExternalName" class="px-sm py-1 bg-surface-container-low/40 text-[11px] text-on-surface-variant/70 flex items-center gap-xs border-b border-outline-variant/30">
+            <span class="material-symbols-outlined text-xs shrink-0">info</span>
+            <span class="min-w-0">后端 Pod 实际监听端口<span v-if="epPorts.length" class="font-mono text-on-surface">：{{ epPorts.map(p => p.port).join(' / ') }}</span><span v-else>：—</span>，对应 Service 的 <span class="font-medium text-on-surface">targetPort</span>（不是客户端访问的 port）</span>
           </div>
           <!-- ExternalName -->
           <div v-if="isExternalName" class="p-sm flex items-center gap-sm">
@@ -618,6 +674,42 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- 快速添加端口（同类型追加）-->
+  <Modal v-model="showAddPortModal" title="快速添加端口" width="max-w-lg">
+    <p class="text-body-sm text-on-surface-variant mb-md">
+      为该 <span class="font-semibold text-on-surface">{{ svc.type }}</span> Service 追加一个端口——类型保持一致（一个 Service 只能有一种暴露类型）。
+    </p>
+    <div class="grid grid-cols-2 gap-sm">
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Port *</label>
+        <input v-model="addPortForm.port" type="number" min="1" max="65535" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="80" />
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">客户端访问 Service 的端口</p>
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label>
+        <PortSelect v-model="addPortForm.targetPort" :options="store.nsContainerPorts" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">转发到后端 Pod 的端口</p>
+      </div>
+      <div>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Protocol</label>
+        <select v-model="addPortForm.protocol" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+          <option>TCP</option><option>UDP</option><option>SCTP</option>
+        </select>
+      </div>
+      <div v-if="addPortNeedsNodePort">
+        <label class="text-label-caps text-on-surface-variant block mb-xs">Node Port</label>
+        <input v-model="addPortForm.nodePort" type="number" min="30000" max="32767" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="留空自动分配" />
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ svc.type }} 类型：节点对外端口</p>
+      </div>
+    </div>
+    <template #actions>
+      <button @click="showAddPortModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="saveAddPort" :disabled="!canAddPort || addingPort" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
+        <span v-if="addingPort" class="material-symbols-outlined text-base align-middle animate-spin mr-xs">progress_activity</span>添加
+      </button>
     </template>
   </Modal>
 
