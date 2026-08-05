@@ -8,6 +8,7 @@ import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPe
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
+import { notify } from '@/composables/useToast'
 import TagInput from '@/components/common/TagInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
@@ -528,7 +529,34 @@ spec:`
 })
 
 // Deploy action
+// 提交前校验：返回错误描述数组（空数组=通过）
+function validate() {
+  const f = form.value, errs = []
+  if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push('工作负载名称不合法（小写字母、数字与连字符）')
+  if (!f.namespace) errs.push('请选择命名空间')
+  if (!f.image) errs.push('请填写容器镜像')
+  f.volumeMounts.forEach((v, i) => {
+    const w = `卷 ${v.name || '#' + (i + 1)}`
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    else {
+      if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
+      if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
+      if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
+      if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
+      if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
+    }
+  })
+  f.initContainers.forEach((c, i) => { if (!c.image) errs.push(`Init 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  f.extraContainers.forEach((c, i) => { if (!c.image) errs.push(`Sidecar 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  f.ports.forEach((p, i) => { if (!p.containerPort) errs.push(`端口 #${i + 1}：缺少端口号`) })
+  f.envVars.forEach((e, i) => { if (!e.key) errs.push(`环境变量 #${i + 1}：缺少 KEY`) })
+  f.envCMKeys.forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(`ConfigMap 环境变量 ${e.name || '未命名'}：需 ENV 名 / ConfigMap / key`) })
+  f.envSecretKeys.forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(`Secret 环境变量 ${e.name || '未命名'}：需 ENV 名 / Secret / key`) })
+  return errs
+}
 async function handleDeploy() {
+  const errs = validate()
+  if (errs.length) { notify('error', '请修正：' + errs.join('；')); return }
   const f = form.value
   deployLoading.value = true
   deployError.value = ''
