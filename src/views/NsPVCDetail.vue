@@ -226,7 +226,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
               <button @click="ffile = null" class="text-xs text-primary hover:underline">← 返回列表</button>
             </div>
             <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">二进制文件，无法文本预览。</p>
-            <pre v-else class="bg-[#0b1c30] text-surface-variant p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-on-surface-variant/60">
+            <pre v-else class="bg-[#0b1c30] text-[#cfe3ff] p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-[#cfe3ff]/60">
 
 …（内容过长已截断预览）</span></pre>
           </div>
