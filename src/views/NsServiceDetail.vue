@@ -266,6 +266,34 @@ async function saveAddPort() {
   }
 }
 
+// === 删除端口（重建 portList 去掉指定项；带确认，删除会影响流量）===
+const showDeletePortModal = ref(false)
+const deletePortIdx = ref(-1)
+function askDeletePort(i) {
+  if (!canMutate.value) return
+  deletePortIdx.value = i
+  showDeletePortModal.value = true
+}
+const deletePortTarget = computed(() => deletePortIdx.value >= 0 ? portRows.value[deletePortIdx.value] : null)
+async function confirmDeletePort() {
+  const idx = deletePortIdx.value
+  if (idx < 0) return
+  const rows = portRows.value.filter((_, i) => i !== idx)
+  const portList = rows.map(p => {
+    const t = p.targetPort === '' || p.targetPort == null ? p.port : p.targetPort
+    return { name: p.name || '', port: Number(p.port), targetPort: isNaN(t) ? t : Number(t), protocol: p.protocol || 'TCP', nodePort: p.nodePort ? Number(p.nodePort) : null, appProtocol: p.appProtocol || '' }
+  })
+  const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
+  try {
+    await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
+    notify('success', '端口已删除')
+  } catch (e) {
+    notify('error', e.message || '删除端口失败')
+  }
+  showDeletePortModal.value = false
+  deletePortIdx.value = -1
+}
+
 // === 头部 ⋮ 操作菜单 ===
 function actionItems() {
   const items = [
@@ -396,15 +424,19 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Target</th>
                 <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Node Port</th>
                 <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Protocol</th>
+                <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
-              <tr v-for="(p, i) in portRows" :key="i" class="hover:bg-surface-container-low/40 transition-colors">
+              <tr v-for="(p, i) in portRows" :key="i" class="hover:bg-surface-container-low/40 transition-colors group">
                 <td class="px-sm py-1.5 text-xs text-on-surface-variant font-mono">{{ p.name || '—' }}</td>
                 <td class="px-sm py-1.5 font-mono text-xs text-primary font-semibold">{{ p.port }}</td>
                 <td class="px-sm py-1.5 font-mono text-xs text-on-surface">{{ p.targetPort }}</td>
                 <td v-if="hasNodePort" class="px-sm py-1.5 font-mono text-xs" :class="p.nodePort ? 'text-tertiary-container font-semibold' : 'text-on-surface-variant'">{{ p.nodePort || '—' }}</td>
                 <td class="px-sm py-1.5"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant">{{ p.protocol }}</span></td>
+                <td v-if="canMutate && portRows.length" class="px-sm py-1.5 text-center">
+                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors" title="删除该端口"><span class="material-symbols-outlined text-base">delete</span></button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -686,6 +718,16 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+    </template>
+  </Modal>
+
+  <!-- 删除端口确认 -->
+  <Modal v-model="showDeletePortModal" title="删除端口" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-if="deletePortTarget">确认删除端口 <span class="font-mono font-semibold text-on-surface">{{ deletePortTarget.port }}</span><span class="text-on-surface-variant"> → target {{ deletePortTarget.targetPort }} / {{ deletePortTarget.protocol }}</span>？</p>
+    <p class="text-body-sm text-error mt-sm">删除后该端口不再暴露，相关流量会中断；如需保留可取消。</p>
+    <template #actions>
+      <button @click="showDeletePortModal = false; deletePortIdx = -1" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="confirmDeletePort" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
     </template>
   </Modal>
 
