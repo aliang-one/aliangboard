@@ -16,7 +16,8 @@ const props = defineProps({
   size: { type: String, default: 'sm' },
 })
 const name = defineModel('name', { default: '' })
-const key = defineModel('key', { default: '' })
+// 注意：model 名不能用 'key'（Vue 保留属性），否则 v-model:key 不绑定
+const dataKey = defineModel('dataKey', { default: '' })
 
 const store = useClusterStore()
 const uid = useId()
@@ -43,7 +44,7 @@ const inputClass = computed(() => props.size === 'md'
     </datalist>
     <template v-if="withKey">
       <input
-        :list="uid + '-key'" v-model="key"
+        :list="uid + '-key'" v-model="dataKey"
         :class="inputClass"
         placeholder="key"
       />

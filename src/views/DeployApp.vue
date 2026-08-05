@@ -881,12 +881,12 @@ async function handleDeploy() {
         <div class="flex flex-col gap-sm mb-md">
           <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center">
             <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:key="e.key" />
+            <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
             <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center">
             <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:key="e.key" />
+            <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
             <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div class="flex gap-sm">
