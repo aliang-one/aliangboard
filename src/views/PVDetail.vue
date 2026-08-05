@@ -7,6 +7,7 @@ import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import Modal from '@/components/common/Modal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,6 +28,41 @@ const pvc = computed(() => {
 })
 const sc = computed(() => pv.value?.storageClass ? store.getSCByName(pv.value.storageClass) : null)
 const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
+
+// 结构化编辑（仅 K8s 可变字段：reclaimPolicy + labels/annotations）+ 删除
+const showEditModal = ref(false)
+const showDeleteModal = ref(false)
+const editForm = ref({ reclaimPolicy: 'Retain', labels: [], annotations: [] })
+const labelsToRows = obj => Object.entries(obj || {}).map(([key, value]) => ({ key, value: String(value) }))
+const rowsToMap = rows => {
+  const m = {}
+  for (const r of rows) { const k = (r.key || '').trim(); if (k) m[k] = r.value }
+  return m
+}
+function openEdit() {
+  editForm.value = {
+    reclaimPolicy: pv.value?.reclaimPolicy || 'Retain',
+    labels: labelsToRows(pv.value?.labels),
+    annotations: labelsToRows(pv.value?.annotations),
+  }
+  showEditModal.value = true
+}
+function addLabelRow() { editForm.value.labels.push({ key: '', value: '' }) }
+function removeLabelRow(i) { editForm.value.labels.splice(i, 1) }
+function addAnnRow() { editForm.value.annotations.push({ key: '', value: '' }) }
+function removeAnnRow(i) { editForm.value.annotations.splice(i, 1) }
+async function saveEdit() {
+  await store.updatePV(route.params.name, {
+    reclaimPolicy: editForm.value.reclaimPolicy,
+    labels: rowsToMap(editForm.value.labels),
+    annotations: rowsToMap(editForm.value.annotations),
+  })
+  showEditModal.value = false
+}
+async function handleDelete() {
+  await store.deletePV(route.params.name)
+  router.push('/storage')
+}
 </script>
 
 <template>
@@ -50,6 +86,12 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             <span class="text-body-sm text-on-surface-variant">Age: {{ pv.age }}</span>
           </div>
         </div>
+      </div>
+      <div class="flex items-center gap-xs">
+        <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined text-sm">edit</span> 编辑
+        </button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">删除</button>
       </div>
     </div>
 
@@ -105,6 +147,57 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'yaml'">
       <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
+
+    <!-- Edit Modal -->
+    <Modal v-model="showEditModal" title="编辑 PersistentVolume（仅可变字段）" width="max-w-lg">
+      <div class="flex flex-col gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
+          <select v-model="editForm.reclaimPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+            <option value="Retain">Retain</option>
+            <option value="Delete">Delete</option>
+            <option value="Recycle">Recycle</option>
+          </select>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-xs">
+            <label class="text-label-caps text-on-surface-variant">Labels</label>
+            <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ 添加</button>
+          </div>
+          <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
+            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
+            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
+            <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
+          <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">无</p>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-xs">
+            <label class="text-label-caps text-on-surface-variant">Annotations</label>
+            <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ 添加</button>
+          </div>
+          <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
+            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
+            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
+            <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
+          <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">无</p>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">保存</button>
+      </template>
+    </Modal>
+
+    <!-- Delete Modal -->
+    <Modal v-model="showDeleteModal" title="删除 PersistentVolume" width="max-w-md">
+      <p class="text-body-md text-on-surface-variant">确认删除 PV <span class="text-on-surface font-semibold">{{ pv.name }}</span>？此操作不可撤销。</p>
+      <template #actions>
+        <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      </template>
+    </Modal>
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>

@@ -275,6 +275,45 @@ test('extractNodeExtra 对空对象全部降级为 null/[]', () => {
   assert.equal(e.podCIDR, null)
 })
 
+// --- PV/StorageClass 编辑 merge-patch 构造（手术式：labels/annotations 删除=null）---
+import { diffMap, buildPVPatch, buildStorageClassPatch } from '../src/composables/useStoragePatch.js'
+test('diffMap：新增/改值/删除(null)/空', () => {
+  assert.deepEqual(diffMap({ a: '1', b: '2' }, { a: '1', b: '9', c: '3' }), { b: '9', c: '3' })
+  assert.deepEqual(diffMap({ a: '1' }, {}), { a: null })
+  assert.deepEqual(diffMap({ a: '1' }, { a: '1' }), {})
+  assert.deepEqual(diffMap({}, { a: '1' }), { a: '1' })
+})
+test('buildPVPatch：reclaimPolicy + labels/annotations diff；无改动→null', () => {
+  const original = { reclaimPolicy: 'Retain', labels: { app: 'x' }, annotations: { note: 'old' } }
+  const p1 = buildPVPatch(original, { reclaimPolicy: 'Delete', labels: { app: 'x', tier: 'db' }, annotations: {} })
+  assert.equal(p1.spec.persistentVolumeReclaimPolicy, 'Delete')
+  assert.deepEqual(p1.metadata.labels, { tier: 'db' })
+  assert.deepEqual(p1.metadata.annotations, { note: null })
+  // 无改动
+  assert.equal(buildPVPatch(original, { reclaimPolicy: 'Retain', labels: { app: 'x' }, annotations: { note: 'old' } }), null)
+  // 只传 reclaimPolicy 且不变 → null
+  assert.equal(buildPVPatch(original, { reclaimPolicy: 'Retain' }), null)
+  // 只删 label
+  const p3 = buildPVPatch(original, { labels: {} })
+  assert.deepEqual(p3.metadata.labels, { app: null })
+  assert.equal(p3.spec, undefined)
+})
+test('buildStorageClassPatch：default 注解 + labels/annotations（排除 is-default 键）', () => {
+  const original = { default: false, labels: { a: '1' }, annotations: { 'storageclass.kubernetes.io/is-default-class': 'false', note: 'x' } }
+  // 启用 default + 改普通 annotation
+  const p1 = buildStorageClassPatch(original, { isDefault: true, annotations: { note: 'y' } })
+  assert.equal(p1.metadata.annotations['storageclass.kubernetes.io/is-default-class'], 'true')
+  assert.equal(p1.metadata.annotations.note, 'y')
+  // default 不变 + annotations 不变 → null（is-default 不因 desired 缺它而被 null 删除）
+  assert.equal(buildStorageClassPatch(original, { isDefault: false, annotations: { note: 'x' } }), null)
+  // 只改 label
+  const p3 = buildStorageClassPatch(original, { labels: { a: '2' } })
+  assert.deepEqual(p3.metadata.labels, { a: '2' })
+  // 关闭 default（原本 false → 不变 → null；用 true 原始测关闭）
+  const p4 = buildStorageClassPatch({ default: true, labels: {}, annotations: { 'storageclass.kubernetes.io/is-default-class': 'true' } }, { isDefault: false })
+  assert.equal(p4.metadata.annotations['storageclass.kubernetes.io/is-default-class'], 'false')
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
