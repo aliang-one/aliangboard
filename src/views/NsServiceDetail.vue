@@ -93,6 +93,53 @@ const boundWorkloadNames = computed(() => boundWorkloads.value.map(w => w.name))
 // 首个绑定工作负载（PortSelect 自动选中/置顶——多绑定时取第一个作为默认）
 const boundWorkload = computed(() => boundWorkloads.value[0]?.name || '')
 
+// === 添加后端工作负载：把指定 workload 并入 selector ===
+// K8s selector 是 label 的 AND 查询，无法「A 或 B」。要让 A、B 同时被选中，selector 必须是
+// 它们共有的 label（同 key 同 value 的交集）。故新 selector = (当前绑定 ∪ 所选) 的 template label 交集。
+const tplLabels = w => w?.raw?.spec?.template?.metadata?.labels || {}
+const showAddBackendModal = ref(false)
+const pickedBackend = ref('')
+const unmatchedWorkloads = computed(() =>
+  store.nsWorkloads.filter(w => !boundWorkloadNames.value.includes(w.name)))
+// 新 selector = 目标集合（当前绑定 + 所选）的 template label 交集
+const mergedSelector = computed(() => {
+  if (!pickedBackend.value) return null
+  const picked = store.nsWorkloads.find(w => w.name === pickedBackend.value)
+  if (!picked) return null
+  const targets = [...boundWorkloads.value, picked]
+  if (!targets.length) return {}
+  const common = {}
+  for (const [k, v] of Object.entries(tplLabels(targets[0]))) {
+    if (targets.every(w => tplLabels(w)[k] === v)) common[k] = v
+  }
+  return common
+})
+// 副作用预警：新 selector 会「顺带」命中哪些不在目标集合内的工作负载（label 放宽的代价）
+const wouldAlsoMatch = computed(() => {
+  const ms = mergedSelector.value
+  if (!ms || !Object.keys(ms).length) return []
+  const desired = new Set([...boundWorkloadNames.value, pickedBackend.value])
+  return store.nsWorkloads
+    .filter(w => !desired.has(w.name) && Object.entries(ms).every(([k, v]) => tplLabels(w)[k] === v))
+    .map(w => w.name)
+})
+const canAddBackend = computed(() => {
+  const ms = mergedSelector.value
+  return !!pickedBackend.value && ms && Object.keys(ms).length > 0
+})
+function openAddBackend() { pickedBackend.value = ''; showAddBackendModal.value = true }
+async function confirmAddBackend() {
+  if (!canAddBackend.value) return
+  try {
+    await store.updateService(route.params.name, route.params.namespace, { selector: mergedSelector.value })
+    notify('success', '已添加后端工作负载（selector 已更新）')
+    showAddBackendModal.value = false
+    pickedBackend.value = ''
+  } catch (e) {
+    notify('error', e.message || '添加失败')
+  }
+}
+
 // === 后端 Pod 统一列表：真实 Endpoints 时按地址取 backing pod，否则回退 selector 命中 ===
 const backendPods = computed(() => {
   if (isExternalName.value) return []
@@ -515,6 +562,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
               <button v-for="w in boundWorkloads" :key="w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (w.type || 'Deployment').toLowerCase(), name: w.name } })" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-xs border border-secondary/25 hover:bg-secondary/20 transition-colors" :title="`查看 ${w.name} 详情`">
                 <span class="material-symbols-outlined text-sm">work</span>{{ w.name }}<span class="opacity-60">{{ w.type?.replace(/Set$/,'') || 'Deployment' }}</span>
               </button>
+              <button v-if="canMutate" @click="openAddBackend" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" title="把另一个工作负载并入后端（取共有 label 作新 selector）">
+                <span class="material-symbols-outlined text-sm">add</span>添加后端工作负载
+              </button>
             </div>
           </div>
           <div v-else-if="svc.selector && Object.keys(svc.selector).length" class="px-sm pb-sm pt-xs border-t border-outline-variant/30">
@@ -745,6 +795,52 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
     <template #actions>
       <button @click="showDeletePortModal = false; deletePortIdx = -1" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
       <button @click="confirmDeletePort" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+    </template>
+  </Modal>
+
+  <!-- 添加后端工作负载（取共有 label 作新 selector）-->
+  <Modal v-model="showAddBackendModal" title="添加后端工作负载" width="max-w-xl">
+    <p class="text-body-sm text-on-surface-variant mb-md">
+      把另一个工作负载并入后端。Service selector 是 label 的 <strong>AND</strong> 查询（不能「A 或 B」），故新 selector 取
+      <span class="text-on-surface font-medium">当前绑定 ∪ 所选工作负载</span> 的 pod-template <span class="text-on-surface font-medium">共有 label</span>——它们必须共享 label 才能同时被选中。
+    </p>
+    <div class="mb-md">
+      <label class="text-label-caps text-on-surface-variant block mb-xs">选择要添加的工作负载</label>
+      <select v-model="pickedBackend" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+        <option value="">— 选择工作负载 —</option>
+        <option v-for="w in unmatchedWorkloads" :key="w.name" :value="w.name">{{ w.name }}（{{ w.type }}）</option>
+      </select>
+      <p v-if="!unmatchedWorkloads.length" class="text-xs text-on-surface-variant/60 mt-xs">当前命名空间没有可添加的工作负载（全部已绑定或无工作负载）。</p>
+    </div>
+
+    <div v-if="pickedBackend" class="space-y-sm">
+      <!-- 当前 selector -->
+      <div class="p-sm rounded-md bg-surface-container-low">
+        <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wide mb-xs">当前 selector</p>
+        <div class="flex flex-wrap gap-xs">
+          <span v-for="(v, k) in (svc.selector || {})" :key="k" class="px-1.5 py-0.5 rounded bg-surface-container text-xs font-mono border border-outline-variant"><span class="text-secondary font-semibold">{{ k }}</span>={{ v }}</span>
+          <span v-if="!Object.keys(svc.selector || {}).length" class="text-xs text-on-surface-variant italic">（空 selector）</span>
+        </div>
+      </div>
+      <!-- 新 selector（共有 label 交集）-->
+      <div class="p-sm rounded-md" :class="canAddBackend ? 'bg-primary-container/10 border border-primary/20' : 'bg-error-container/10 border border-error/20'">
+        <p class="text-[10px] uppercase tracking-wide mb-xs" :class="canAddBackend ? 'text-primary/70' : 'text-error/70'">新 selector（共有 label）</p>
+        <div v-if="canAddBackend" class="flex flex-wrap gap-xs">
+          <span v-for="(v, k) in mergedSelector" :key="k" class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary text-xs font-mono border border-primary/30"><span class="font-semibold">{{ k }}</span>={{ v }}</span>
+        </div>
+        <p v-else class="text-xs text-error flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>无法添加：该工作负载与当前后端没有共享 label。需先给它们打上共同 label，或手动改 selector。</p>
+      </div>
+      <!-- 副作用预警 -->
+      <div v-if="wouldAlsoMatch.length" class="p-sm rounded-md bg-tertiary-container/10 border border-tertiary-container/30 flex items-start gap-xs">
+        <span class="material-symbols-outlined text-tertiary-container text-base shrink-0">warning</span>
+        <p class="text-xs text-on-surface-variant">新 selector 放宽后还会顺带命中：<span class="font-mono text-tertiary-container font-semibold">{{ wouldAlsoMatch.join('、') }}</span>（这些工作负载也有相同 label，会成为后端）</p>
+      </div>
+      <p v-else-if="canAddBackend" class="text-xs text-status-running flex items-center gap-1"><span class="material-symbols-outlined text-sm">check_circle</span>新 selector 精确命中目标，无额外工作负载被卷入。</p>
+    </div>
+
+    <template #actions>
+      <button @click="showAddBackendModal = false; pickedBackend = ''" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="confirmAddBackend" :disabled="!canAddBackend" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">更新 selector 并添加</button>
     </template>
   </Modal>
 
