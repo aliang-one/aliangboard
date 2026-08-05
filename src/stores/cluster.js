@@ -1761,17 +1761,25 @@ export const useClusterStore = defineStore('cluster', () => {
       age: ageOf(item.metadata?.creationTimestamp),
     }
   }
-  const mapEndpoints = item => {
-    const addresses = [], notReadyAddresses = [], ports = []
-    ;(item.subsets || []).forEach(s => {
-      ;(s.addresses || []).forEach(a => a.ip && addresses.push(a.ip))
-      ;(s.notReadyAddresses || []).forEach(a => a.ip && notReadyAddresses.push(a.ip))
+  // 从 Endpoints subsets 提取地址/端口/目标 Pod。addresses / notReadyAddresses 保留为 IP 字符串
+  // （兼容列表展示与 YAML 导出）；targets 额外记录 ip→{podName,podNs}（来自 targetRef），
+  // 供 Service 详情按名匹配 backing pod（比 IP 更可靠，避免 pod 未水合/格式差异时回退到手写卡片）。
+  function extractEndpointSubsets(subsets) {
+    const addresses = [], notReadyAddresses = [], ports = [], targets = {}
+    ;(subsets || []).forEach(s => {
+      const addTarget = a => { if (a.targetRef?.kind === 'Pod' && a.ip) targets[a.ip] = { podName: a.targetRef.name, podNs: a.targetRef.namespace } }
+      ;(s.addresses || []).forEach(a => { if (!a.ip) return; addresses.push(a.ip); addTarget(a) })
+      ;(s.notReadyAddresses || []).forEach(a => { if (!a.ip) return; notReadyAddresses.push(a.ip); addTarget(a) })
       ;(s.ports || []).forEach(p => ports.push({ port: p.port, protocol: p.protocol || 'TCP' }))
     })
+    return { addresses, notReadyAddresses, ports, targets }
+  }
+  const mapEndpoints = item => {
+    const { addresses, notReadyAddresses, ports, targets } = extractEndpointSubsets(item.subsets)
     return {
       name: item.metadata?.name,
       namespace: item.metadata?.namespace,
-      addresses, notReadyAddresses, ports,
+      addresses, notReadyAddresses, ports, targets,
       age: ageOf(item.metadata?.creationTimestamp),
     }
   }
@@ -3036,18 +3044,11 @@ status:
         break
       }
       case 'Endpoints': {
-        const subsets = Array.isArray(obj.subsets) ? obj.subsets : []
-        const addresses = []
-        const notReadyAddresses = []
-        const ports = []
-        subsets.forEach(s => {
-          ;(s.addresses || []).forEach(a => a.ip && addresses.push(a.ip))
-          ;(s.notReadyAddresses || []).forEach(a => a.ip && notReadyAddresses.push(a.ip))
-          ;(s.ports || []).forEach(p => ports.push({ port: p.port, protocol: p.protocol || 'TCP' }))
-        })
+        const { addresses, notReadyAddresses, ports, targets } = extractEndpointSubsets(Array.isArray(obj.subsets) ? obj.subsets : [])
         if (addresses.length) updates.addresses = addresses
         if (notReadyAddresses.length) updates.notReadyAddresses = notReadyAddresses
         if (ports.length) updates.ports = ports
+        if (Object.keys(targets).length) updates.targets = targets
         if (labels) updates.labels = labels
         if (Object.keys(updates).length) updateEndpoints(name, ns, updates)
         break
