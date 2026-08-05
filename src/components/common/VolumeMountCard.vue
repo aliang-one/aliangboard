@@ -100,6 +100,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
         <span class="text-[10px] font-semibold text-on-surface-variant">键映射 items（可选：把指定 key 投影成文件名）</span>
         <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
       </div>
+      <p class="text-[10px] text-on-surface-variant/60">提示：items 会把所选 key 都挂到上方「挂载到」目录下（多个文件一次挂齐）；subPath 只挂其中一个文件，二者通常不必同时用。要把一个卷挂到多个不同路径，请新增多条卷或直接编 YAML。</p>
       <div v-for="(it, idx) in entry.items" :key="idx" class="grid grid-cols-[1fr_auto_1fr_auto] gap-xs items-center">
         <select v-model="it.key" @change="onItemKey(it)" :class="fld">
           <option value="">选择 key</option>
