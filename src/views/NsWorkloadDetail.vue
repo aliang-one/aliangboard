@@ -709,6 +709,8 @@ function mergeVolumes(tplSpec, c0) {
   })
   return [...byName.values()]
 }
+// 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
+function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
 function openEdit() {
   if (!workload.value) return
   const raw = workload.value?.raw || {}
@@ -1868,7 +1870,7 @@ function podStatusBorder(s) {
           <div class="flex items-center gap-xs mb-md">
             <span class="material-symbols-outlined text-primary text-lg">storage</span>
             <h4 class="text-body-sm font-semibold text-on-surface">卷与挂载</h4>
-            <button @click="editForm.volumeMounts.push({ name: '', type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+            <button @click="editForm.volumeMounts.push({ name: genVolName(), type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
           </div>
           <div v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 flex flex-col gap-xs">
             <div class="flex items-center gap-xs">
