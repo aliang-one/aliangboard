@@ -1492,6 +1492,8 @@ export const useClusterStore = defineStore('cluster', () => {
     connectionState.value = 'loading'
     clearMockSeeds()
     try { await hydrateCoreResources() } catch { connectionState.value = 'error' }
+    apiReachable.value = true
+    startHealthCheck()
   }
   // 移除已保存集群
   function removeSavedClusterStore(apiServer) {
