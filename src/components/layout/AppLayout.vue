@@ -6,9 +6,11 @@ import TerminalWindow from '@/components/terminal/TerminalWindow.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const store = useClusterStore()
 const termStore = useTerminalStore()
+const { tick: refreshTick } = usePageRefresh()
 
 // footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
 const lastUpdated = ref('')
@@ -35,7 +37,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <transition name="fade" mode="out-in">
             <!-- 用单根 div 包裹，避免页面组件为多根节点（fragment）时
                  <transition mode="out-in"> 无法动画化导致新页面不挂载（详情页点击空白） -->
-            <div :key="route.path">
+            <div :key="route.path + '#' + refreshTick">
               <component :is="Component" />
             </div>
           </transition>

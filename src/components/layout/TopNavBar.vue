@@ -3,11 +3,25 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { api, clearSession } from '@/api/client'
 
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
+const { bump: bumpRefresh } = usePageRefresh()
+
+// 刷新当前页：重拉集群核心资源（列表型页面）+ 重新挂载当前视图（详情页 onMounted 定点拉取）
+const refreshing = ref(false)
+let refreshTimer = null
+function refreshPage() {
+  if (refreshing.value) return
+  refreshing.value = true
+  bumpRefresh() // 触发 router-view 重新挂载（重跑当前页 onMounted）
+  if (store.remoteMode) store.hydrateCoreResources({ silent: true }) // 后台重拉列表，静默不打断
+  clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => { refreshing.value = false }, 700)
+}
 
 const searchQuery = ref('')
 const showClusterDropdown = ref(false)
@@ -230,6 +244,9 @@ async function logout() {
       </div>
     </div>
     <div class="flex items-center gap-md">
+      <button @click="refreshPage" :disabled="refreshing" aria-label="刷新当前页" title="刷新当前页数据" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
+        <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
+      </button>
       <button @click="router.push('/audit-logs')" aria-label="活动记录" title="活动记录" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">notifications</span>
       </button>

@@ -5,7 +5,6 @@ import { useClusterStore } from '@/stores/cluster'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
-import { useLiveYaml } from '@/composables/useLiveYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -109,7 +108,7 @@ async function confirmApplyYaml() {
   try {
     await applyYaml(pendingYaml.value)
     showDiffModal.value = false
-    reloadYaml()       // 应用成功后重新拉取真实 YAML
+    // workloadYaml 是 computed(workload.raw)，列表刷新后自动重算，无需手动 reload
   } catch { /* applyYaml 内部已 notify */ }
 }
 
@@ -125,16 +124,18 @@ function refRoute(ref) {
 }
 
 const activeTab = ref('overview')
-// === YAML：用共享 useLiveYaml（远端拉真实对象 / mock 合成）；path 基于 route，避免工作负载列表刷新时被重置 ===
-const WL_PLURAL = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }
-const { yaml: workloadYaml, yamlLoading, error: yamlError, reload: reloadYaml } = useLiveYaml({
-  pathFn: () => {
-    const w = workload.value
-    const gv = (w?.type === 'Job' || w?.type === 'CronJob') ? '/apis/batch/v1' : '/apis/apps/v1'
-    const plural = WL_PLURAL[w?.type] || 'deployments'
-    return `${gv}/namespaces/${encodeURIComponent(w?.namespace || route.params.namespace)}/${plural}/${encodeURIComponent(route.params.name)}`
-  },
-  mockFn: () => store.generateYAML('deployment', workload.value),
+// === YAML：直接用列表已返回的完整对象（workload.raw）dump，无需再发请求；
+//     mock 工作负载无 raw，回退 generateYAML 合成。raw 变化（Apply 后刷新列表）自动重算。===
+const workloadYaml = computed(() => {
+  const w = workload.value
+  if (!w) return ''
+  if (w.raw) {
+    const clone = JSON.parse(JSON.stringify(w.raw))
+    if (clone?.metadata) delete clone.metadata.managedFields
+    if (clone?.status) delete clone.status
+    return yamlDump(clone)
+  }
+  return store.generateYAML('deployment', w)
 })
 const showDeleteModal = ref(false)
 const showScaleModal = ref(false)
@@ -1654,17 +1655,9 @@ function podStatusBorder(s) {
       </div>
     </div>
 
-    <!-- ====== YAML Tab ====== -->
+    <!-- ====== YAML Tab（直接由列表已返回的 workload.raw 生成，无额外请求）====== -->
     <div v-if="activeTab === 'yaml'">
-      <div v-if="yamlLoading" class="rounded-lg border border-outline-variant bg-surface-container-lowest p-lg flex items-center gap-sm text-body-sm text-on-surface-variant">
-        <span class="material-symbols-outlined animate-spin text-primary">progress_activity</span> 加载 YAML…
-      </div>
-      <div v-else-if="yamlError" class="rounded-lg border border-error/30 bg-error-container/10 p-lg flex items-center gap-sm">
-        <span class="material-symbols-outlined text-error">error</span>
-        <span class="text-body-sm text-error flex-1">YAML 加载失败：{{ yamlError }}</span>
-        <button @click="reloadYaml" class="px-md py-sm border border-error/30 text-error rounded-lg text-body-sm font-medium hover:bg-error/5 transition-colors">重试</button>
-      </div>
-      <YamlEditor v-else :model-value="workloadYaml" :readonly="false" height="560px" @save="onYamlSave" />
+      <YamlEditor :model-value="workloadYaml" :readonly="false" height="560px" @save="onYamlSave" />
     </div>
 
     <!-- ====== Events Tab ====== -->
