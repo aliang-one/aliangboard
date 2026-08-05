@@ -20,7 +20,7 @@ const props = defineProps({
   inputClass: { type: String, default: '' },
   emptyHint: { type: String, default: '无可选端口，可直接输入' },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'pick'])
 
 const text = ref(String(props.modelValue ?? ''))
 const focused = ref(false)
@@ -92,6 +92,7 @@ function pick(o) {
 function pickPort(p) {
   text.value = String(p.port)
   emit('update:modelValue', p.port)
+  emit('pick', p)  // 携带来源 workload，供父组件判断是否需要并入后端
   focused.value = false
 }
 function onBlur() {
