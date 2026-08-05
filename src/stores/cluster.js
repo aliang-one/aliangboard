@@ -1203,7 +1203,15 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx === -1) return
     const before = JSON.parse(JSON.stringify(hpaList.value[idx]))
     hpaList.value[idx] = { ...before, ...updates }
-    if (remoteMode.value) await remoteUpdate(generateYAML('hpa', hpaList.value[idx]), 'HPA', () => { hpaList.value[idx] = before })
+    const patch = { spec: {
+      minReplicas: updates.minReplicas ?? before.minReplicas,
+      maxReplicas: updates.maxReplicas ?? before.maxReplicas,
+      metrics: [
+        { type: 'Resource', resource: { name: 'cpu', target: { type: 'Utilization', averageUtilization: updates.cpuTarget ?? before.cpuTarget } } },
+        { type: 'Resource', resource: { name: 'memory', target: { type: 'Utilization', averageUtilization: updates.memoryTarget ?? before.memoryTarget } } },
+      ],
+    } }
+    if (remoteMode.value) await remotePatch(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, patch, 'HPA', () => { hpaList.value[idx] = before })
   }
 
   async function deleteHPA(name, ns) {

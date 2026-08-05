@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+// 统一 YAML 展示组件：默认 CodeViewer 高亮查看；非只读时点「Edit」切换 textarea 编辑；Save/Discard 回到高亮。
+import { ref, watch } from 'vue'
 import CodeViewer from '@/components/common/CodeViewer.vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   readonly: { type: Boolean, default: false },
   height: { type: String, default: '400px' },
-  showLineNumbers: { type: Boolean, default: true },
   diffMode: { type: Boolean, default: false },
   originalValue: { type: String, default: '' },
 })
@@ -15,38 +15,40 @@ const emit = defineEmits(['update:modelValue', 'save', 'discard'])
 
 const editableContent = ref(props.modelValue)
 const hasChanges = ref(false)
+const isEditing = ref(false)
 
+// 外部 modelValue 变化 → 同步 + 回到查看模式
 watch(() => props.modelValue, (val) => {
   editableContent.value = val
   hasChanges.value = false
+  isEditing.value = false
 })
 
-const lines = computed(() => {
-  const content = editableContent.value || ''
-  return content.split('\n')
+// editableContent 变化（编辑时）→ 更新 hasChanges + emit
+watch(editableContent, (val) => {
+  hasChanges.value = val !== props.modelValue
+  emit('update:modelValue', val)
 })
 
-// 复制到剪贴板（模板内联访问 navigator 在 Vue 中常为 undefined，故收口到函数）
 async function copy() {
-  try {
-    await navigator?.clipboard?.writeText(editableContent.value)
-  } catch { /* 剪贴板被浏览器拒绝时静默 */ }
+  try { await navigator?.clipboard?.writeText(editableContent.value) } catch {}
 }
 
-function handleInput(e) {
-  editableContent.value = e.target.innerText || e.target.textContent
-  hasChanges.value = editableContent.value !== props.modelValue
-  emit('update:modelValue', editableContent.value)
+function startEdit() {
+  editableContent.value = props.modelValue
+  isEditing.value = true
 }
 
 function handleSave() {
   emit('save', editableContent.value)
   hasChanges.value = false
+  isEditing.value = false
 }
 
 function handleDiscard() {
   editableContent.value = props.modelValue
   hasChanges.value = false
+  isEditing.value = false
   emit('discard')
 }
 </script>
@@ -59,13 +61,16 @@ function handleDiscard() {
         <span class="material-symbols-outlined text-primary text-lg">description</span>
         <span class="text-label-caps text-on-surface-variant">YAML</span>
         <span v-if="readonly" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant">READ ONLY</span>
-        <span v-if="hasChanges" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">MODIFIED</span>
+        <span v-if="isEditing" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">EDITING</span>
       </div>
       <div class="flex items-center gap-sm">
-        <button class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Copy" @click="copy">
+        <button v-if="!readonly && !isEditing" @click="startEdit" class="flex items-center gap-xs px-sm py-xs text-body-sm text-primary font-medium hover:bg-primary-container/10 rounded-lg transition-colors">
+          <span class="material-symbols-outlined text-base">edit</span> Edit
+        </button>
+        <button @click="copy" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Copy">
           <span class="material-symbols-outlined text-lg">content_copy</span>
         </button>
-        <button class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Download" @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }">
+        <button @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Download">
           <span class="material-symbols-outlined text-lg">download</span>
         </button>
       </div>
@@ -75,43 +80,24 @@ function handleDiscard() {
     <div v-if="diffMode" class="grid grid-cols-2 divide-x divide-outline-variant">
       <div>
         <div class="px-md py-xs bg-surface-container text-label-caps text-on-surface-variant text-center border-b border-outline-variant">LIVE</div>
-        <div class="bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto" :style="{ maxHeight: height }">
-          <pre>{{ originalValue }}</pre>
-        </div>
+        <CodeViewer :code="originalValue" lang="yaml" :max-height="height" />
       </div>
       <div>
         <div class="px-md py-xs bg-primary-container/10 text-label-caps text-primary text-center border-b border-outline-variant">EDITABLE</div>
-        <div
-          class="bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none"
-          :style="{ maxHeight: height }"
-          :contenteditable="!readonly"
-          @input="handleInput"
-          v-text="editableContent"
-        ></div>
+        <textarea v-model="editableContent" class="w-full bg-[#0b1c30] text-[#cfe3ff] p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
       </div>
     </div>
 
-    <!-- Single Editor Mode -->
+    <!-- Single Mode -->
     <div v-else>
-      <!-- 只读模式：代码高亮查看 -->
-      <CodeViewer v-if="readonly" :code="editableContent" lang="yaml" :max-height="height" />
-      <!-- 编辑模式：contenteditable + 行号 -->
-      <div v-else class="flex">
-        <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20 overflow-hidden" :style="{ minHeight: height, maxHeight: height }">
-          <div v-for="(_, i) in lines" :key="i" class="leading-[18px]">{{ i + 1 }}</div>
-        </div>
-        <div
-          class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none whitespace-pre"
-          :style="{ minHeight: height, maxHeight: height }"
-          contenteditable="true"
-          @input="handleInput"
-          v-text="editableContent"
-        ></div>
-      </div>
+      <!-- 查看模式（默认）：CodeViewer YAML 高亮 -->
+      <CodeViewer v-if="!isEditing" :code="editableContent" lang="yaml" :max-height="height" />
+      <!-- 编辑模式：textarea -->
+      <textarea v-else v-model="editableContent" class="w-full bg-[#0b1c30] text-[#cfe3ff] p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
     </div>
 
-    <!-- Action Bar -->
-    <div v-if="hasChanges && !readonly" class="flex justify-end gap-sm px-md py-sm bg-surface-container-low border-t border-outline-variant">
+    <!-- Action Bar（编辑且有改动时）-->
+    <div v-if="isEditing && hasChanges" class="flex justify-end gap-sm px-md py-sm bg-surface-container-low border-t border-outline-variant">
       <button @click="handleDiscard" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">Discard</button>
       <button @click="handleSave" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all">Apply Changes</button>
     </div>
