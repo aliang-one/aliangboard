@@ -8,6 +8,7 @@ import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
 
 const LOG_TAIL_MAX = 500
+const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
 const LIST_MAX = 200
 const REPLICA_MAX = 20 // scale 上限(eng-review 9C:禁 scale 到 0 + 范围 guardrail)
 const SCALE_KINDS = ['deployments', 'statefulsets']
@@ -87,7 +88,12 @@ export function createApiKeyTools({ db, requestFn }) {
         fn: async (saCtx) => {
           const q = new URLSearchParams({ tailLines: String(tailN) }); if (a.container) q.set('container', a.container)
           const { body } = await requestFn(saCtx, `/api/v1/namespaces/${enc(a.namespace)}/pods/${enc(a.pod)}/log?${q}`)
-          return { logs: typeof body === 'string' ? body : String(body ?? ''), tail: tailN }
+          // 字节上限(codex #11):单行巨大的日志也会撑爆输出。截断 + 标志,让 AI 知道要更小 tail 重试。
+          const buf = Buffer.from(typeof body === 'string' ? body : String(body ?? ''), 'utf8')
+          const originalBytes = buf.length
+          const truncated = originalBytes > LOG_BYTE_MAX
+          const logs = truncated ? buf.subarray(0, LOG_BYTE_MAX).toString('utf8') : buf.toString('utf8')
+          return { logs, tail: tailN, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
         } })
     },
     list_resources: async (keyRow, cluster, a) => {

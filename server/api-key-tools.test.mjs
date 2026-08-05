@@ -19,13 +19,13 @@ function makeDb() {
 const cluster = { id: 'c1', apiServer: 'https://10.0.0.1:6443', authHeader: 'Bearer admin', ca: null, cert: null, key: null, insecure: true }
 
 // mock requestFn:覆盖 issuer / token / log / list / get / events
-function mockRequestFn() {
+function mockRequestFn({ logBody = 'line1\nline2\nline3' } = {}) {
   return async (ctx, path, init = {}) => {
     if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
     if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
     if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
     if (path.endsWith('/token')) return { body: { status: { token: 'SA-TOKEN', expirationTimestamp: new Date(Date.now() + 600000).toISOString() } } }
-    if (path.includes('/log')) return { body: 'line1\nline2\nline3' }
+    if (path.includes('/log')) return { body: logBody }
     if (/\/namespaces\/[^/]+\/pods$/.test(path)) return { body: { items: [{ metadata: { name: 'p1' }, status: { phase: 'Running', containerStatuses: [{ name: 'c1', ready: true }] } }, { metadata: { name: 'p2' }, status: { phase: 'Pending' } }] } }
     if (/\/namespaces\/[^/]+\/deployments$/.test(path)) return { body: { items: [{ metadata: { name: 'd1' }, spec: { replicas: 2 }, status: { readyReplicas: 2, updatedReplicas: 2 } }] } }
     if (/\/namespaces\/[^/]+\/pods\/[^/]+$/.test(path)) return { body: { metadata: { name: 'p1', managedFields: [{ x: 1 }] }, status: { phase: 'Running' } } }
@@ -41,9 +41,20 @@ test('get_pod_logs(happy): 返回日志 + 审计 started→finalized(ok)', async
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   const out = await tools.getPodLogs(k, cluster, { namespace: 'ns', pod: 'p1', tail: 100 })
   assert.match(out.logs, /line1/)
+  assert.equal(out.truncated, false)
   const rows = db.prepare('SELECT status, result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[0].status, 'started'); assert.equal(rows[1].result, 'ok')
   assert.equal(verifyChain(db).valid, true)
+})
+test('get_pod_logs(字节上限 codex #11): 巨大日志被截到 LOG_BYTE_MAX + truncated 标志', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const bigLog = 'x'.repeat(50000) // 50KB > 32KB 上限
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ logBody: bigLog }) })
+  const out = await tools.getPodLogs(k, cluster, { namespace: 'ns', pod: 'p1', tail: 10 })
+  assert.equal(out.truncated, true)
+  assert.ok(out.originalBytes >= 50000, 'originalBytes 记原始大小')
+  assert.ok(Buffer.byteLength(out.logs) <= 32768 + 4, '截断后 logs 不超上限(+4 容忍多字节尾巴)')
 })
 
 test('deny: bogus tier → policy 拒 + 审计 denied', async () => {
