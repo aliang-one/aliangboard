@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "node scripts/typecheck.mjs",
-    "test": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/call-context.test.mjs && node --test server/auth-keys.test.mjs && node --test server/authorize.test.mjs && node --test server/sa-binding.test.mjs && node --test server/audit.test.mjs && node --test server/api-key-tools.test.mjs && node --test server/mcp.test.mjs && node --test server/rate-limit.test.mjs && node --test server/llm.test.mjs && node --test server/agent.test.mjs"
+    "test": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/call-context.test.mjs && node --test server/auth-keys.test.mjs && node --test server/authorize.test.mjs && node --test server/sa-binding.test.mjs && node --test server/audit.test.mjs && node --test server/api-key-tools.test.mjs && node --test server/mcp.test.mjs && node --test server/rate-limit.test.mjs && node --test server/llm.test.mjs && node --test server/agent.test.mjs && node --test server/agent-runner.test.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
