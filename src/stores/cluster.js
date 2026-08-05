@@ -6,6 +6,7 @@ import { notify } from '@/composables/useToast'
 import { yamlScalar } from '@/composables/useYaml'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
+import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
@@ -155,6 +156,10 @@ export const useClusterStore = defineStore('cluster', () => {
   const failedPods = computed(() => podList.value.filter(p => p.status === 'Failed').length)
   const healthyNodes = computed(() => nodeList.value.filter(n => n.status === 'Ready').length)
   const totalNodes = computed(() => nodeList.value.length)
+  const apiReachable = ref(true)
+  const clusterHealth = computed(() => computeClusterHealth({
+    nodeList: nodeList.value, apiReachable: apiReachable.value, remoteMode: remoteMode.value,
+  }))
 
   // === Namespace 作用域的计算属性 ===
   const nsWorkloads = computed(() => {
@@ -465,7 +470,7 @@ export const useClusterStore = defineStore('cluster', () => {
     try {
       const data = await api.k8s(`${path}?limit=500`)
       list.value = (data.items || []).map(mapper)
-    } catch { /* 忽略刷新失败（如该类资源无权限） */ }
+    } catch (e) { console.warn('[refetch] 刷新失败:', path, e?.message || e) }
   }
 
   // 远端结构化更新：用更新后的对象重新生成清单并 server-side apply（与 YAML 编辑器同链路）。
@@ -1057,6 +1062,31 @@ export const useClusterStore = defineStore('cluster', () => {
     return null
   }
 
+  // 周期健康检查：轻量重拉 /api/v1/nodes → 就地更新 nodeList 的 Ready/NotReady + apiReachable。
+  // 失败 → apiReachable=false（clusterHealth 转 Disconnected）。只更新现有节点状态，不碰 metrics/raw；节点增删由全量 hydrate 处理。
+  let healthTimer = null
+  async function refreshNodeHealth() {
+    if (!remoteMode.value) return
+    try {
+      const data = await api.k8s('/api/v1/nodes?limit=500')
+      const byName = new Map((data?.items || []).map(it => [it.metadata?.name, it]))
+      for (const n of nodeList.value) {
+        const item = byName.get(n.name)
+        if (item) {
+          const ready = item.status?.conditions?.find(c => c.type === 'Ready')
+          n.status = ready?.status === 'True' ? 'Ready' : 'NotReady'
+        }
+      }
+      apiReachable.value = true
+    } catch { apiReachable.value = false }
+  }
+  function startHealthCheck() {
+    if (healthTimer || !remoteMode.value) return
+    refreshNodeHealth()
+    healthTimer = setInterval(refreshNodeHealth, 10000)
+  }
+  function stopHealthCheck() { if (healthTimer) clearInterval(healthTimer); healthTimer = null }
+
   // 轻量刷新 Pod 列表（仅重取 pods，不拉全套资源）：删 Pod 后控制器重建，延时调用即可看到新 Pod（重新拉镜像）
   async function refreshPods() {
     if (!remoteMode.value) return
@@ -1520,6 +1550,8 @@ export const useClusterStore = defineStore('cluster', () => {
       version: info.version || cluster.value.version,
       status: 'Healthy',
     }
+    apiReachable.value = true
+    startHealthCheck()
   }
 
   const ageOf = timestamp => {
@@ -1539,10 +1571,12 @@ export const useClusterStore = defineStore('cluster', () => {
     const usedCpu = metric ? metric.cpuMilli : null
     const usedMem = metric ? metric.memKi : null
     const pct = (used, alloc) => (used != null && alloc > 0 ? Math.min(100, Math.round((used / alloc) * 100)) : null)
+    const roleList = Object.keys(item.metadata?.labels || {}).filter(k => k.startsWith('node-role.kubernetes.io/')).map(k => k.split('/')[1])
     return {
       name: item.metadata?.name,
       status: ready?.status === 'True' ? 'Ready' : 'NotReady',
-      roles: Object.keys(item.metadata?.labels || {}).filter(k => k.startsWith('node-role.kubernetes.io/')).map(k => k.split('/')[1]).join(',') || 'worker',
+      roles: roleList.join(',') || 'worker',
+      isControlPlane: roleList.some(r => r === 'control-plane' || r === 'master'),
       version: item.status?.nodeInfo?.kubeletVersion || '—',
       os: item.status?.nodeInfo?.osImage || '—',
       kernel: item.status?.nodeInfo?.kernelVersion || '—',
@@ -2092,6 +2126,7 @@ export const useClusterStore = defineStore('cluster', () => {
     ])
     const valueAt = index => requests[index].status === 'fulfilled' ? requests[index].value : null
     const nodeData = valueAt(0)
+    if (!nodeData && remoteMode.value) notify('error', '节点列表拉取失败：集群可能不可达或 RBAC 缺乏 nodes 读权限')
     const podData = valueAt(1)
     const namespaceData = valueAt(2)
     const deploymentData = valueAt(3)
@@ -2158,11 +2193,11 @@ export const useClusterStore = defineStore('cluster', () => {
     // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
     // lite 模式（滚动发布自动刷新）：跳过较重的扩展资源（ConfigMap/Secret/RBAC 等），只更新运行态
     if (!opts.lite) {
-      try { await hydrateExtendedResources() } catch { /* 容错：部分资源无权限时忽略 */ }
+      try { await hydrateExtendedResources() } catch (e) { console.warn('[hydrate] 扩展资源部分失败:', e?.message || e) }
     }
     if (!opts.silent) connectionState.value = 'connected'
     // CRD 及其实例可能较多，异步拉取不阻塞首屏
-    hydrateCRDs().catch(() => {})
+    hydrateCRDs().catch(e => console.warn('[hydrate] CRD 拉取失败:', e?.message || e))
     // nodeList 与 podList 均已水合，按 pod.node 回填 podCount
     recountNodePods()
     return { failed: requests.filter(r => r.status === 'rejected').length }
@@ -3271,7 +3306,7 @@ status:
     clusterRoleBindingList, pdbList, priorityClassList,
     clusterList, savedClusters, auditLogList, crdList, currentCluster, remoteMode, connectionState,
     // 全局计算
-    runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
+    runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Namespace 作用域计算
     nsWorkloads, nsPods, nsServices, nsIngress, nsEndpoints, nsConfigMaps, nsSecrets, nsContainerPorts, nsContainerPortGroups,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
