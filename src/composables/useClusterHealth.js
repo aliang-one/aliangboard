@@ -8,7 +8,7 @@ export function computeClusterHealth({ nodeList = [], apiReachable = true, remot
   const wReady = workers.filter(n => n.status === 'Ready')
   const base = { controlPlane: { ready: cpReady.length, total: cp.length }, workers: { ready: wReady.length, total: workers.length } }
   if (!remoteMode || !apiReachable || !nodeList.length) {
-    return { status: 'Disconnected', severity: 'none', reasons: ['API 不可达或未连接'], ...base }
+    return { status: 'Disconnected', severity: 'crit', reasons: ['API 不可达或未连接'], ...base }
   }
   if (cp.length && cpReady.length < cp.length) {
     return { status: 'Critical', severity: 'crit', reasons: [`控制面 ${cpReady.length}/${cp.length} 就绪`], ...base }

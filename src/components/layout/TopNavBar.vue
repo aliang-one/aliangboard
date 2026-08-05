@@ -93,10 +93,6 @@ function clusterStatusColor(severity) {
   if (severity === 'crit') return 'bg-error'
   return 'bg-on-surface-variant'
 }
-function healthOf(name) {
-  return store.clusterHealth   // 单连接下全局 clusterHealth；多集群下拉里均显示当前活跃集群健康
-}
-
 async function selectCluster(apiServer) {
   showClusterDropdown.value = false
   const c = store.clusterList.find(x => x.apiServer === apiServer)
