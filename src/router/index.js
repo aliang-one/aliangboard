@@ -37,6 +37,12 @@ const routes = [
         meta: { title: 'Cluster Overview', icon: 'dashboard', scope: 'global' }
       },
       {
+        path: 'monitoring',
+        name: 'MonitoringCenter',
+        component: () => import('@/views/MonitoringCenter.vue'),
+        meta: { title: '监控中心', icon: 'monitoring', scope: 'global' }
+      },
+      {
         path: 'nodes',
         name: 'Nodes',
         component: () => import('@/views/Nodes.vue'),
