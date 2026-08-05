@@ -104,6 +104,18 @@ createApiKeysSchema(db)
 // result=denied + reason 也写(含拒绝)。requestSummary 是截断摘要——codex #12:不放原始日志/输出(防注入+泄露)。
 // prevHash/hash:链式哈希;node:sqlite DatabaseSync 单进程同步 → 插入天然串行,prevHash 不会读到并发分叉(MVP 单进程)。
 createAuditSchema(db)
+// === 平台设置(LLM 配置等,key/value 通用)===
+db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
+function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
+function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
+// LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
+function getLlmConfig() {
+  return {
+    baseURL: getSetting('llm.baseURL') || process.env.LLM_BASE_URL || '',
+    apiKey: getSetting('llm.apiKey') || process.env.LLM_API_KEY || '',
+    model: getSetting('llm.model') || process.env.LLM_MODEL || '',
+  }
+}
 // scrypt 密码：格式 saltHex:hashHex:N:r:p
 const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1
 function hashPassword(password) {
@@ -727,9 +739,9 @@ async function handle(req, res) {
       if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
       if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const baseURL = process.env.LLM_BASE_URL, llmKey = process.env.LLM_API_KEY, model = process.env.LLM_MODEL
-      if (!baseURL || !model) return sendJson(res, 503, { message: 'LLM 未配置(设 LLM_BASE_URL / LLM_MODEL 环境变量)' })
-      const llmClient = createLlmClient({ baseURL, apiKey: llmKey, model })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
       const trace = []
       let out
@@ -757,6 +769,41 @@ async function handle(req, res) {
       }
       return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
+  }
+
+  // ====== Admin: LLM 配置(baseURL/apiKey/model 存 DB;env 回退;GET 不回传 key)======
+  if (url.pathname === '/api/admin/llm-config' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const dbBase = getSetting('llm.baseURL'), dbKey = getSetting('llm.apiKey'), dbModel = getSetting('llm.model')
+    const src = (db, env) => db ? 'db' : (env ? 'env' : 'none')
+    return sendJson(res, 200, {
+      baseURL: dbBase || process.env.LLM_BASE_URL || '',
+      model: dbModel || process.env.LLM_MODEL || '',
+      baseURLSource: src(dbBase, process.env.LLM_BASE_URL),
+      modelSource: src(dbModel, process.env.LLM_MODEL),
+      hasApiKey: !!(dbKey || process.env.LLM_API_KEY),
+      apiKeySource: src(dbKey, process.env.LLM_API_KEY),
+    })
+  }
+  if (url.pathname === '/api/admin/llm-config' && req.method === 'PUT') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      setSetting('llm.baseURL', input.baseURL || '')
+      setSetting('llm.model', input.model || '')
+      if (typeof input.apiKey === 'string' && input.apiKey) setSetting('llm.apiKey', input.apiKey) // 留空 = 不修改
+      return sendJson(res, 200, { ok: true })
+    } catch (e) { return sendJson(res, 500, { message: e?.message || '保存失败' }) }
+  }
+  if (url.pathname === '/api/admin/llm-config/test' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先配置 baseURL + model' })
+      const client = createLlmClient({ ...cfg, timeoutMs: 20000 })
+      const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
+      return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
+    } catch (e) { return sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===

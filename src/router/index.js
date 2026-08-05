@@ -453,6 +453,12 @@ const routes = [
         component: () => import('@/views/admin/AgentConsole.vue'),
         meta: { title: 'AI 控制台', icon: 'smart_toy', scope: 'global', requireAdmin: true }
       },
+      {
+        path: 'admin/llm-config',
+        name: 'AdminLlmConfig',
+        component: () => import('@/views/admin/LlmConfig.vue'),
+        meta: { title: 'LLM 配置', icon: 'neurology', scope: 'global', requireAdmin: true }
+      },
     ]
   }
 ]

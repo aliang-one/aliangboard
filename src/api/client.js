@@ -213,6 +213,12 @@ export const adminApi = {
   agent: {
     chat: payload => platformRequest('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
   },
+  // LLM 配置(baseURL/apiKey/model 存 DB;GET 不回传 key)
+  llmConfig: {
+    get: () => platformRequest('/api/admin/llm-config'),
+    save: payload => platformRequest('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
+    test: () => platformRequest('/api/admin/llm-config/test', { method: 'POST' }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。

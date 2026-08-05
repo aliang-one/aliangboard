@@ -42,6 +42,7 @@ const platformAdminNav = [
   { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
   { icon: 'vpn_key', label: 'API Keys', route: '/admin/apikeys' },
   { icon: 'smart_toy', label: 'AI 控制台', route: '/admin/agent' },
+  { icon: 'neurology', label: 'LLM 配置', route: '/admin/llm-config' },
 ]
 const clusterNavOpen = ref(false)
 
