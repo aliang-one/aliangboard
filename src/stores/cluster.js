@@ -661,9 +661,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const patch = buildPVPatch(before, updates)
     if (!patch) return
     if (remoteMode.value) {
-      await api.k8s(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, {
-        method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch),
-      })
+      await remotePatch(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, patch, 'PersistentVolume', () => { pvList.value[idx] = before })
     }
     pvList.value[idx] = {
       ...before,
@@ -696,9 +694,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const patch = buildStorageClassPatch(before, updates)
     if (!patch) return
     if (remoteMode.value) {
-      await api.k8s(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, {
-        method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch),
-      })
+      await remotePatch(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, patch, 'StorageClass', () => { scList.value[idx] = before })
     }
     const DEFAULT_KEY = 'storageclass.kubernetes.io/is-default-class'
     const newAnns = { ...(updates.annotations || before.annotations || {}) }

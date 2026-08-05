@@ -183,7 +183,7 @@ async function handleDelete() {
       <p class="text-body-md text-on-surface-variant">确认删除 StorageClass <span class="text-on-surface font-semibold">{{ sc.name }}</span>？此操作不可撤销。</p>
       <template #actions>
         <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-        <button @click="handleDelete" class="px-md py-sm bg-error text-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
       </template>
     </Modal>
   </section>
