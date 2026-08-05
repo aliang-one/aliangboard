@@ -7,6 +7,12 @@ import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
+import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
+import { createApiKeysSchema } from './auth-keys.mjs'
+import { createAuditSchema } from './audit.mjs'
+import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
+import { createMcpServer } from './mcp.mjs'
+import { checkRate } from './rate-limit.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 
@@ -15,7 +21,6 @@ const host = process.env.HOST || '127.0.0.1'
 const sessions = new Map()
 const discoveryCache = new Map()
 const sessionTtl = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000)
-const allowedHosts = new Set((process.env.K8S_ALLOWED_HOSTS || '').split(',').map(value => value.trim()).filter(Boolean))
 
 // === 会话持久化（SQLite）：集群访问配置落盘，网关重启后浏览器 token 仍有效，无需重登 ===
 // ⚠️ 库文件含 K8s 凭据（token/账密/客户端证书私钥），须靠主机文件权限保护（默认 0600）。
@@ -86,6 +91,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   createdAt INTEGER NOT NULL,
   k8sSessionToken TEXT
 )`)
+// API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
+createApiKeysSchema(db)
+// === 审计日志(按人审计 + 链哈希,codex #9) ===
+// seq AUTOINCREMENT:单调序号(链锚点 + 排序,行 id 不重用)。
+// status:started(执行前先写,崩溃可追溯)→ finalized(执行后补结果)。codex #9 的两阶段。
+// result=denied + reason 也写(含拒绝)。requestSummary 是截断摘要——codex #12:不放原始日志/输出(防注入+泄露)。
+// prevHash/hash:链式哈希;node:sqlite DatabaseSync 单进程同步 → 插入天然串行,prevHash 不会读到并发分叉(MVP 单进程)。
+createAuditSchema(db)
 // scrypt 密码：格式 saltHex:hashHex:N:r:p
 const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1
 function hashPassword(password) {
@@ -167,14 +180,10 @@ function loadPersistedSessions() {
   for (const r of rows) {
     try {
       const session = {
-        apiServer: normalizeServer(r.apiServer),
-        authHeader: r.authHeader,
-        ca: r.ca, cert: r.cert, key: r.key,
-        insecure: !!r.insecure,
+        ...buildCallContext({ apiServer: r.apiServer, authHeader: r.authHeader, ca: r.ca, cert: r.cert, key: r.key, insecure: !!r.insecure }),
         version: r.version || undefined,
         createdAt: r.createdAt,
       }
-      session.dispatcher = buildDispatcher(session)
       sessions.set(r.token, session)
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
@@ -230,13 +239,7 @@ function sessionFromRequest(req) {
   return session
 }
 
-function normalizeServer(value) {
-  const url = new URL(String(value || ''))
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('API Server 必须使用 http 或 https')
-  if (allowedHosts.size && !allowedHosts.has(url.hostname)) throw new Error(`API Server 主机 ${url.hostname} 不在允许列表中`)
-  url.pathname = url.pathname.replace(/\/$/, '')
-  return url
-}
+// normalizeServer / getDispatcher / buildCallContext(调用上下文抽象)见 ./call-context.mjs
 
 // 解析粘贴进来的 kubeconfig：定位 current-context → cluster（server/CA）+ user（token|账密|客户端证书）。
 // 仅支持内联 *-data（base64）或 Gateway 主机上可读的 *-file；不支持 exec 凭证插件（gcp/aws/azure 等）。
@@ -264,15 +267,8 @@ function certMaterial(node, dataKey, fileKey) {
   return undefined
 }
 
-// 为每个会话构建独立的 undici dispatcher：承载 mTLS（client cert+key+CA）与 insecure 开关。
-// Node 全局 fetch 接受 dispatcher 选项；故所有 fetch（缓冲式 + 流式）都透传它，统一 TLS 行为。
-function buildDispatcher({ ca, cert, key, insecure }) {
-  const connect = { rejectUnauthorized: !insecure }
-  if (ca) connect.ca = ca
-  if (cert) connect.cert = cert
-  if (key) connect.key = key
-  return new UndiciAgent({ connect })
-}
+// 调用上下文(call context)抽象:normalizeServer / getDispatcher / buildCallContext 见 ./call-context.mjs
+// (T1:抽模块 + 可单测。所有 kube 调用吃 buildCallContext 返回的形状;浏览器 session 与 API-key 共用。)
 
 async function requestKubernetes(session, path, init = {}) {
   const target = new URL(path, session.apiServer)
@@ -298,6 +294,11 @@ async function requestKubernetes(session, path, init = {}) {
   }
   return { status: response.status, headers: response.headers, body }
 }
+
+// API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
+const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes })
+// MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
+const mcpHandler = createMcpServer({ db, apiKeyTools })
 
 async function discoverResource(session, object) {
   const apiVersion = String(object.apiVersion || '')
@@ -647,6 +648,56 @@ async function handle(req, res) {
     return sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString() })
   }
 
+  // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
+  if (url.pathname === '/mcp') return mcpHandler(req, res)
+
+  // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
+  // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
+  if (url.pathname.startsWith('/api/key/') && req.method === 'GET') {
+    const keyRow = resolveApiKey(db, req)
+    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    const _rl = checkRate(keyRow.id)
+    if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
+    const m = url.pathname.match(/^\/api\/key\/([^/]+)\/namespaces\/([^/]+)\/pods\/([^/]+)\/logs$/)
+    if (!m) return sendJson(res, 404, { message: '未知的 API-key 工具路由(骨架仅支持 .../pods/<pod>/logs)' })
+    const clusterId = decodeURIComponent(m[1]), namespace = decodeURIComponent(m[2]), pod = decodeURIComponent(m[3])
+    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+    if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+    try {
+      const out = await apiKeyTools.getPodLogs(keyRow, cluster, {
+        namespace, pod,
+        container: url.searchParams.get('container'),
+        tail: url.searchParams.get('tail'),
+      })
+      return sendJson(res, 200, out)
+    } catch (e) {
+      if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
+      return sendJson(res, e.status || 502, { message: e.message || '拉取日志失败' })
+    }
+  }
+
+  // === API-key 工具派发(T9:POST {tool,args} → callTool;T12 MCP server 复用此入口)===
+  const callMatch = req.method === 'POST' && url.pathname.match(/^\/api\/key\/([^/]+)\/call$/)
+  if (callMatch) {
+    const keyRow = resolveApiKey(db, req)
+    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    const _rl = checkRate(keyRow.id)
+    if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
+    const clusterId = decodeURIComponent(callMatch[1])
+    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+    if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+    try {
+      const input = await readBody(req)
+      const out = await apiKeyTools.callTool(keyRow, cluster, input.tool, input.args || {})
+      return sendJson(res, 200, out)
+    } catch (e) {
+      if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
+      return sendJson(res, e.status || 502, { message: e.message || '工具调用失败' })
+    }
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/session') {
     try {
       const input = await readBody(req)
@@ -673,9 +724,8 @@ async function handle(req, res) {
         authHeader = `Bearer ${String(input.token)}`
       }
       const insecure = input.insecure === true || process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true'
-      const dispatcher = buildDispatcher({ ca, cert, key, insecure })
       const sessionId = randomUUID()
-      const session = { apiServer, authHeader, dispatcher, ca, cert, key, insecure, createdAt: Date.now() }
+      const session = { ...buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), createdAt: Date.now() }
       const probe = await requestKubernetes(session, '/version')
       session.version = probe.body?.gitVersion || 'unknown'
       sessions.set(sessionId, session)
@@ -1098,10 +1148,9 @@ async function handle(req, res) {
         const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps.userId, clusterId)
         if (!assigned) return sendJson(res, 403, { message: '无权访问此集群' })
       }
-      // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致）
+      // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致;经 buildCallContext 统一形状）
       const apiServer = normalizeServer(cluster.apiServer)
-      const dispatcher = buildDispatcher({ ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
-      const k8sSession = { apiServer, authHeader: cluster.authHeader, dispatcher, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure, createdAt: Date.now() }
+      const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
       const probe = await requestKubernetes(k8sSession, '/version')
       k8sSession.version = probe.body?.gitVersion || 'unknown'
       const k8sToken = randomUUID()
@@ -1151,9 +1200,8 @@ async function handle(req, res) {
         key = input.key || null
       } else { return sendJson(res, 400, { message: '缺少凭据（token / 账密 / kubeconfig / 客户端证书）' }) }
       const insecure = input.insecure === true
-      // 探测版本
-      const dispatcher = buildDispatcher({ ca, cert, key, insecure })
-      const probe = await requestKubernetes({ apiServer, authHeader, dispatcher, ca, cert, key, insecure }, '/version')
+      // 探测版本（经 buildCallContext 构造调用上下文）
+      const probe = await requestKubernetes(buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), '/version')
       const version = probe.body?.gitVersion || 'unknown'
       const id = randomUUID()
       db.prepare('INSERT INTO clusters (id,name,apiServer,authMethod,authHeader,ca,cert,key,insecure,version,createdBy,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
