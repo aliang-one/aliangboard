@@ -12,6 +12,7 @@ import { createApiKeysSchema } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
+import { checkRate } from './rate-limit.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 
@@ -655,6 +656,8 @@ async function handle(req, res) {
   if (url.pathname.startsWith('/api/key/') && req.method === 'GET') {
     const keyRow = resolveApiKey(db, req)
     if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    const _rl = checkRate(keyRow.id)
+    if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const m = url.pathname.match(/^\/api\/key\/([^/]+)\/namespaces\/([^/]+)\/pods\/([^/]+)\/logs$/)
     if (!m) return sendJson(res, 404, { message: '未知的 API-key 工具路由(骨架仅支持 .../pods/<pod>/logs)' })
     const clusterId = decodeURIComponent(m[1]), namespace = decodeURIComponent(m[2]), pod = decodeURIComponent(m[3])
@@ -679,6 +682,8 @@ async function handle(req, res) {
   if (callMatch) {
     const keyRow = resolveApiKey(db, req)
     if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    const _rl = checkRate(keyRow.id)
+    if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const clusterId = decodeURIComponent(callMatch[1])
     if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
