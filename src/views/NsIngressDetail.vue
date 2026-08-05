@@ -7,6 +7,7 @@ import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,6 +46,13 @@ const allRules = computed(() => {
 const showRulesModal = ref(false)
 const editRules = ref([])
 const pathTypeOptions = ['Prefix', 'Exact', 'ImplementationSpecific']
+// 当前 ns Service 名候选（每行 serviceName 下拉）
+const nsServiceNames = computed(() => store.nsServices.map(s => s.name))
+// 按行 serviceName 取其暴露端口（每行 servicePort 候选）；service 不存在时为空，允许手输
+function portsFor(serviceName) {
+  const svc = store.getServiceByName(serviceName, route.params.namespace)
+  return (svc?.portList || []).map(p => p.port)
+}
 function openRulesEditor() {
   editRules.value = allRules.value.map(r => ({ ...r, servicePort: String(r.servicePort ?? '') }))
   if (!editRules.value.length) editRules.value = [{ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }]
@@ -433,8 +441,8 @@ function saveEditLabel() {
                 <option v-for="t in pathTypeOptions" :key="t" :value="t">{{ t }}</option>
               </select>
             </td>
-            <td class="px-md py-sm"><input v-model="r.serviceName" class="w-32 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="my-svc" /></td>
-            <td class="px-md py-sm"><input v-model="r.servicePort" class="w-20 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="80" /></td>
+            <td class="px-md py-sm"><PortSelect v-model="r.serviceName" :options="nsServiceNames" placeholder="my-svc" empty-hint="当前命名空间暂无 Service，可直接输入" input-class="w-32 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" /></td>
+            <td class="px-md py-sm"><PortSelect v-model="r.servicePort" :options="portsFor(r.serviceName)" placeholder="80" empty-hint="选择 Service 后显示其端口，也可直接输入" input-class="w-20 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" /></td>
             <td class="px-md py-sm text-center">
               <button @click="removeRule(idx)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded" title="删除该规则"><span class="material-symbols-outlined text-lg">delete</span></button>
             </td>
