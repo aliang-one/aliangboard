@@ -138,7 +138,8 @@ function addIngressRule() { form.value.ingressRules.push({ host: '', paths: [{ p
 function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
 function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
 function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
-function addVolume() { form.value.volumeMounts.push({ name: '', type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
+function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
+function addVolume() { form.value.volumeMounts.push({ name: genVolName(), type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
