@@ -19,6 +19,7 @@ import Modal from '@/components/common/Modal.vue'
 import MiniChart from '@/components/common/MiniChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 import FileBrowser from '@/components/common/FileBrowser.vue'
+import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
@@ -1792,20 +1793,20 @@ function podStatusBorder(s) {
             <button @click="editForm.env.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
           </div>
           <div class="flex items-center justify-between mt-xs"><label class="text-xs text-on-surface-variant">环境变量（ConfigMap 键引用）</label><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="grid grid-cols-3 gap-xs">
-            <input v-model="e.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
-            <input v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ConfigMap" />
-            <div class="flex gap-xs"><input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" /><button @click="editForm.envCMKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+          <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
+            <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
+            <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:key="e.key" />
+            <button @click="editForm.envCMKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error flex-shrink-0"><span class="material-symbols-outlined text-sm">close</span></button>
           </div>
           <div class="flex items-center justify-between mt-xs"><label class="text-xs text-on-surface-variant">环境变量（Secret 键引用）</label><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="grid grid-cols-3 gap-xs">
-            <input v-model="e.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
-            <input v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="Secret" />
-            <div class="flex gap-xs"><input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" /><button @click="editForm.envSecretKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+          <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
+            <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
+            <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:key="e.key" />
+            <button @click="editForm.envSecretKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error flex-shrink-0"><span class="material-symbols-outlined text-sm">close</span></button>
           </div>
           <div class="grid grid-cols-2 gap-xs mt-xs">
-            <div><label class="text-xs text-on-surface-variant">envFrom ConfigMap</label><input v-model="editForm.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="整体注入一个 ConfigMap" /></div>
-            <div><label class="text-xs text-on-surface-variant">envFrom Secret</label><input v-model="editForm.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="整体注入一个 Secret" /></div>
+            <div><label class="text-xs text-on-surface-variant">envFrom ConfigMap</label><EnvSourceField kind="configmap" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromConfigMap" /></div>
+            <div><label class="text-xs text-on-surface-variant">envFrom Secret</label><EnvSourceField kind="secret" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromSecret" /></div>
           </div>
         </div>
 
