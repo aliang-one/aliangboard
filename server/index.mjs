@@ -15,6 +15,7 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -38,7 +39,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   version TEXT,
   createdAt INTEGER NOT NULL
 )`)
-const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
+const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   id TEXT PRIMARY KEY,
@@ -169,6 +172,8 @@ function persistSession(token, session) {
       session.insecure ? 1 : 0,
       session.version || null,
       session.createdAt || Date.now(),
+      JSON.stringify((session.endpoints || [session.apiServer]).map(u => u.toString())),
+      session.endpointIdx || 0,
     )
   } catch (e) { console.error('[sqlite] persistSession 失败', e?.message || e) }
 }
@@ -181,9 +186,12 @@ function loadPersistedSessions() {
     try {
       const session = {
         ...buildCallContext({ apiServer: r.apiServer, authHeader: r.authHeader, ca: r.ca, cert: r.cert, key: r.key, insecure: !!r.insecure }),
+        endpointIdx: r.endpointIdx || 0,
         version: r.version || undefined,
         createdAt: r.createdAt,
       }
+      session.endpoints = r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [session.apiServer]
+      session.insecureDispatcher = getDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
       sessions.set(r.token, session)
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
@@ -270,16 +278,42 @@ function certMaterial(node, dataKey, fileKey) {
 // 调用上下文(call context)抽象:normalizeServer / getDispatcher / buildCallContext 见 ./call-context.mjs
 // (T1:抽模块 + 可单测。所有 kube 调用吃 buildCallContext 返回的形状;浏览器 session 与 API-key 共用。)
 
-async function requestKubernetes(session, path, init = {}) {
-  const target = new URL(path, session.apiServer)
+// 自动发现控制面端点：GET /api/v1/nodes → 过滤 control-plane → InternalIP → 候选 https://<ip>:<port>。
+// 端口从原始 apiServer 继承；发现失败 → 只返回 [apiServer]（降级不阻断）。
+async function discoverEndpoints(session) {
+  try {
+    const result = await requestOnce(session, session.apiServer, '/api/v1/nodes?limit=500')
+    const nodes = result.body?.items || []
+    const port = session.apiServer.port || (session.apiServer.protocol === 'https:' ? '443' : '80')
+    const seen = new Set([session.apiServer.origin])
+    const candidates = []
+    for (const node of nodes) {
+      const labels = node.metadata?.labels || {}
+      const isCP = labels['node-role.kubernetes.io/control-plane'] !== undefined || labels['node-role.kubernetes.io/master'] !== undefined
+      if (!isCP) continue
+      const ip = node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
+      if (!ip) continue
+      const url = new URL(`${session.apiServer.protocol}//${ip}:${port}`)
+      if (!seen.has(url.origin)) { seen.add(url.origin); candidates.push(url) }
+    }
+    const all = [session.apiServer, ...candidates]
+    console.log(`[failover] 发现 ${all.length} 个端点: ${all.map(u => u.host).join(', ')}`)
+    return all
+  } catch (e) {
+    console.warn('[failover] 控制面节点发现失败，使用单端点:', e?.message || e)
+    return [session.apiServer]
+  }
+}
+
+// 单端点请求（不转移）：给指定 endpoint 发一次请求，返回 {status, headers, body}，失败抛错。
+async function requestOnce(session, endpoint, path, init = {}) {
+  const target = new URL(path, endpoint)
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
-
+  const dispatcher = (endpoint.origin === session.apiServer.origin) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
-    ...init,
-    headers,
-    dispatcher: session.dispatcher,
+    ...init, headers, dispatcher,
     signal: AbortSignal.timeout(Number(process.env.K8S_REQUEST_TIMEOUT || 15000)),
   })
   const text = await response.text()
@@ -293,6 +327,31 @@ async function requestKubernetes(session, path, init = {}) {
     throw error
   }
   return { status: response.status, headers: response.headers, body }
+}
+
+// 故障转移包装：按 session.endpoints 迭代；网络错误/5xx/超时 → 试下一个；4xx 立即抛。
+async function requestKubernetes(session, path, init = {}) {
+  const endpoints = (session.endpoints && session.endpoints.length) ? session.endpoints : [session.apiServer]
+  const errors = []
+  for (let attempt = 0; attempt < endpoints.length; attempt++) {
+    const idx = ((session.endpointIdx || 0) + attempt) % endpoints.length
+    const endpoint = endpoints[idx]
+    try {
+      const result = await requestOnce(session, endpoint, path, init)
+      if (attempt > 0) { session.endpointIdx = idx; console.log(`[failover] 切换到端点 ${endpoint.host}`) }
+      return result
+    } catch (e) {
+      if (isFailoverEligible(e) && attempt < endpoints.length - 1) {
+        errors.push(`${endpoint.host}: ${e.message}`)
+        console.warn(`[failover] 端点 ${endpoint.host} 失败 (${e.message || e.code})，尝试下一个...`)
+        continue
+      }
+      if (isFailoverEligible(e) && errors.length) {
+        throw Object.assign(new Error(`所有端点不可达（${endpoints.length}个）：${[...errors, `${endpoint.host}: ${e.message}`].join('; ')}`), { status: 503, details: errors })
+      }
+      throw e
+    }
+  }
 }
 
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
@@ -360,8 +419,8 @@ function buildKubeConfig(KubeConfig, session) {
   const cluster = {
     name: 'aliangboard',
     // 去尾斜杠：client-node 的 WebSocketHandler 用字符串拼接 server+path，尾斜杠会导致 `//api/v1/…` 双斜杠 → 404
-    server: session.apiServer.toString().replace(/\/$/, ''),
-    skipTLSVerify: !!session.insecure,
+    server: currentEndpoint(session).toString().replace(/\/$/, ''),
+    skipTLSVerify: !!session.insecure || (session.endpointIdx || 0) > 0,
     ...(session.ca ? { caData: b64(session.ca) } : {}),
   }
   const user = { name: 'aliangboard' }
@@ -728,6 +787,9 @@ async function handle(req, res) {
       const session = { ...buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), createdAt: Date.now() }
       const probe = await requestKubernetes(session, '/version')
       session.version = probe.body?.gitVersion || 'unknown'
+      session.endpoints = await discoverEndpoints(session)
+      session.endpointIdx = 0
+      session.insecureDispatcher = getDispatcher({ ca, cert, key, insecure: true })
       sessions.set(sessionId, session)
       persistSession(sessionId, session) // 落盘：重启后浏览器 token 仍有效
       return sendJson(res, 200, {
@@ -1053,11 +1115,11 @@ async function handle(req, res) {
   const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
   if (isStreaming) {
     try {
-      const target = new URL(kubernetesPath, session.apiServer)
+      const target = new URL(kubernetesPath, currentEndpoint(session))
       const upstream = await kubeFetch(target, {
         method: 'GET',
         headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
-        dispatcher: session.dispatcher,
+        dispatcher: currentDispatcher(session),
         signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
       })
       if (!upstream.ok || !upstream.body) {
