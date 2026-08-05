@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
-import { createApiKeysSchema } from './auth-keys.mjs'
+import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1215,6 +1215,35 @@ async function handle(req, res) {
     db.prepare('DELETE FROM clusters WHERE id=?').run(id)
     db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
     return sendJson(res, 200, { ok: true })
+  }
+
+  // ====== Admin: API Keys 管理(T13:签发/列表/吊销,逻辑见 ./auth-keys.mjs)======
+  if (url.pathname === '/api/admin/apikeys' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    return sendJson(res, 200, { apikeys: listKeys(db) })
+  }
+  if (url.pathname === '/api/admin/apikeys' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const k = mintKey(db, {
+        owner: input.owner || ps.username,
+        clusterId: input.clusterId,
+        boundSA_namespace: input.boundSA_namespace,
+        boundSA_name: input.boundSA_name,
+        tier: input.tier || 'read',
+        label: input.label || null,
+        createdBy: ps.username,
+      })
+      // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
+      return sendJson(res, 200, { apikey: k })
+    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '签发 API key 失败' }) }
+  }
+  if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = decodeURIComponent(url.pathname.slice('/api/admin/apikeys/'.length))
+    const revoked = revokeKey(db, id)
+    return sendJson(res, 200, { ok: true, revoked })
   }
 
   // ====== Admin: 用户管理 ======
