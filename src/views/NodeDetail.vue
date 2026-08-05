@@ -76,6 +76,9 @@ async function handleDrain() {
               <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" />
               <span class="text-xs text-on-surface-variant">{{ node.ip }}</span>
               <span class="text-xs text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
+              <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant capitalize">{{ node.roles }}</span>
+              <span v-if="node.arch" class="text-xs text-on-surface-variant">{{ node.arch }}</span>
+              <span v-if="node.containerRuntimeShort" class="font-mono text-xs text-on-surface-variant">{{ node.containerRuntimeShort }}</span>
               <span v-if="isCordoned" class="px-1.5 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs rounded font-medium">CORDONED</span>
             </div>
           </div>
@@ -112,7 +115,7 @@ async function handleDrain() {
             <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
             <span class="text-body-sm font-semibold">Resource Usage</span>
           </div>
-          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-2 gap-md p-md">
+          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-3 gap-md p-md">
             <div>
               <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
               <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
@@ -122,6 +125,11 @@ async function handleDrain() {
               <ProgressBar :value="node.memory || 0" size="lg" show-label label="Memory" />
               <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
               <p v-if="node.usedMem != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
+            </div>
+            <div>
+              <ProgressBar :value="node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) : 0" size="lg" show-label label="Pods" />
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) + '% used' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ node.podCount ?? 0 }} / {{ node.podCapacity ?? '—' }}</p>
             </div>
           </div>
           <div v-else class="flex items-center gap-sm text-on-surface-variant p-md">
@@ -169,11 +177,32 @@ async function handleDrain() {
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kernel</span><span class="font-mono text-xs">{{ node.kernel }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kubelet</span><span class="font-mono text-xs">{{ node.version }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Container Runtime</span><span class="font-mono text-xs">{{ node.containerRuntimeShort || node.containerRuntime || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Architecture</span><span class="text-body-sm font-medium">{{ node.arch || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">OS Type</span><span class="text-body-sm font-medium capitalize">{{ node.osType || '—' }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Role</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ node.roles }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Internal IP</span><span class="font-mono text-xs text-primary">{{ node.ip }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">External IP</span><span class="font-mono text-xs text-primary">{{ node.externalIp || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Pod CIDR</span><span class="font-mono text-xs">{{ node.podCIDR || '—' }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
             <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
+          </div>
+        </div>
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">block</span>
+            <span class="text-body-sm font-semibold">Taints</span>
+            <span class="text-xs text-on-surface-variant ml-auto">{{ node.taintCount ?? 0 }}</span>
+          </div>
+          <div v-if="node.taints && node.taints.length" class="px-md py-sm space-y-sm">
+            <div v-for="(t, i) in node.taints" :key="i" class="flex justify-between gap-md">
+              <span class="font-mono text-xs text-on-surface truncate">{{ t.key }}{{ t.value ? '=' + t.value : '' }}</span>
+              <span class="px-1.5 py-0.5 bg-tertiary-container/20 text-tertiary-container text-xs rounded whitespace-nowrap">{{ t.effect }}</span>
+            </div>
+          </div>
+          <div v-else class="px-md py-sm text-xs text-on-surface-variant flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base">check_circle</span> No taints
           </div>
         </div>
       </div>
