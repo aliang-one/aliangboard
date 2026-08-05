@@ -6,9 +6,9 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
-import TypeaheadInput from '@/components/common/TypeaheadInput.vue'
+import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import { usePagination } from '@/composables/usePagination'
-import { INGRESS_CLASSES, PERF_GROUPS, INGRESS_ANNOTATION_SUGGESTIONS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { INGRESS_CLASSES, PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 
 const route = useRoute()
 const router = useRouter()
@@ -302,7 +302,7 @@ function handleDelete() {
           <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>新增</button>
         </div>
         <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs">
-          <TypeaheadInput v-model="a.key" :options="INGRESS_ANNOTATION_SUGGESTIONS" class="flex-1" input-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="annotation key" />
+          <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
           <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
           <button @click="removeCustomAnnotation(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
