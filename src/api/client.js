@@ -209,6 +209,10 @@ export const adminApi = {
     create: payload => platformRequest('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformRequest(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
+  // Agent 聊天(第二阶段切片 4):{ message, apiKeyId, history } → { content, steps, denied, truncated?, trace[] }
+  agent: {
+    chat: payload => platformRequest('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。

@@ -728,11 +728,13 @@ async function handle(req, res) {
       // MVP:只读——写操作(scale/restart)恒拒;且 key 应是 read 档(底座 authorize 双保险)。人审 UI 是切片 3b。
       const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, onApproval: async () => false })
       const history = Array.isArray(input.history) ? input.history : []
+      const trace = []
       const out = await run({
         system: '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。',
         history: [...history, { role: 'user', content: String(input.message) }],
+        onStep: e => trace.push(e), // 切片 4:回传工具调用 trace 供 UI 展示
       })
-      return sendJson(res, 200, out) // { content, steps, denied, truncated? }
+      return sendJson(res, 200, { ...out, trace }) // { content, steps, denied, truncated?, trace[] }
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
   }
 

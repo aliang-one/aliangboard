@@ -41,6 +41,7 @@ const platformAdminNav = [
   { icon: 'group', label: '用户管理', route: '/admin/users' },
   { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
   { icon: 'vpn_key', label: 'API Keys', route: '/admin/apikeys' },
+  { icon: 'smart_toy', label: 'AI 控制台', route: '/admin/agent' },
 ]
 const clusterNavOpen = ref(false)
 
