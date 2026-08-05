@@ -167,6 +167,27 @@ ${annYaml}`
   assert.equal(out['custom.example/plain'], 'plain')
 })
 
+// --- 端口选择：聚合工作负载 containerPort（去重升序，过滤空值）---
+// 契约：stores/cluster.js 的 nsContainerPorts 复用本纯函数；镜像输入结构为 mapWorkload 产物（含 raw）。
+import { extractContainerPorts } from '../src/composables/usePorts.js'
+test('端口聚合 extractContainerPorts：多工作负载/多容器/多端口去重升序、过滤空值与缺省', () => {
+  const workloads = [
+    { raw: { spec: { template: { spec: { containers: [
+      { name: 'a', ports: [{ containerPort: 8080 }, { containerPort: 3000 }] },
+      { name: 'b', ports: [{ containerPort: 8080 }] },                 // 重复 8080
+    ] } } } } },
+    { raw: { spec: { template: { spec: { containers: [
+      { name: 'c', ports: [{ containerPort: 9090 }, { containerPort: '' }, { containerPort: null }] }, // 空值过滤
+    ] } } } } },
+    { raw: { spec: { template: { spec: { containers: [] } } } } },     // 无端口
+    { raw: {} },                                                        // 无 spec
+    {},                                                                 // 无 raw
+  ]
+  assert.deepEqual(extractContainerPorts(workloads), [3000, 8080, 9090])
+  assert.deepEqual(extractContainerPorts([]), [])
+  assert.deepEqual(extractContainerPorts(undefined), [])
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
