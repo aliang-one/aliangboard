@@ -419,6 +419,45 @@ export const useClusterStore = defineStore('cluster', () => {
     return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
   }
 
+  // 从 workload 原始 K8s 对象提取 ConfigMap / Secret 引用（volumes + envFrom + env valueFrom）。
+  // 支持 Deployment/StatefulSet/DaemonSet/Job（spec.template.spec）+ CronJob（spec.jobTemplate.spec.template.spec）。
+  function extractWorkloadReferences(raw, type) {
+    if (!raw?.spec) return []
+    const podSpec = type === 'CronJob'
+      ? raw.spec?.jobTemplate?.spec?.template?.spec
+      : raw.spec?.template?.spec
+    if (!podSpec) return []
+    const refs = []
+    const seen = new Set()
+    const add = (kind, name) => {
+      if (!name) return
+      const key = `${kind}/${name}`
+      if (!seen.has(key)) { seen.add(key); refs.push({ kind, name }) }
+    }
+    // volumes: configMap / secret / projected
+    for (const vol of (podSpec.volumes || [])) {
+      if (vol.configMap?.name) add('ConfigMap', vol.configMap.name)
+      if (vol.secret?.secretName) add('Secret', vol.secret.secretName)
+      for (const src of (vol.projected?.sources || [])) {
+        if (src.configMap?.name) add('ConfigMap', src.configMap.name)
+        if (src.secret?.name) add('Secret', src.secret.name)
+      }
+    }
+    // containers + initContainers: envFrom + env.valueFrom
+    const allContainers = [...(podSpec.containers || []), ...(podSpec.initContainers || [])]
+    for (const c of allContainers) {
+      for (const ef of (c.envFrom || [])) {
+        if (ef.configMapRef?.name) add('ConfigMap', ef.configMapRef.name)
+        if (ef.secretRef?.name) add('Secret', ef.secretRef.name)
+      }
+      for (const env of (c.env || [])) {
+        if (env.valueFrom?.configMapKeyRef?.name) add('ConfigMap', env.valueFrom.configMapKeyRef.name)
+        if (env.valueFrom?.secretKeyRef?.name) add('Secret', env.valueFrom.secretKeyRef.name)
+      }
+    }
+    return refs
+  }
+
   // 反查：哪些 workload 引用了指定的 ConfigMap / Secret
   // 返回 [{ workload, reference }]，按引用方式分组
   function getResourceReferences(kind, name, ns) {
@@ -426,8 +465,8 @@ export const useClusterStore = defineStore('cluster', () => {
     const results = []
     workloadList.value.forEach(w => {
       if (w.namespace !== namespace) return
-      const matches = (w.references || []).filter(r => r.kind === kind && r.name === name)
-      matches.forEach(reference => results.push({ workload: w, reference }))
+      const refs = extractWorkloadReferences(w.raw, w.type)
+      refs.filter(r => r.kind === kind && r.name === name).forEach(reference => results.push({ workload: w, reference }))
     })
     return results
   }
@@ -436,7 +475,7 @@ export const useClusterStore = defineStore('cluster', () => {
   function getWorkloadReferences(workloadName, ns) {
     const namespace = ns || currentNamespace.value
     const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
-    return wl?.references || []
+    return wl ? extractWorkloadReferences(wl.raw, wl.type) : []
   }
 
   // 远端删除 + 本地列表同步：乐观先移除，API 失败则回滚并全局提示，保证 UI 与集群一致
