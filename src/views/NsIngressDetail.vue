@@ -4,12 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { notify } from '@/composables/useToast'
-import { INGRESS_ANNOTATION_SUGGESTIONS } from '@/composables/useIngressPerf'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
-import TypeaheadInput from '@/components/common/TypeaheadInput.vue'
+import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -441,7 +440,7 @@ function saveEditLabel() {
     <div class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Annotation Key</label>
-        <TypeaheadInput v-model="newAnnKey" :options="INGRESS_ANNOTATION_SUGGESTIONS" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="nginx.ingress.kubernetes.io/rewrite-target" />
+        <AnnotationKeySelect v-model="newAnnKey" field-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
