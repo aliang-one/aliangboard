@@ -544,6 +544,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">filter_alt</span>
             <span class="text-body-sm font-semibold">Selector</span>
+            <button v-if="canMutate && !isExternalName" @click="openAddBackend" class="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" title="把另一个工作负载的 Pod 并入后端（取共有 label 作新 selector）">
+              <span class="material-symbols-outlined text-sm">add</span>添加后端工作负载
+            </button>
           </div>
           <div class="p-sm flex flex-wrap gap-xs">
             <template v-if="Object.keys(svc.selector || {}).length">
@@ -561,9 +564,6 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
             <div class="flex flex-wrap gap-xs">
               <button v-for="w in boundWorkloads" :key="w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (w.type || 'Deployment').toLowerCase(), name: w.name } })" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-xs border border-secondary/25 hover:bg-secondary/20 transition-colors" :title="`查看 ${w.name} 详情`">
                 <span class="material-symbols-outlined text-sm">work</span>{{ w.name }}<span class="opacity-60">{{ w.type?.replace(/Set$/,'') || 'Deployment' }}</span>
-              </button>
-              <button v-if="canMutate" @click="openAddBackend" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" title="把另一个工作负载并入后端（取共有 label 作新 selector）">
-                <span class="material-symbols-outlined text-sm">add</span>添加后端工作负载
               </button>
             </div>
           </div>
