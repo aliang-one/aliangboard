@@ -9,7 +9,7 @@ import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
-import { currentEndpoint, currentDispatcher } from './failover.js'
+import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -286,7 +286,7 @@ function buildDispatcher({ ca, cert, key, insecure }) {
 // 端口从原始 apiServer 继承；发现失败 → 只返回 [apiServer]（降级不阻断）。
 async function discoverEndpoints(session) {
   try {
-    const result = await requestKubernetes(session, '/api/v1/nodes?limit=500')
+    const result = await requestOnce(session, session.apiServer, '/api/v1/nodes?limit=500')
     const nodes = result.body?.items || []
     const port = session.apiServer.port || (session.apiServer.protocol === 'https:' ? '443' : '80')
     const seen = new Set([session.apiServer.origin])
@@ -309,16 +309,15 @@ async function discoverEndpoints(session) {
   }
 }
 
-async function requestKubernetes(session, path, init = {}) {
-  const target = new URL(path, session.apiServer)
+// 单端点请求（不转移）：给指定 endpoint 发一次请求，返回 {status, headers, body}，失败抛错。
+async function requestOnce(session, endpoint, path, init = {}) {
+  const target = new URL(path, endpoint)
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
-
+  const dispatcher = (endpoint === session.apiServer) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
-    ...init,
-    headers,
-    dispatcher: session.dispatcher,
+    ...init, headers, dispatcher,
     signal: AbortSignal.timeout(Number(process.env.K8S_REQUEST_TIMEOUT || 15000)),
   })
   const text = await response.text()
@@ -332,6 +331,31 @@ async function requestKubernetes(session, path, init = {}) {
     throw error
   }
   return { status: response.status, headers: response.headers, body }
+}
+
+// 故障转移包装：按 session.endpoints 迭代；网络错误/5xx/超时 → 试下一个；4xx 立即抛。
+async function requestKubernetes(session, path, init = {}) {
+  const endpoints = (session.endpoints && session.endpoints.length) ? session.endpoints : [session.apiServer]
+  const errors = []
+  for (let attempt = 0; attempt < endpoints.length; attempt++) {
+    const idx = (session.endpointIdx + attempt) % endpoints.length
+    const endpoint = endpoints[idx]
+    try {
+      const result = await requestOnce(session, endpoint, path, init)
+      if (attempt > 0) { session.endpointIdx = idx; console.log(`[failover] 切换到端点 ${endpoint.host}`) }
+      return result
+    } catch (e) {
+      if (isFailoverEligible(e) && attempt < endpoints.length - 1) {
+        errors.push(`${endpoint.host}: ${e.message}`)
+        console.warn(`[failover] 端点 ${endpoint.host} 失败 (${e.message || e.code})，尝试下一个...`)
+        continue
+      }
+      if (isFailoverEligible(e) && errors.length) {
+        throw Object.assign(new Error(`所有端点不可达（${endpoints.length}个）：${[...errors, `${endpoint.host}: ${e.message}`].join('; ')}`), { status: 503, details: errors })
+      }
+      throw e
+    }
+  }
 }
 
 async function discoverResource(session, object) {
@@ -394,7 +418,7 @@ function buildKubeConfig(KubeConfig, session) {
   const cluster = {
     name: 'aliangboard',
     // 去尾斜杠：client-node 的 WebSocketHandler 用字符串拼接 server+path，尾斜杠会导致 `//api/v1/…` 双斜杠 → 404
-    server: session.apiServer.toString().replace(/\/$/, ''),
+    server: currentEndpoint(session).toString().replace(/\/$/, ''),
     skipTLSVerify: !!session.insecure,
     ...(session.ca ? { caData: b64(session.ca) } : {}),
   }
@@ -1041,11 +1065,11 @@ async function handle(req, res) {
   const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
   if (isStreaming) {
     try {
-      const target = new URL(kubernetesPath, session.apiServer)
+      const target = new URL(kubernetesPath, currentEndpoint(session))
       const upstream = await kubeFetch(target, {
         method: 'GET',
         headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
-        dispatcher: session.dispatcher,
+        dispatcher: currentDispatcher(session),
         signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
       })
       if (!upstream.ok || !upstream.body) {
