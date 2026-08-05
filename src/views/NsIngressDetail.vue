@@ -18,7 +18,6 @@ store.setNamespace(route.params.namespace)
 const ing = computed(() => store.getIngressByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
 
-const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
 async function handleDelete() {
@@ -40,6 +39,26 @@ const allRules = computed(() => {
       }
     })
   )
+})
+
+// 路由规则按域名分组（同名 host 聚合，更贴近「一个域名 → 多 path」的真实结构）
+const rulesByHost = computed(() => {
+  const map = {}
+  for (const r of allRules.value) {
+    const h = r.host || '*'
+    ;(map[h] ||= []).push(r)
+  }
+  return Object.entries(map).map(([host, paths]) => ({ host, paths }))
+})
+// 涉及的独立域名
+const hostList = computed(() => [...new Set(allRules.value.map(r => r.host).filter(Boolean))])
+// 去重的后端服务（右侧面板展示，可点击跳转）
+const backendServices = computed(() => {
+  const seen = new Set(), out = []
+  for (const r of allRules.value) {
+    if (r.serviceName && !seen.has(r.serviceName)) { seen.add(r.serviceName); out.push(r.serviceName) }
+  }
+  return out
 })
 
 // === Rules 结构化编辑（远端 PATCH spec.rules）===
@@ -169,210 +188,181 @@ function saveEditLabel() {
       { label: route.params.name }
     ]" />
 
-    <!-- Header -->
-    <div class="flex items-start justify-between mt-sm mb-md">
-      <div class="flex items-start gap-md">
+    <!-- Hero -->
+    <div class="flex items-start justify-between gap-md mt-sm mb-md">
+      <div class="flex items-start gap-md min-w-0">
         <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center shrink-0 ring-1 ring-primary/10">
           <span class="material-symbols-outlined text-primary text-2xl">language</span>
         </div>
-        <div>
-          <h1 class="text-headline-md font-bold text-on-surface">{{ ing.name }}</h1>
-          <div class="flex items-center gap-xs mt-xs flex-wrap">
+        <div class="min-w-0">
+          <h1 class="text-headline-md font-bold text-on-surface truncate">{{ ing.name }}</h1>
+          <div class="flex items-center gap-xs flex-wrap mt-xs">
             <span class="px-2 py-0.5 bg-primary/8 text-primary text-xs rounded-md font-medium">Ingress</span>
-            <span class="flex items-center gap-xs text-body-sm" :class="ing.tls ? 'text-primary' : 'text-on-surface-variant'">
-              <span class="material-symbols-outlined text-base">{{ ing.tls ? 'lock' : 'lock_open' }}</span>
-              {{ ing.tls ? 'TLS Enabled' : 'No TLS' }}
+            <span v-if="ing.className" class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-xs rounded-md font-medium border border-outline-variant">{{ ing.className }}</span>
+            <span class="flex items-center gap-0.5 px-2 py-0.5 text-xs rounded-md font-medium" :class="ing.tls ? 'bg-primary-container/15 text-primary' : 'bg-surface-container text-on-surface-variant border border-outline-variant'">
+              <span class="material-symbols-outlined text-sm">{{ ing.tls ? 'lock' : 'lock_open' }}</span>{{ ing.tls ? 'TLS' : 'No TLS' }}
             </span>
-            <span class="text-xs text-on-surface-variant">Age: {{ ing.age }}</span>
+            <span class="text-xs text-on-surface-variant">{{ allRules.length }} 条规则 · {{ hostList.length }} 域名 · {{ ing.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-xs shrink-0">
-        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">Delete</button>
+      <div class="flex items-center gap-xs shrink-0">
+        <button @click="openRulesEditor" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined text-sm">edit</span> 编辑规则
+        </button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">删除</button>
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
-      <button v-for="tab in ['overview', 'rules', 'annotations', 'labels', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-lg py-2 text-body-sm font-medium capitalize transition-colors relative"
-        :class="activeTab === tab ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-        {{ tab }}
-        <span v-if="activeTab === tab" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
-      </button>
-    </div>
+    <!-- 主体：左=路由规则 + YAML | 右=配置/后端/标签/注解 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-sm items-start">
 
-    <!-- Overview Tab -->
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-sm">
+      <!-- ===== 左列 ===== -->
       <div class="lg:col-span-8 flex flex-col gap-sm">
+
+        <!-- 路由规则（按域名分组，核心内容置顶）-->
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-lg">info</span>
-            <span class="text-body-sm font-semibold">Ingress Details</span>
+          <div class="px-md py-2 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">alt_route</span>
+            <span class="text-body-sm font-semibold">路由规则</span>
+            <span class="text-xs text-on-surface-variant">{{ allRules.length }} 条 · {{ hostList.length }} 域名</span>
           </div>
-          <div class="p-md grid grid-cols-2 gap-sm">
-            <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">Hosts</p>
-              <p class="font-mono text-code-sm text-primary font-semibold">{{ ing.hosts }}</p>
-            </div>
-            <div class="p-sm rounded-lg bg-surface-container-low">
-              <div class="flex items-center justify-between mb-xs">
-                <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">Ingress Class</p>
-                <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 IngressClass"><span class="material-symbols-outlined text-base">edit</span></button>
+          <div v-if="rulesByHost.length" class="p-sm flex flex-col gap-sm">
+            <div v-for="group in rulesByHost" :key="group.host" class="rounded-lg border border-outline-variant/60 overflow-hidden">
+              <div class="px-sm py-1.5 bg-surface-container-low flex items-center gap-xs">
+                <span class="material-symbols-outlined text-primary text-base">language</span>
+                <span class="font-mono text-code-sm text-primary font-semibold truncate">{{ group.host }}</span>
+                <span class="ml-auto text-[10px] text-on-surface-variant shrink-0">{{ group.paths.length }} path</span>
               </div>
-              <p class="text-body-sm text-on-surface">{{ ing.className || '（默认）' }}</p>
-            </div>
-            <div class="p-sm rounded-lg bg-surface-container-low">
-              <div class="flex items-center justify-between mb-xs">
-                <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider">TLS</p>
-                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="编辑 TLS"><span class="material-symbols-outlined text-base">edit</span></button>
-              </div>
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-base" :class="ing.tls ? 'text-primary' : 'text-on-surface-variant'">{{ ing.tls ? 'lock' : 'lock_open' }}</span>
-                <span class="text-body-sm" :class="ing.tls ? 'text-primary font-semibold' : 'text-on-surface-variant'">{{ ing.tls ? 'Enabled' : 'Disabled' }}</span>
+              <div class="divide-y divide-outline-variant/20">
+                <div v-for="(p, i) in group.paths" :key="i" class="px-sm py-1.5 flex items-center gap-sm flex-wrap">
+                  <span class="font-mono text-xs text-on-surface px-1.5 py-0.5 rounded bg-surface-container">{{ p.path }}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded border border-outline-variant text-on-surface-variant">{{ p.pathType }}</span>
+                  <span class="material-symbols-outlined text-on-surface-variant/40 text-base">arrow_forward</span>
+                  <span class="font-mono text-xs text-secondary font-medium cursor-pointer hover:text-primary hover:underline" @click="p.serviceName && router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: p.serviceName } })">{{ p.serviceName || '—' }}</span>
+                  <span class="font-mono text-xs text-on-surface-variant">:{{ p.servicePort }}</span>
+                </div>
               </div>
             </div>
-            <div v-if="ing.tlsSecret" class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-xs text-on-surface-variant/50 uppercase tracking-wider mb-xs">TLS Secret</p>
-              <p class="font-mono text-xs text-on-surface">{{ ing.tlsSecret }}</p>
-            </div>
+          </div>
+          <div v-else class="p-md text-center text-on-surface-variant">
+            <span class="material-symbols-outlined text-2xl text-surface-container-high">alt_route</span>
+            <p class="text-body-sm mt-xs">无路由规则</p>
           </div>
         </div>
-      </div>
-      <div class="lg:col-span-4">
-        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-lg">summarize</span>
-            <span class="text-body-sm font-semibold">Summary</span>
+
+        <!-- YAML（折叠，默认收起）-->
+        <details class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant group">
+          <summary class="px-md py-2 flex items-center gap-sm cursor-pointer hover:bg-surface-container-low transition-colors list-none">
+            <span class="material-symbols-outlined text-on-surface-variant text-base group-open:rotate-90 transition-transform">chevron_right</span>
+            <span class="material-symbols-outlined text-primary text-lg">code</span>
+            <span class="text-body-sm font-semibold">YAML</span>
+            <span class="ml-auto text-xs text-on-surface-variant">点击展开查看 / 编辑</span>
+          </summary>
+          <div class="border-t border-outline-variant/50">
+            <YamlEditor :model-value="yaml" :readonly="false" height="420px" @save="applyYaml" />
           </div>
-          <div class="p-md space-y-sm">
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/15">
-              <span class="text-body-sm text-on-surface-variant">Rules</span>
-              <span class="text-body-sm font-semibold text-primary">{{ allRules.length }}</span>
+        </details>
+      </div>
+
+      <!-- ===== 右列 ===== -->
+      <div class="lg:col-span-4 flex flex-col gap-sm">
+
+        <!-- 配置 -->
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-base">tune</span>
+            <span class="text-body-sm font-semibold">配置</span>
+          </div>
+          <div class="divide-y divide-outline-variant/15">
+            <div class="px-md py-2 flex items-center justify-between gap-sm">
+              <span class="text-xs text-on-surface-variant shrink-0">IngressClass</span>
+              <div class="flex items-center gap-xs min-w-0">
+                <span class="text-body-sm text-on-surface truncate">{{ ing.className || '（默认）' }}</span>
+                <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0" title="编辑 IngressClass"><span class="material-symbols-outlined text-base">edit</span></button>
+              </div>
             </div>
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/15">
-              <span class="text-body-sm text-on-surface-variant">Annotations</span>
-              <span class="text-body-sm font-semibold text-on-surface">{{ allAnnotations.length }}</span>
+            <div class="px-md py-2 flex items-center justify-between gap-sm">
+              <span class="text-xs text-on-surface-variant shrink-0">TLS</span>
+              <div class="flex items-center gap-xs">
+                <span class="flex items-center gap-0.5 text-body-sm" :class="ing.tls ? 'text-primary font-medium' : 'text-on-surface-variant'">
+                  <span class="material-symbols-outlined text-sm">{{ ing.tls ? 'lock' : 'lock_open' }}</span>{{ ing.tls ? '已启用' : '未启用' }}
+                </span>
+                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0" title="编辑 TLS"><span class="material-symbols-outlined text-base">edit</span></button>
+              </div>
             </div>
-            <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
+            <div v-if="ing.tlsSecret" class="px-md py-2 flex items-center justify-between gap-sm">
+              <span class="text-xs text-on-surface-variant shrink-0">TLS Secret</span>
+              <span class="font-mono text-xs text-on-surface truncate" :title="ing.tlsSecret">{{ ing.tlsSecret }}</span>
+            </div>
+            <div class="px-md py-2 flex items-center justify-between">
+              <span class="text-xs text-on-surface-variant">创建于</span>
               <span class="text-body-sm text-on-surface">{{ ing.age }}</span>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Rules Tab -->
-    <div v-if="activeTab === 'rules'">
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
-          <span class="material-symbols-outlined text-primary text-lg">alt_route</span>
-          <span class="text-body-sm font-semibold">Routing Rules ({{ allRules.length }})</span>
-          <button @click="openRulesEditor" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">edit</span> Edit Rules
-          </button>
-        </div>
-        <table v-if="allRules.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Host</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path Type</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Backend Service</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Port</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="(rule, idx) in allRules" :key="idx" class="hover:bg-surface-container-low/40 transition-colors">
-              <td class="px-md py-2"><span class="font-mono text-code-sm text-primary font-semibold">{{ rule.host }}</span></td>
-              <td class="px-md py-2"><span class="font-mono text-code-sm">{{ rule.path }}</span></td>
-              <td class="px-md py-2"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ rule.pathType }}</span></td>
-              <td class="px-md py-2">
-                <span class="font-mono text-code-sm text-secondary font-medium cursor-pointer hover:text-primary" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: rule.serviceName } })">{{ rule.serviceName }}</span>
-              </td>
-              <td class="px-md py-2 font-mono text-code-sm">{{ rule.servicePort }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Annotations Tab（可编辑）-->
-    <div v-if="activeTab === 'annotations'">
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
-          <span class="material-symbols-outlined text-primary text-lg">label</span>
-          <span class="text-body-sm font-semibold">Annotations ({{ allAnnotations.length }})</span>
-          <button @click="showAddAnnModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Annotation
-          </button>
-        </div>
-        <div class="divide-y divide-outline-variant/15">
-          <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-md py-2">
-            <div class="flex items-center justify-between mb-xs">
-              <span class="font-mono text-code-sm text-primary font-semibold break-all">{{ key }}</span>
-              <div class="flex gap-xs shrink-0">
-                <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-base">edit</span></button>
-                <button @click="deleteAnnotation(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
-            </div>
-            <div v-if="editingAnn === key" class="flex gap-sm">
-              <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
-              <div class="flex flex-col gap-xs">
-                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-xs font-semibold">Save</button>
-                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-xs">Cancel</button>
-              </div>
-            </div>
-            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-xs text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
+        <!-- 后端服务 -->
+        <div v-if="backendServices.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-base">hub</span>
+            <span class="text-body-sm font-semibold">后端服务</span>
+            <span class="ml-auto text-xs text-on-surface-variant">{{ backendServices.length }}</span>
           </div>
-          <div v-if="!allAnnotations.length" class="px-md py-md text-center text-on-surface-variant">
-            <span class="material-symbols-outlined text-2xl">label</span>
-            <p class="text-body-sm mt-xs">No annotations</p>
+          <div class="p-sm flex flex-wrap gap-xs">
+            <button v-for="svc in backendServices" :key="svc" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: svc } })" class="flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-primary-container/10 text-primary text-xs font-mono font-medium hover:bg-primary-container/20 transition-colors">
+              <span class="material-symbols-outlined text-sm">share</span>{{ svc }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Labels -->
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-base">sell</span>
+            <span class="text-body-sm font-semibold">Labels</span>
+            <span class="ml-auto text-xs text-on-surface-variant">{{ allLabels.length }}</span>
+            <button @click="showAddLabelModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="新增 Label"><span class="material-symbols-outlined text-base">add</span></button>
+          </div>
+          <div class="p-sm flex flex-wrap gap-xs">
+            <span v-for="([k, v]) in allLabels" :key="k" class="group inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-surface-container text-[11px] border border-outline-variant font-mono">
+              <span class="text-secondary font-semibold">{{ k }}</span><span class="text-on-surface-variant">:{{ v }}</span>
+              <button @click="deleteLabel(k)" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error transition-opacity" title="删除"><span class="material-symbols-outlined text-xs">close</span></button>
+            </span>
+            <span v-if="!allLabels.length" class="text-xs text-on-surface-variant/50 py-xs">无标签</span>
+          </div>
+        </div>
+
+        <!-- Annotations -->
+        <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-base">label</span>
+            <span class="text-body-sm font-semibold">Annotations</span>
+            <span class="ml-auto text-xs text-on-surface-variant">{{ allAnnotations.length }}</span>
+            <button @click="showAddAnnModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded" title="新增 Annotation"><span class="material-symbols-outlined text-base">add</span></button>
+          </div>
+          <div class="divide-y divide-outline-variant/15 max-h-80 overflow-y-auto">
+            <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-md py-1.5 group">
+              <div class="flex items-center justify-between gap-xs">
+                <span class="font-mono text-[11px] text-primary font-semibold truncate" :title="key">{{ key }}</span>
+                <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-0.5 text-on-surface-variant hover:text-primary rounded"><span class="material-symbols-outlined text-sm">edit</span></button>
+                  <button @click="deleteAnnotation(key)" class="p-0.5 text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-sm">delete</span></button>
+                </div>
+              </div>
+              <div v-if="editingAnn === key" class="flex gap-xs mt-1">
+                <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-xs font-mono min-h-[48px] resize-y focus:ring-1 focus:ring-primary"></textarea>
+                <div class="flex flex-col gap-0.5">
+                  <button @click="saveEditAnn" class="px-2 py-0.5 bg-primary text-on-primary rounded text-xs font-semibold">存</button>
+                  <button @click="editingAnn = null" class="px-2 py-0.5 border border-outline-variant rounded text-xs">取消</button>
+                </div>
+              </div>
+              <p v-else class="font-mono text-[11px] text-on-surface-variant mt-0.5 break-all line-clamp-2" :title="val">{{ val }}</p>
+            </div>
+            <div v-if="!allAnnotations.length" class="px-md py-sm text-center text-xs text-on-surface-variant/50">无注解</div>
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Labels Tab（可编辑）-->
-    <div v-if="activeTab === 'labels'">
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <div class="px-md py-2.5 border-b border-outline-variant/50 bg-surface-container-low flex items-center gap-sm">
-          <span class="material-symbols-outlined text-primary text-lg">sell</span>
-          <span class="text-body-sm font-semibold">Labels ({{ allLabels.length }})</span>
-          <button @click="showAddLabelModal = true" class="ml-auto flex items-center gap-xs px-3 py-1 text-xs font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Label
-          </button>
-        </div>
-        <div class="divide-y divide-outline-variant/15">
-          <div v-for="([key, val], idx) in allLabels" :key="idx" class="px-md py-2">
-            <div class="flex items-center justify-between mb-xs">
-              <span class="font-mono text-code-sm text-secondary font-semibold break-all">{{ key }}</span>
-              <div class="flex gap-xs shrink-0">
-                <button v-if="editingLabel !== key" @click="startEditLabel(key)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-base">edit</span></button>
-                <button @click="deleteLabel(key)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
-            </div>
-            <div v-if="editingLabel === key" class="flex gap-sm">
-              <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-              <div class="flex gap-xs">
-                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-xs font-semibold">Save</button>
-                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-xs">Cancel</button>
-              </div>
-            </div>
-            <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-xs text-on-surface-variant break-all">{{ val }}</div>
-          </div>
-          <div v-if="!allLabels.length" class="px-md py-md text-center text-on-surface-variant">
-            <span class="material-symbols-outlined text-2xl">label_off</span>
-            <p class="text-body-sm mt-xs">No labels</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- YAML Tab -->
-    <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
   </div>
   <div v-else class="animate-fade-in text-center py-xl">
