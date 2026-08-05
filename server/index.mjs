@@ -13,6 +13,8 @@ import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
+import { createLlmClient } from './llm.mjs'
+import { createAgentRunner } from './agent-runner.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -709,6 +711,30 @@ async function handle(req, res) {
 
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
   if (url.pathname === '/mcp') return mcpHandler(req, res)
+
+  // === Agent 聊天(第二阶段切片 3:MVP 只读——onApproval 恒拒写,agent 用调用者选的 API key)===
+  if (url.pathname === '/api/agent/chat' && req.method === 'POST') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      if (!input.message || !input.apiKeyId) return sendJson(res, 400, { message: '缺 message / apiKeyId' })
+      const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
+      if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const baseURL = process.env.LLM_BASE_URL, llmKey = process.env.LLM_API_KEY, model = process.env.LLM_MODEL
+      if (!baseURL || !model) return sendJson(res, 503, { message: 'LLM 未配置(设 LLM_BASE_URL / LLM_MODEL 环境变量)' })
+      const llmClient = createLlmClient({ baseURL, apiKey: llmKey, model })
+      // MVP:只读——写操作(scale/restart)恒拒;且 key 应是 read 档(底座 authorize 双保险)。人审 UI 是切片 3b。
+      const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, onApproval: async () => false })
+      const history = Array.isArray(input.history) ? input.history : []
+      const out = await run({
+        system: '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。',
+        history: [...history, { role: 'user', content: String(input.message) }],
+      })
+      return sendJson(res, 200, out) // { content, steps, denied, truncated? }
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
+  }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
