@@ -1062,6 +1062,43 @@ export const useClusterStore = defineStore('cluster', () => {
     await refetch('/api/v1/pods', podList, item => mapPod(item))
   }
 
+  // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
+  // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
+  async function refreshMetrics() {
+    if (!remoteMode.value) return
+    try {
+      const [nodeMetricsData, podMetricsData] = await Promise.all([
+        api.k8s('/apis/metrics.k8s.io/v1beta1/nodes'),
+        api.k8s('/apis/metrics.k8s.io/v1beta1/pods'),
+      ])
+      const metricsAvailable = Boolean(nodeMetricsData && podMetricsData)
+      const nodeMetricMap = new Map()
+      for (const it of (nodeMetricsData?.items || [])) nodeMetricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
+      const podMetricMap = new Map()
+      for (const it of (podMetricsData?.items || [])) {
+        let cpuMilli = 0, memKi = 0
+        for (const c of (it.containers || [])) { cpuMilli += cpuToMilli(c.usage?.cpu); memKi += memToKi(c.usage?.memory) }
+        podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
+      }
+      const pct = (used, alloc) => (used != null && alloc > 0 ? Math.min(100, Math.round((used / alloc) * 100)) : null)
+      for (const n of nodeList.value) {
+        const m = metricsAvailable ? (nodeMetricMap.get(n.name) || null) : null
+        n.usedCpu = m ? m.cpuMilli : null
+        n.usedMem = m ? m.memKi : null
+        n.cpu = pct(n.usedCpu, n.allocCpu)
+        n.memory = pct(n.usedMem, n.allocMem)
+      }
+      for (const p of podList.value) {
+        const m = metricsAvailable ? (podMetricMap.get(`${p.namespace}/${p.name}`) || null) : null
+        p.usedCpu = m ? m.cpuMilli : null
+        p.usedMem = m ? m.memKi : null
+        p.cpu = p.usedCpu != null ? `${Math.round(p.usedCpu)}m/${Math.round(p.reqCpu)}m` : null
+        p.memory = p.usedMem != null ? `${Math.round(p.usedMem / 1024)}Mi/${Math.round(p.reqMem / 1024)}Mi` : null
+      }
+      computeClusterMetrics(metricsAvailable)
+    } catch { /* 静默：保留上次 metricsAvailable */ }
+  }
+
   // === CRUD: NetworkPolicies ===
   async function addNetworkPolicy(np) {
     if (remoteMode.value) return remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
@@ -1991,6 +2028,42 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
+  // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
+  // 入参 metricsAvailable：调用前 nodeList/podList 的 metric 字段须已就绪
+  // （hydrate 经 mapNode/mapPod 设置；refreshMetrics 就地更新）。hydrate 与 refreshMetrics 共用本函数。
+  function computeClusterMetrics(metricsAvailable) {
+    let cpuUsage = null, memoryUsage = null
+    if (metricsAvailable) {
+      let usedCpu = 0, allocCpu = 0, usedMem = 0, allocMem = 0
+      for (const n of nodeList.value) {
+        if (n.usedCpu != null) usedCpu += n.usedCpu
+        if (n.allocCpu > 0) allocCpu += n.allocCpu
+        if (n.usedMem != null) usedMem += n.usedMem
+        if (n.allocMem > 0) allocMem += n.allocMem
+      }
+      cpuUsage = allocCpu > 0 ? Math.min(100, Math.round((usedCpu / allocCpu) * 100)) : null
+      memoryUsage = allocMem > 0 ? Math.min(100, Math.round((usedMem / allocMem) * 100)) : null
+    }
+    const trendOf = (cur, prev) => {
+      if (cur == null || prev == null) return { trend: '—', up: false }
+      const d = cur - prev
+      return { trend: (d >= 0 ? '+' : '') + d.toFixed(1) + '%', up: d > 0 }
+    }
+    const cpuT = trendOf(cpuUsage, prevClusterMetrics.cpu)
+    const memT = trendOf(memoryUsage, prevClusterMetrics.mem)
+    prevClusterMetrics = { cpu: cpuUsage, mem: memoryUsage }
+    cluster.value = {
+      ...cluster.value,
+      nodeCount: nodeList.value.length,
+      podCount: podList.value.length,
+      activeEvents: eventList.value.length,
+      metricsAvailable,
+      cpuUsage, memoryUsage,
+      cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
+      memoryTrend: memT.trend, memoryTrendUp: memT.up,
+    }
+  }
+
   async function hydrateCoreResources(opts = {}) {
     if (!remoteMode.value) return
     if (!opts.silent) connectionState.value = 'loading'
@@ -2072,36 +2145,7 @@ export const useClusterStore = defineStore('cluster', () => {
       if (eventData.metadata?.resourceVersion) eventWatchRv = eventData.metadata.resourceVersion
     }
     // 集群级 CPU/内存：按节点用量 / allocatable 汇总；与上次水合对比得出趋势
-    let cpuUsage = null, memoryUsage = null
-    if (metricsAvailable) {
-      let usedCpu = 0, allocCpu = 0, usedMem = 0, allocMem = 0
-      for (const n of nodeList.value) {
-        if (n.usedCpu != null) usedCpu += n.usedCpu
-        if (n.allocCpu > 0) allocCpu += n.allocCpu
-        if (n.usedMem != null) usedMem += n.usedMem
-        if (n.allocMem > 0) allocMem += n.allocMem
-      }
-      cpuUsage = allocCpu > 0 ? Math.min(100, Math.round((usedCpu / allocCpu) * 100)) : null
-      memoryUsage = allocMem > 0 ? Math.min(100, Math.round((usedMem / allocMem) * 100)) : null
-    }
-    const trendOf = (cur, prev) => {
-      if (cur == null || prev == null) return { trend: '—', up: false }
-      const d = cur - prev
-      return { trend: (d >= 0 ? '+' : '') + d.toFixed(1) + '%', up: d > 0 }
-    }
-    const cpuT = trendOf(cpuUsage, prevClusterMetrics.cpu)
-    const memT = trendOf(memoryUsage, prevClusterMetrics.mem)
-    prevClusterMetrics = { cpu: cpuUsage, mem: memoryUsage }
-    cluster.value = {
-      ...cluster.value,
-      nodeCount: nodeList.value.length,
-      podCount: podList.value.length,
-      activeEvents: eventList.value.length,
-      metricsAvailable,
-      cpuUsage, memoryUsage,
-      cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
-      memoryTrend: memT.trend, memoryTrendUp: memT.up,
-    }
+    computeClusterMetrics(metricsAvailable)
     // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
     // lite 模式（滚动发布自动刷新）：跳过较重的扩展资源（ConfigMap/Secret/RBAC 等），只更新运行态
     if (!opts.lite) {
@@ -3271,6 +3315,7 @@ status:
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
     // Pod 列表轻量刷新（删 Pod 后看重建）
     refreshPods,
+    refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
