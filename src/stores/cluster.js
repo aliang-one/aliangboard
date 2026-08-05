@@ -5,6 +5,7 @@ import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, remo
 import { notify } from '@/composables/useToast'
 import { yamlScalar } from '@/composables/useYaml'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
+import { extractContainerPorts } from '@/composables/usePorts'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -167,6 +168,9 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!currentNamespace.value) return []
     return serviceList.value.filter(s => s.namespace === currentNamespace.value)
   })
+
+  // 当前 ns 下所有工作负载暴露的容器端口（去重升序），供 Service targetPort 下拉选择
+  const nsContainerPorts = computed(() => extractContainerPorts(nsWorkloads.value))
 
   const nsIngress = computed(() => {
     if (!currentNamespace.value) return []
@@ -3173,7 +3177,7 @@ status:
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes,
     // Namespace 作用域计算
-    nsWorkloads, nsPods, nsServices, nsIngress, nsEndpoints, nsConfigMaps, nsSecrets,
+    nsWorkloads, nsPods, nsServices, nsIngress, nsEndpoints, nsConfigMaps, nsSecrets, nsContainerPorts,
     nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
     nsTieredWorkloads, TIER_META, clusterRoles, nsPDBs,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
