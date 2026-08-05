@@ -132,9 +132,17 @@ async function handleDrain() {
               <p class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ node.podCount ?? 0 }} / {{ node.podCapacity ?? '—' }}</p>
             </div>
           </div>
-          <div v-else class="flex items-center gap-sm text-on-surface-variant p-md">
-            <span class="material-symbols-outlined text-lg">sensors_off</span>
-            <span class="text-body-sm">指标不可用（集群未安装 metrics-server 或缺少 metrics 读取权限）</span>
+          <div v-else class="p-md">
+            <div class="flex items-center gap-sm text-on-surface-variant mb-md">
+              <span class="material-symbols-outlined text-lg">sensors_off</span>
+              <span class="text-body-sm">CPU/内存指标不可用（集群未安装 metrics-server 或缺少 metrics 读取权限）</span>
+            </div>
+            <!-- Pods 指标独立于 metrics，始终展示 -->
+            <div>
+              <ProgressBar :value="node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) : 0" size="lg" show-label label="Pods" />
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) + '% used' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ node.podCount ?? 0 }} / {{ node.podCapacity ?? '—' }}</p>
+            </div>
           </div>
         </div>
 
