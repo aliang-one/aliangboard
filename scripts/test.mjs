@@ -360,6 +360,52 @@ test('isFailoverEligible：网络错误/5xx/超时→true；4xx/null→false', (
   assert.equal(isFailoverEligible({ message: 'some 4xx error', status: 403 }), false)
 })
 
+// --- Secret 模板：buildSecretData 构造 + detectSecretTemplate 判定 ---
+import { SECRET_TEMPLATES, detectSecretTemplate, buildSecretData } from '../src/composables/useSecretTemplates.js'
+test('buildSecretData: Docker 模板生成 .dockerconfigjson JSON', () => {
+  const data = buildSecretData('docker', { server: 'ghcr.io', username: 'user', password: 'pat123', email: 'a@b.com' })
+  assert.ok('.dockerconfigjson' in data, '应有 .dockerconfigjson key')
+  const parsed = JSON.parse(data['.dockerconfigjson'])
+  assert.ok('auths' in parsed, 'JSON 应含 auths')
+  assert.ok('ghcr.io' in parsed.auths, 'auths 应含 ghcr.io')
+  assert.equal(parsed.auths['ghcr.io'].username, 'user')
+  assert.equal(parsed.auths['ghcr.io'].password, 'pat123')
+  assert.ok(parsed.auths['ghcr.io'].auth, '应有 auth base64')
+})
+test('buildSecretData: TLS 模板 tls.crt + tls.key', () => {
+  const data = buildSecretData('tls', { cert: 'CERTPEM', key: 'KEYPEM' })
+  assert.deepEqual(data, { 'tls.crt': 'CERTPEM', 'tls.key': 'KEYPEM' })
+})
+test('buildSecretData: SSH 模板 ssh-privatekey + 可选 known_hosts', () => {
+  assert.deepEqual(buildSecretData('ssh', { privatekey: 'SSHKEY' }), { 'ssh-privatekey': 'SSHKEY' })
+  assert.deepEqual(buildSecretData('ssh', { privatekey: 'SSHKEY', known_hosts: 'HOSTS' }), { 'ssh-privatekey': 'SSHKEY', known_hosts: 'HOSTS' })
+})
+test('buildSecretData: basic-auth username+password', () => {
+  assert.deepEqual(buildSecretData('basic-auth', { username: 'admin', password: 'pass' }), { username: 'admin', password: 'pass' })
+})
+test('buildSecretData: git-token GitHub→GITHUB_TOKEN', () => {
+  const data = buildSecretData('git-token', { service: 'github', token: 'ghp_xxx' })
+  assert.deepEqual(data, { GITHUB_TOKEN: 'ghp_xxx' })
+  const data2 = buildSecretData('git-token', { service: 'gitlab', token: 'glpat-xxx' })
+  assert.deepEqual(data2, { GITLAB_TOKEN: 'glpat-xxx' })
+})
+test('buildSecretData: Opaque 直接 key-value', () => {
+  assert.deepEqual(buildSecretData('opaque', { data: [{ key: 'K', value: 'V' }] }), { K: 'V' })
+})
+test('buildSecretData: AWS 凭证 3 keys', () => {
+  const data = buildSecretData('aws', { access_key_id: 'AKIA...', secret_access_key: 'SECRET', region: 'us-east-1' })
+  assert.deepEqual(data, { AWS_ACCESS_KEY_ID: 'AKIA...', AWS_SECRET_ACCESS_KEY: 'SECRET', AWS_REGION: 'us-east-1' })
+})
+test('detectSecretTemplate: 按 type+keys 判定', () => {
+  assert.equal(detectSecretTemplate({ type: 'kubernetes.io/dockerconfigjson' }), 'docker')
+  assert.equal(detectSecretTemplate({ type: 'kubernetes.io/tls', data: { 'tls.crt': '', 'tls.key': '' } }), 'tls')
+  assert.equal(detectSecretTemplate({ type: 'kubernetes.io/ssh-auth' }), 'ssh')
+  assert.equal(detectSecretTemplate({ type: 'kubernetes.io/basic-auth' }), 'basic-auth')
+  assert.equal(detectSecretTemplate({ type: 'Opaque', data: { GITHUB_TOKEN: '' } }), 'git-token')
+  assert.equal(detectSecretTemplate({ type: 'Opaque', data: { AWS_ACCESS_KEY_ID: '' } }), 'aws')
+  assert.equal(detectSecretTemplate({ type: 'Opaque', data: { random: '' } }), 'opaque')
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
