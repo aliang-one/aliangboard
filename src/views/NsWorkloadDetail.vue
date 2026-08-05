@@ -728,6 +728,8 @@ const containerTargets = computed(() => {
   return t
 })
 const availablePVCs = computed(() => (store.pvcList || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
+const availableConfigMaps = computed(() => (store.configMapList || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
+const availableSecrets = computed(() => (store.secretList || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
 function addVolumeMount() {
   editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', cmName: '', secretName: '', items: [] })
 }
@@ -1904,7 +1906,7 @@ function podStatusBorder(s) {
             <button @click="addVolumeMount" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
           </div>
           <div class="flex flex-col gap-sm">
-            <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :namespace="route.params.namespace" @remove="editForm.volumeMounts.splice(i, 1)" />
+            <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="route.params.namespace" @remove="editForm.volumeMounts.splice(i, 1)" />
           </div>
         </section>
 
