@@ -1,47 +1,83 @@
 // Agent loop(第二阶段):LLM think → 调底座 tool → 观察结果 → 再 think → 给方案。
 // 与具体 LLM / tool 执行解耦:chat 与 execTool 都注入,便于单测。
-// 复用底座 callTool(execTool 注入)。写操作(scale/restart)走人审 hook(needsApproval + onApproval)。
+// 写操作(scale/restart)走 checkpoint/resume 人审:循环遇到写工具不阻塞,
+// 而是返回 pending_approval + 对话状态(messages/queue);客户端审批后回传 resume 续跑。
+// 状态在浏览器↔网关往返,服务端无会话(与底座 stateless 原则一致)。
 const MAX_STEPS = 8 // 防失控循环
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, onApproval, maxSteps = MAX_STEPS }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, maxSteps = MAX_STEPS }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
-  // needsApproval(name) => bool;onApproval(toolCall) => Promise<bool>(人审;只读无 hook 自动放行)
-  async function run({ system, history = [], onStep } = {}) {
-    const messages = []
-    if (system) messages.push({ role: 'system', content: system })
-    messages.push(...history)
-    const denied = []
-    let steps = 0
-    while (steps < maxSteps) {
+  // needsApproval(name) => bool:写工具遇 checkpoint(不自动执行,交人审)
+  // run({ system, history, onStep, resume }):
+  //   resume = { messages, queue, denied, steps, toolCallId, approved } —— 续跑某个 pending 写工具
+
+  let idSeq = 0
+  // OpenAI 兼容 tool_call 都带 id;缺失时盖章一个稳定 id(写回 tc,保证 checkpoint→resume 一致)
+  function callId(tc) { if (!tc.id) tc.id = `gen_${idSeq++}`; return tc.id }
+  function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return {} } }
+
+  async function run({ system, history = [], onStep, resume } = {}) {
+    // 初始化:resume 从回传状态续跑;否则从 system + history 起
+    let messages, queue = [], denied = [], steps = 0
+    let resumeToolCallId = null, resumeApproved = false
+    if (resume) {
+      messages = [...(resume.messages || [])]
+      queue = [...(resume.queue || [])]
+      denied = [...(resume.denied || [])]
+      steps = resume.steps || 0
+      resumeToolCallId = resume.toolCallId
+      resumeApproved = !!resume.approved
+    } else {
+      messages = []
+      if (system) messages.push({ role: 'system', content: system })
+      messages.push(...history)
+    }
+
+    while (true) {
+      // 1) 排空待处理工具队列(上一轮 chat 的 tool_calls,或 resume 带回的 queue)
+      while (queue.length) {
+        const tc = queue[0]
+        const id = callId(tc)
+        const name = tc.function?.name
+        const args = parseArgs(tc)
+        const isResumeTarget = resumeToolCallId && id === resumeToolCallId
+
+        // 写操作且非本次 resume 目标 → checkpoint,把队列(含本条)交还客户端
+        if (needsApproval(name) && !isResumeTarget) {
+          return { status: 'pending_approval', messages, pending: { toolCallId: id, name, args }, queue: [...queue], denied, steps }
+        }
+
+        queue.shift()
+        resumeToolCallId = null // 该 resume 已消费(后续同队列的写工具会再次 checkpoint)
+
+        // 写工具走到这说明它是被批准的 resume 目标;被拒则记 denied 喂回 LLM
+        if (needsApproval(name) && !resumeApproved) {
+          denied.push({ name, args })
+          messages.push({ role: 'tool', tool_call_id: id, content: `用户拒绝了该操作(${name})` })
+          onStep?.({ type: 'denied', name, args })
+          continue
+        }
+
+        let result
+        try { result = await execTool(name, args) }
+        catch (e) { result = `工具执行失败: ${e.message}` }
+        messages.push({ role: 'tool', tool_call_id: id, content: typeof result === 'string' ? result : JSON.stringify(result) })
+        onStep?.({ type: 'tool', name, args, result })
+      }
+
+      // 2) 队列空 → 下一轮 chat(受 maxSteps 约束)
+      if (steps >= maxSteps) return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
       steps++
       const assistant = await chat(messages, toolDefs)
       messages.push(assistant)
       onStep?.({ type: 'assistant', message: assistant })
       const toolCalls = assistant.tool_calls || []
       if (!toolCalls.length) return { content: assistant.content, steps, denied } // 终答
-      for (const tc of toolCalls) {
-        const name = tc.function?.name
-        let args = {}
-        try { args = JSON.parse(tc.function?.arguments || '{}') } catch { /* LLM 给了坏 JSON,空参 */ }
-        if (needsApproval(name)) {
-          const approved = onApproval ? await onApproval({ name, args }) : true
-          if (!approved) {
-            denied.push({ name, args })
-            messages.push({ role: 'tool', tool_call_id: tc.id, content: `用户拒绝了该操作(${name})` })
-            onStep?.({ type: 'denied', name, args })
-            continue
-          }
-        }
-        let result
-        try { result = await execTool(name, args) }
-        catch (e) { result = `工具执行失败: ${e.message}` }
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: typeof result === 'string' ? result : JSON.stringify(result) })
-        onStep?.({ type: 'tool', name, args, result })
-      }
+      queue = [...toolCalls]
+      resumeToolCallId = null // 新 turn,旧 resume 标记失效
     }
-    return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
   }
   return { run }
 }

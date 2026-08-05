@@ -712,12 +712,17 @@ async function handle(req, res) {
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
   if (url.pathname === '/mcp') return mcpHandler(req, res)
 
-  // === Agent 聊天(第二阶段切片 3:MVP 只读——onApproval 恒拒写,agent 用调用者选的 API key)===
+  // === Agent 聊天(第二阶段切片 3+3b:写操作走 checkpoint/resume 人审,agent 用调用者选的 API key)===
+  // 请求:{ apiKeyId, message?, history?, resume? };resume = { runContext, queue, denied, steps, toolCallId, approved }
+  // 响应:{ status:'pending_approval', runContext, pending, queue, denied, steps, trace } 或
+  //       { status:'done', content, steps, denied, truncated?, trace }
   if (url.pathname === '/api/agent/chat' && req.method === 'POST') {
     const ps = requirePlatform(req, res); if (!ps) return
     try {
       const input = await readBody(req)
-      if (!input.message || !input.apiKeyId) return sendJson(res, 400, { message: '缺 message / apiKeyId' })
+      const resuming = !!input.resume
+      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId' })
+      if (!resuming && !input.message) return sendJson(res, 400, { message: '缺 message' })
       const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
       if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
@@ -725,16 +730,32 @@ async function handle(req, res) {
       const baseURL = process.env.LLM_BASE_URL, llmKey = process.env.LLM_API_KEY, model = process.env.LLM_MODEL
       if (!baseURL || !model) return sendJson(res, 503, { message: 'LLM 未配置(设 LLM_BASE_URL / LLM_MODEL 环境变量)' })
       const llmClient = createLlmClient({ baseURL, apiKey: llmKey, model })
-      // MVP:只读——写操作(scale/restart)恒拒;且 key 应是 read 档(底座 authorize 双保险)。人审 UI 是切片 3b。
-      const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, onApproval: async () => false })
-      const history = Array.isArray(input.history) ? input.history : []
+      const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
       const trace = []
-      const out = await run({
-        system: '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。',
-        history: [...history, { role: 'user', content: String(input.message) }],
-        onStep: e => trace.push(e), // 切片 4:回传工具调用 trace 供 UI 展示
-      })
-      return sendJson(res, 200, { ...out, trace }) // { content, steps, denied, truncated?, trace[] }
+      let out
+      if (resuming) {
+        const r = input.resume || {}
+        // 续跑:客户端回传对话状态(runContext/queue)+ 对某 pending 写工具的人审决策;execTool 仍走 callTool 全链(RBAC 兜底)
+        out = await run({
+          resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved },
+          onStep: e => trace.push(e),
+        })
+      } else {
+        const history = Array.isArray(input.history) ? input.history : []
+        const canWrite = keyRow.tier === 'operator' || keyRow.tier === 'admin'
+        const system = canWrite
+          ? '你是 aliangboard 集群 debug/运维 助手。先用只读工具(list_resources/get_resource/get_pod_logs/get_events)调查问题。需要扩缩容(scale)或滚动重启(restart)时直接调用——平台会弹出审批,用户批准后才执行,被拒会告知你。'
+          : '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。'
+        out = await run({
+          system,
+          history: [...history, { role: 'user', content: String(input.message) }],
+          onStep: e => trace.push(e), // 回传工具调用 trace 供 UI 展示
+        })
+      }
+      if (out.status === 'pending_approval') {
+        return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
+      }
+      return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
   }
 

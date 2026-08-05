@@ -33,23 +33,29 @@ test('LLM 调只读 tool → 底座 callTool 被调 → 结果喂回 → 终答'
   assert.equal(calls.length, 1); assert.equal(calls[0].name, 'list_resources')
 })
 
-test('写 tool(scale)→ 经 onApproval;批准才调 callTool', async () => {
+test('operator 档写 tool(scale)→ checkpoint(callTool 不调);resume 批准 → callTool 执行', async () => {
   const calls = []
   const apiKeyTools = { callTool: async (kr, c, n) => { calls.push(n); return { ok: true } } }
   const llmClient = { chat: seqChat([tc('1', 'scale', { name: 'd1', replicas: 3 }), fin('已扩到 3')]) }
-  const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow: KEY('operator'), cluster: CLUSTER, onApproval: async () => true })
-  const out = await run({})
-  assert.equal(out.content, '已扩到 3'); assert.deepEqual(calls, ['scale'])
+  const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow: KEY('operator'), cluster: CLUSTER })
+  const cp = await run({ history: [{ role: 'user', content: '扩 d1' }] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.deepEqual(calls, [], 'checkpoint 时 callTool 不调')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '已扩到 3')
+  assert.deepEqual(calls, ['scale'])
 })
 
-test('写 tool 审批被拒 → callTool 不调 + denied 记录 + LLM 收到拒绝', async () => {
+test('operator 档写 tool resume 拒绝 → callTool 不调 + denied 记录 + 终答', async () => {
   const calls = []
   const apiKeyTools = { callTool: async () => { calls.push('x'); return 'ok' } }
   const llmClient = { chat: seqChat([tc('1', 'scale', { replicas: 0 }), fin('好,不扩了')]) }
-  const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow: KEY('operator'), cluster: CLUSTER, onApproval: async () => false })
-  const out = await run({})
+  const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow: KEY('operator'), cluster: CLUSTER })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: false } })
   assert.equal(out.content, '好,不扩了')
-  assert.deepEqual(calls, [], '被拒时 callTool 不调')
+  assert.deepEqual(calls, [], '拒绝时 callTool 不调')
   assert.equal(out.denied.length, 1); assert.equal(out.denied[0].name, 'scale')
 })
 
