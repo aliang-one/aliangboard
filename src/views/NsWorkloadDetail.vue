@@ -692,23 +692,24 @@ function containerToForm(c) {
   return { name: c.name || '', image: c.image || '', command: (c.command || []).join(' '), args: (c.args || []).join(' '),
     cpuReq: c.resources?.requests?.cpu || '', cpuLim: c.resources?.limits?.cpu || '', memReq: c.resources?.requests?.memory || '', memLim: c.resources?.limits?.memory || '' }
 }
-// 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items，支持多容器挂载）
+// 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
 function mergeVolumes(tplSpec, c0) {
   const byKey = new Map()
   const volDefByName = new Map()
   ;(tplSpec.volumes || []).forEach(v => {
-    const d = { type: 'emptyDir', pvcName: '', hostPath: '', cmName: '', secretName: '', items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
+    const d = { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
     if (v.persistentVolumeClaim) { d.type = 'pvc'; d.pvcName = v.persistentVolumeClaim.claimName }
     else if (v.hostPath) { d.type = 'hostPath'; d.hostPath = v.hostPath.path }
+    else if (v.nfs) { d.type = 'nfs'; d.server = v.nfs.server || ''; d.nfsPath = v.nfs.path || '' }
     else if (v.configMap) { d.type = 'configMap'; d.cmName = v.configMap.name }
     else if (v.secret) { d.type = 'secret'; d.secretName = v.secret.secretName }
     volDefByName.set(v.name, d)
   })
   const push = (target, m) => {
-    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', cmName: '', secretName: '', items: [] }
+    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
     byKey.set(`${target}|${m.name}|${m.mountPath || ''}`, {
       name: m.name, target, type: d.type, mountPath: m.mountPath || '', subPath: m.subPath || '', readOnly: !!m.readOnly,
-      pvcName: d.pvcName, hostPath: d.hostPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })),
+      pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })),
     })
   }
   ;(c0.volumeMounts || []).forEach(m => push('main', m))
@@ -716,7 +717,7 @@ function mergeVolumes(tplSpec, c0) {
   ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
   // 只定义未挂载的卷也保留（挂到主容器占位）
   volDefByName.forEach((d, name) => {
-    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })) })
+    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })) })
   })
   return [...byKey.values()]
 }
@@ -731,7 +732,7 @@ const availablePVCs = computed(() => (store.pvcList || []).filter(p => p.namespa
 const availableConfigMaps = computed(() => (store.configMapList || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
 const availableSecrets = computed(() => (store.secretList || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
 function addVolumeMount() {
-  editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', cmName: '', secretName: '', items: [] })
+  editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] })
 }
 // 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
@@ -841,11 +842,12 @@ function validateEdit() {
   const f = editForm.value, errs = []
   ;(f.volumeMounts || []).forEach((v, i) => {
     const w = `卷 ${v.name || '#' + (i + 1)}`
-    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
     else {
       if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
       if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
       if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
+      if (v.type === 'nfs' && !v.server) errs.push(`${w}：缺少 NFS server`)
       if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
       if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
     }
@@ -921,6 +923,7 @@ async function saveEdit() {
         if (v.type === 'pvc' && v.pvcName) return { name: v.name, persistentVolumeClaim: { claimName: v.pvcName } }
         if (v.type === 'emptyDir') return { name: v.name, emptyDir: {} }
         if (v.type === 'hostPath' && v.hostPath) return { name: v.name, hostPath: { path: v.hostPath } }
+        if (v.type === 'nfs' && v.server) return { name: v.name, nfs: { server: v.server, path: v.nfsPath || '/' } }
         if (v.type === 'configMap' && v.cmName) { const o = { name: v.name, configMap: { name: v.cmName } }; if (items.length) o.configMap.items = items; return o }
         if (v.type === 'secret' && v.secretName) { const o = { name: v.name, secret: { secretName: v.secretName } }; if (items.length) o.secret.items = items; return o }
         return null

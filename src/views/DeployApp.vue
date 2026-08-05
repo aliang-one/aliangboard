@@ -141,7 +141,7 @@ function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
 function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
 function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
-function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', cmName: '', secretName: '', items: [] }) }
+function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
@@ -335,6 +335,7 @@ const previewYAML = computed(() => {
     if (v.type === 'pvc' && v.pvcName) return `      - name: ${v.name}\n        persistentVolumeClaim:\n          claimName: ${v.pvcName}`
     if (v.type === 'emptyDir') return `      - name: ${v.name}\n        emptyDir: {}`
     if (v.type === 'hostPath' && v.hostPath) return `      - name: ${v.name}\n        hostPath:\n          path: ${v.hostPath}`
+    if (v.type === 'nfs' && v.server) return `      - name: ${v.name}\n        nfs:\n          server: ${v.server}\n          path: ${v.nfsPath || '/'}`
     const itemsYaml = (v.items || []).filter(it => it.key).map(it => `          - key: ${it.key}\n            path: ${it.path}`).join('\n')
     if (v.type === 'configMap' && v.cmName) return `      - name: ${v.name}\n        configMap:\n          name: ${v.cmName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
     if (v.type === 'secret' && v.secretName) return `      - name: ${v.name}\n        secret:\n          secretName: ${v.secretName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
@@ -537,11 +538,12 @@ function validate() {
   if (!f.image) errs.push('请填写容器镜像')
   f.volumeMounts.forEach((v, i) => {
     const w = `卷 ${v.name || '#' + (i + 1)}`
-    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
     else {
       if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
       if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
       if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
+      if (v.type === 'nfs' && !v.server) errs.push(`${w}：缺少 NFS server`)
       if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
       if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
     }
