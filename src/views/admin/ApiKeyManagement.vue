@@ -1,10 +1,12 @@
 <script setup>
 // API Keys 管理(admin):签发(明文仅此次)/列表/吊销。后端 /api/admin/apikeys,逻辑见 server/auth-keys.mjs。
+// 列表用通用 DataTable(紧凑一行一条,与 workload 等列表一致),不用大卡片。
 import { ref, onMounted } from 'vue'
 import { adminApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
+import DataTable from '@/components/common/DataTable.vue'
 
 const auth = useAuthStore()
 const apikeys = ref([])
@@ -15,7 +17,18 @@ const mintForm = ref({ owner: '', clusterId: '', boundSA_namespace: '', boundSA_
 const newKey = ref(null) // 签发成功后展示明文(仅此次)
 
 const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
+const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 const TIER_STYLE = { read: 'bg-status-running/10 text-status-running', operator: 'bg-status-warning/10 text-status-warning', admin: 'bg-error/10 text-error' }
+const headers = [
+  { key: 'prefix', label: 'Key' },
+  { key: 'tier', label: '权限' },
+  { key: 'owner', label: '归属人' },
+  { key: 'boundSA', label: '绑定 SA' },
+  { key: 'cluster', label: '集群' },
+  { key: 'state', label: '状态' },
+  { key: 'created', label: '创建' },
+  { key: 'actions', label: '', align: 'right' },
+]
 
 async function load() {
   loading.value = true
@@ -60,25 +73,20 @@ async function doRevoke(k) {
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
-    <div v-else-if="apikeys.length" class="grid grid-cols-1 md:grid-cols-2 gap-md">
-      <div v-for="k in apikeys" :key="k.id" class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md flex items-center gap-md" :class="{ 'opacity-50': k.revokedAt }">
-        <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-primary text-2xl">vpn_key</span></div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-xs flex-wrap">
-            <p class="text-body-md font-semibold text-on-surface font-mono">{{ k.prefix }}…</p>
-            <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="TIER_STYLE[k.tier]">{{ k.tier }}</span>
-            <span v-if="k.revokedAt" class="px-1.5 py-0.5 rounded bg-error/10 text-error text-body-xs">已吊销</span>
-          </div>
-          <p class="text-body-xs text-on-surface-variant truncate mt-xs">owner: {{ k.owner }} · SA: {{ k.boundSA_namespace }}/{{ k.boundSA_name }} · {{ clusterName(k.clusterId) }}</p>
-          <p class="text-body-xs text-on-surface-variant/60 truncate">{{ k.label || '无标签' }} · by {{ k.createdBy }}</p>
-        </div>
-        <button v-if="!k.revokedAt" @click="doRevoke(k)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error shrink-0" title="吊销"><span class="material-symbols-outlined text-base">block</span></button>
-      </div>
-    </div>
-    <div v-else class="rounded-xl border border-dashed border-outline-variant/50 py-xl text-center">
-      <span class="material-symbols-outlined text-3xl text-surface-container-high">vpn_key</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">暂无 API key,点击「签发 API Key」</p>
-    </div>
+    <DataTable v-else :headers="headers" :rows="apikeys">
+      <template #prefix="{ row }"><span class="font-mono text-body-sm font-semibold">{{ row.prefix }}…</span></template>
+      <template #tier="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="TIER_STYLE[row.tier]">{{ row.tier }}</span></template>
+      <template #boundSA="{ row }"><span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span></template>
+      <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
+      <template #state="{ row }">
+        <span v-if="row.revokedAt" class="text-body-xs text-error">已吊销</span>
+        <span v-else class="text-body-xs text-status-running flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-status-running inline-block"></span>active</span>
+      </template>
+      <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
+      <template #actions="{ row }">
+        <button v-if="!row.revokedAt" @click.stop="doRevoke(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="吊销"><span class="material-symbols-outlined text-base">block</span></button>
+      </template>
+    </DataTable>
 
     <!-- 签发 Modal -->
     <Modal v-model="showMintModal" title="签发 API Key" width="max-w-xl">
