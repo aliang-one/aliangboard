@@ -74,14 +74,14 @@ function handleDiscard() {
     <div v-if="diffMode" class="grid grid-cols-2 divide-x divide-outline-variant">
       <div>
         <div class="px-md py-xs bg-surface-container text-label-caps text-on-surface-variant text-center border-b border-outline-variant">LIVE</div>
-        <div class="bg-[#0b1c30] p-md font-mono text-code-sm text-surface-variant overflow-auto" :style="{ maxHeight: height }">
+        <div class="bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto" :style="{ maxHeight: height }">
           <pre>{{ originalValue }}</pre>
         </div>
       </div>
       <div>
         <div class="px-md py-xs bg-primary-container/10 text-label-caps text-primary text-center border-b border-outline-variant">EDITABLE</div>
         <div
-          class="bg-[#0b1c30] p-md font-mono text-code-sm text-surface-variant overflow-auto outline-none"
+          class="bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none"
           :style="{ maxHeight: height }"
           :contenteditable="!readonly"
           @input="handleInput"
@@ -93,12 +93,12 @@ function handleDiscard() {
     <!-- Single Editor Mode -->
     <div v-else class="flex">
       <!-- Line Numbers -->
-      <div v-if="showLineNumbers" class="bg-[#0b1c30] text-on-surface-variant/30 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20" :style="{ minHeight: height }">
+      <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20" :style="{ minHeight: height }">
         <div v-for="(_, i) in lines" :key="i" class="leading-[18px]">{{ i + 1 }}</div>
       </div>
       <!-- Editor -->
       <div
-        class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm text-surface-variant overflow-auto outline-none whitespace-pre"
+        class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm text-[#cfe3ff] overflow-auto outline-none whitespace-pre"
         :style="{ minHeight: height, maxHeight: height }"
         :contenteditable="!readonly"
         @input="handleInput"

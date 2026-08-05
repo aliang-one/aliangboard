@@ -2094,7 +2094,7 @@ function podStatusBorder(s) {
       <div class="rounded-lg overflow-hidden border border-outline-variant max-h-[55vh] overflow-y-auto bg-[#0b1c30] font-mono text-code-sm">
         <div v-for="(l, i) in diffLines" :key="i" class="flex items-start" :class="l.t === 'add' ? 'bg-status-running/15' : l.t === 'del' ? 'bg-error/15' : ''">
           <span class="w-6 text-center select-none shrink-0" :class="l.t === 'add' ? 'text-status-running' : l.t === 'del' ? 'text-error' : 'text-on-surface-variant/30'">{{ l.t === 'add' ? '+' : l.t === 'del' ? '-' : ' ' }}</span>
-          <span class="px-sm whitespace-pre" :class="l.t === 'add' ? 'text-status-running' : l.t === 'del' ? 'text-error' : 'text-surface-variant/80'">{{ l.v || ' ' }}</span>
+          <span class="px-sm whitespace-pre" :class="l.t === 'add' ? 'text-status-running' : l.t === 'del' ? 'text-error' : 'text-[#cfe3ff]/70'">{{ l.v || ' ' }}</span>
         </div>
       </div>
     </template>
