@@ -18,6 +18,7 @@ const clusterPrimaryNav = [
   { icon: 'dashboard', label: 'Cluster Overview', route: '/cluster' },
   { icon: 'dns', label: 'Nodes', route: '/nodes' },
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
+  { icon: 'storage', label: '存储', route: '/storage' },
 ]
 const clusterResourcesNav = [
   { icon: 'extension', label: 'CRDs', route: '/crds' },
