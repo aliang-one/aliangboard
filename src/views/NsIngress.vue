@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 import { usePagination } from '@/composables/usePagination'
 import { INGRESS_CLASSES, PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 
@@ -49,6 +50,13 @@ const createTab = ref('basic')   // basic | perf | extra
 const createForm = ref({
   name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80',
   enableTLS: true, tlsSecret: '', className: 'nginx',
+})
+// 当前 ns Service 名候选（serviceName 下拉）
+const nsServiceNames = computed(() => store.nsServices.map(s => s.name))
+// 选中 Service 暴露的端口候选（servicePort 下拉）；service 不存在/未选时为空，允许手输兜底
+const selectedServicePorts = computed(() => {
+  const svc = store.getServiceByName(createForm.value.serviceName, route.params.namespace)
+  return (svc?.portList || []).map(p => p.port)
 })
 // 性能调优参数（→ nginx.ingress.kubernetes.io/<key> 注解，空值不写入）
 const adv = ref({})
@@ -249,11 +257,11 @@ function handleDelete() {
       <div class="grid grid-cols-2 gap-md">
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Backend Service *</label>
-          <input v-model="createForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="my-service" />
+          <PortSelect v-model="createForm.serviceName" :options="nsServiceNames" placeholder="my-service" empty-hint="当前命名空间暂无 Service，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
         </div>
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Service Port *</label>
-          <input v-model="createForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="80" />
+          <PortSelect v-model="createForm.servicePort" :options="selectedServicePorts" placeholder="80" empty-hint="选择 Service 后显示其端口，也可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
         </div>
       </div>
       <div class="flex items-center gap-sm">
