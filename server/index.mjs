@@ -9,6 +9,7 @@ import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { currentEndpoint, currentDispatcher } from './failover.js'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -33,7 +34,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   version TEXT,
   createdAt INTEGER NOT NULL
 )`)
-const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
+const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   id TEXT PRIMARY KEY,
@@ -156,6 +159,8 @@ function persistSession(token, session) {
       session.insecure ? 1 : 0,
       session.version || null,
       session.createdAt || Date.now(),
+      JSON.stringify((session.endpoints || [session.apiServer]).map(u => u.toString())),
+      session.endpointIdx || 0,
     )
   } catch (e) { console.error('[sqlite] persistSession 失败', e?.message || e) }
 }
@@ -168,6 +173,8 @@ function loadPersistedSessions() {
     try {
       const session = {
         apiServer: normalizeServer(r.apiServer),
+        endpoints: r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [normalizeServer(r.apiServer)],
+        endpointIdx: r.endpointIdx || 0,
         authHeader: r.authHeader,
         ca: r.ca, cert: r.cert, key: r.key,
         insecure: !!r.insecure,
@@ -175,6 +182,7 @@ function loadPersistedSessions() {
         createdAt: r.createdAt,
       }
       session.dispatcher = buildDispatcher(session)
+      session.insecureDispatcher = buildDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
       sessions.set(r.token, session)
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
@@ -272,6 +280,33 @@ function buildDispatcher({ ca, cert, key, insecure }) {
   if (cert) connect.cert = cert
   if (key) connect.key = key
   return new UndiciAgent({ connect })
+}
+
+// 自动发现控制面端点：GET /api/v1/nodes → 过滤 control-plane → InternalIP → 候选 https://<ip>:<port>。
+// 端口从原始 apiServer 继承；发现失败 → 只返回 [apiServer]（降级不阻断）。
+async function discoverEndpoints(session) {
+  try {
+    const result = await requestKubernetes(session, '/api/v1/nodes?limit=500')
+    const nodes = result.body?.items || []
+    const port = session.apiServer.port || (session.apiServer.protocol === 'https:' ? '443' : '80')
+    const seen = new Set([session.apiServer.origin])
+    const candidates = []
+    for (const node of nodes) {
+      const labels = node.metadata?.labels || {}
+      const isCP = labels['node-role.kubernetes.io/control-plane'] !== undefined || labels['node-role.kubernetes.io/master'] !== undefined
+      if (!isCP) continue
+      const ip = node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
+      if (!ip) continue
+      const url = new URL(`${session.apiServer.protocol}//${ip}:${port}`)
+      if (!seen.has(url.origin)) { seen.add(url.origin); candidates.push(url) }
+    }
+    const all = [session.apiServer, ...candidates]
+    console.log(`[failover] 发现 ${all.length} 个端点: ${all.map(u => u.host).join(', ')}`)
+    return all
+  } catch (e) {
+    console.warn('[failover] 控制面节点发现失败，使用单端点:', e?.message || e)
+    return [session.apiServer]
+  }
 }
 
 async function requestKubernetes(session, path, init = {}) {
@@ -678,6 +713,9 @@ async function handle(req, res) {
       const session = { apiServer, authHeader, dispatcher, ca, cert, key, insecure, createdAt: Date.now() }
       const probe = await requestKubernetes(session, '/version')
       session.version = probe.body?.gitVersion || 'unknown'
+      session.endpoints = await discoverEndpoints(session)
+      session.endpointIdx = 0
+      session.insecureDispatcher = buildDispatcher({ ca, cert, key, insecure: true })
       sessions.set(sessionId, session)
       persistSession(sessionId, session) // 落盘：重启后浏览器 token 仍有效
       return sendJson(res, 200, {
