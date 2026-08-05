@@ -1061,7 +1061,7 @@ async function handleDeploy() {
 
         <h4 class="text-body-sm font-semibold mb-xs">Volume Mounts</h4>
         <div class="flex flex-col gap-sm mb-md">
-          <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :namespace="form.namespace" @remove="removeVolume(idx)" />
+          <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="form.namespace" @remove="removeVolume(idx)" />
           <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-sm">add</span> Add Volume
           </button>
