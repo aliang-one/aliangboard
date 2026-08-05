@@ -836,7 +836,31 @@ function buildSubContainer(c, target, f) {
   if (m) o.volumeMounts = m
   return o
 }
+// 保存前校验：返回错误描述数组（空=通过）
+function validateEdit() {
+  const f = editForm.value, errs = []
+  ;(f.volumeMounts || []).forEach((v, i) => {
+    const w = `卷 ${v.name || '#' + (i + 1)}`
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    else {
+      if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
+      if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
+      if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
+      if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
+      if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
+    }
+  })
+  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Init 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Sidecar 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(`端口 #${i + 1}：缺少端口号`) })
+  ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(`环境变量 #${i + 1}：缺少 KEY`) })
+  ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(`ConfigMap 环境变量 ${e.name || '未命名'}：需 ENV 名 / ConfigMap / key`) })
+  ;(f.envSecretKeys || []).forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(`Secret 环境变量 ${e.name || '未命名'}：需 ENV 名 / Secret / key`) })
+  return errs
+}
 async function saveEdit() {
+  const errs = validateEdit()
+  if (errs.length) { notify('error', '请修正：' + errs.join('；')); return }
   const f = editForm.value
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
