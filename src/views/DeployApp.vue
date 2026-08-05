@@ -10,6 +10,7 @@ import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import TagInput from '@/components/common/TagInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
+import EnvSourceField from '@/components/common/EnvSourceField.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -867,17 +868,11 @@ async function handleDeploy() {
         <div class="grid grid-cols-2 gap-sm mb-md">
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">From ConfigMap</label>
-            <select v-model="form.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">None</option>
-              <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
-            </select>
+            <EnvSourceField kind="configmap" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromConfigMap" />
           </div>
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">From Secret</label>
-            <select v-model="form.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">None</option>
-              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
-            </select>
+            <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
           </div>
         </div>
 
@@ -885,22 +880,14 @@ async function handleDeploy() {
         <h4 class="text-body-sm font-semibold mt-md mb-xs">单 Key 引用 (ConfigMap / Secret)</h4>
         <div class="flex flex-col gap-sm mb-md">
           <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <select v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">ConfigMap</option>
-              <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
-            </select>
-            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
-            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+            <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+            <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
+            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <select v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">Secret</option>
-              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
-            </select>
-            <input v-model="e.key" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
-            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+            <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+            <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
+            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div class="flex gap-sm">
             <button @click="addEnvCMKey" class="flex items-center gap-xs px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> From ConfigMap</button>
