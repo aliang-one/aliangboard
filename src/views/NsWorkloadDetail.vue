@@ -20,6 +20,7 @@ import MiniChart from '@/components/common/MiniChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 import FileBrowser from '@/components/common/FileBrowser.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
@@ -691,24 +692,50 @@ function containerToForm(c) {
   return { name: c.name || '', image: c.image || '', command: (c.command || []).join(' '), args: (c.args || []).join(' '),
     cpuReq: c.resources?.requests?.cpu || '', cpuLim: c.resources?.limits?.cpu || '', memReq: c.resources?.requests?.memory || '', memLim: c.resources?.limits?.memory || '' }
 }
-// 合并 volumes（pod spec）与 volumeMounts（容器）→ 表单条目
+// 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
 function mergeVolumes(tplSpec, c0) {
-  const byName = new Map()
+  const byKey = new Map()
+  const volDefByName = new Map()
   ;(tplSpec.volumes || []).forEach(v => {
-    const e = { name: v.name, type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }
-    if (v.persistentVolumeClaim) { e.type = 'pvc'; e.pvcName = v.persistentVolumeClaim.claimName }
-    else if (v.hostPath) { e.type = 'hostPath'; e.hostPath = v.hostPath.path }
-    else if (v.configMap) { e.type = 'configMap'; e.cmName = v.configMap.name }
-    else if (v.secret) { e.type = 'secret'; e.secretName = v.secret.secretName }
-    byName.set(v.name, e)
+    const d = { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
+    if (v.persistentVolumeClaim) { d.type = 'pvc'; d.pvcName = v.persistentVolumeClaim.claimName }
+    else if (v.hostPath) { d.type = 'hostPath'; d.hostPath = v.hostPath.path }
+    else if (v.nfs) { d.type = 'nfs'; d.server = v.nfs.server || ''; d.nfsPath = v.nfs.path || '' }
+    else if (v.configMap) { d.type = 'configMap'; d.cmName = v.configMap.name }
+    else if (v.secret) { d.type = 'secret'; d.secretName = v.secret.secretName }
+    volDefByName.set(v.name, d)
   })
-  ;(c0.volumeMounts || []).forEach(m => {
-    let e = byName.get(m.name)
-    if (!e) { e = { name: m.name, type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }; byName.set(m.name, e) }
-    e.mountPath = m.mountPath || ''; e.subPath = m.subPath || ''
+  const push = (target, m) => {
+    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
+    byKey.set(`${target}|${m.name}|${m.mountPath || ''}`, {
+      name: m.name, target, type: d.type, mountPath: m.mountPath || '', subPath: m.subPath || '', readOnly: !!m.readOnly,
+      pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })),
+    })
+  }
+  ;(c0.volumeMounts || []).forEach(m => push('main', m))
+  ;(tplSpec.initContainers || []).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)))
+  ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
+  // 只定义未挂载的卷也保留（挂到主容器占位）
+  volDefByName.forEach((d, name) => {
+    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })) })
   })
-  return [...byName.values()]
+  return [...byKey.values()]
 }
+// 卷挂载目标 + PVC 候选
+const containerTargets = computed(() => {
+  const t = [{ value: 'main', label: '主容器' }]
+  ;(editForm.value.initContainers || []).forEach((c, i) => { if (c.image) t.push({ value: `init:${i}`, label: `Init: ${c.name || '#' + i}` }) })
+  ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) t.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
+  return t
+})
+const availablePVCs = computed(() => (store.pvcList || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
+const availableConfigMaps = computed(() => (store.configMapList || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
+const availableSecrets = computed(() => (store.secretList || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
+function addVolumeMount() {
+  editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] })
+}
+// 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
+function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
 function openEdit() {
   if (!workload.value) return
   const raw = workload.value?.raw || {}
@@ -795,15 +822,47 @@ function buildSc(s) {
   if (add.length || drop.length) o.capabilities = { ...(add.length ? { add } : {}), ...(drop.length ? { drop } : {}) }
   return Object.keys(o).length ? o : null
 }
-function buildSubContainer(c) {
+// 按 target 取该容器的 volumeMounts（含 subPath/readOnly）
+function mountObjs(target, f) {
+  const ms = (f.volumeMounts || []).filter(v => v.target === target && v.name && v.mountPath).map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; if (m.readOnly) o.readOnly = true; return o })
+  return ms.length ? ms : null
+}
+function buildSubContainer(c, target, f) {
   const o = { name: c.name || (c.image || '').split(':')[0] || 'container', image: c.image || '' }
   const cmd = splitSpace(c.command), args = splitSpace(c.args)
   if (cmd.length) o.command = cmd
   if (args.length) o.args = args
   o.resources = buildResources(c.cpuReq, c.cpuLim, c.memReq, c.memLim)
+  const m = mountObjs(target, f)
+  if (m) o.volumeMounts = m
   return o
 }
+// 保存前校验：返回错误描述数组（空=通过）
+function validateEdit() {
+  const f = editForm.value, errs = []
+  ;(f.volumeMounts || []).forEach((v, i) => {
+    const w = `卷 ${v.name || '#' + (i + 1)}`
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    else {
+      if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
+      if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
+      if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
+      if (v.type === 'nfs' && !v.server) errs.push(`${w}：缺少 NFS server`)
+      if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
+      if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
+    }
+  })
+  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Init 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Sidecar 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
+  ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(`端口 #${i + 1}：缺少端口号`) })
+  ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(`环境变量 #${i + 1}：缺少 KEY`) })
+  ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(`ConfigMap 环境变量 ${e.name || '未命名'}：需 ENV 名 / ConfigMap / key`) })
+  ;(f.envSecretKeys || []).forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(`Secret 环境变量 ${e.name || '未命名'}：需 ENV 名 / Secret / key`) })
+  return errs
+}
 async function saveEdit() {
+  const errs = validateEdit()
+  if (errs.length) { notify('error', '请修正：' + errs.join('；')); return }
   const f = editForm.value
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
@@ -845,27 +904,30 @@ async function saveEdit() {
       c0.livenessProbe = buildProbe(f.liveness)
       c0.readinessProbe = buildProbe(f.readiness)
       c0.startupProbe = buildProbe(f.startup)
-      const mounts = (f.volumeMounts || []).filter(v => v.name && v.mountPath)
-      c0.volumeMounts = mounts.length ? mounts.map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; return o }) : null
+      c0.volumeMounts = mountObjs('main', f)
       c0.securityContext = buildSc(f.securityContext) || null
       const lc = {}
       const ps = splitSpace(f.lifecycle?.postStart), pst = splitSpace(f.lifecycle?.preStop)
       if (ps.length) lc.postStart = { exec: { command: ps } }
       if (pst.length) lc.preStop = { exec: { command: pst } }
       c0.lifecycle = Object.keys(lc).length ? lc : null
-      // 多容器：重建 containers = [主, ...sidecar]，initContainers
-      spec.containers = [c0, ...(f.extraContainers || []).filter(c => c.image).map(buildSubContainer)]
-      const inits = (f.initContainers || []).filter(c => c.image).map(buildSubContainer)
+      // 多容器：重建 containers = [主, ...sidecar]，initContainers（按原索引传 target，各自挂卷）
+      spec.containers = [c0, ...(f.extraContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `sidecar:${idx}`, f) : null).filter(Boolean)]
+      const inits = (f.initContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `init:${idx}`, f) : null).filter(Boolean)
       spec.initContainers = inits.length ? inits : null
-      // 卷
-      const vols = []
-      ;(f.volumeMounts || []).filter(v => v.name).forEach(v => {
-        if (v.type === 'pvc' && v.pvcName) vols.push({ name: v.name, persistentVolumeClaim: { claimName: v.pvcName } })
-        else if (v.type === 'emptyDir') vols.push({ name: v.name, emptyDir: {} })
-        else if (v.type === 'hostPath' && v.hostPath) vols.push({ name: v.name, hostPath: { path: v.hostPath } })
-        else if (v.type === 'configMap' && v.cmName) vols.push({ name: v.name, configMap: { name: v.cmName } })
-        else if (v.type === 'secret' && v.secretName) vols.push({ name: v.name, secret: { secretName: v.secretName } })
-      })
+      // 卷（按 name 去重；configMap/secret 带 items）
+      const volDefs = new Map()
+      ;(f.volumeMounts || []).filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
+      const vols = [...volDefs.values()].map(v => {
+        const items = (v.items || []).filter(it => it.key).map(it => ({ key: it.key, path: it.path }))
+        if (v.type === 'pvc' && v.pvcName) return { name: v.name, persistentVolumeClaim: { claimName: v.pvcName } }
+        if (v.type === 'emptyDir') return { name: v.name, emptyDir: {} }
+        if (v.type === 'hostPath' && v.hostPath) return { name: v.name, hostPath: { path: v.hostPath } }
+        if (v.type === 'nfs' && v.server) return { name: v.name, nfs: { server: v.server, path: v.nfsPath || '/' } }
+        if (v.type === 'configMap' && v.cmName) { const o = { name: v.name, configMap: { name: v.cmName } }; if (items.length) o.configMap.items = items; return o }
+        if (v.type === 'secret' && v.secretName) { const o = { name: v.name, secret: { secretName: v.secretName } }; if (items.length) o.secret.items = items; return o }
+        return null
+      }).filter(Boolean)
       spec.volumes = vols.length ? vols : null
       // 调度（pod spec）
       const nsMap = {}
@@ -1759,9 +1821,10 @@ function podStatusBorder(s) {
 
       <!-- ===== 容器 / Pod 模板（仅 Deployment/StatefulSet/DaemonSet）===== -->
       <div v-if="isRolloutType" class="flex flex-col gap-md">
-        <!-- 主容器基本 -->
+        <!-- 容器（主 + Init + Sidecar）统一区 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">memory</span><h4 class="text-body-sm font-semibold text-on-surface">主容器</h4></div>
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">容器</h4></div>
+          <div class="text-xs font-semibold text-on-surface-variant">主容器</div>
           <div class="grid grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">拉取策略</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Command</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app/server (空格分隔)" /></div>
@@ -1773,6 +1836,24 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Lim</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="500m" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="256Mi" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="512Mi" /></div>
+          </div>
+          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">Init 容器</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
+            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
+            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
+            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
+            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
+            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
+            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+          </div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Sidecar 容器</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
+            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
+            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
+            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
+            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
+            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
+            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
         </section>
 
@@ -1849,22 +1930,10 @@ function podStatusBorder(s) {
           <div class="flex items-center gap-xs mb-md">
             <span class="material-symbols-outlined text-primary text-lg">storage</span>
             <h4 class="text-body-sm font-semibold text-on-surface">卷与挂载</h4>
-            <button @click="editForm.volumeMounts.push({ name: '', type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+            <button @click="addVolumeMount" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
           </div>
-          <div v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 flex flex-col gap-xs">
-            <div class="flex items-center gap-xs">
-              <input v-model="v.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="卷名" />
-              <select v-model="v.type" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option value="emptyDir">emptyDir</option><option value="pvc">PVC</option><option value="hostPath">hostPath</option><option value="configMap">ConfigMap</option><option value="secret">Secret</option></select>
-              <input v-model="v.mountPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="挂载路径 /data" />
-              <button @click="editForm.volumeMounts.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
-            </div>
-            <div class="flex items-center gap-xs">
-              <input v-if="v.type === 'pvc'" v-model="v.pvcName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="PVC claimName" />
-              <input v-else-if="v.type === 'hostPath'" v-model="v.hostPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="宿主路径 /var/data" />
-              <input v-else-if="v.type === 'configMap'" v-model="v.cmName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ConfigMap 名称" />
-              <input v-else-if="v.type === 'secret'" v-model="v.secretName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="Secret 名称" />
-              <input v-model="v.subPath" class="w-40 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="subPath (可选)" />
-            </div>
+          <div class="flex flex-col gap-sm">
+            <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="route.params.namespace" @remove="editForm.volumeMounts.splice(i, 1)" />
           </div>
         </section>
 
@@ -1910,28 +1979,6 @@ function podStatusBorder(s) {
           </div>
         </section>
 
-        <!-- 多容器：init / sidecar -->
-        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">多容器（Init / Sidecar）</h4></div>
-          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Init 容器</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
-          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
-            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
-            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
-            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
-          </div>
-          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Sidecar 容器</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
-          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
-            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
-            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
-            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
-          </div>
-        </section>
       </div>
 
       <!-- 更新策略（Deployment 级） -->
