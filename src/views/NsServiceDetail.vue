@@ -101,10 +101,10 @@ const showAddBackendModal = ref(false)
 const pickedBackend = ref('')
 const unmatchedWorkloads = computed(() =>
   store.nsWorkloads.filter(w => !boundWorkloadNames.value.includes(w.name)))
-// 新 selector = 目标集合（当前绑定 + 所选）的 template label 交集
-const mergedSelector = computed(() => {
-  if (!pickedBackend.value) return null
-  const picked = store.nsWorkloads.find(w => w.name === pickedBackend.value)
+// 把指定 workload 并入后端后的新 selector = (当前绑定 ∪ 该 workload) 的 template label 交集
+function mergedSelectorFor(name) {
+  if (!name) return null
+  const picked = store.nsWorkloads.find(w => w.name === name)
   if (!picked) return null
   const targets = [...boundWorkloads.value, picked]
   if (!targets.length) return {}
@@ -113,20 +113,40 @@ const mergedSelector = computed(() => {
     if (targets.every(w => tplLabels(w)[k] === v)) common[k] = v
   }
   return common
-})
-// 副作用预警：新 selector 会「顺带」命中哪些不在目标集合内的工作负载（label 放宽的代价）
-const wouldAlsoMatch = computed(() => {
-  const ms = mergedSelector.value
+}
+// 副作用预警：给定新 selector + 目标集合，会顺带命中哪些其它工作负载
+function alsoMatchFor(ms, desiredNames) {
   if (!ms || !Object.keys(ms).length) return []
-  const desired = new Set([...boundWorkloadNames.value, pickedBackend.value])
+  const desired = new Set(desiredNames)
   return store.nsWorkloads
     .filter(w => !desired.has(w.name) && Object.entries(ms).every(([k, v]) => tplLabels(w)[k] === v))
     .map(w => w.name)
-})
+}
+// 「添加后端工作负载」弹窗用
+const mergedSelector = computed(() => mergedSelectorFor(pickedBackend.value))
+const wouldAlsoMatch = computed(() => alsoMatchFor(mergedSelector.value, [...boundWorkloadNames.value, pickedBackend.value]))
 const canAddBackend = computed(() => {
   const ms = mergedSelector.value
   return !!pickedBackend.value && ms && Object.keys(ms).length > 0
 })
+
+// === 加端口时自动并入来源工作负载 ===
+// PortSelect pick 事件携带来源 workload；手输端口则无来源
+const addPortSource = ref(null)
+function onPickTarget(detail) { addPortSource.value = detail || null }
+// 仅当选中端口号与 pick 一致时来源有效（用户随后手改端口号则来源失效）
+const sourceWorkload = computed(() => {
+  const s = addPortSource.value
+  return s && String(s.port) === String(addPortForm.value.targetPort) ? (s.workload || '') : ''
+})
+const sourceNonBound = computed(() => !!(sourceWorkload.value && !boundWorkloadNames.value.includes(sourceWorkload.value)))
+const portMergeSelector = computed(() => sourceNonBound.value ? mergedSelectorFor(sourceWorkload.value) : null)
+const canAutoMerge = computed(() => {
+  const ms = portMergeSelector.value
+  return !!ms && Object.keys(ms).length > 0
+})
+const portMergeAlsoMatch = computed(() => sourceNonBound.value ? alsoMatchFor(portMergeSelector.value, [...boundWorkloadNames.value, sourceWorkload.value]) : [])
+const autoMergeEnabled = ref(true)
 function openAddBackend() { pickedBackend.value = ''; showAddBackendModal.value = true }
 async function confirmAddBackend() {
   if (!canAddBackend.value) return
@@ -277,6 +297,8 @@ const addPortForm = ref({ port: '', targetPort: '', protocol: 'TCP', nodePort: '
 const addingPort = ref(false)
 function openAddPort() {
   addPortForm.value = { port: '', targetPort: '', protocol: 'TCP', nodePort: '' }
+  addPortSource.value = null
+  autoMergeEnabled.value = true
   showAddPortModal.value = true
 }
 const addPortNeedsNodePort = computed(() => svc.value?.type === 'NodePort' || svc.value?.type === 'LoadBalancer')
@@ -306,9 +328,16 @@ async function saveAddPort() {
       newRow,
     ]
     const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
-    await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
+    // 若选了未绑定工作负载的端口且勾选自动并入 → 同时更新 selector（取共有 label 交集）
+    const updates = { portList, ports: portsStr }
+    let merged = false
+    if (sourceNonBound.value && autoMergeEnabled.value && canAutoMerge.value) {
+      updates.selector = portMergeSelector.value
+      merged = true
+    }
+    await store.updateService(route.params.name, route.params.namespace, updates)
     showAddPortModal.value = false
-    notify('success', '端口已添加')
+    notify('success', merged ? `端口已添加，并把 ${sourceWorkload.value} 并入后端（selector 已更新）` : '端口已添加')
   } catch (e) {
     notify('error', e.message || '添加端口失败')
   } finally {
@@ -857,7 +886,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label>
-        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" @pick="onPickTarget" />
         <p class="text-[10px] text-on-surface-variant/60 mt-xs">转发到后端 Pod 的端口</p>
       </div>
       <div>
@@ -871,6 +900,25 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <input v-model="addPortForm.nodePort" type="number" min="30000" max="32767" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="留空自动分配" />
         <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ svc.type }} 类型：节点对外端口</p>
       </div>
+    </div>
+    <!-- 选了未绑定工作负载的端口：自动并入后端（取共有 label 作新 selector）-->
+    <div v-if="sourceNonBound" class="mt-md p-sm rounded-md" :class="canAutoMerge ? 'bg-primary-container/10 border border-primary/20' : 'bg-error-container/10 border border-error/20'">
+      <label class="flex items-start gap-xs cursor-pointer" :class="{ 'cursor-not-allowed opacity-70': !canAutoMerge }">
+        <input type="checkbox" v-model="autoMergeEnabled" :disabled="!canAutoMerge" class="mt-0.5 accent-primary" />
+        <span class="text-body-sm">
+          该端口来自 <strong class="text-on-surface">{{ sourceWorkload }}</strong>（当前未在后端）——
+          <span v-if="canAutoMerge">保存时<strong class="text-primary">同时把它加入后端</strong></span>
+          <span v-else>无法自动加入</span>
+        </span>
+      </label>
+      <div v-if="canAutoMerge" class="mt-xs">
+        <p class="text-[10px] text-on-surface-variant/60 mb-0.5">selector 将合并为共有 label：</p>
+        <div class="flex flex-wrap gap-xs">
+          <span v-for="(v, k) in portMergeSelector" :key="k" class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary text-xs font-mono border border-primary/30"><span class="font-semibold">{{ k }}</span>={{ v }}</span>
+        </div>
+        <p v-if="portMergeAlsoMatch.length" class="text-[11px] text-tertiary-container mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">warning</span>还会顺带命中：{{ portMergeAlsoMatch.join('、') }}</p>
+      </div>
+      <p v-else class="text-[11px] text-error mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>{{ sourceWorkload }} 与当前后端无共享 label，无法用单个 selector 同时选中。需先给它和后端打上共同 label。</p>
     </div>
     <template #actions>
       <button @click="showAddPortModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
