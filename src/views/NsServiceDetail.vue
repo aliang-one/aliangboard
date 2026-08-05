@@ -78,6 +78,18 @@ const totalCount = computed(() => hasEndpoints.value ? (readyAddrs.value.length 
 const endpointsHealthy = computed(() => readyCount.value > 0)
 const isExternalName = computed(() => svc.value?.type === 'ExternalName')
 
+// 该 Service 绑定的工作负载：pod template labels 完全匹配 selector 的第一个工作负载。
+// 用于 PortSelect 的 priorityGroup——选 targetPort 时优先展示该 Deployment 暴露的端口。
+const boundWorkload = computed(() => {
+  const sel = svc.value?.selector
+  if (!sel || !Object.keys(sel).length) return ''
+  const wl = store.nsWorkloads.find(w => {
+    const tpl = w.raw?.spec?.template?.metadata?.labels || {}
+    return Object.entries(sel).every(([k, v]) => tpl[k] === v)
+  })
+  return wl?.name || ''
+})
+
 // === 后端 Pod 统一列表：真实 Endpoints 时按地址取 backing pod，否则回退 selector 命中 ===
 const backendPods = computed(() => {
   if (isExternalName.value) return []
@@ -584,7 +596,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div v-for="(p, idx) in editForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :options="store.nsContainerPorts" placeholder="target" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" placeholder="target" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
@@ -690,7 +702,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label>
-        <PortSelect v-model="addPortForm.targetPort" :options="store.nsContainerPorts" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         <p class="text-[10px] text-on-surface-variant/60 mt-xs">转发到后端 Pod 的端口</p>
       </div>
       <div>
