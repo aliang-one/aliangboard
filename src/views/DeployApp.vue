@@ -821,6 +821,52 @@ async function handleDeploy() {
           </div>
         </div>
 
+        <!-- 初始容器 (Init) -->
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">初始容器 (Init Containers)</h4>
+        <div class="flex flex-col gap-sm mb-md">
+          <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+            </div>
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
+              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+            </div>
+            <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">移除该容器</button>
+          </div>
+          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Init Container
+          </button>
+        </div>
+
+        <!-- 额外工作容器 (Sidecar) -->
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">额外工作容器 (Sidecar)</h4>
+        <div class="flex flex-col gap-sm mb-md">
+          <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
+            <div class="grid grid-cols-2 gap-sm mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
+              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+            </div>
+            <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">移除该容器</button>
+          </div>
+          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">add</span> Add Sidecar Container
+          </button>
+        </div>
+
         <!-- Container Ports -->
         <h4 class="text-body-sm font-semibold mt-md mb-xs">Container Ports</h4>
         <div class="flex flex-col gap-sm mb-md">
@@ -901,7 +947,7 @@ async function handleDeploy() {
             <span class="flex items-center gap-sm text-body-sm font-semibold">
               <span class="material-symbols-outlined text-on-surface-variant text-base">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</span>
               高级设置
-              <span class="text-xs text-on-surface-variant font-normal opacity-70">探针 · 多容器 · 安全上下文 · 生命周期</span>
+              <span class="text-xs text-on-surface-variant font-normal opacity-70">探针 · 安全上下文 · 生命周期</span>
             </span>
             <span class="text-xs text-primary font-medium">{{ showAdvanced ? '收起' : '展开' }}</span>
           </button>
@@ -956,52 +1002,6 @@ async function handleDeploy() {
               <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
             </div>
           </div>
-        </div>
-
-        <!-- 额外工作容器 (Sidecar) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">额外工作容器 (Sidecar)</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">移除该容器</button>
-          </div>
-          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> Add Sidecar Container
-          </button>
-        </div>
-
-        <!-- 初始容器 (Init) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">初始容器 (Init Containers)</h4>
-        <div class="flex flex-col gap-sm">
-          <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
-            </div>
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
-              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">移除该容器</button>
-          </div>
-          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> Add Init Container
-          </button>
         </div>
 
         <!-- 安全上下文 -->
