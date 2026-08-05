@@ -441,6 +441,12 @@ const routes = [
         component: () => import('@/views/admin/ClusterManagement.vue'),
         meta: { title: '集群管理', icon: 'cloud', scope: 'global', requireAdmin: true }
       },
+      {
+        path: 'admin/apikeys',
+        name: 'AdminApiKeys',
+        component: () => import('@/views/admin/ApiKeyManagement.vue'),
+        meta: { title: 'API Keys 管理', icon: 'vpn_key', scope: 'global', requireAdmin: true }
+      },
     ]
   }
 ]

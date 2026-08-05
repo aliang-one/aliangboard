@@ -204,6 +204,11 @@ export const adminApi = {
     create: payload => platformRequest('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformRequest(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
+  apikeys: {
+    list: () => platformRequest('/api/admin/apikeys'),
+    create: payload => platformRequest('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformRequest(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
