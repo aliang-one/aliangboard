@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { detectSecretTemplate, SECRET_TEMPLATES } from '@/composables/useSecretTemplates'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -33,6 +34,17 @@ const decodedData = (d) => Object.fromEntries(Object.entries(d || {}).map(([k, v
 const dataEntries = computed(() => {
   if (!secret.value?.data) return []
   return Object.entries(secret.value.data)
+})
+
+const secretTemplateId = computed(() => detectSecretTemplate(secret.value))
+const secretTemplate = computed(() => SECRET_TEMPLATES.find(t => t.id === secretTemplateId.value))
+const dockerRegistries = computed(() => {
+  if (secretTemplateId.value !== 'docker') return []
+  try {
+    const raw = decode(secret.value?.data?.['.dockerconfigjson'] || '')
+    const config = JSON.parse(raw)
+    return Object.entries(config.auths || {}).map(([server, info]) => ({ server, username: info.username || '—' }))
+  } catch { return [] }
 })
 
 function toggleReveal(key) {
@@ -198,6 +210,29 @@ const refCount = computed(() =>
 
     <!-- Data Tab -->
     <div v-if="activeTab === 'data'">
+        <!-- 类型摘要卡 -->
+        <div v-if="secretTemplateId !== 'opaque'" class="bg-primary-container/5 border border-primary/20 rounded-xl p-md mb-md flex items-center gap-md">
+          <span class="material-symbols-outlined text-primary text-2xl">{{ secretTemplate?.icon }}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-body-sm font-semibold text-primary">{{ secretTemplate?.label }}</p>
+            <!-- Docker: registry + username -->
+            <div v-if="secretTemplateId === 'docker'" class="mt-xs flex flex-wrap gap-md text-body-sm text-on-surface-variant">
+              <span v-for="reg in dockerRegistries" :key="reg.server"><span class="font-mono text-primary">{{ reg.server }}</span> · {{ reg.username }}</span>
+            </div>
+            <!-- TLS -->
+            <p v-else-if="secretTemplateId === 'tls'" class="text-body-sm text-on-surface-variant mt-xs">包含 tls.crt (证书) + tls.key (私钥)</p>
+            <!-- SSH -->
+            <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">包含 ssh-privatekey{{ secret.value?.data?.known_hosts ? ' + known_hosts' : '' }}</p>
+            <!-- Basic Auth -->
+            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">用户: <span class="font-mono">{{ decode(secret.value?.data?.username) || '—' }}</span></p>
+            <!-- Git Token -->
+            <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">Key: <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
+            <!-- AWS -->
+            <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">AWS 凭证 (3 keys)</p>
+            <!-- DB -->
+            <p v-else-if="secretTemplateId === 'db'" class="text-body-sm text-on-surface-variant mt-xs">数据库连接 ({{ dataEntries.length }} keys)</p>
+          </div>
+        </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
           <h3 class="text-headline-sm">Data Keys ({{ dataEntries.length }})</h3>

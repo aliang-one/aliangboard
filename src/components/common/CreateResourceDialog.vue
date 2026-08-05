@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import PortSelect from '@/components/common/PortSelect.vue'
+import { SECRET_TEMPLATES, buildSecretData } from '@/composables/useSecretTemplates'
 
 const store = useClusterStore()
 
@@ -29,7 +30,7 @@ const serviceForm = ref({
 })
 
 const configMapForm = ref({ name: '', data: [{ key: '', value: '' }] })
-const secretForm = ref({ name: '', type: 'Opaque', data: [{ key: '', value: '' }] })
+const secretForm = ref({ name: '', templateId: 'opaque', fields: { data: [{ key: '', value: '' }] } })
 
 const ingressForm = ref({
   name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: 80, enableTLS: true,
@@ -56,7 +57,13 @@ function addRow(arr) { arr.push({ key: '', value: '' }) }
 function removeRow(arr, idx) { if (arr.length > 1) arr.splice(idx, 1) }
 
 function handleCreate() {
-  emit('create', { type: props.resourceType, namespace: props.namespace })
+  if (props.resourceType === 'secret') {
+    const tpl = SECRET_TEMPLATES.find(t => t.id === secretForm.value.templateId)
+    const data = buildSecretData(secretForm.value.templateId, secretForm.value.fields)
+    emit('create', { type: 'secret', namespace: props.namespace, name: secretForm.value.name, k8sType: tpl?.k8sType || 'Opaque', data })
+  } else {
+    emit('create', { type: props.resourceType, namespace: props.namespace })
+  }
   close()
 }
 </script>
@@ -146,9 +153,9 @@ kind: Secret
 metadata:
   name: {{ secretForm.name }}
   namespace: {{ namespace }}
-type: {{ secretForm.type }}
+type: {{ SECRET_TEMPLATES.find(t => t.id === secretForm.templateId)?.k8sType || 'Opaque' }}
 data:
-{{ secretForm.data.filter(d=>d.key).map(d=>`  ${d.key}: <base64-encoded>`).join('\n') || '  {}' }}</pre>
+{{ Object.keys(buildSecretData(secretForm.templateId, secretForm.fields)).map(k => `  ${k}: <base64-encoded>`).join('\n') || '  {}' }}</pre>
               <pre v-else-if="resourceType === 'ingress'">apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -232,21 +239,61 @@ spec:
 
               <!-- Secret Form -->
               <template v-if="resourceType === 'secret'">
-                <div class="grid grid-cols-2 gap-md mb-lg">
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="secretForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Type</label>
-                    <select v-model="secretForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary">
-                      <option>Opaque</option><option>kubernetes.io/tls</option><option>kubernetes.io/dockerconfigjson</option><option>kubernetes.io/basic-auth</option>
-                    </select>
-                  </div>
+              <!-- Secret 模板选择器 -->
+              <div>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">模板</label>
+                <div class="grid grid-cols-2 gap-xs">
+                  <button v-for="tpl in SECRET_TEMPLATES" :key="tpl.id" type="button" @click="secretForm.templateId = tpl.id"
+                    class="flex items-center gap-sm px-md py-sm rounded-lg border text-left transition-all"
+                    :class="secretForm.templateId === tpl.id ? 'border-primary bg-primary-container/10 text-primary' : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
+                    <span class="material-symbols-outlined text-base">{{ tpl.icon }}</span>
+                    <div class="min-w-0">
+                      <p class="text-body-sm font-medium truncate">{{ tpl.label }}</p>
+                      <p class="text-[10px] text-on-surface-variant truncate">{{ tpl.description }}</p>
+                    </div>
+                  </button>
                 </div>
-                <h4 class="text-label-caps text-on-surface-variant mb-sm">DATA</h4>
-                <div v-for="(d, i) in secretForm.data" :key="i" class="flex gap-sm mb-sm">
-                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Key" />
-                  <input v-model="d.value" type="password" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Value" />
-                  <button @click="removeRow(secretForm.data, i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+              </div>
+              <!-- 名称 -->
+              <div class="mt-md">
+                <label class="text-label-caps text-on-surface-variant block mb-xs">Secret Name *</label>
+                <input v-model="secretForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" />
+              </div>
+              <!-- Opaque: key-value 列表 -->
+              <div v-if="secretForm.templateId === 'opaque'" class="mt-md">
+                <label class="text-label-caps text-on-surface-variant block mb-xs">Data</label>
+                <div v-for="(d, i) in secretForm.fields.data" :key="i" class="flex gap-xs mb-xs">
+                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" placeholder="key" />
+                  <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" placeholder="value" />
+                  <button @click="() => { if (secretForm.fields.data.length > 1) secretForm.fields.data.splice(i, 1) }" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">close</span></button>
                 </div>
-                <button @click="addRow(secretForm.data)" class="flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span>Add Key</button>
+                <button @click="secretForm.fields.data.push({ key: '', value: '' })" class="text-body-sm text-primary font-medium hover:underline">+ 添加</button>
+              </div>
+              <!-- 非 Opaque: 按模板 fields 动态渲染 -->
+              <div v-else class="mt-md">
+                <div v-for="f in SECRET_TEMPLATES.find(t => t.id === secretForm.templateId)?.fields" :key="f.key" class="mb-sm">
+                  <label class="text-label-caps text-on-surface-variant block mb-xs">{{ f.label }}{{ f.optional ? '（可选）' : '' }}</label>
+                  <!-- select -->
+                  <select v-if="f.type === 'select'" v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+                    <option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                  <!-- password -->
+                  <input v-else-if="f.type === 'password'" v-model="secretForm.fields[f.key]" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" :placeholder="f.placeholder || ''" />
+                  <!-- textarea -->
+                  <textarea v-else-if="f.type === 'textarea'" v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-24 resize-y" :placeholder="f.placeholder || ''"></textarea>
+                  <!-- text -->
+                  <input v-else v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="f.placeholder || ''" />
+                  <!-- hint -->
+                  <p v-if="f.hint || (f.type === 'select' && f.options?.find(o => o.value === secretForm.fields[f.key])?.hint)" class="text-[10px] text-on-surface-variant mt-xs">{{ f.options?.find(o => o.value === secretForm.fields[f.key])?.hint || f.hint }}</p>
+                </div>
+                <!-- Docker 快捷 registry -->
+                <div v-if="secretForm.templateId === 'docker'" class="flex gap-xs flex-wrap mt-xs">
+                  <button v-for="qf in SECRET_TEMPLATES.find(t => t.id === 'docker').quickFills" :key="qf.server" type="button" @click="secretForm.fields.server = qf.server"
+                    class="px-sm py-xs text-xs rounded border" :class="secretForm.fields.server === qf.server ? 'border-primary text-primary bg-primary-container/10' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-low'">
+                    {{ qf.label }}
+                  </button>
+                </div>
+              </div>
               </template>
 
               <!-- Ingress Form -->
