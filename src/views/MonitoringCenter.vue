@@ -27,8 +27,8 @@ async function tick() {
     lastRefresh.value = new Date().toLocaleTimeString()
   } finally { sampling.value = false }
 }
-onMounted(() => { tick(); timer = setInterval(tick, 10000) })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onMounted(() => { tick(); timer = setInterval(tick, 10000); store.startEventWatch() })
+onUnmounted(() => { if (timer) clearInterval(timer); store.stopEventWatch() })
 
 // KPI 派生
 const readyNodes = computed(() => store.nodeList.filter(n => n.status === 'Ready').length)
@@ -44,6 +44,17 @@ const topPods = computed(() => {
     .sort((a, b) => b[key] - a[key])
     .slice(0, 10)
 })
+
+// 事件流（集群级，warning 过滤）
+const eventFilter = ref('all')   // all | warning
+const recentEvents = computed(() => {
+  const list = store.eventList
+  const filtered = eventFilter.value === 'warning' ? list.filter(e => e.type === 'warning') : list   // type 小写
+  return filtered.slice(0, 50)
+})
+// 告警面板
+const highCpuNodes = computed(() => store.nodeList.filter(n => n.cpu != null && n.cpu >= 80))
+const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status !== 'Running'))
 </script>
 
 <template>
@@ -140,6 +151,56 @@ const topPods = computed(() => {
         </button>
       </div>
       <p v-else class="text-center text-on-surface-variant text-body-sm py-md">暂无 Pod 用量数据</p>
+    </div>
+
+    <!-- 事件流 + 告警（两列）-->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-sm mt-md">
+      <!-- 事件流 -->
+      <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
+        <div class="flex items-center justify-between mb-sm">
+          <h3 class="text-body-sm font-semibold flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-base">notifications_active</span> 事件流 <span class="text-xs text-on-surface-variant font-normal">集群级 · 最近 50</span></h3>
+          <div class="flex gap-xs">
+            <button @click="eventFilter = 'all'" class="px-2 py-0.5 text-xs rounded" :class="eventFilter === 'all' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low'">全部</button>
+            <button @click="eventFilter = 'warning'" class="px-2 py-0.5 text-xs rounded" :class="eventFilter === 'warning' ? 'bg-error text-on-error' : 'text-on-surface-variant hover:bg-surface-container-low'">Warning</button>
+          </div>
+        </div>
+        <div class="flex flex-col gap-xs max-h-96 overflow-y-auto">
+          <div v-for="(e, i) in recentEvents" :key="e.uid || i" class="flex items-start gap-sm p-xs rounded" :class="e.type === 'warning' ? 'bg-error/5' : ''">
+            <span class="material-symbols-outlined text-base shrink-0" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface-variant'">{{ e.icon }}</span>
+            <div class="min-w-0 flex-1">
+              <p class="text-body-sm text-on-surface truncate"><span class="font-mono text-primary">{{ e.relatedName || '—' }}</span> {{ e.reason || e.message }}</p>
+              <p class="text-xs text-on-surface-variant">{{ e.relatedKind || e.type }} · {{ e.namespace || '—' }} · {{ e.age }}</p>
+            </div>
+          </div>
+          <p v-if="!recentEvents.length" class="text-center text-on-surface-variant text-body-sm py-md">暂无事件</p>
+        </div>
+      </div>
+
+      <!-- 告警面板 -->
+      <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
+        <h3 class="text-body-sm font-semibold mb-sm flex items-center gap-xs"><span class="material-symbols-outlined text-error text-base">crisis_alert</span> 告警</h3>
+        <div class="flex flex-col gap-sm">
+          <div v-if="highCpuNodes.length">
+            <p class="text-xs text-on-surface-variant mb-xs">高 CPU 节点（≥80%）</p>
+            <button v-for="n in highCpuNodes" :key="n.name" @click="router.push({ name: 'NodeDetail', params: { name: n.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
+              <span class="font-mono text-body-sm text-on-surface">{{ n.name }}</span><span class="text-xs text-error font-medium">{{ n.cpu }}%</span>
+            </button>
+          </div>
+          <div v-if="failedPods">
+            <p class="text-xs text-on-surface-variant mb-xs">失败 Pod（{{ failedPods }}）</p>
+            <button v-for="p in store.podList.filter(p => p.status === 'Failed').slice(0, 5)" :key="p.namespace + '/' + p.name" @click="router.push({ name: 'PodDetail', params: { namespace: p.namespace, name: p.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
+              <span class="font-mono text-body-sm text-on-surface truncate">{{ p.name }}</span><span class="text-xs text-on-surface-variant">{{ p.namespace }}</span>
+            </button>
+          </div>
+          <div v-if="notReadyWorkloads.length">
+            <p class="text-xs text-on-surface-variant mb-xs">未就绪工作负载（{{ notReadyWorkloads.length }}）</p>
+            <button v-for="w in notReadyWorkloads.slice(0, 5)" :key="w.namespace + '/' + w.name" @click="router.push({ name: 'WorkloadDetail', params: { type: w.type, name: w.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
+              <span class="font-mono text-body-sm text-on-surface truncate">{{ w.name }}</span><span class="text-xs text-on-surface-variant">{{ w.type }} · {{ w.replicas }}</span>
+            </button>
+          </div>
+          <p v-if="!highCpuNodes.length && !failedPods && !notReadyWorkloads.length" class="text-center text-tertiary-container text-body-sm py-md flex items-center justify-center gap-xs"><span class="material-symbols-outlined text-base">check_circle</span> 一切正常</p>
+        </div>
+      </div>
     </div>
   </section>
 </template>
