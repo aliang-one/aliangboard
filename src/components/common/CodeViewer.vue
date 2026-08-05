@@ -9,6 +9,9 @@ import 'prismjs/components/prism-toml'
 import 'prismjs/components/prism-ini'
 import 'prismjs/components/prism-properties'
 import 'prismjs/components/prism-bash'
+import 'prismjs/components/prism-python'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/components/prism-typescript'
 import 'prismjs/themes/prism-tomorrow.css'
 
 const props = defineProps({
