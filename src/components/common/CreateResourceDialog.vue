@@ -1,5 +1,9 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
+import PortSelect from '@/components/common/PortSelect.vue'
+
+const store = useClusterStore()
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -210,7 +214,7 @@ spec:
                     </div>
                   </div>
                   <div><label class="text-label-caps text-on-surface-variant block mb-xs">Port</label><input v-model.number="serviceForm.port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><input v-model.number="serviceForm.targetPort" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="store.nsContainerPorts" placeholder="8080" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
                 </div>
               </template>
 
