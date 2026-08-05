@@ -7,6 +7,7 @@ import { yamlScalar } from '@/composables/useYaml'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
+import { extractNodeExtra } from '@/composables/useNodeFields'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -1487,7 +1488,18 @@ export const useClusterStore = defineStore('cluster', () => {
       cpu: pct(usedCpu, allocCpu),
       memory: pct(usedMem, allocMem),
       usedCpu, usedMem, allocCpu, allocMem,
+      ...extractNodeExtra(item),
     }
+  }
+
+  // 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（mock 种子与真实水合后都调用）
+  function recountNodePods() {
+    const counts = {}
+    for (const p of podList.value) {
+      const n = p.node
+      if (n) counts[n] = (counts[n] || 0) + 1
+    }
+    nodeList.value = nodeList.value.map(n => ({ ...n, podCount: counts[n.name] || 0 }))
   }
 
   function mapPod(item, metric) {
@@ -2075,6 +2087,8 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!opts.silent) connectionState.value = 'connected'
     // CRD 及其实例可能较多，异步拉取不阻塞首屏
     hydrateCRDs().catch(() => {})
+    // nodeList 与 podList 均已水合，按 pod.node 回填 podCount
+    recountNodePods()
     return { failed: requests.filter(r => r.status === 'rejected').length }
   }
 
@@ -3168,6 +3182,9 @@ status:
     }
     return { allowed: false, matchedBy: null, rule: null }
   }
+
+  // mock 种子：按 pod.node 回填 podCount（真实水合在 hydrateCoreResources 末尾再调一次）
+  recountNodePods()
 
   return {
     // 基础数据
