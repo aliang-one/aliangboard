@@ -668,6 +668,25 @@ async function handle(req, res) {
     }
   }
 
+  // === API-key 工具派发(T9:POST {tool,args} → callTool;T12 MCP server 复用此入口)===
+  const callMatch = req.method === 'POST' && url.pathname.match(/^\/api\/key\/([^/]+)\/call$/)
+  if (callMatch) {
+    const keyRow = resolveApiKey(db, req)
+    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    const clusterId = decodeURIComponent(callMatch[1])
+    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+    if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+    try {
+      const input = await readBody(req)
+      const out = await apiKeyTools.callTool(keyRow, cluster, input.tool, input.args || {})
+      return sendJson(res, 200, out)
+    } catch (e) {
+      if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
+      return sendJson(res, e.status || 502, { message: e.message || '工具调用失败' })
+    }
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/session') {
     try {
       const input = await readBody(req)
