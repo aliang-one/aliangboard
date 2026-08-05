@@ -447,6 +447,12 @@ const routes = [
         component: () => import('@/views/admin/ApiKeyManagement.vue'),
         meta: { title: 'API Keys 管理', icon: 'vpn_key', scope: 'global', requireAdmin: true }
       },
+      {
+        path: 'admin/agent',
+        name: 'AdminAgentConsole',
+        component: () => import('@/views/admin/AgentConsole.vue'),
+        meta: { title: 'AI 控制台', icon: 'smart_toy', scope: 'global', requireAdmin: true }
+      },
     ]
   }
 ]
