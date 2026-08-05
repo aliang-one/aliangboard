@@ -7,11 +7,15 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
+import { recordTagUsage } from '@/composables/useTagHistory'
+import TagInput from '@/components/common/TagInput.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
+
+const ns = computed(() => route.params.namespace)
 
 const currentStep = ref(0)
 const showDeploySuccess = ref(false)
@@ -226,14 +230,14 @@ const previewYAML = computed(() => {
   labels.app = labels.app || f.name
   labels['aliangboard.io/layer'] = f.tier
   labels['aliangboard.io/managed-by'] = 'aliangboard'
-  if (f.metaTitle) labels['aliangboard.io/title'] = f.metaTitle
   if (f.metaOwner) labels['aliangboard.io/owner'] = f.metaOwner
   if (f.metaVersion) labels['aliangboard.io/version'] = f.metaVersion
-  if (f.metaTags) labels['aliangboard.io/tags'] = f.metaTags
-  // annotations（description 走 annotation，免 label 63 字符限制）
+  // annotations（title + description + tags 走 annotation，支持中文/逗号/超长文本；label value 不允许非 ASCII 和逗号）
   const annotations = {}
   f.annotations.forEach(a => { if (a.key) annotations[a.key] = a.value })
+  if (f.metaTitle) annotations['aliangboard.io/title'] = f.metaTitle
   if (f.metaDescription) annotations['aliangboard.io/description'] = f.metaDescription
+  if (f.metaTags) annotations['aliangboard.io/tags'] = f.metaTags // tags 含逗号，必须走 annotation
 
   const portsYaml = f.ports
     .filter(p => p.containerPort)
@@ -511,6 +515,7 @@ async function handleDeploy() {
       return
     }
     showDeploySuccess.value = true
+    if (f.metaTags) recordTagUsage(ns.value, f.metaTags) // 记录标签使用
     return
   }
   // Add workload to mock data
@@ -524,7 +529,7 @@ async function handleDeploy() {
     sha: 'sha:' + Math.random().toString(16).slice(2, 8),
     labels: Object.assign(
       { app: f.name, 'aliangboard.io/layer': f.tier },
-      f.metaTitle && { 'aliangboard.io/title': f.metaTitle },
+      f.metaTitle && { 'aliangboard.io/title': f.metaTitle }, // mock 模式 labels 允许中文（不走 K8s API 校验）
       f.metaOwner && { 'aliangboard.io/owner': f.metaOwner },
       f.metaVersion && { 'aliangboard.io/version': f.metaVersion },
       f.metaTags && { 'aliangboard.io/tags': f.metaTags },
@@ -717,8 +722,8 @@ async function handleDeploy() {
                 <input v-model="form.metaVersion" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="v2.3.1" />
               </div>
               <div>
-                <label class="text-xs text-on-surface-variant block mb-xs">标签组 (tags，逗号分隔)</label>
-                <input v-model="form.metaTags" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="core,public" />
+                <label class="text-xs text-on-surface-variant block mb-xs">标签组 (tags)</label>
+                <TagInput v-model="form.metaTags" :namespace="ns" :max="3" />
               </div>
               <div class="md:col-span-2">
                 <label class="text-xs text-on-surface-variant block mb-xs">描述 (description)</label>

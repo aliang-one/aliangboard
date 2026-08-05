@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -14,7 +15,10 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const np = computed(() => store.getNetworkPolicyByName(route.params.name, route.params.namespace))
-const yaml = computed(() => store.generateYAML('networkpolicy', np.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/networkpolicies/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('networkpolicy', np.value),
+})
 
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)

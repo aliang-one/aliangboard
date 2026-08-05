@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -13,7 +14,10 @@ import PodCard from '@/components/common/PodCard.vue'
 const route = useRoute()
 const store = useClusterStore()
 const node = computed(() => store.getNodeByName(route.params.name))
-const yaml = computed(() => store.generateYAML('node', node.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/api/v1/nodes/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('node', node.value),
+})
 
 const activeTab = ref('overview')
 const showCordonModal = ref(false)

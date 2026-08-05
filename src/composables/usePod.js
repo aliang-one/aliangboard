@@ -105,3 +105,22 @@ export function podContainers(p) {
     }
   })
 }
+
+// Pod 当前最值得关注的"原因"：优先容器 waiting/terminated reason
+// （ImagePullBackOff / ErrImagePull / CrashLoopBackOff / ContainerCreating / CreateContainerConfigError 等），
+// 回退 Pod phase.message。正常运行（Running/Succeeded）返回 null。用于在卡片上一眼看出"为什么没就绪"。
+export function podReason(p) {
+  const raw = p?.raw
+  const statusList = raw?.status?.containerStatuses || raw?.status?.initContainerStatuses || []
+  for (const cs of statusList) {
+    const w = cs.state?.waiting
+    if (w?.reason) return { reason: w.reason, message: w.message || '', kind: 'waiting' }
+    const t = cs.state?.terminated
+    if (t?.reason) return { reason: t.reason, message: t.message || `exit ${t.exitCode ?? '?'}`, kind: 'terminated' }
+  }
+  const phase = raw?.status?.phase
+  if (phase && phase !== 'Running' && phase !== 'Succeeded' && raw?.status?.message) {
+    return { reason: phase, message: raw.status.message, kind: 'phase' }
+  }
+  return null
+}

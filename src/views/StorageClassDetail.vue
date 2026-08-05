@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -12,7 +13,10 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
 const sc = computed(() => store.getSCByName(route.params.name))
-const yaml = computed(() => store.generateYAML('storageclass', sc.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('storageclass', sc.value),
+})
 const activeTab = ref('overview')
 
 const paramMap = computed(() => Object.fromEntries(
