@@ -11,6 +11,7 @@ import { recordTagUsage } from '@/composables/useTagHistory'
 import TagInput from '@/components/common/TagInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -139,7 +140,7 @@ function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
 function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
 function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
-function addVolume() { form.value.volumeMounts.push({ name: genVolName(), type: 'pvc', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' }) }
+function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', cmName: '', secretName: '', items: [] }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
@@ -183,6 +184,13 @@ const canProceed = computed(() => {
 
 // Available ConfigMaps/Secrets for envFrom
 const availableConfigMaps = computed(() => store.nsConfigMaps.map(c => c.name))
+// 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
+const containerTargets = computed(() => {
+  const t = [{ value: 'main', label: '主容器' }]
+  form.value.initContainers.forEach((c, i) => { if (c.image) t.push({ value: `init:${i}`, label: `Init: ${c.name || '#' + i}` }) })
+  form.value.extraContainers.forEach((c, i) => { if (c.image) t.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
+  return t
+})
 const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
 const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
 const availablePriorityClasses = computed(() => store.priorityClassList.map(p => p.name))
@@ -290,42 +298,47 @@ const previewYAML = computed(() => {
   }
   const probesYaml = [probeYaml('livenessProbe', f.liveness), probeYaml('readinessProbe', f.readiness), probeYaml('startupProbe', f.startup)].filter(Boolean).join('\n')
 
-  // 额外工作容器（sidecar）
-  const extraContainersYaml = f.extraContainers.filter(c => c.image).map(c =>
+  // 每挂载点的 volumeMount 块（按 target：main / init:i / sidecar:i）
+  function mountLines(target) {
+    const ms = f.volumeMounts.filter(v => v.target === target && v.name && v.mountPath)
+    if (!ms.length) return ''
+    return '        volumeMounts:\n' + ms.map(v => {
+      let m = `        - name: ${v.name}\n          mountPath: ${v.mountPath}`
+      if (v.subPath) m += `\n          subPath: ${v.subPath}`
+      if (v.readOnly) m += `\n          readOnly: true`
+      return m
+    }).join('\n')
+  }
+
+  // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
+  const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
     (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}`
-  ).join('\n')
+    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
+    (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
+  ).filter(Boolean).join('\n')
 
   // 初始容器（init）
-  const initContainersYaml = f.initContainers.filter(c => c.image).map(c =>
+  const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
     (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
     (c.args ? `\n        args: [${c.args.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}`
-  ).join('\n')
+    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
+    (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
+  ).filter(Boolean).join('\n')
 
-  const volumeMountsYaml = f.volumeMounts
-    .filter(v => v.name && v.mountPath)
-    .map(v => {
-      let m = `        - name: ${v.name}\n          mountPath: ${v.mountPath}`
-      if (v.subPath) m += `\n          subPath: ${v.subPath}`
-      return m
-    })
-    .join('\n')
-
-  const volumesYaml = f.volumeMounts
-    .filter(v => v.name)
-    .map(v => {
-      if (v.type === 'pvc' && v.pvcName) return `      - name: ${v.name}\n        persistentVolumeClaim:\n          claimName: ${v.pvcName}`
-      if (v.type === 'emptyDir') return `      - name: ${v.name}\n        emptyDir: {}`
-      if (v.type === 'hostPath' && v.hostPath) return `      - name: ${v.name}\n        hostPath:\n          path: ${v.hostPath}`
-      if (v.type === 'configMap' && v.cmName) return `      - name: ${v.name}\n        configMap:\n          name: ${v.cmName}`
-      if (v.type === 'secret' && v.secretName) return `      - name: ${v.name}\n        secret:\n          secretName: ${v.secretName}`
-      return null
-    })
-    .filter(Boolean)
-    .join('\n')
+  // pod 级 volumes（按 name 去重；configMap/secret 可带 items 键映射）
+  const volDefs = new Map()
+  f.volumeMounts.filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
+  const volumesYaml = [...volDefs.values()].map(v => {
+    if (v.type === 'pvc' && v.pvcName) return `      - name: ${v.name}\n        persistentVolumeClaim:\n          claimName: ${v.pvcName}`
+    if (v.type === 'emptyDir') return `      - name: ${v.name}\n        emptyDir: {}`
+    if (v.type === 'hostPath' && v.hostPath) return `      - name: ${v.name}\n        hostPath:\n          path: ${v.hostPath}`
+    const itemsYaml = (v.items || []).filter(it => it.key).map(it => `          - key: ${it.key}\n            path: ${it.path}`).join('\n')
+    if (v.type === 'configMap' && v.cmName) return `      - name: ${v.name}\n        configMap:\n          name: ${v.cmName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
+    if (v.type === 'secret' && v.secretName) return `      - name: ${v.name}\n        secret:\n          secretName: ${v.secretName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
+    return null
+  }).filter(Boolean).join('\n')
 
   // apiVersion / kind / spec 头部按类型区分
   const isBatch = f.workloadType === 'Job'
@@ -446,7 +459,7 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
     if (f.lifecycle.preStop) yaml += `\n          preStop:\n            exec:\n              command: [${f.lifecycle.preStop.split(' ').map(c => `"${c}"`).join(', ')}]`
   }
   if (probesYaml) yaml += '\n' + probesYaml
-  if (volumeMountsYaml) yaml += `\n        volumeMounts:\n${volumeMountsYaml}`
+  if (mountLines('main')) yaml += '\n' + mountLines('main')
   if (extraContainersYaml) yaml += '\n' + extraContainersYaml
   if (initContainersYaml) yaml += `\n      initContainers:\n${initContainersYaml}`
   if (volumesYaml) yaml += `\n      volumes:\n${volumesYaml}`
@@ -1048,56 +1061,7 @@ async function handleDeploy() {
 
         <h4 class="text-body-sm font-semibold mb-xs">Volume Mounts</h4>
         <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(vol, idx) in form.volumeMounts" :key="idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="flex gap-sm items-center mb-xs">
-              <select v-model="vol.type" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-medium">
-                <option value="pvc">PVC</option>
-                <option value="emptyDir">emptyDir</option>
-                <option value="hostPath">hostPath</option>
-                <option value="configMap">ConfigMap</option>
-                <option value="secret">Secret</option>
-              </select>
-              <input v-model="vol.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="Volume Name" />
-              <button @click="removeVolume(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-            </div>
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <div>
-                <label class="text-xs text-on-surface-variant block mb-xs">Mount Path</label>
-                <input v-model="vol.mountPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/data" />
-              </div>
-              <div>
-                <label class="text-xs text-on-surface-variant block mb-xs">Sub Path (可选)</label>
-                <input v-model="vol.subPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="" />
-              </div>
-            </div>
-            <!-- 按卷类型显示来源 -->
-            <div v-if="vol.type === 'pvc'">
-              <label class="text-xs text-on-surface-variant block mb-xs">PVC</label>
-              <select v-model="vol.pvcName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">选择 PVC</option>
-                <option v-for="pvc in availablePVCs" :key="pvc" :value="pvc">{{ pvc }}</option>
-              </select>
-            </div>
-            <div v-else-if="vol.type === 'hostPath'">
-              <label class="text-xs text-on-surface-variant block mb-xs">Host Path</label>
-              <input v-model="vol.hostPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/var/lib/data" />
-            </div>
-            <div v-else-if="vol.type === 'configMap'">
-              <label class="text-xs text-on-surface-variant block mb-xs">ConfigMap</label>
-              <select v-model="vol.cmName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">选择 ConfigMap</option>
-                <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
-              </select>
-            </div>
-            <div v-else-if="vol.type === 'secret'">
-              <label class="text-xs text-on-surface-variant block mb-xs">Secret</label>
-              <select v-model="vol.secretName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">选择 Secret</option>
-                <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
-              </select>
-            </div>
-            <p v-else class="text-xs text-on-surface-variant">emptyDir：临时空目录，Pod 删除即失效。</p>
-          </div>
+          <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :namespace="form.namespace" @remove="removeVolume(idx)" />
           <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-sm">add</span> Add Volume
           </button>
