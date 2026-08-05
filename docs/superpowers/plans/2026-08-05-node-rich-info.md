@@ -266,6 +266,8 @@ git commit -m "feat(node): mapNode 合入丰富字段 + podCount 回填"
 | worker-node-04 | amd64 | null | containerd://1.6.18 | `[]` | 10.42.4.0/24 | 110 | 8000 | 33554432 | 6240 | 27514635 |
 | worker-node-05 | amd64 | null | containerd://1.6.18 | `[]` | 10.42.5.0/24 | 110 | 8000 | 33554432 | 4080 | 21139292 |
 | worker-node-06 | arm64 | null | containerd://1.6.18 | `[{key:'node.kubernetes.io/unreachable',effect:'NoExecute'}]` | 10.42.6.0/24 | 110 | 8000 | 33554432 | null | null |
+
+> **worker-node-06 额外改动**：把既有 `cpu: 0, memory: 0` 改为 `cpu: null, memory: null`（NotReady 节点现实中无 metrics）。这样三页的 CPU/内存都会走 `—` 降级分支，验证「指标不可用」路径。
 | gpu-node-01 | amd64 | null | containerd://1.6.18 | `[{key:'nvidia.com/gpu',value:'present',effect:'NoSchedule'}]` | 10.42.7.0/24 | 110 | 16000 | 67108864 | 5440 | 34896609 |
 
 每个节点同时追加（同值，省得每行重复）：`containerRuntimeShort`（去掉 `://` 前缀，如 `1.6.18` / `1.7.0`）、`osType: 'linux'`、`taintCount`（= 该节点 taints 数组长度）、`podAllocatable: 110`。
