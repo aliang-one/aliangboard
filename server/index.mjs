@@ -338,7 +338,7 @@ async function requestKubernetes(session, path, init = {}) {
   const endpoints = (session.endpoints && session.endpoints.length) ? session.endpoints : [session.apiServer]
   const errors = []
   for (let attempt = 0; attempt < endpoints.length; attempt++) {
-    const idx = (session.endpointIdx + attempt) % endpoints.length
+    const idx = ((session.endpointIdx || 0) + attempt) % endpoints.length
     const endpoint = endpoints[idx]
     try {
       const result = await requestOnce(session, endpoint, path, init)
