@@ -9,6 +9,7 @@ import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import TagInput from '@/components/common/TagInput.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -184,6 +185,15 @@ const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
 const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
 const availablePriorityClasses = computed(() => store.priorityClassList.map(p => p.name))
 const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
+
+// 部署向导：targetPort 候选 = 本步骤已填的容器端口（去重），引导用户选对后端端口
+const containerPortOptions = computed(() => {
+  const set = new Set()
+  for (const p of form.value.ports) {
+    if (p.containerPort !== '' && p.containerPort != null) set.add(p.containerPort)
+  }
+  return [...set]
+})
 
 const tierOptions = TIER_OPTIONS
 
@@ -1204,7 +1214,7 @@ async function handleDeploy() {
                 <input v-model="sp.name" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="名称" />
                 <input v-model="sp.port" class="w-20 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="port" />
                 <span class="text-on-surface-variant text-xs">→</span>
-                <input v-model="sp.targetPort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="targetPort" />
+                <PortSelect v-model="sp.targetPort" :options="containerPortOptions" placeholder="targetPort" empty-hint="先在上方 Containers 步骤填写容器端口" input-class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" />
                 <select v-model="sp.protocol" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs">
                   <option>TCP</option><option>UDP</option>
                 </select>
@@ -1215,10 +1225,7 @@ async function handleDeploy() {
                 <span class="material-symbols-outlined text-xs">add</span> Add Port
               </button>
             </div>
-            <p v-if="form.ports.filter(p => p.containerPort).length" class="text-xs text-on-surface-variant mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-xs">arrow_forward</span>容器端口 <span class="font-mono text-primary">{{ form.ports.find(p => p.containerPort)?.containerPort }}</span> 可填入 targetPort
-            </p>
-            <p v-else-if="form.serviceType === 'NodePort'" class="text-xs text-tertiary-container mt-sm flex items-center gap-xs">
+            <p v-if="form.serviceType === 'NodePort'" class="text-xs text-tertiary-container mt-sm flex items-center gap-xs">
               <span class="material-symbols-outlined text-xs">info</span>NodePort 可在每行指定 nodePort（留空则自动分配）
             </p>
           </div>
