@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -69,30 +69,46 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
           </div>
           <div>
             <span class="font-semibold text-on-surface text-body-md block">{{ row.name }}</span>
-            <span class="font-mono text-code-sm text-on-surface-variant">{{ row.ip }}</span>
+            <span class="font-mono text-code-sm text-on-surface-variant">{{ row.ip }}<span v-if="row.externalIp" class="text-on-surface-variant/60"> · {{ row.externalIp }}</span></span>
           </div>
         </div>
       </template>
       <template #status="{ row }">
-        <StatusChip :status="row.status === 'Ready' ? 'Ready' : 'NotReady'" />
+        <div class="flex flex-col gap-xs">
+          <StatusChip :status="row.status === 'Ready' ? 'Ready' : 'NotReady'" />
+          <div class="flex gap-xs">
+            <span v-if="row.conditions?.DiskPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="DiskPressure">Disk</span>
+            <span v-if="row.conditions?.MemoryPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="MemoryPressure">Mem</span>
+            <span v-if="row.conditions?.PIDPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="PIDPressure">PID</span>
+            <span v-if="row.taintCount" class="px-1 py-0.5 bg-tertiary-container/20 text-tertiary-container text-xs rounded" title="Taints">{{ row.taintCount }} taint{{ row.taintCount > 1 ? 's' : '' }}</span>
+          </div>
+        </div>
       </template>
       <template #roles="{ row }">
-        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.roles }}</span>
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant capitalize">{{ row.roles }}</span>
+      </template>
+      <template #system="{ row }">
+        <div class="flex flex-col">
+          <span class="text-body-sm text-on-surface truncate max-w-[14rem]">{{ row.os }}</span>
+          <span class="font-mono text-code-sm text-on-surface-variant">{{ row.version }}<span v-if="row.containerRuntimeShort"> · {{ row.containerRuntimeShort }}</span><span v-if="row.arch"> · {{ row.arch }}</span></span>
+        </div>
       </template>
       <template #cpu="{ row }">
-        <div class="w-24">
+        <div class="w-28">
           <ProgressBar v-if="row.cpu != null" :value="row.cpu" :show-label="true" />
           <span v-else class="text-on-surface-variant">—</span>
+          <p v-if="row.usedCpu != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(row.usedCpu) }}/{{ formatCpu(row.allocCpu) }}</p>
         </div>
       </template>
       <template #memory="{ row }">
-        <div class="w-24">
+        <div class="w-28">
           <ProgressBar v-if="row.memory != null" :value="row.memory" :show-label="true" />
           <span v-else class="text-on-surface-variant">—</span>
+          <p v-if="row.usedMem != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatMem(row.usedMem) }}/{{ formatMem(row.allocMem) }}</p>
         </div>
       </template>
-      <template #version="{ row }">
-        <span class="font-mono text-code-sm text-on-surface-variant">{{ row.version }}</span>
+      <template #pods="{ row }">
+        <span class="text-body-sm font-medium text-on-surface">{{ row.podCount ?? 0 }}<span v-if="row.podCapacity" class="text-on-surface-variant/60"> / {{ row.podCapacity }}</span></span>
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
