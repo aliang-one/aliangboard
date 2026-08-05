@@ -7,6 +7,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import ResourceReferences from '@/components/common/ResourceReferences.vue'
+import CodeViewer from '@/components/common/CodeViewer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,15 +51,16 @@ const expandedKeys = ref(new Set())
 
 function detectLang(key) {
   const k = (key || '').toLowerCase()
-  if (k.endsWith('.yml') || k.endsWith('.yaml')) return { label: 'YAML', icon: 'data_object', color: 'bg-primary-container/10 text-primary' }
-  if (k.endsWith('.json')) return { label: 'JSON', icon: 'data_object', color: 'bg-tertiary-container/10 text-tertiary' }
-  if (k.endsWith('.conf') || k.endsWith('.cfg') || k.endsWith('.cnf')) return { label: 'CONF', icon: 'settings', color: 'bg-secondary-container/10 text-secondary' }
-  if (k.endsWith('.properties')) return { label: 'PROPS', icon: 'list_alt', color: 'bg-secondary-container/10 text-secondary' }
-  if (k.endsWith('.sh') || k.endsWith('.bash')) return { label: 'SHELL', icon: 'terminal', color: 'bg-tertiary-container/10 text-tertiary' }
-  if (k.endsWith('.xml')) return { label: 'XML', icon: 'code', color: 'bg-secondary-container/10 text-secondary' }
-  if (k.endsWith('.env')) return { label: 'ENV', icon: 'code', color: 'bg-primary-container/10 text-primary' }
-  if (k.endsWith('.crt') || k.endsWith('.key') || k.endsWith('.pem') || k.endsWith('.ca')) return { label: 'CERT', icon: 'lock', color: 'bg-error-container/10 text-error' }
-  return { label: 'TEXT', icon: 'description', color: 'bg-surface-container text-on-surface-variant' }
+  if (k.endsWith('.yml') || k.endsWith('.yaml')) return { label: 'YAML', icon: 'data_object', color: 'bg-primary-container/10 text-primary', prismLang: 'yaml' }
+  if (k.endsWith('.json')) return { label: 'JSON', icon: 'data_object', color: 'bg-tertiary-container/10 text-tertiary', prismLang: 'json' }
+  if (k.endsWith('.toml')) return { label: 'TOML', icon: 'settings', color: 'bg-secondary-container/10 text-secondary', prismLang: 'toml' }
+  if (k.endsWith('.conf') || k.endsWith('.cfg') || k.endsWith('.cnf') || k.endsWith('.ini')) return { label: 'CONF', icon: 'settings', color: 'bg-secondary-container/10 text-secondary', prismLang: 'ini' }
+  if (k.endsWith('.properties')) return { label: 'PROPS', icon: 'list_alt', color: 'bg-secondary-container/10 text-secondary', prismLang: 'properties' }
+  if (k.endsWith('.sh') || k.endsWith('.bash')) return { label: 'SHELL', icon: 'terminal', color: 'bg-tertiary-container/10 text-tertiary', prismLang: 'bash' }
+  if (k.endsWith('.xml')) return { label: 'XML', icon: 'code', color: 'bg-secondary-container/10 text-secondary', prismLang: 'markup' }
+  if (k.endsWith('.env')) return { label: 'ENV', icon: 'code', color: 'bg-primary-container/10 text-primary', prismLang: 'properties' }
+  if (k.endsWith('.crt') || k.endsWith('.key') || k.endsWith('.pem') || k.endsWith('.ca')) return { label: 'CERT', icon: 'lock', color: 'bg-error-container/10 text-error', prismLang: 'none' }
+  return { label: 'TEXT', icon: 'description', color: 'bg-surface-container text-on-surface-variant', prismLang: 'none' }
 }
 
 function lineCount(val) {
@@ -281,7 +283,7 @@ function saveEditLabel() {
           </div>
           <!-- 查看模式 -->
           <div v-else class="p-md flex-1">
-            <pre class="bg-[#0b1c30] text-[#cfe3ff] rounded-lg p-md font-mono text-code-sm whitespace-pre overflow-auto max-h-[55vh]">{{ cm.data[selectedKey] }}</pre>
+            <CodeViewer :code="cm.data[selectedKey]" :lang="detectLang(selectedKey).prismLang" />
           </div>
         </template>
         <!-- 未选中 / 无文件 -->
