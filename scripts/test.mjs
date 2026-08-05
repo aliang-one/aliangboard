@@ -340,6 +340,26 @@ test('computeClusterHealth：控制面优先分级', () => {
   assert.equal(h.status, 'Degraded'); assert.equal(h.controlPlane.total, 0)
 })
 
+// --- 网关故障转移：错误分类（网络错误/5xx→转移；4xx/null→不转移）---
+import { isFailoverEligible } from '../server/failover.js'
+test('isFailoverEligible：网络错误/5xx/超时→true；4xx/null→false', () => {
+  assert.equal(isFailoverEligible({ code: 'ECONNREFUSED' }), true)
+  assert.equal(isFailoverEligible({ code: 'ECONNRESET' }), true)
+  assert.equal(isFailoverEligible({ code: 'ETIMEDOUT' }), true)
+  assert.equal(isFailoverEligible({ code: 'ENOTFOUND' }), true)
+  assert.equal(isFailoverEligible({ code: 'UND_ERR_SOCKET' }), true)
+  assert.equal(isFailoverEligible({ name: 'AbortError' }), true)
+  assert.equal(isFailoverEligible({ message: 'Request timed out' }), true)
+  assert.equal(isFailoverEligible({ status: 503 }), true)
+  assert.equal(isFailoverEligible({ status: 500 }), true)
+  assert.equal(isFailoverEligible({ status: 404 }), false)
+  assert.equal(isFailoverEligible({ status: 401 }), false)
+  assert.equal(isFailoverEligible({ status: 409 }), false)
+  assert.equal(isFailoverEligible(null), false)
+  assert.equal(isFailoverEligible(undefined), false)
+  assert.equal(isFailoverEligible({ message: 'some 4xx error', status: 403 }), false)
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
