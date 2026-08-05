@@ -34,7 +34,7 @@ export function createAuditSchema(db) {
 function canonical(row) {
   return JSON.stringify(CORE_FIELDS.map(f => (f in row && row[f] !== undefined) ? row[f] : null))
 }
-function rowHash(prevHash, row) {
+export function rowHash(prevHash, row) {
   return createHash('sha256').update(`${prevHash}|${canonical(row)}`).digest('hex')
 }
 function lastHash(db) {

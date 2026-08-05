@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createAuditSchema, writeAudit, reserveAudit, finalizeAudit, verifyChain, GENESIS_HASH } from './audit.mjs'
+import { createAuditSchema, writeAudit, reserveAudit, finalizeAudit, verifyChain, rowHash, GENESIS_HASH } from './audit.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -77,9 +77,8 @@ test('拒绝也审计: result=denied + reason 入库 + 链有效', () => {
   assert.equal(verifyChain(db).valid, true)
 })
 
-test('canonical 确定性: 同 entry → 同 hash(重写不漂移)', () => {
-  const db1 = makeDb(), db2 = makeDb()
-  const a = writeAudit(db1, { ...intent, result: 'ok' })
-  const b = writeAudit(db2, { ...intent, result: 'ok' })
-  assert.equal(a.hash, b.hash, '同样内容 → 同样 hash(创世首条)')
+test('rowHash 确定性: 相同输入(含固定 ts)→ 相同 hash;不同 prevHash → 不同', () => {
+  const row = { ts: 1234567890, status: 'finalized', keyId: 'k1', owner: 'alice', clusterId: 'c1', namespace: 'ns', verb: 'get', resource: 'Pod/p1', tool: 'get_pod_logs', result: 'ok', reason: null, requestSummary: 's' }
+  assert.equal(rowHash(GENESIS_HASH, row), rowHash(GENESIS_HASH, row), '相同输入 → 相同 hash')
+  assert.notEqual(rowHash(GENESIS_HASH, row), rowHash('00000000000000000000000000000000', row), '不同 prevHash → 不同 hash')
 })

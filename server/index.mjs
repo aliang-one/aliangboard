@@ -11,6 +11,7 @@ import { normalizeServer, getDispatcher, buildCallContext } from './call-context
 import { createApiKeysSchema } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
+import { createMcpServer } from './mcp.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 
@@ -295,6 +296,8 @@ async function requestKubernetes(session, path, init = {}) {
 
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
 const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes })
+// MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
+const mcpHandler = createMcpServer({ db, apiKeyTools })
 
 async function discoverResource(session, object) {
   const apiVersion = String(object.apiVersion || '')
@@ -643,6 +646,9 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/health') {
     return sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString() })
   }
+
+  // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
+  if (url.pathname === '/mcp') return mcpHandler(req, res)
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
