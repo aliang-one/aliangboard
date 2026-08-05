@@ -93,7 +93,7 @@ function handleDiscard() {
     <!-- Single Editor Mode -->
     <div v-else class="flex">
       <!-- Line Numbers -->
-      <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20" :style="{ minHeight: height }">
+      <div v-if="showLineNumbers" class="bg-[#0b1c30] text-[#cfe3ff]/40 font-mono text-code-sm text-right pr-sm pt-md select-none border-r border-outline-variant/20 overflow-hidden" :style="{ minHeight: height, maxHeight: height }">
         <div v-for="(_, i) in lines" :key="i" class="leading-[18px]">{{ i + 1 }}</div>
       </div>
       <!-- Editor -->
