@@ -315,7 +315,7 @@ async function requestOnce(session, endpoint, path, init = {}) {
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
-  const dispatcher = (endpoint === session.apiServer) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
+  const dispatcher = (endpoint.origin === session.apiServer.origin) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
     ...init, headers, dispatcher,
     signal: AbortSignal.timeout(Number(process.env.K8S_REQUEST_TIMEOUT || 15000)),
@@ -419,7 +419,7 @@ function buildKubeConfig(KubeConfig, session) {
     name: 'aliangboard',
     // 去尾斜杠：client-node 的 WebSocketHandler 用字符串拼接 server+path，尾斜杠会导致 `//api/v1/…` 双斜杠 → 404
     server: currentEndpoint(session).toString().replace(/\/$/, ''),
-    skipTLSVerify: !!session.insecure,
+    skipTLSVerify: !!session.insecure || (session.endpointIdx || 0) > 0,
     ...(session.ca ? { caData: b64(session.ca) } : {}),
   }
   const user = { name: 'aliangboard' }
