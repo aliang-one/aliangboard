@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 
@@ -131,30 +131,59 @@ const timeRange = ref('24h')
               View all nodes <span class="material-symbols-outlined text-md">arrow_forward</span>
             </router-link>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-sm">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
             <router-link
               v-for="node in store.nodeList.slice(0, 6)"
               :key="node.name"
               :to="`/nodes/${node.name}`"
-              class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant hover:border-primary transition-colors group"
+              class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant hover:border-primary hover:shadow-card-hover transition-all group"
             >
-              <div class="flex justify-between items-start mb-sm">
-                <div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">
-                  <span class="material-symbols-outlined">dns</span>
-                </div>
-                <div
-                  class="w-2 h-2 rounded-full animate-pulse-status"
-                  :class="node.status === 'Ready' ? 'bg-primary-container' : 'bg-error'"
-                ></div>
+              <!-- 头部：角色徽标 + 状态点 -->
+              <div class="flex justify-between items-center mb-xs">
+                <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant capitalize">{{ node.roles }}</span>
+                <span class="w-2 h-2 rounded-full animate-pulse-status" :class="node.status === 'Ready' ? 'bg-primary-container' : 'bg-error'"></span>
               </div>
               <h4 class="text-body-lg font-bold truncate">{{ node.name }}</h4>
-              <div class="flex flex-col gap-xs mt-md">
-                <ProgressBar :value="node.cpu || 0" label="CPU" />
-                <ProgressBar :value="node.memory || 0" label="Memory" />
+              <!-- IP · OS · 架构 -->
+              <div class="flex items-center gap-xs mt-xs text-xs">
+                <span class="font-mono text-primary">{{ node.ip }}</span>
+                <span v-if="node.externalIp" class="font-mono text-on-surface-variant/70">· {{ node.externalIp }}</span>
               </div>
-              <div class="mt-md flex items-center justify-between">
+              <p class="text-xs text-on-surface-variant mt-xs">{{ node.os }}<span v-if="node.arch"> · {{ node.arch }}</span></p>
+              <p class="font-mono text-code-sm text-on-surface-variant/80 mt-xs">kubelet {{ node.version }}<span v-if="node.containerRuntimeShort"> · {{ node.containerRuntimeShort }}</span></p>
+              <!-- 资源 -->
+              <div class="flex flex-col gap-xs mt-md">
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-on-surface-variant">CPU</span>
+                    <span class="font-mono text-on-surface-variant">{{ node.cpu != null ? (node.usedCpu != null ? formatCpu(node.usedCpu) + '/' + formatCpu(node.allocCpu) : node.cpu + '%') : '—' }}</span>
+                  </div>
+                  <ProgressBar v-if="node.cpu != null" :value="node.cpu" />
+                  <div v-else class="h-1.5 bg-surface-container-high rounded-full"></div>
+                </div>
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-on-surface-variant">Memory</span>
+                    <span class="font-mono text-on-surface-variant">{{ node.memory != null ? (node.usedMem != null ? formatMem(node.usedMem) + '/' + formatMem(node.allocMem) : node.memory + '%') : '—' }}</span>
+                  </div>
+                  <ProgressBar v-if="node.memory != null" :value="node.memory" />
+                  <div v-else class="h-1.5 bg-surface-container-high rounded-full"></div>
+                </div>
+              </div>
+              <!-- 底部：Pod 数 · 调度状态 -->
+              <div class="mt-md flex items-center justify-between text-xs">
+                <span class="text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">view_in_ar</span>{{ node.podCount ?? 0 }} pods</span>
+                <span class="font-medium flex items-center gap-xs" :class="node.unschedulable ? 'text-tertiary-container' : 'text-primary'">
+                  <span class="material-symbols-outlined text-sm">{{ node.unschedulable ? 'lock' : 'check_circle' }}</span>{{ node.unschedulable ? 'Cordoned' : 'Schedulable' }}
+                </span>
+              </div>
+              <!-- 芯片：状态 + 压力条件 + 污点 -->
+              <div class="mt-sm flex flex-wrap gap-xs">
                 <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" size="sm" />
-                <span class="font-mono text-code-sm text-on-surface-variant">{{ node.version }}</span>
+                <span v-if="node.conditions?.DiskPressure" class="px-1.5 py-0.5 bg-error-container/30 text-error text-xs rounded">DiskPressure</span>
+                <span v-if="node.conditions?.MemoryPressure" class="px-1.5 py-0.5 bg-error-container/30 text-error text-xs rounded">MemoryPressure</span>
+                <span v-if="node.conditions?.PIDPressure" class="px-1.5 py-0.5 bg-error-container/30 text-error text-xs rounded">PIDPressure</span>
+                <span v-if="node.taintCount" class="px-1.5 py-0.5 bg-tertiary-container/20 text-tertiary-container text-xs rounded">{{ node.taintCount }} taint{{ node.taintCount > 1 ? 's' : '' }}</span>
               </div>
             </router-link>
           </div>
