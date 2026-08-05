@@ -40,6 +40,7 @@ const clusterOtherNav = [
 const platformAdminNav = [
   { icon: 'group', label: '用户管理', route: '/admin/users' },
   { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
+  { icon: 'vpn_key', label: 'API Keys', route: '/admin/apikeys' },
 ]
 const clusterNavOpen = ref(false)
 
