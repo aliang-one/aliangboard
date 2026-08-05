@@ -1335,11 +1335,8 @@ export const useClusterStore = defineStore('cluster', () => {
         count++
       }
     }
-    // 同步节点 pod 计数
-    const node = nodeList.value.find(n => n.name === name)
-    if (node && typeof node.pods === 'number') {
-      node.pods = podList.value.filter(p => p.node === name).length
-    }
+    // 同步节点 pod 计数（podCount 由 recountNodePods 统一回填）
+    recountNodePods()
     return count
   }
 
