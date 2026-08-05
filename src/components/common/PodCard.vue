@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import StatusChip from './StatusChip.vue'
-import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers } from '@/composables/usePod'
+import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers, podReason } from '@/composables/usePod'
 
 const props = defineProps({
   pod: { type: Object, required: true },
@@ -34,6 +34,8 @@ const conds = computed(() => podConditions(pod.value))
 const cpuPct = computed(() => podCpuPct(pod.value))
 const memPct = computed(() => podMemPct(pod.value))
 const hasMetrics = computed(() => pod.value.cpu || pod.value.memory)
+// 异常/启动中原因（ImagePullBackOff / CrashLoopBackOff / ContainerCreating …），正常运行为 null
+const reason = computed(() => podReason(pod.value))
 // exec / 文件浏览依赖容器在运行
 const canExec = computed(() => pod.value.status === 'Running')
 
@@ -77,6 +79,13 @@ function goPodTab(hash) {
         <span class="text-on-surface-variant/40">·</span>
         <span class="font-mono truncate max-w-[180px]" :title="pod.image">{{ imgBase(pod.image) }}<span class="text-primary">:{{ imgTag(pod.image) || 'latest' }}</span></span>
       </template>
+    </div>
+
+    <!-- 异常/启动中原因（ImagePullBackOff / CrashLoopBackOff / ContainerCreating …）-->
+    <div v-if="reason" class="flex items-center gap-1 mt-1 text-[11px]" :class="reason.kind === 'terminated' ? 'text-error' : 'text-tertiary-container'">
+      <span class="material-symbols-outlined shrink-0" style="font-size:13px">{{ reason.kind === 'terminated' ? 'dangerous' : 'error' }}</span>
+      <span class="font-semibold shrink-0">{{ reason.reason }}</span>
+      <span v-if="reason.message" class="text-on-surface-variant/55 truncate min-w-0" :title="reason.message">{{ reason.message }}</span>
     </div>
 
     <!-- 行3：CPU / MEM 进度条 -->

@@ -5,15 +5,15 @@
 // 读取优先级：规范键(label) → 规范键(annotation) → 别名(label) → 别名(annotation) → K8s 标准键 → 默认。
 
 export const META_KEYS = {
-  title:       { canon: 'aliangboard.io/title',       aliases: ['title'],                                              std: '' },
-  description: { canon: 'aliangboard.io/description', aliases: ['aliang-description', 'description', 'desc'],          std: '' },
-  layer:       { canon: 'aliangboard.io/layer',       aliases: ['layer.aliangboard.io', 'tier'],                       std: 'app.kubernetes.io/component' },
-  icon:        { canon: 'aliangboard.io/icon',        aliases: ['icon'],                                               std: '' },
-  owner:       { canon: 'aliangboard.io/owner',       aliases: ['owner', 'team'],                                      std: 'app.kubernetes.io/part-of' },
-  version:     { canon: 'aliangboard.io/version',     aliases: ['version'],                                            std: 'app.kubernetes.io/version' },
-  tags:        { canon: 'aliangboard.io/tags',        aliases: ['tags'],                                               std: '' },
-  managedBy:   { canon: 'aliangboard.io/managed-by',  aliases: [],                                                     std: '' },
-  lastEdited:  { canon: 'aliangboard.io/last-edited', aliases: [],                                                     std: '' },
+  title:       { canon: 'aliangboard.io/title',       aliases: ['title'],                                              std: '', storage: 'annotation' },
+  description: { canon: 'aliangboard.io/description', aliases: ['aliang-description', 'description', 'desc'],          std: '', storage: 'annotation' },
+  layer:       { canon: 'aliangboard.io/layer',       aliases: ['layer.aliangboard.io', 'tier'],                       std: 'app.kubernetes.io/component', storage: 'label' },
+  icon:        { canon: 'aliangboard.io/icon',        aliases: ['icon'],                                               std: '', storage: 'label' },
+  owner:       { canon: 'aliangboard.io/owner',       aliases: ['owner', 'team'],                                      std: 'app.kubernetes.io/part-of', storage: 'label' },
+  version:     { canon: 'aliangboard.io/version',     aliases: ['version'],                                            std: 'app.kubernetes.io/version', storage: 'label' },
+  tags:        { canon: 'aliangboard.io/tags',        aliases: ['tags'],                                               std: '', storage: 'annotation' },
+  managedBy:   { canon: 'aliangboard.io/managed-by',  aliases: [],                                                     std: '', storage: 'label' },
+  lastEdited:  { canon: 'aliangboard.io/last-edited', aliases: [],                                                     std: '', storage: 'annotation' },
 }
 
 function fromAliases(labels, ann, def) {
@@ -25,13 +25,18 @@ function fromAliases(labels, ann, def) {
   return ''
 }
 
-// 从一个资源对象（需带 labels/annotations）读取全部业务元数据
+// 从一个资源对象（需带 labels/annotations）读取全部业务元数据。
+// 优先读「主存储」位置（storage），主存储为空再回退另一处——兼容从 label↔annotation 的历史迁移，
+// 避免旧残留位置（如迁移前 tags 存在 label）盖过权威位置（annotation）。
 export function readMeta(res) {
   const labels = res?.labels || {}
   const ann = res?.annotations || {}
   const out = {}
   for (const [k, def] of Object.entries(META_KEYS)) {
-    out[k] = labels[def.canon] ?? ann[def.canon] ?? fromAliases(labels, ann, def) ?? ''
+    const primary = def.storage === 'annotation'
+      ? (ann[def.canon] ?? labels[def.canon])
+      : (labels[def.canon] ?? ann[def.canon])
+    out[k] = primary ?? fromAliases(labels, ann, def) ?? ''
   }
   return out
 }

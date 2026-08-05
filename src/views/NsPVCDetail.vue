@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { pvcFileApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -17,7 +18,10 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const pvc = computed(() => store.getPVCByName(route.params.name, route.params.namespace))
-const yaml = computed(() => store.generateYAML('pvc', pvc.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('pvc', pvc.value),
+})
 const pv = computed(() => pvc.value?.volume ? store.pvList.find(p => p.name === pvc.value.volume) : null)
 const sc = computed(() => pvc.value?.storageClass ? store.scList.find(s => s.name === pvc.value.storageClass) : null)
 

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -16,7 +17,10 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 const hpa = computed(() => store.getHPAByName(route.params.name, route.params.namespace))
-const yaml = computed(() => store.generateYAML('hpa', hpa.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/apis/autoscaling/v2/namespaces/${encodeURIComponent(route.params.namespace)}/horizontalpodautoscalers/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('hpa', hpa.value),
+})
 
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)

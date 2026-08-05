@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -13,7 +14,10 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
 const pv = computed(() => store.getPVByName(route.params.name))
-const yaml = computed(() => store.generateYAML('pv', pv.value))
+const { yaml } = useLiveYaml({
+  pathFn: () => `/api/v1/persistentvolumes/${encodeURIComponent(route.params.name)}`,
+  mockFn: () => store.generateYAML('pv', pv.value),
+})
 const activeTab = ref('overview')
 
 const claimParts = computed(() => (pv.value?.claim || '').split('/'))

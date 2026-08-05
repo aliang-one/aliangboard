@@ -13,12 +13,32 @@ const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
-// 搜索过滤
+// 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索
+function flattenRules(row) {
+  const out = []
+  for (const r of (row.rules || [])) {
+    const host = r.host || '*'
+    const paths = r.http?.paths || []
+    if (!paths.length) { out.push({ host, path: '*', backend: '' }); continue }
+    for (const p of paths) {
+      const svc = p.backend?.service
+      const port = svc?.port?.number ?? svc?.port?.name ?? ''
+      out.push({ host, path: p.path || '/', backend: svc ? `${svc.name}${port !== '' ? ':' + port : ''}` : '' })
+    }
+  }
+  if (!out.length) out.push({ host: row.hosts || '*', path: '/', backend: '' })
+  return out
+}
+
+// 搜索过滤（名称 / 域名 / 后端服务）
 const searchQuery = ref('')
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return store.nsIngress
-  return store.nsIngress.filter(i => i.name.toLowerCase().includes(q) || (i.hosts || '').toLowerCase().includes(q))
+  return store.nsIngress.filter(i => {
+    if (i.name.toLowerCase().includes(q) || (i.hosts || '').toLowerCase().includes(q)) return true
+    return flattenRules(i).some(r => (r.host + ' ' + r.backend).toLowerCase().includes(q))
+  })
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
@@ -121,39 +141,51 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Hosts</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Path</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Backend</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">TLS</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Name</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Class</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">路由 Rules</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">TLS</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24 whitespace-nowrap">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2">
+          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors align-top" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
+            <td class="px-md py-2 whitespace-nowrap">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-lg">language</span>
                 <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
               </div>
             </td>
-            <td class="px-md py-2"><span class="font-mono text-code-sm text-primary font-semibold">{{ row.hosts }}</span></td>
-            <td class="px-md py-2"><span class="font-mono text-code-sm">{{ row.path }}</span></td>
-            <td class="px-md py-2"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.backend }}</span></td>
-            <td class="px-md py-2">
-              <div class="flex items-center gap-xs">
-                <span class="material-symbols-outlined text-lg" :class="row.tls ? 'text-primary' : 'text-on-surface-variant'">{{ row.tls ? 'lock' : 'lock_open' }}</span>
-                <span class="text-body-sm" :class="row.tls ? 'text-primary' : 'text-on-surface-variant'">{{ row.tls ? 'Enabled' : 'None' }}</span>
+            <td class="px-md py-2 whitespace-nowrap">
+              <span v-if="row.className" class="font-mono text-xs px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">{{ row.className }}</span>
+              <span v-else class="text-xs text-on-surface-variant/40">—</span>
+            </td>
+            <td class="px-md py-2 min-w-0">
+              <div class="flex flex-col gap-0.5">
+                <div v-for="(r, i) in flattenRules(row)" :key="i" class="flex items-center gap-xs text-code-sm font-mono">
+                  <span class="text-primary font-semibold max-w-[220px] truncate" :title="r.host">{{ r.host }}</span>
+                  <span class="text-on-surface-variant">{{ r.path }}</span>
+                  <span class="text-on-surface-variant/40">→</span>
+                  <span v-if="r.backend" class="text-on-surface max-w-[200px] truncate" :title="r.backend">{{ r.backend }}</span>
+                  <span v-else class="text-on-surface-variant/40 italic">无后端</span>
+                </div>
               </div>
             </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
+            <td class="px-md py-2 whitespace-nowrap">
+              <div v-if="row.tls" class="flex items-center gap-xs">
+                <span class="material-symbols-outlined text-base text-primary">lock</span>
+                <span class="font-mono text-xs text-primary max-w-[140px] truncate" :title="row.tlsSecret">{{ row.tlsSecret || 'TLS' }}</span>
+              </div>
+              <span v-else class="text-xs text-on-surface-variant/50">无</span>
+            </td>
+            <td class="px-md py-2 text-body-sm text-on-surface-variant whitespace-nowrap">{{ row.age }}</td>
+            <td class="px-md py-2 whitespace-nowrap" @click.stop>
               <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="View Details">
+                <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看详情">
                   <span class="material-symbols-outlined text-lg">open_in_new</span>
                 </button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
+                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
                   <span class="material-symbols-outlined text-lg">delete</span>
                 </button>
               </div>

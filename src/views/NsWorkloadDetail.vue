@@ -5,9 +5,11 @@ import { useClusterStore } from '@/stores/cluster'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { useLiveYaml } from '@/composables/useLiveYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
+import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -18,6 +20,7 @@ import Modal from '@/components/common/Modal.vue'
 import MiniChart from '@/components/common/MiniChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 import FileBrowser from '@/components/common/FileBrowser.vue'
+import TagInput from '@/components/common/TagInput.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
 const route = useRoute()
@@ -29,7 +32,29 @@ store.setNamespace(route.params.namespace)
 
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
-const yaml = computed(() => store.generateYAML('deployment', workload.value))
+
+// Pods Tab：状态过滤 + 计数
+const podFilter = ref('All')
+const podStatusCounts = computed(() => {
+  const c = { Running: 0, Pending: 0, Failed: 0, Other: 0 }
+  for (const p of managedPods.value) {
+    if (p.status === 'Running') c.Running++
+    else if (p.status === 'Pending') c.Pending++
+    else if (p.status === 'Failed') c.Failed++
+    else c.Other++
+  }
+  return c
+})
+const filteredPods = computed(() => {
+  const f = podFilter.value
+  if (f === 'All') return managedPods.value
+  if (f === 'Other') return managedPods.value.filter(p => !['Running', 'Pending', 'Failed'].includes(p.status))
+  return managedPods.value.filter(p => p.status === f)
+})
+function goPodDetail(p) {
+  router.push({ name: 'NsPodDetail', params: { namespace: p.namespace || route.params.namespace, name: p.name } })
+}
+
 const configRefs = computed(() => store.getWorkloadReferences(route.params.name, route.params.namespace))
 const meta = computed(() => readMeta(workload.value))
 
@@ -75,14 +100,17 @@ const diffLines = ref([])
 const pendingYaml = ref('')
 const diffStat = computed(() => ({ add: diffLines.value.filter(l => l.t === 'add').length, del: diffLines.value.filter(l => l.t === 'del').length }))
 function onYamlSave(edited) {
-  if (edited === yaml.value) { notify('info', '内容未变更'); return }
+  if (edited === workloadYaml.value) { notify('info', '内容未变更'); return }
   pendingYaml.value = edited
-  diffLines.value = lineDiff(yaml.value, edited)
+  diffLines.value = lineDiff(workloadYaml.value, edited)
   showDiffModal.value = true
 }
 async function confirmApplyYaml() {
-  try { await applyYaml(pendingYaml.value); showDiffModal.value = false }
-  catch { /* applyYaml 内部已 notify */ }
+  try {
+    await applyYaml(pendingYaml.value)
+    showDiffModal.value = false
+    reloadYaml()       // 应用成功后重新拉取真实 YAML
+  } catch { /* applyYaml 内部已 notify */ }
 }
 
 const refTypeMeta = {
@@ -97,6 +125,17 @@ function refRoute(ref) {
 }
 
 const activeTab = ref('overview')
+// === YAML：用共享 useLiveYaml（远端拉真实对象 / mock 合成）；path 基于 route，避免工作负载列表刷新时被重置 ===
+const WL_PLURAL = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }
+const { yaml: workloadYaml, yamlLoading, error: yamlError, reload: reloadYaml } = useLiveYaml({
+  pathFn: () => {
+    const w = workload.value
+    const gv = (w?.type === 'Job' || w?.type === 'CronJob') ? '/apis/batch/v1' : '/apis/apps/v1'
+    const plural = WL_PLURAL[w?.type] || 'deployments'
+    return `${gv}/namespaces/${encodeURIComponent(w?.namespace || route.params.namespace)}/${plural}/${encodeURIComponent(route.params.name)}`
+  },
+  mockFn: () => store.generateYAML('deployment', workload.value),
+})
 const showDeleteModal = ref(false)
 const showScaleModal = ref(false)
 const scaleReplicas = ref(1)
@@ -172,6 +211,7 @@ async function handleRollback() {
     await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
     showRollbackModal.value = false
     rollbackTarget.value = null
+    refreshSoon()
   } catch (e) { notify('error', e.message || '回滚失败') }
 }
 
@@ -226,7 +266,7 @@ async function handleDelete() {
   await store.deleteWorkload(route.params.name, route.params.namespace)
   router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
 }
-function handleRestart() { store.restartWorkload(route.params.name, route.params.namespace) }
+function handleRestart() { store.restartWorkload(route.params.name, route.params.namespace); refreshSoon() }
 
 // 刷新：重新拉取工作负载/Pod/事件（部署中状态不会自动变，需手动或删除 Pod 触发）
 const refreshing = ref(false)
@@ -235,6 +275,9 @@ async function refresh() {
   try { await store.hydrateCoreResources() } catch (e) { notify('error', e.message || '刷新失败') }
   finally { refreshing.value = false }
 }
+// 模板变更（镜像/回滚/重启/深编辑）后延时静默刷新：等控制器创建新 ReplicaSet，再重取 workloads + replicasets(历史版本) + pods，
+// 否则 Overview 与 Revisions 仍停留在旧版本
+function refreshSoon() { setTimeout(() => { store.hydrateCoreResources({ silent: true }).catch(() => {}) }, 1500) }
 
 // 部署中自动刷新：rollout 非健康时每 5s 静默轻量刷新（不闪加载条），恢复健康后停止
 let autoTimer = null
@@ -364,6 +407,7 @@ async function saveImageTag() {
     }
     notify('success', `镜像版本已更新为 ${newImage}`)
     showImageTagModal.value = false
+    refreshSoon()
   } catch (e) { notify('error', e.message || '更新失败') }
 }
 
@@ -834,6 +878,7 @@ async function saveEdit() {
       catch (e) { notify('error', e.message || '容器配置保存失败') }
     }
   }
+  refreshSoon()
   showEditModal.value = false
 }
 
@@ -847,8 +892,9 @@ const META_MANAGED_KEY = 'aliangboard.io/managed-by'
 const META_SYS_LABELS = ['app', META_MANAGED_KEY, 'pod-template-hash', 'controller-revision-hash']
 const META_SYS_ANN = ['deployment.kubernetes.io/revision', 'kubectl.kubernetes.io/restartedAt', 'kubectl.kubernetes.io/last-applied-configuration', 'aliangboard.io/last-edited', 'aliangboard.io/last-action']
 // 业务/分层键：由表单字段管理，从自定义列表隐藏
-const META_HIDDEN_LABELS = [...META_SYS_LABELS, ...Object.values(META_CANON), ...META_LAYER_KEYS]
-const META_HIDDEN_ANN = [...META_SYS_ANN, META_DESC_KEY]
+// tags 现存 annotation（含逗号），但历史迁移可能残留 tags label——隐藏它，保存时一并清除（merge-patch null）
+const META_HIDDEN_LABELS = [...META_SYS_LABELS, META_CANON.owner, META_CANON.version, META_CANON.tags, ...META_LAYER_KEYS]
+const META_HIDDEN_ANN = [...META_SYS_ANN, META_DESC_KEY, META_CANON.title, META_CANON.tags] // title + tags 走 annotation
 
 const showMetaModal = ref(false)
 const metaForm = ref({ title: '', owner: '', version: '', tags: '', description: '', layer: '', labels: [], annotations: [] })
@@ -881,12 +927,10 @@ async function saveMeta() {
   const f = metaForm.value
   const curLabels = wl.labels || {}
   const curAnn = wl.annotations || {}
-  // 业务 canonical labels（非空才写）
+  // 业务 canonical labels（非空才写）；title + tags 走 annotation（支持中文/逗号）
   const business = {}
-  if (f.title) business[META_CANON.title] = f.title
   if (f.owner) business[META_CANON.owner] = f.owner
   if (f.version) business[META_CANON.version] = f.version
-  if (f.tags) business[META_CANON.tags] = f.tags
   if (f.layer) { business['aliangboard.io/layer'] = f.layer; business['layer.aliangboard.io'] = f.layer }
   // 自定义键（去重，后出现为准）
   const customLabels = {}
@@ -901,13 +945,15 @@ async function saveMeta() {
   const annotations = {}
   META_SYS_ANN.forEach(k => { if (k in curAnn) annotations[k] = curAnn[k] })
   if (f.description) annotations[META_DESC_KEY] = f.description
+  if (f.title) annotations[META_CANON.title] = f.title // title 走 annotation 支持 UTF-8
+  if (f.tags) annotations[META_CANON.tags] = f.tags // tags 含逗号，走 annotation
   Object.assign(annotations, customAnns)
   // 删除：原集合中既有、非系统保留、但不在期望中的键 → null（merge-patch 删除）
   const removedLabels = Object.keys(curLabels).filter(k => !META_SYS_LABELS.includes(k) && !(k in labels))
   const removedAnnotations = Object.keys(curAnn).filter(k => !META_SYS_ANN.includes(k) && !(k in annotations))
   // Pod 模板镜像：保留模板上非托管键（app 等）+ 业务/自定义（与创建落点一致）；仅在变化时下发，避免无谓滚动
   const rawTplLabels = wl.raw?.spec?.template?.metadata?.labels || {}
-  const managedTpl = new Set([...Object.values(META_CANON), 'aliangboard.io/layer', 'layer.aliangboard.io', ...Object.keys(customLabels)])
+  const managedTpl = new Set([META_CANON.owner, META_CANON.version, META_CANON.tags, 'aliangboard.io/layer', 'layer.aliangboard.io', ...Object.keys(customLabels)])
   const desiredTplLabels = {}
   Object.entries(rawTplLabels).forEach(([k, v]) => { if (!managedTpl.has(k)) desiredTplLabels[k] = v })
   Object.assign(desiredTplLabels, business, customLabels)
@@ -917,6 +963,7 @@ async function saveMeta() {
     ? { ...desiredTplLabels, ...Object.keys(rawTplLabels).filter(k => managedTpl.has(k) && !(k in desiredTplLabels)).reduce((o, k) => { o[k] = null; return o }, {}) }
     : null
   store.updateWorkloadMeta(route.params.name, route.params.namespace, { labels, annotations, removedLabels, removedAnnotations, templateLabels })
+  if (f.tags) recordTagUsage(route.params.namespace, f.tags) // 编辑标签也即时入历史，供下次建议
   showMetaModal.value = false
 }
 
@@ -948,6 +995,7 @@ async function saveTemplate(yamlStr) {
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
     notify('success', 'Pod 模板已更新')
     showTemplateModal.value = false
+    refreshSoon()
   } catch (e) { notify('error', e.message || '保存失败') }
 }
 
@@ -1167,6 +1215,7 @@ function podStatusBorder(s) {
               <PodCard
                 v-for="p in currentRevPods" :key="p.name"
                 :pod="p" :name-base="workload?.name" :selected="selectedPod?.name === p.name"
+                :show-terminal="false"
                 show-delete
                 @click="selectPod(p)" @delete="confirmDeletePod($event)"
               >
@@ -1545,26 +1594,39 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== Pods Tab ====== -->
-    <div v-if="activeTab === 'pods'">
-      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
-        <table class="w-full text-left">
-          <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Restarts</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Node</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-          </tr></thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="p in managedPods" :key="p.name" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })" class="hover:bg-surface-container-low/40 cursor-pointer">
-              <td class="px-md py-2 font-mono text-xs font-medium">{{ p.name }}</td>
-              <td class="px-md py-2"><div class="flex items-center gap-xs"><span class="w-1.5 h-1.5 rounded-full" :class="podStatusBg(p.status)"></span><span class="text-xs" :class="podStatusColor(p.status)">{{ p.status }}</span></div></td>
-              <td class="px-md py-2 text-xs" :class="p.restarts > 3 ? 'text-error font-medium' : 'text-on-surface-variant'">{{ p.restarts }}</td>
-              <td class="px-md py-2 font-mono text-xs text-on-surface-variant">{{ p.node || '—' }}</td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ p.age }}</td>
-            </tr>
-          </tbody>
-        </table>
+    <div v-if="activeTab === 'pods'" class="flex flex-col gap-md">
+      <!-- 头部：计数 + 状态过滤 -->
+      <div class="flex items-center gap-sm flex-wrap">
+        <div class="flex items-center gap-sm mr-sm">
+          <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
+          <span class="text-body-sm font-semibold text-on-surface">{{ managedPods.length }} 个 Pod</span>
+        </div>
+        <button v-for="f in [{ k: 'All', l: '全部' }, { k: 'Running', l: '运行' }, { k: 'Pending', l: '启动中' }, { k: 'Failed', l: '失败' }, { k: 'Other', l: '其它' }]" :key="f.k"
+          @click="podFilter = podFilter === f.k ? 'All' : f.k"
+          class="inline-flex items-center gap-1 px-sm py-1 rounded-full text-xs font-medium border transition-colors"
+          :class="podFilter === f.k ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:bg-surface-container'">
+          {{ f.l }}<span class="font-mono opacity-70">{{ f.k === 'All' ? managedPods.length : (podStatusCounts[f.k] || 0) }}</span>
+        </button>
+      </div>
+
+      <!-- Pod 卡片网格（复用共享 PodCard，与 Overview/Service 同组件）-->
+      <div v-if="filteredPods.length" class="grid grid-cols-1 xl:grid-cols-2 gap-sm">
+        <PodCard v-for="p in filteredPods" :key="p.name"
+          :pod="p" :name-base="workload?.name"
+          :show-terminal="false" show-delete
+          @click="goPodDetail" @delete="confirmDeletePod($event)">
+          <template #actions>
+            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" title="打开终端（浮动窗口）">
+              <span class="material-symbols-outlined text-sm">terminal</span>
+            </button>
+          </template>
+        </PodCard>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else class="rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant/50 py-xl text-center">
+        <span class="material-symbols-outlined text-3xl text-surface-container-high">pod</span>
+        <p class="text-body-sm text-on-surface-variant mt-xs">{{ managedPods.length ? '该过滤条件下无 Pod' : '该工作负载暂无运行实例' }}</p>
       </div>
     </div>
 
@@ -1593,7 +1655,17 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== YAML Tab ====== -->
-    <div v-if="activeTab === 'yaml'"><YamlEditor :model-value="yaml" :readonly="false" height="560px" @save="onYamlSave" /></div>
+    <div v-if="activeTab === 'yaml'">
+      <div v-if="yamlLoading" class="rounded-lg border border-outline-variant bg-surface-container-lowest p-lg flex items-center gap-sm text-body-sm text-on-surface-variant">
+        <span class="material-symbols-outlined animate-spin text-primary">progress_activity</span> 加载 YAML…
+      </div>
+      <div v-else-if="yamlError" class="rounded-lg border border-error/30 bg-error-container/10 p-lg flex items-center gap-sm">
+        <span class="material-symbols-outlined text-error">error</span>
+        <span class="text-body-sm text-error flex-1">YAML 加载失败：{{ yamlError }}</span>
+        <button @click="reloadYaml" class="px-md py-sm border border-error/30 text-error rounded-lg text-body-sm font-medium hover:bg-error/5 transition-colors">重试</button>
+      </div>
+      <YamlEditor v-else :model-value="workloadYaml" :readonly="false" height="560px" @save="onYamlSave" />
+    </div>
 
     <!-- ====== Events Tab ====== -->
     <div v-if="activeTab === 'events'" class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
@@ -1876,7 +1948,7 @@ function podStatusBorder(s) {
           <div><label class="text-xs text-on-surface-variant block mb-xs">标题 title</label><input v-model="metaForm.title" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="展示用名称" /></div>
           <div><label class="text-xs text-on-surface-variant block mb-xs">负责人 owner</label><input v-model="metaForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="团队 / 负责人" /></div>
           <div><label class="text-xs text-on-surface-variant block mb-xs">版本 version</label><input v-model="metaForm.version" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="v1.0.0" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">标签 tags</label><input v-model="metaForm.tags" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="逗号分隔" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">标签 tags</label><TagInput v-model="metaForm.tags" :namespace="route.params.namespace" :max="3" /></div>
           <div class="col-span-2"><label class="text-xs text-on-surface-variant block mb-xs">描述 description <span class="text-on-surface-variant/50">→ annotation</span></label><textarea v-model="metaForm.description" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm resize-none" placeholder="一句话描述（写入注解，免 label 长度限制）" /></div>
           <div class="col-span-2">
             <label class="text-xs text-on-surface-variant block mb-xs">分层 layer</label>
