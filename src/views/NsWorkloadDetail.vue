@@ -1805,7 +1805,7 @@ function podStatusBorder(s) {
             <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">ConfigMap 键引用</span><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
             <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
-              <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:key="e.key" />
+              <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
               <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
@@ -1813,7 +1813,7 @@ function podStatusBorder(s) {
             <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Secret 键引用</span><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
             <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
-              <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:key="e.key" />
+              <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
               <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
