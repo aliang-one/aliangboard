@@ -34,6 +34,7 @@ function openEdit() {
     minReplicas: hpa.value.minReplicas,
     maxReplicas: hpa.value.maxReplicas,
     cpuTarget: hpa.value.cpuTarget,
+    memoryTarget: hpa.value.memoryTarget,
   }
   showEditModal.value = true
 }
@@ -42,6 +43,7 @@ function saveEdit() {
     minReplicas: parseInt(editForm.value.minReplicas),
     maxReplicas: parseInt(editForm.value.maxReplicas),
     cpuTarget: parseInt(editForm.value.cpuTarget),
+    memoryTarget: parseInt(editForm.value.memoryTarget),
   })
   showEditModal.value = false
 }
@@ -392,9 +394,15 @@ function scalingDescription(h) {
           <input v-model.number="editForm.maxReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target Utilization (%)</label>
-        <input v-model.number="editForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+      <div class="grid grid-cols-2 gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target (%)</label>
+          <input v-model.number="editForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Target (%)</label>
+          <input v-model.number="editForm.memoryTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        </div>
       </div>
     </div>
     <template #actions>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -17,11 +17,17 @@ const { currentPage, pageSize, paginated, total } = usePagination(computed(() =>
 
 // Create HPA
 const showCreateModal = ref(false)
-const createForm = ref({ name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80 })
+const createForm = ref({ name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80, memoryTarget: 80 })
+
+// 可选目标工作负载（按 targetKind 过滤）
+const targetOptions = computed(() => store.nsWorkloads.filter(w => w.type === createForm.value.targetKind).map(w => w.name))
 
 function resetCreate() {
-  createForm.value = { name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80 }
+  createForm.value = { name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80, memoryTarget: 80 }
 }
+
+// 切换 targetKind 时清空 targetName（旧选项不属于新 kind）
+watch(() => createForm.value.targetKind, () => { createForm.value.targetName = '' })
 
 function handleCreate() {
   const f = createForm.value
@@ -34,7 +40,7 @@ function handleCreate() {
     maxReplicas: parseInt(f.maxReplicas),
     currentReplicas: parseInt(f.minReplicas),
     cpuTarget: parseInt(f.cpuTarget),
-    memoryTarget: 80,
+    memoryTarget: parseInt(f.memoryTarget),
     currentCPU: 0,
     currentMemory: 0,
     status: 'Ok',
@@ -170,16 +176,20 @@ function hpaStatus(status) {
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Target Name *</label>
-          <input v-model="createForm.targetName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-deployment" />
-        </div>
-        <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Target Kind</label>
           <select v-model="createForm.targetKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
             <option>Deployment</option>
             <option>StatefulSet</option>
-            <option>ReplicaSet</option>
+            <option>DaemonSet</option>
           </select>
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Target Name *</label>
+          <select v-model="createForm.targetName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+            <option value="" disabled>选择工作负载…</option>
+            <option v-for="name in targetOptions" :key="name" :value="name">{{ name }}</option>
+          </select>
+          <p v-if="!targetOptions.length" class="text-[10px] text-on-surface-variant/60 mt-xs">当前命名空间没有 {{ createForm.targetKind }} 类型的工作负载</p>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-md">
@@ -192,9 +202,15 @@ function hpaStatus(status) {
           <input v-model.number="createForm.maxReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target Utilization (%)</label>
-        <input v-model.number="createForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+      <div class="grid grid-cols-2 gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target (%)</label>
+          <input v-model.number="createForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        </div>
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Target (%)</label>
+          <input v-model.number="createForm.memoryTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        </div>
       </div>
     </div>
     <template #actions>

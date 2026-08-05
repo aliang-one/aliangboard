@@ -57,6 +57,9 @@ function detectLang(key) {
   if (k.endsWith('.conf') || k.endsWith('.cfg') || k.endsWith('.cnf') || k.endsWith('.ini')) return { label: 'CONF', icon: 'settings', color: 'bg-secondary-container/10 text-secondary', prismLang: 'ini' }
   if (k.endsWith('.properties')) return { label: 'PROPS', icon: 'list_alt', color: 'bg-secondary-container/10 text-secondary', prismLang: 'properties' }
   if (k.endsWith('.sh') || k.endsWith('.bash')) return { label: 'SHELL', icon: 'terminal', color: 'bg-tertiary-container/10 text-tertiary', prismLang: 'bash' }
+  if (k.endsWith('.py')) return { label: 'PYTHON', icon: 'code', color: 'bg-primary-container/10 text-primary', prismLang: 'python' }
+  if (k.endsWith('.js') || k.endsWith('.mjs') || k.endsWith('.jsx')) return { label: 'JS', icon: 'code', color: 'bg-tertiary-container/10 text-tertiary', prismLang: 'javascript' }
+  if (k.endsWith('.ts') || k.endsWith('.tsx')) return { label: 'TS', icon: 'code', color: 'bg-primary-container/10 text-primary', prismLang: 'typescript' }
   if (k.endsWith('.xml')) return { label: 'XML', icon: 'code', color: 'bg-secondary-container/10 text-secondary', prismLang: 'markup' }
   if (k.endsWith('.env')) return { label: 'ENV', icon: 'code', color: 'bg-primary-container/10 text-primary', prismLang: 'properties' }
   if (k.endsWith('.crt') || k.endsWith('.key') || k.endsWith('.pem') || k.endsWith('.ca')) return { label: 'CERT', icon: 'lock', color: 'bg-error-container/10 text-error', prismLang: 'none' }
