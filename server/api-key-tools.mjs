@@ -9,6 +9,9 @@ import { buildCallContext } from './call-context.mjs'
 
 const LOG_TAIL_MAX = 500
 const LIST_MAX = 200
+const REPLICA_MAX = 20 // scale 上限(eng-review 9C:禁 scale 到 0 + 范围 guardrail)
+const SCALE_KINDS = ['deployments', 'statefulsets']
+const RESTART_KINDS = ['deployments', 'statefulsets', 'daemonsets']
 const enc = encodeURIComponent
 
 // 解析 API key(Authorization: Bearer)。有效→row;无效/已吊销/空→null。
@@ -120,6 +123,27 @@ export function createApiKeyTools({ db, requestFn }) {
           const all = body?.items || []
           const items = all.slice(0, LIST_MAX).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
           return { count: all.length, returned: items.length, items }
+        } })
+    },
+    scale: async (keyRow, cluster, a) => {
+      const kind = String(a.kind || '').toLowerCase()
+      return runBoundedTool({ keyRow, cluster, tool: 'scale', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,
+        fn: async (saCtx) => {
+          if (!SCALE_KINDS.includes(kind)) throw new Error(`scale 仅支持 ${SCALE_KINDS.join('/')},不是 ${kind}`)
+          const replicas = Number(a.replicas)
+          if (!Number.isInteger(replicas) || replicas < 1 || replicas > REPLICA_MAX) throw new Error(`replicas 必须是 1..${REPLICA_MAX} 的整数(禁止 scale 到 0 / 异常值)`)
+          const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/${kind}/${enc(a.name)}/scale`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { replicas } }) })
+          return { kind, name: a.name, replicas: body?.spec?.replicas ?? replicas }
+        } })
+    },
+    restart: async (keyRow, cluster, a) => {
+      const kind = String(a.kind || '').toLowerCase()
+      return runBoundedTool({ keyRow, cluster, tool: 'restart', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name}`,
+        fn: async (saCtx) => {
+          if (!RESTART_KINDS.includes(kind)) throw new Error(`restart 仅支持 ${RESTART_KINDS.join('/')},不是 ${kind}`)
+          const restartedAt = new Date().toISOString()
+          await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/${kind}/${enc(a.name)}`, { method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': restartedAt } } } } }) })
+          return { kind, name: a.name, restartedAt }
         } })
     },
   }
