@@ -35,8 +35,10 @@ function hasPressure(node) {
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL NODES</p>
           <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
-          <p class="text-body-sm text-primary flex items-center gap-xs mt-xs">
-            <span class="material-symbols-outlined text-base">check_circle</span> {{ store.healthyNodes }}/{{ store.totalNodes }} Operational
+          <p class="text-body-sm flex items-center gap-xs mt-xs"
+            :class="{ 'text-primary': store.clusterHealth.severity === 'ok', 'text-tertiary-container': store.clusterHealth.severity === 'warn', 'text-error': store.clusterHealth.severity === 'crit' || store.clusterHealth.severity === 'none' }">
+            <span class="material-symbols-outlined text-base">{{ store.clusterHealth.severity === 'ok' ? 'check_circle' : 'warning' }}</span>
+            {{ store.clusterHealth.status }} · 控制面 {{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }}
           </p>
         </div>
         <span class="material-symbols-outlined text-surface-container-high text-2xl">dns</span>
