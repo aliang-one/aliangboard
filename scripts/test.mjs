@@ -13,6 +13,7 @@ import { classifyResource, groupByLayer } from '../src/composables/useLayering.j
 import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
 import { yamlScalar } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
+import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -219,6 +220,59 @@ test('Ingress 规则 PATCH 构造：按 host 聚合 + defaultBackend 启用/删�
   assert.equal(r4.spec.rules[0].http.paths[0].path, '/')
   assert.equal(r4.spec.rules[0].http.paths[0].pathType, 'Prefix')
   assert.equal(r4.spec.rules[0].http.paths[0].backend.service.port.number, 80)
+})
+
+// --- Node 丰富信息抽取：容器运行时短名、Taint 归一化、额外字段 ---
+test('shortenRuntime 去掉容器运行时 scheme 前缀', () => {
+  assert.equal(shortenRuntime('containerd://1.6.18'), '1.6.18')
+  assert.equal(shortenRuntime('docker://24.0.7'), '24.0.7')
+  assert.equal(shortenRuntime('cri-o://1.28.1'), '1.28.1')
+  assert.equal(shortenRuntime(null), null)
+  assert.equal(shortenRuntime('1.6.18'), '1.6.18') // 无前缀原样返回
+})
+
+test('normalizeTaints 归一化为 {key,value,effect}，缺 value 视为空串', () => {
+  assert.deepEqual(normalizeTaints(undefined), [])
+  assert.deepEqual(normalizeTaints([{ key: 'dedicated', value: 'gpu', effect: 'NoSchedule' }]),
+    [{ key: 'dedicated', value: 'gpu', effect: 'NoSchedule' }])
+  assert.deepEqual(normalizeTaints([{ key: 'node.kubernetes.io/unreachable', effect: 'NoExecute' }]),
+    [{ key: 'node.kubernetes.io/unreachable', value: '', effect: 'NoExecute' }])
+})
+
+test('extractNodeExtra 抽取 mapNode 未覆盖字段', () => {
+  const item = {
+    status: {
+      nodeInfo: { containerRuntimeVersion: 'containerd://1.6.18', architecture: 'amd64', operatingSystem: 'linux' },
+      addresses: [{ type: 'InternalIP', address: '10.0.1.10' }, { type: 'ExternalIP', address: '1.2.3.4' }],
+      capacity: { pods: '110' },
+      allocatable: { pods: '110' },
+    },
+    spec: { podCIDR: '10.42.0.0/24', taints: [{ key: 'k', effect: 'NoSchedule' }] },
+  }
+  const e = extractNodeExtra(item)
+  assert.equal(e.externalIp, '1.2.3.4')
+  assert.equal(e.containerRuntime, 'containerd://1.6.18')
+  assert.equal(e.containerRuntimeShort, '1.6.18')
+  assert.equal(e.arch, 'amd64')
+  assert.equal(e.osType, 'linux')
+  assert.equal(e.taintCount, 1)
+  assert.equal(e.podCapacity, 110)
+  assert.equal(e.podAllocatable, 110)
+  assert.equal(e.podCIDR, '10.42.0.0/24')
+})
+
+test('extractNodeExtra 对空对象全部降级为 null/[]', () => {
+  const e = extractNodeExtra({})
+  assert.equal(e.externalIp, null)
+  assert.equal(e.containerRuntime, null)
+  assert.equal(e.containerRuntimeShort, null)
+  assert.equal(e.arch, null)
+  assert.equal(e.osType, null)
+  assert.equal(e.taintCount, 0)
+  assert.deepEqual(e.taints, [])
+  assert.equal(e.podCapacity, null)
+  assert.equal(e.podAllocatable, null)
+  assert.equal(e.podCIDR, null)
 })
 
 // --- 汇总 ---
