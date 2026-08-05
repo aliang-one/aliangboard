@@ -19,6 +19,7 @@ import Modal from '@/components/common/Modal.vue'
 import MiniChart from '@/components/common/MiniChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 import FileBrowser from '@/components/common/FileBrowser.vue'
+import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
@@ -1728,203 +1729,221 @@ function podStatusBorder(s) {
 
   <Modal v-model="showEditModal" title="Edit Workload" width="max-w-3xl">
     <div class="flex flex-col gap-md max-h-[70vh] overflow-y-auto pr-xs">
-      <!-- 基本 -->
-      <div class="grid grid-cols-2 gap-sm">
-        <div class="col-span-2 grid grid-cols-[1fr_180px] gap-sm">
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">镜像仓库（不可改）</label>
-            <input :value="editForm.imageRepo" readonly class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono opacity-60" />
+      <!-- 基本配置（镜像 / 副本 / 分层） -->
+      <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
+        <div class="flex items-center gap-xs mb-md"><span class="material-symbols-outlined text-primary text-lg">info</span><h4 class="text-body-sm font-semibold text-on-surface">基本配置</h4></div>
+        <div class="grid grid-cols-2 gap-sm">
+          <div class="col-span-2 grid grid-cols-[1fr_180px] gap-sm">
+            <div>
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">镜像仓库（不可改）</label>
+              <input :value="editForm.imageRepo" readonly class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono opacity-60" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">版本 Tag</label>
+              <input v-model="editForm.imageTag" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="v1.0.0" />
+            </div>
           </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">版本 Tag</label>
-            <input v-model="editForm.imageTag" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="v1.0.0" />
+          <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Replicas</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+          <div v-if="isCronJob"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Schedule</label><input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" /></div>
+          <div class="col-span-2"><p class="text-xs text-on-surface-variant/60">新镜像预览：<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
+        </div>
+        <div class="mt-md pt-md border-t border-outline-variant/40">
+          <label class="text-xs font-medium text-on-surface-variant block mb-xs">分层</label>
+          <div class="flex flex-wrap gap-xs">
+            <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm transition-colors" :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:bg-surface-container'">
+              <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+            </button>
           </div>
         </div>
-        <div v-if="isScalable"><label class="text-xs text-on-surface-variant block mb-xs">Replicas</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-        <div v-if="isCronJob"><label class="text-xs text-on-surface-variant block mb-xs">Schedule</label><input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="*/5 * * * *" /></div>
-        <div class="col-span-2 -mt-xs"><p class="text-xs text-on-surface-variant/60">新镜像预览：<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
-      </div>
-      <!-- 分层 -->
-      <div>
-        <label class="text-xs text-on-surface-variant block mb-xs">分层</label>
-        <div class="flex flex-wrap gap-xs">
-          <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm" :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">
-            <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
-          </button>
-        </div>
-      </div>
+      </section>
 
       <!-- ===== 容器 / Pod 模板（仅 Deployment/StatefulSet/DaemonSet）===== -->
-      <div v-if="isRolloutType" class="pt-md border-t border-outline-variant/40 flex flex-col gap-md">
+      <div v-if="isRolloutType" class="flex flex-col gap-md">
         <!-- 主容器基本 -->
-        <div class="flex flex-col gap-sm">
-          <p class="text-xs font-semibold text-on-surface-variant">主容器</p>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">memory</span><h4 class="text-body-sm font-semibold text-on-surface">主容器</h4></div>
           <div class="grid grid-cols-3 gap-xs">
-            <div><label class="text-xs text-on-surface-variant">拉取策略</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
-            <div class="col-span-2"><label class="text-xs text-on-surface-variant">Command</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/app/server (空格分隔)" /></div>
-            <div class="col-span-2"><label class="text-xs text-on-surface-variant">Args</label><input v-model="editForm.args" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="--port 8080 (空格分隔)" /></div>
-            <div><label class="text-xs text-on-surface-variant">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/app" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">拉取策略</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
+            <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Command</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app/server (空格分隔)" /></div>
+            <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Args</label><input v-model="editForm.args" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="--port 8080 (空格分隔)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
           </div>
           <div class="grid grid-cols-4 gap-xs">
-            <div><label class="text-xs text-on-surface-variant">CPU Req</label><input v-model="editForm.cpuReq" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="250m" /></div>
-            <div><label class="text-xs text-on-surface-variant">CPU Lim</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="500m" /></div>
-            <div><label class="text-xs text-on-surface-variant">Mem Req</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="256Mi" /></div>
-            <div><label class="text-xs text-on-surface-variant">Mem Lim</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="512Mi" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Req</label><input v-model="editForm.cpuReq" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="250m" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Lim</label><input v-model="editForm.cpuLim" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="500m" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="256Mi" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="512Mi" /></div>
           </div>
-        </div>
+        </section>
 
         <!-- 端口 -->
-        <div>
-          <div class="flex items-center justify-between"><label class="text-xs text-on-surface-variant">端口</label><button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs mt-xs">
-            <input v-model.number="p.containerPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="8080" />
-            <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="TCP" />
-            <button @click="editForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
+          <div class="flex items-center gap-xs mb-md">
+            <span class="material-symbols-outlined text-primary text-lg">lan</span>
+            <h4 class="text-body-sm font-semibold text-on-surface">端口</h4>
+            <button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
           </div>
-        </div>
+          <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs">
+            <input v-model.number="p.containerPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" />
+            <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="TCP" />
+            <button @click="editForm.ports.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
+        </section>
 
         <!-- 环境变量 -->
-        <div class="flex flex-col gap-xs">
-          <div class="flex items-center justify-between"><label class="text-xs text-on-surface-variant">环境变量（普通）</label><button @click="editForm.env.push({ key: '', value: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
-            <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="KEY" />
-            <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="val" />
-            <button @click="editForm.env.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-md">
+          <div class="flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-lg">key</span><h4 class="text-body-sm font-semibold text-on-surface">环境变量</h4></div>
+          <div class="flex flex-col gap-xs">
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">普通</span><button @click="editForm.env.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
+              <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="KEY" />
+              <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="val" />
+              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
           </div>
-          <div class="flex items-center justify-between mt-xs"><label class="text-xs text-on-surface-variant">环境变量（ConfigMap 键引用）</label><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="grid grid-cols-3 gap-xs">
-            <input v-model="e.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
-            <input v-model="e.cmName" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ConfigMap" />
-            <div class="flex gap-xs"><input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" /><button @click="editForm.envCMKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+          <div class="flex flex-col gap-xs">
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">ConfigMap 键引用</span><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
+              <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
+              <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
+              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
           </div>
-          <div class="flex items-center justify-between mt-xs"><label class="text-xs text-on-surface-variant">环境变量（Secret 键引用）</label><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="grid grid-cols-3 gap-xs">
-            <input v-model="e.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ENV 名" />
-            <input v-model="e.secretName" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="Secret" />
-            <div class="flex gap-xs"><input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" /><button @click="editForm.envSecretKeys.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+          <div class="flex flex-col gap-xs">
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Secret 键引用</span><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
+              <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
+              <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
+              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
           </div>
-          <div class="grid grid-cols-2 gap-xs mt-xs">
-            <div><label class="text-xs text-on-surface-variant">envFrom ConfigMap</label><input v-model="editForm.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="整体注入一个 ConfigMap" /></div>
-            <div><label class="text-xs text-on-surface-variant">envFrom Secret</label><input v-model="editForm.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="整体注入一个 Secret" /></div>
+          <div class="grid grid-cols-2 gap-xs">
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">envFrom ConfigMap</label><EnvSourceField kind="configmap" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromConfigMap" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">envFrom Secret</label><EnvSourceField kind="secret" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromSecret" /></div>
           </div>
-        </div>
+        </section>
 
         <!-- 探针（三种 × 全时序） -->
-        <div class="flex flex-col gap-sm">
-          <p class="text-xs font-semibold text-on-surface-variant">健康探针</p>
-          <div v-for="probe in [{ k: 'liveness', label: 'Liveness' }, { k: 'readiness', label: 'Readiness' }, { k: 'startup', label: 'Startup' }]" :key="probe.k" class="rounded-lg border border-outline-variant/60 p-sm">
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">monitor_heart</span><h4 class="text-body-sm font-semibold text-on-surface">健康探针</h4></div>
+          <div v-for="probe in [{ k: 'liveness', label: 'Liveness' }, { k: 'readiness', label: 'Readiness' }, { k: 'startup', label: 'Startup' }]" :key="probe.k" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30">
             <div class="flex items-center gap-sm mb-xs">
               <label class="flex items-center gap-xs text-body-sm font-medium"><input type="checkbox" v-model="editForm[probe.k].enabled" class="h-4 w-4 accent-primary" /> {{ probe.label }}</label>
-              <select v-if="editForm[probe.k].enabled" v-model="editForm[probe.k].type" class="ml-auto bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option></select>
+              <select v-if="editForm[probe.k].enabled" v-model="editForm[probe.k].type" class="ml-auto bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option></select>
             </div>
             <div v-if="editForm[probe.k].enabled" class="grid grid-cols-3 gap-xs">
-              <div v-if="editForm[probe.k].type === 'http'"><label class="text-xs text-on-surface-variant">HTTP Path</label><input v-model="editForm[probe.k].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/health" /></div>
-              <div v-if="editForm[probe.k].type !== 'exec'"><label class="text-xs text-on-surface-variant">Port</label><input v-model.number="editForm[probe.k].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="8080" /></div>
-              <div v-if="editForm[probe.k].type === 'exec'" class="col-span-2"><label class="text-xs text-on-surface-variant">Exec Command</label><input v-model="editForm[probe.k].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/bin/sh -c healthy" /></div>
-              <div><label class="text-xs text-on-surface-variant">Initial Delay</label><input v-model.number="editForm[probe.k].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" /></div>
-              <div><label class="text-xs text-on-surface-variant">Period</label><input v-model.number="editForm[probe.k].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" /></div>
-              <div><label class="text-xs text-on-surface-variant">Timeout</label><input v-model.number="editForm[probe.k].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" /></div>
-              <div><label class="text-xs text-on-surface-variant">Failure</label><input v-model.number="editForm[probe.k].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" /></div>
-              <div><label class="text-xs text-on-surface-variant">Success</label><input v-model.number="editForm[probe.k].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" /></div>
+              <div v-if="editForm[probe.k].type === 'http'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">HTTP Path</label><input v-model="editForm[probe.k].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/health" /></div>
+              <div v-if="editForm[probe.k].type !== 'exec'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Port</label><input v-model.number="editForm[probe.k].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" /></div>
+              <div v-if="editForm[probe.k].type === 'exec'" class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Exec Command</label><input v-model="editForm[probe.k].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c healthy" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Initial Delay</label><input v-model.number="editForm[probe.k].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Period</label><input v-model.number="editForm[probe.k].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Timeout</label><input v-model.number="editForm[probe.k].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Failure</label><input v-model.number="editForm[probe.k].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Success</label><input v-model.number="editForm[probe.k].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- 卷与挂载 -->
-        <div class="flex flex-col gap-xs">
-          <div class="flex items-center justify-between"><label class="text-xs text-on-surface-variant">卷与挂载</label><button @click="editForm.volumeMounts.push({ name: '', type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" class="rounded border border-outline-variant/60 p-sm flex flex-col gap-xs">
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
+          <div class="flex items-center gap-xs mb-md">
+            <span class="material-symbols-outlined text-primary text-lg">storage</span>
+            <h4 class="text-body-sm font-semibold text-on-surface">卷与挂载</h4>
+            <button @click="editForm.volumeMounts.push({ name: '', type: 'emptyDir', mountPath: '', subPath: '', pvcName: '', hostPath: '', cmName: '', secretName: '' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+          </div>
+          <div v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 flex flex-col gap-xs">
             <div class="flex items-center gap-xs">
-              <input v-model="v.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="卷名" />
-              <select v-model="v.type" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option value="emptyDir">emptyDir</option><option value="pvc">PVC</option><option value="hostPath">hostPath</option><option value="configMap">ConfigMap</option><option value="secret">Secret</option></select>
-              <input v-model="v.mountPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="挂载路径 /data" />
-              <button @click="editForm.volumeMounts.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+              <input v-model="v.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="卷名" />
+              <select v-model="v.type" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option value="emptyDir">emptyDir</option><option value="pvc">PVC</option><option value="hostPath">hostPath</option><option value="configMap">ConfigMap</option><option value="secret">Secret</option></select>
+              <input v-model="v.mountPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="挂载路径 /data" />
+              <button @click="editForm.volumeMounts.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
             <div class="flex items-center gap-xs">
-              <input v-if="v.type === 'pvc'" v-model="v.pvcName" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="PVC claimName" />
-              <input v-else-if="v.type === 'hostPath'" v-model="v.hostPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="宿主路径 /var/data" />
-              <input v-else-if="v.type === 'configMap'" v-model="v.cmName" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ConfigMap 名称" />
-              <input v-else-if="v.type === 'secret'" v-model="v.secretName" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="Secret 名称" />
-              <input v-model="v.subPath" class="w-40 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="subPath (可选)" />
+              <input v-if="v.type === 'pvc'" v-model="v.pvcName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="PVC claimName" />
+              <input v-else-if="v.type === 'hostPath'" v-model="v.hostPath" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="宿主路径 /var/data" />
+              <input v-else-if="v.type === 'configMap'" v-model="v.cmName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ConfigMap 名称" />
+              <input v-else-if="v.type === 'secret'" v-model="v.secretName" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="Secret 名称" />
+              <input v-model="v.subPath" class="w-40 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="subPath (可选)" />
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- 安全上下文 + 生命周期 -->
-        <div class="flex flex-col gap-sm">
-          <p class="text-xs font-semibold text-on-surface-variant">安全上下文 & 生命周期</p>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">shield</span><h4 class="text-body-sm font-semibold text-on-surface">安全上下文 & 生命周期</h4></div>
           <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.securityContext.enabled" class="h-4 w-4 accent-primary" /> 启用 securityContext</label>
           <div v-if="editForm.securityContext.enabled" class="grid grid-cols-3 gap-xs">
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.privileged" class="h-4 w-4 accent-primary" /> privileged</label>
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.runAsNonRoot" class="h-4 w-4 accent-primary" /> runAsNonRoot</label>
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.readOnlyRootFilesystem" class="h-4 w-4 accent-primary" /> 只读根文件系统</label>
-            <div><label class="text-xs text-on-surface-variant">runAsUser</label><input v-model="editForm.securityContext.runAsUser" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="1000" /></div>
-            <div><label class="text-xs text-on-surface-variant">runAsGroup</label><input v-model="editForm.securityContext.runAsGroup" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="1000" /></div>
-            <div><label class="text-xs text-on-surface-variant">capabilities add</label><input v-model="editForm.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="NET_BIND_SERVICE (逗号)" /></div>
-            <div class="col-span-3"><label class="text-xs text-on-surface-variant">capabilities drop</label><input v-model="editForm.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ALL (逗号)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">runAsUser</label><input v-model="editForm.securityContext.runAsUser" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="1000" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">runAsGroup</label><input v-model="editForm.securityContext.runAsGroup" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="1000" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">capabilities add</label><input v-model="editForm.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="NET_BIND_SERVICE (逗号)" /></div>
+            <div class="col-span-3"><label class="text-xs font-medium text-on-surface-variant block mb-xs">capabilities drop</label><input v-model="editForm.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ALL (逗号)" /></div>
           </div>
           <div class="grid grid-cols-2 gap-xs">
-            <div><label class="text-xs text-on-surface-variant">Lifecycle postStart</label><input v-model="editForm.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/bin/sh -c init (exec)" /></div>
-            <div><label class="text-xs text-on-surface-variant">Lifecycle preStop</label><input v-model="editForm.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="/bin/sh -c stop (exec)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Lifecycle postStart</label><input v-model="editForm.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c init (exec)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Lifecycle preStop</label><input v-model="editForm.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c stop (exec)" /></div>
           </div>
-        </div>
+        </section>
 
         <!-- 调度 -->
-        <div class="flex flex-col gap-sm">
-          <p class="text-xs font-semibold text-on-surface-variant">调度（Pod 级）</p>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">device_hub</span><h4 class="text-body-sm font-semibold text-on-surface">调度（Pod 级）</h4></div>
           <div class="grid grid-cols-3 gap-xs">
-            <div><label class="text-xs text-on-surface-variant">ServiceAccount</label><input v-model="editForm.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="default" /></div>
-            <div><label class="text-xs text-on-surface-variant">PriorityClass</label><input v-model="editForm.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="高优先级类名" /></div>
-            <div><label class="text-xs text-on-surface-variant">ImagePullSecret</label><input v-model="editForm.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="regcred" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ServiceAccount</label><input v-model="editForm.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="default" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">PriorityClass</label><input v-model="editForm.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="高优先级类名" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ImagePullSecret</label><input v-model="editForm.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="regcred" /></div>
           </div>
-          <div class="flex items-center justify-between"><label class="text-xs text-on-surface-variant">nodeSelector</label><button @click="editForm.nodeSelectors.push({ key: '', value: '' })" class="text-xs text-primary">+ 添加</button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">nodeSelector</span><button @click="editForm.nodeSelectors.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
           <div v-for="(n, i) in editForm.nodeSelectors" :key="'ns'+i" class="flex items-center gap-xs">
-            <input v-model="n.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="disktype" />
-            <input v-model="n.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="ssd" />
-            <button @click="editForm.nodeSelectors.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+            <input v-model="n.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="disktype" />
+            <input v-model="n.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ssd" />
+            <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <div class="flex items-center justify-between"><label class="text-xs text-on-surface-variant">tolerations</label><button @click="editForm.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' })" class="text-xs text-primary">+ 添加</button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">tolerations</span><button @click="editForm.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
           <div v-for="(t, i) in editForm.tolerations" :key="'tol'+i" class="grid grid-cols-4 gap-xs">
-            <input v-model="t.key" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
-            <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option>Equal</option><option>Exists</option></select>
-            <input v-model="t.value" :disabled="t.operator === 'Exists'" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono disabled:opacity-40" placeholder="value" />
-            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+            <input v-model="t.key" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="key" />
+            <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>Equal</option><option>Exists</option></select>
+            <input v-model="t.value" :disabled="t.operator === 'Exists'" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="value" />
+            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
-        </div>
+        </section>
 
         <!-- 多容器：init / sidecar -->
-        <div class="flex flex-col gap-sm">
-          <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">Init 容器</p><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded border border-outline-variant/60 p-sm grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="名称" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="镜像" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="command (空格)" />
-            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="cpuReq" />
-            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="cpuLim" />
-            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="memReq" /><button @click="editForm.initContainers.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+        <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">多容器（Init / Sidecar）</h4></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Init 容器</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
+            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
+            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
+            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
+            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
+            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
+            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
-          <div class="flex items-center justify-between mt-xs"><p class="text-xs font-semibold text-on-surface-variant">Sidecar 容器</p><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="text-xs text-primary">+ 添加</button></div>
-          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded border border-outline-variant/60 p-sm grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="名称" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="镜像" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="command (空格)" />
-            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="cpuReq" />
-            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="cpuLim" />
-            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="memReq" /><button @click="editForm.extraContainers.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Sidecar 容器</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
+            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
+            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
+            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="command (空格)" />
+            <input v-model="c.cpuReq" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuReq" />
+            <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
+            <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
-        </div>
+        </section>
       </div>
 
       <!-- 更新策略（Deployment 级） -->
-      <div v-if="workload?.type === 'Deployment'" class="pt-md border-t border-outline-variant/40 flex flex-col gap-sm">
-        <p class="text-xs font-semibold text-on-surface-variant">更新策略</p>
+      <section v-if="workload?.type === 'Deployment'" class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
+        <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">autorenew</span><h4 class="text-body-sm font-semibold text-on-surface">更新策略</h4></div>
         <div class="grid grid-cols-4 gap-xs">
-          <div><label class="text-xs text-on-surface-variant">类型</label><select v-model="editForm.strategy" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono"><option>RollingUpdate</option><option>Recreate</option></select></div>
-          <div><label class="text-xs text-on-surface-variant">maxSurge</label><input v-model="editForm.maxSurge" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono disabled:opacity-40" placeholder="25%" /></div>
-          <div><label class="text-xs text-on-surface-variant">maxUnavailable</label><input v-model="editForm.maxUnavailable" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono disabled:opacity-40" placeholder="25%" /></div>
-          <div><label class="text-xs text-on-surface-variant">revisionHistory</label><input v-model.number="editForm.revisionHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="10" /></div>
+          <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">类型</label><select v-model="editForm.strategy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>RollingUpdate</option><option>Recreate</option></select></div>
+          <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">maxSurge</label><input v-model="editForm.maxSurge" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="25%" /></div>
+          <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">maxUnavailable</label><input v-model="editForm.maxUnavailable" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="25%" /></div>
+          <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">revisionHistory</label><input v-model.number="editForm.revisionHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="10" /></div>
         </div>
-      </div>
+      </section>
     </div>
     <template #actions>
       <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
