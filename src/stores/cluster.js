@@ -6,6 +6,7 @@ import { notify } from '@/composables/useToast'
 import { yamlScalar } from '@/composables/useYaml'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
+import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -543,28 +544,21 @@ export const useClusterStore = defineStore('cluster', () => {
     if (remoteMode.value) await remoteUpdate(generateYAML('ingress', ingressList.value[idx]), 'Ingress', () => { ingressList.value[idx] = before })
   }
 
-  // 结构化编辑 Ingress 路由规则：入参为扁平规则 [{host,path,pathType,serviceName,servicePort}]，
-  // 重建为规范 networking.k8s.io/v1 rules；远端 PATCH spec.rules，本地合并。
-  async function updateIngressRules(name, ns, flatRules) {
-    const byHost = new Map()
-    for (const r of flatRules) {
-      const host = r.host || ''
-      if (!byHost.has(host)) byHost.set(host, [])
-      byHost.get(host).push({
-        path: r.path || '/',
-        pathType: r.pathType || 'Prefix',
-        backend: { service: { name: r.serviceName || '', port: { number: Number(r.servicePort) || 80 } } },
-      })
-    }
-    const rules = Array.from(byHost.entries()).map(([host, paths]) => ({ host, http: { paths } }))
+  // 结构化编辑 Ingress 路由规则：入参 flatRules + defaultBackend，
+  // 用 buildIngressRulesPatch 构造 PATCH body（rules + defaultBackend 一次提交）；
+  // defaultBackend===null 时 merge-patch 删除该字段。本地合并 rules/defaultBackend/hosts。
+  async function updateIngressRules(name, ns, flatRules, defaultBackend = null) {
+    const patch = buildIngressRulesPatch(flatRules, defaultBackend)
+    const rules = patch.spec.rules
+    const db = patch.spec.defaultBackend
     if (remoteMode.value) {
       await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/merge-patch+json' },
-        body: JSON.stringify({ spec: { rules } }),
+        body: JSON.stringify(patch),
       })
     }
-    updateIngress(name, ns, { rules, hosts: rules.map(r => r.host).filter(Boolean).join(',') })
+    updateIngress(name, ns, { rules, defaultBackend: db, hosts: rules.map(r => r.host).filter(Boolean).join(',') })
   }
 
   async function deleteIngress(name, ns) {
@@ -1838,18 +1832,24 @@ export const useClusterStore = defineStore('cluster', () => {
       annotations: item.metadata?.annotations || {},
     }
   }
-  const mapIngress = item => ({
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    className: item.spec?.ingressClassName || '',
-    hosts: (item.spec?.rules || []).map(r => r.host).filter(Boolean).join(','),
-    rules: item.spec?.rules || [],
-    tls: Boolean(item.spec?.tls?.length),
-    tlsSecret: item.spec?.tls?.[0]?.secretName || '',
-    age: ageOf(item.metadata?.creationTimestamp),
-    labels: item.metadata?.labels || {},
-    annotations: item.metadata?.annotations || {},
-  })
+  const mapIngress = item => {
+    const spec = item.spec || {}
+    const dbs = spec.defaultBackend?.service
+    const defaultBackend = dbs ? { serviceName: dbs.name || '', servicePort: String(dbs.port?.number ?? dbs.port?.name ?? '') } : null
+    return {
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      className: spec.ingressClassName || '',
+      hosts: (spec.rules || []).map(r => r.host).filter(Boolean).join(','),
+      rules: spec.rules || [],
+      defaultBackend,
+      tls: Boolean(spec.tls?.length),
+      tlsSecret: spec.tls?.[0]?.secretName || '',
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
+    }
+  }
   // canonical peer → mock peer（NetworkPolicy ingress/egress 的对端）
   const peerFromSpec = p => {
     if (p.ipBlock) return { type: 'ipBlock', cidr: p.ipBlock.cidr }

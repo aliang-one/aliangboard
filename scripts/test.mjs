@@ -188,6 +188,39 @@ test('端口聚合 extractContainerPorts：多工作负载/多容器/多端口�
   assert.deepEqual(extractContainerPorts(undefined), [])
 })
 
+// --- Ingress 规则 PATCH body 构造：按 host 聚合 + defaultBackend 启用/删除语义 ---
+// 契约：stores/cluster.js 的 updateIngressRules 复用本纯函数；defaultBackend===null 时 merge-patch 删除字段。
+import { buildIngressRulesPatch } from '../src/composables/useIngressRules.js'
+test('Ingress 规则 PATCH 构造：按 host 聚合 + defaultBackend 启用/删除', () => {
+  const flat = [
+    { host: 'a.com', path: '/', pathType: 'Prefix', serviceName: 'web', servicePort: '80' },
+    { host: 'a.com', path: '/api', pathType: 'Prefix', serviceName: 'api', servicePort: '8080' },
+    { host: '', path: '/', pathType: 'Prefix', serviceName: 'default', servicePort: '80' },
+  ]
+  // 未启用 defaultBackend → null（删除语义）
+  const r = buildIngressRulesPatch(flat, null)
+  assert.equal(r.spec.rules.length, 2, 'a.com 与空 host 各一组')
+  const acom = r.spec.rules.find(x => x.host === 'a.com')
+  assert.equal(acom.http.paths.length, 2, 'a.com 下两条 path')
+  assert.equal(acom.http.paths[0].backend.service.name, 'web')
+  assert.equal(acom.http.paths[1].backend.service.port.number, 8080)
+  assert.equal(r.spec.defaultBackend, null, '未启用 → null')
+  // 启用 defaultBackend → 对象
+  const r2 = buildIngressRulesPatch(flat, { enabled: true, serviceName: 'fallback', servicePort: '80' })
+  assert.equal(r2.spec.defaultBackend.service.name, 'fallback')
+  assert.equal(r2.spec.defaultBackend.service.port.number, 80)
+  // enabled 但缺 serviceName → 视为删除（null）
+  const r3 = buildIngressRulesPatch(flat, { enabled: true, serviceName: '', servicePort: '' })
+  assert.equal(r3.spec.defaultBackend, null, 'enabled 但无 serviceName → null')
+  // 空入参
+  assert.deepEqual(buildIngressRulesPatch([], null), { spec: { rules: [], defaultBackend: null } })
+  // 默认值：空 path→'/'，空 pathType→'Prefix'，空 port→80
+  const r4 = buildIngressRulesPatch([{ host: 'x', path: '', pathType: '', serviceName: 's', servicePort: '' }], null)
+  assert.equal(r4.spec.rules[0].http.paths[0].path, '/')
+  assert.equal(r4.spec.rules[0].http.paths[0].pathType, 'Prefix')
+  assert.equal(r4.spec.rules[0].http.paths[0].backend.service.port.number, 80)
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
