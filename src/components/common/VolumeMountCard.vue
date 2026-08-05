@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 
 // 单个卷挂载卡片：类型图标胶囊 + 挂到容器 + 来源(下拉) + 键映射items(key 下拉) + 挂载到/subPath/只读。
-// configMap/secret 下 items(多key投影) 与 subPath(单文件挂载) 互斥，避免自相矛盾状态。
+// items 与 subPath 可共存（K8s 合法）：subPath 挂载 items 投影出的某个文件。
 // v-model 整个 entry；emit('remove') 由父删行。
 const props = defineProps({
   containers: { type: Array, default: () => [{ value: 'main', label: '主容器' }] },
@@ -26,10 +26,6 @@ const TYPES = [
 ]
 const typeIcon = computed(() => TYPES.find(t => t.value === entry.value.type)?.icon || 'folder')
 const showItems = computed(() => entry.value.type === 'configMap' || entry.value.type === 'secret')
-// items 与 subPath 互斥
-const hasItems = computed(() => (entry.value.items || []).some(it => it.key))
-const subPathDisabled = computed(() => showItems.value && hasItems.value) // 用了 items 投影 → subPath 不适用
-const itemsDisabled = computed(() => !!entry.value.subPath) // 用了 subPath 单文件 → items 不需要
 if (entry.value.server == null) entry.value.server = ''
 if (entry.value.nfsPath == null) entry.value.nfsPath = ''
 if (!Array.isArray(entry.value.items)) entry.value.items = []
@@ -98,11 +94,11 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       </div>
     </div>
 
-    <!-- 键映射 items（仅 configMap/secret；key 下拉选择）—— 置上；与 subPath 互斥 -->
+    <!-- 键映射 items（仅 configMap/secret；key 下拉选择）—— 置上 -->
     <div v-if="showItems" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-xs">
       <div class="flex items-center justify-between">
-        <span class="text-[10px] font-semibold text-on-surface-variant">键映射 items（可选：把指定 key 投影成文件名）<span v-if="itemsDisabled" class="font-normal text-on-surface-variant/50">— 已用 subPath 单文件挂载</span></span>
-        <button type="button" :disabled="itemsDisabled" @click="entry.items.push({ key: '', path: '' })" :class="['flex items-center gap-0.5 text-xs font-medium rounded px-xs py-0.5 transition-colors', itemsDisabled ? 'text-on-surface-variant/40 cursor-not-allowed' : 'text-primary hover:bg-primary-container/10']"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+        <span class="text-[10px] font-semibold text-on-surface-variant">键映射 items（可选：把指定 key 投影成文件名）</span>
+        <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
       </div>
       <div v-for="(it, idx) in entry.items" :key="idx" class="grid grid-cols-[1fr_auto_1fr_auto] gap-xs items-center">
         <select v-model="it.key" @change="onItemKey(it)" :class="fld">
@@ -116,15 +112,15 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <p v-if="(entry.cmName || entry.secretName) && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">该资源暂无可列 key（可能未加载）；items 留空则整挂（全部 key 作文件）。</p>
     </div>
 
-    <!-- 挂载到 / subPath / 只读 —— 置下；subPath 与 items 互斥 -->
+    <!-- 挂载到 / subPath / 只读 —— 置下 -->
     <div class="grid grid-cols-[1fr_1fr_auto] gap-xs items-end">
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">挂载到</label>
         <input v-model="entry.mountPath" :class="fld" placeholder="/etc/config" />
       </div>
       <div>
-        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">subPath <span v-if="subPathDisabled" class="font-normal text-on-surface-variant/50">— 已用 items 投影</span></label>
-        <input v-model="entry.subPath" :disabled="subPathDisabled" :placeholder="subPathDisabled ? '不适用' : '(可选) 单文件'" :class="[fld, subPathDisabled && 'opacity-50 cursor-not-allowed']" />
+        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">subPath</label>
+        <input v-model="entry.subPath" :class="fld" placeholder="(可选) 单文件挂载" />
       </div>
       <label class="flex items-center gap-0.5 text-xs text-on-surface-variant pb-1.5 whitespace-nowrap">
         <input type="checkbox" v-model="entry.readOnly" class="h-3.5 w-3.5 accent-primary" /> 只读
