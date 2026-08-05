@@ -7,6 +7,7 @@ import { yamlScalar } from '@/composables/useYaml'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
+import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -653,9 +654,23 @@ export const useClusterStore = defineStore('cluster', () => {
     if (remoteMode.value) return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => refetch('/api/v1/persistentvolumes', pvList, mapPV))
     pvList.value.push({ status: 'Available', age: 'Just now', ...pv })
   }
-  function updatePV(name, updates) {
+  async function updatePV(name, updates) {
     const idx = pvList.value.findIndex(p => p.name === name)
-    if (idx !== -1) pvList.value[idx] = { ...pvList.value[idx], ...updates }
+    if (idx === -1) return
+    const before = JSON.parse(JSON.stringify(pvList.value[idx]))
+    const patch = buildPVPatch(before, updates)
+    if (!patch) return
+    if (remoteMode.value) {
+      await api.k8s(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch),
+      })
+    }
+    pvList.value[idx] = {
+      ...before,
+      ...(updates.reclaimPolicy ? { reclaimPolicy: updates.reclaimPolicy } : {}),
+      ...(updates.labels ? { labels: updates.labels } : {}),
+      ...(updates.annotations ? { annotations: updates.annotations } : {}),
+    }
   }
   async function deletePV(name) {
     if (remoteMode.value) {
@@ -674,9 +689,29 @@ export const useClusterStore = defineStore('cluster', () => {
     if (remoteMode.value) return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => refetch('/apis/storage.k8s.io/v1/storageclasses', scList, mapStorageClass))
     scList.value.push({ age: 'Just now', ...sc })
   }
-  function updateStorageClass(name, updates) {
+  async function updateStorageClass(name, updates) {
     const idx = scList.value.findIndex(s => s.name === name)
-    if (idx !== -1) scList.value[idx] = { ...scList.value[idx], ...updates }
+    if (idx === -1) return
+    const before = JSON.parse(JSON.stringify(scList.value[idx]))
+    const patch = buildStorageClassPatch(before, updates)
+    if (!patch) return
+    if (remoteMode.value) {
+      await api.k8s(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch),
+      })
+    }
+    const DEFAULT_KEY = 'storageclass.kubernetes.io/is-default-class'
+    const newAnns = { ...(updates.annotations || before.annotations || {}) }
+    if (updates.isDefault != null) {
+      if (updates.isDefault) newAnns[DEFAULT_KEY] = 'true'
+      else delete newAnns[DEFAULT_KEY]
+    }
+    scList.value[idx] = {
+      ...before,
+      default: updates.isDefault != null ? !!updates.isDefault : before.default,
+      ...(updates.labels ? { labels: updates.labels } : {}),
+      annotations: newAnns,
+    }
   }
   async function deleteStorageClass(name) {
     if (remoteMode.value) {
@@ -1741,6 +1776,8 @@ export const useClusterStore = defineStore('cluster', () => {
       status: item.status?.phase || 'Available',
       claim: claim ? `${claim.namespace || 'default'}/${claim.name}` : '',
       storageClass: item.spec?.storageClassName || '',
+      labels: item.metadata?.labels || {},
+      annotations: item.metadata?.annotations || {},
       age: ageOf(item.metadata?.creationTimestamp),
     }
   }
@@ -1754,6 +1791,8 @@ export const useClusterStore = defineStore('cluster', () => {
       parameters: Object.entries(item.parameters || {}).map(([k, v]) => `${k}=${v}`).join(','),
       reclaimPolicy: item.reclaimPolicy || 'Delete',
       default: isDefault,
+      labels: item.metadata?.labels || {},
+      annotations: ann,
       age: ageOf(item.metadata?.creationTimestamp),
     }
   }
