@@ -29,7 +29,11 @@ function place() {
   const el = inputEl.value
   if (!el) return
   const r = el.getBoundingClientRect()
-  panelStyle.value = { position: 'fixed', zIndex: 9999, left: r.left + 'px', top: (r.bottom + 4) + 'px', width: r.width + 'px' }
+  const ph = panelEl.value ? panelEl.value.offsetHeight : 240
+  let top = r.bottom + 4
+  // 下方放不下（输入框在视口底部）则翻到上方
+  if (top + ph > window.innerHeight && r.top - ph - 4 > 8) top = r.top - ph - 4
+  panelStyle.value = { position: 'fixed', zIndex: 9999, left: r.left + 'px', top: top + 'px', width: r.width + 'px' }
 }
 function show() { open.value = true; nextTick(place) }
 function hide() { open.value = false }
