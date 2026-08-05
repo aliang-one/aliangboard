@@ -47,11 +47,23 @@ const forwardPorts = computed(() => portRows.value.map(p => Number(p.port)).filt
 
 // === Endpoints：优先用真实 Endpoints 对象（ready / notReady），无则回退 selector 命中的 Pod ===
 const ep = computed(() => store.getEndpointsByName(route.params.name, route.params.namespace))
+const epTargets = computed(() => ep.value?.targets || {})
 const podByIp = computed(() => {
   const m = {}
   for (const p of store.nsPods) if (p.ip) m[p.ip] = p
   return m
 })
+const podByName = computed(() => {
+  const m = {}
+  for (const p of store.nsPods) if (p.name) m[p.name] = p
+  return m
+})
+// 解析端点对应的 backing pod：优先 targetRef 的 pod 名（K8s 权威关联），回退 IP 匹配
+function resolvePod(ip) {
+  const t = epTargets.value[ip]
+  if (t?.podName && podByName.value[t.podName]) return podByName.value[t.podName]
+  return podByIp.value[ip] || null
+}
 const readyAddrs = computed(() => ep.value?.addresses || [])
 const notReadyAddrs = computed(() => ep.value?.notReadyAddresses || [])
 const epPorts = computed(() => ep.value?.ports || [])
@@ -71,8 +83,8 @@ const backendPods = computed(() => {
   if (isExternalName.value) return []
   if (hasEndpoints.value) {
     const rows = []
-    for (const ip of readyAddrs.value) rows.push({ ip, ready: true, pod: podByIp.value[ip] || null })
-    for (const ip of notReadyAddrs.value) rows.push({ ip, ready: false, pod: podByIp.value[ip] || null })
+    for (const ip of readyAddrs.value) rows.push({ ip, ready: true, pod: resolvePod(ip) })
+    for (const ip of notReadyAddrs.value) rows.push({ ip, ready: false, pod: resolvePod(ip) })
     return rows
   }
   return selectorPods.value.map(pod => ({ ip: pod.ip, ready: pod.status === 'Running', pod }))

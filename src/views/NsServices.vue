@@ -183,9 +183,14 @@ function handleDelete() {
         <h2 class="text-headline-md font-bold text-on-surface">Services</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New Service
-      </button>
+      <div class="flex items-center gap-sm">
+        <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" title="Endpoints（Service 的后端端点）">
+          <span class="material-symbols-outlined text-base">cable</span> Endpoints
+        </button>
+        <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined">add</span> New Service
+        </button>
+      </div>
     </div>
 
     <!-- Type Summary -->
