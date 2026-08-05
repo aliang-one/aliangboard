@@ -78,17 +78,20 @@ const totalCount = computed(() => hasEndpoints.value ? (readyAddrs.value.length 
 const endpointsHealthy = computed(() => readyCount.value > 0)
 const isExternalName = computed(() => svc.value?.type === 'ExternalName')
 
-// 该 Service 绑定的工作负载：pod template labels 完全匹配 selector 的第一个工作负载。
-// 用于 PortSelect 的 priorityGroup——选 targetPort 时优先展示该 Deployment 暴露的端口。
-const boundWorkload = computed(() => {
+// 该 Service 绑定的【全部】工作负载：pod template labels 完全匹配 selector 的工作负载集合。
+// Service 的 selector 是 label 查询，可同时匹配多个 workload——这里取全部，供展示与端口选择优先。
+const boundWorkloads = computed(() => {
   const sel = svc.value?.selector
-  if (!sel || !Object.keys(sel).length) return ''
-  const wl = store.nsWorkloads.find(w => {
+  if (!sel || !Object.keys(sel).length) return []
+  return store.nsWorkloads.filter(w => {
     const tpl = w.raw?.spec?.template?.metadata?.labels || {}
     return Object.entries(sel).every(([k, v]) => tpl[k] === v)
   })
-  return wl?.name || ''
 })
+// 全部绑定工作负载名（PortSelect 高亮所有绑定项）
+const boundWorkloadNames = computed(() => boundWorkloads.value.map(w => w.name))
+// 首个绑定工作负载（PortSelect 自动选中/置顶——多绑定时取第一个作为默认）
+const boundWorkload = computed(() => boundWorkloads.value[0]?.name || '')
 
 // === 后端 Pod 统一列表：真实 Endpoints 时按地址取 backing pod，否则回退 selector 命中 ===
 const backendPods = computed(() => {
@@ -503,6 +506,20 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
             </template>
             <p v-else class="text-xs text-on-surface-variant italic">No selector（ExternalName / headless 手动 Endpoints）</p>
           </div>
+          <!-- 匹配的工作负载（selector 可同时命中多个 workload）-->
+          <div v-if="boundWorkloads.length" class="px-sm pb-sm pt-xs border-t border-outline-variant/30">
+            <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wide mb-xs flex items-center gap-0.5">
+              <span class="material-symbols-outlined text-xs">link</span>匹配工作负载 · {{ boundWorkloads.length }}
+            </p>
+            <div class="flex flex-wrap gap-xs">
+              <button v-for="w in boundWorkloads" :key="w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (w.type || 'Deployment').toLowerCase(), name: w.name } })" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-xs border border-secondary/25 hover:bg-secondary/20 transition-colors" :title="`查看 ${w.name} 详情`">
+                <span class="material-symbols-outlined text-sm">work</span>{{ w.name }}<span class="opacity-60">{{ w.type?.replace(/Set$/,'') || 'Deployment' }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-else-if="svc.selector && Object.keys(svc.selector).length" class="px-sm pb-sm pt-xs border-t border-outline-variant/30">
+            <p class="text-[10px] text-on-surface-variant/50">未匹配到工作负载（Pod 可能由其它方式创建，或 selector 写错）</p>
+          </div>
         </div>
 
         <!-- Traffic Policy（只读）-->
@@ -628,7 +645,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div v-for="(p, idx) in editForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" placeholder="target" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" placeholder="target" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
@@ -744,7 +761,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label>
-        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" placeholder="留空则同 Port" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         <p class="text-[10px] text-on-surface-variant/60 mt-xs">转发到后端 Pod 的端口</p>
       </div>
       <div>

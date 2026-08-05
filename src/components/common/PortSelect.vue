@@ -14,6 +14,8 @@ const props = defineProps({
   groups: { type: Array, default: () => [] },
   // 优先工作负载名：置顶 + 默认选中其端口
   priorityGroup: { type: String, default: '' },
+  // 全部绑定工作负载名（多 workload Service）：在左侧列表中标记为已绑定（push_pin 图标）
+  priorityGroups: { type: Array, default: () => [] },
   placeholder: { type: String, default: '' },
   inputClass: { type: String, default: '' },
   emptyHint: { type: String, default: '无可选端口，可直接输入' },
@@ -44,17 +46,19 @@ const filtered = computed(() => {
 })
 
 // === 分组模式 ===
-// 左侧 workload 顺序：priorityGroup 置顶，其余按端口数降序
+// 绑定集合（priorityGroups 全部 + priorityGroup 首个）：在左侧标记 push_pin 并置顶
+const prioSet = computed(() => {
+  const s = new Set(props.priorityGroups || [])
+  if (props.priorityGroup) s.add(props.priorityGroup)
+  return s
+})
+const isPrio = name => prioSet.value.has(name)
+// 左侧 workload 顺序：所有绑定项置顶（priorityGroup 再首位），其余按端口数降序
 const groupOrder = computed(() => {
-  const gs = [...(props.groups || [])]
-  if (props.priorityGroup) {
-    const i = gs.findIndex(g => g.name === props.priorityGroup)
-    if (i > 0) { const [hit] = gs.splice(i, 1); gs.unshift(hit) }
-    else if (i === -1) {
-      // priority 指定但不在 groups 里（如未加载）——不强行造
-    }
-  }
-  return gs.sort((a, b) => {
+  const prio = prioSet.value
+  return [...(props.groups || [])].sort((a, b) => {
+    const ap = prio.has(a.name), bp = prio.has(b.name)
+    if (ap !== bp) return ap ? -1 : 1
     if (a.name === props.priorityGroup) return -1
     if (b.name === props.priorityGroup) return 1
     return b.ports.length - a.ports.length
@@ -157,7 +161,7 @@ function onBlur() {
           :class="selectedGroup === g.name ? 'bg-primary-container/20 text-primary font-semibold' : 'text-on-surface hover:bg-surface-container-low'"
         >
           <span class="flex items-center gap-xs min-w-0">
-            <span class="material-symbols-outlined text-base shrink-0" :class="g.name === priorityGroup ? 'text-primary' : 'text-on-surface-variant'">{{ g.name === priorityGroup ? 'push_pin' : 'work' }}</span>
+            <span class="material-symbols-outlined text-base shrink-0" :class="isPrio(g.name) ? 'text-primary' : 'text-on-surface-variant'">{{ isPrio(g.name) ? 'push_pin' : 'work' }}</span>
             <span class="truncate" :title="g.name">{{ g.name }}</span>
           </span>
           <span class="text-[10px] text-on-surface-variant shrink-0">{{ g.ports.length }}</span>
