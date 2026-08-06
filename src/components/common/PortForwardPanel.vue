@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -45,9 +48,9 @@ async function doForward() {
     })
     selPort.value = ''
     localPort.value = ''
-    notify(`已转发 ${props.kind}/${props.name} :${port}`, 'success')
+    notify(t('component.portForward.forwardSuccess', { resource: `${props.kind}/${props.name}`, port }), 'success')
   } catch (e) {
-    notify(e?.message || '端口转发建立失败', 'error')
+    notify(e?.message || t('component.portForward.forwardFailed'), 'error')
   } finally {
     forwarding.value = false
   }
@@ -63,36 +66,33 @@ async function stopForward(id) {
 </script>
 
 <template>
-  <Modal v-model="open" :title="`端口转发 / Port Forward`" width="max-w-2xl">
+  <Modal v-model="open" :title="t('component.portForward.title')" width="max-w-2xl">
     <p class="text-body-sm text-on-surface-variant mb-md">
-      等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl port-forward</code>：将
-      <span class="font-mono text-primary">{{ kind }}/{{ name }}</span>
-      <span v-if="namespace" class="text-on-surface-variant"> ({{ namespace }})</span>
-      的端口映射到网关本机端口（Service/Deployment 会自动经 endpoints 解析到后端 Pod）。
-      <span v-if="store.remoteMode" class="text-tertiary-container">默认监听 127.0.0.1（网关须运行在本机，否则浏览器无法直达）。</span>
+      {{ t('component.portForward.description', { resource: `${kind}/${name}${namespace ? ' (' + namespace + ')' : ''}` }) }}
+      <span v-if="store.remoteMode" class="text-tertiary-container">{{ t('component.portForward.remoteHint') }}</span>
     </p>
 
     <!-- 新建转发 -->
     <div class="flex flex-wrap items-end gap-md p-md bg-surface-container-low rounded-lg mb-lg">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">目标端口</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.portForward.targetPort') }}</label>
         <input v-model="selPort" list="pf-port-suggest" type="number" class="w-28 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="8080" />
         <datalist id="pf-port-suggest">
           <option v-for="p in suggestedPortOptions()" :key="p" :value="p" />
         </datalist>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">本地端口（可选）</label>
-        <input v-model="localPort" type="number" class="w-32 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="自动分配" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.portForward.localPort') }}</label>
+        <input v-model="localPort" type="number" class="w-32 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('component.portForward.localPortPlaceholder')" />
       </div>
       <button @click="doForward" :disabled="!name || forwarding" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40">
-        <span class="material-symbols-outlined text-sm">{{ forwarding ? 'progress_activity' : 'bolt' }}</span> Forward
+        <span class="material-symbols-outlined text-sm">{{ forwarding ? 'progress_activity' : 'bolt' }}</span> {{ t('component.portForward.forward') }}
       </button>
     </div>
 
     <!-- 已转发列表 -->
     <div class="rounded-lg border border-outline-variant overflow-hidden">
-      <div class="px-md py-sm bg-surface-container-low border-b border-outline-variant text-label-caps text-on-surface-variant">活动转发 ({{ store.portForwards.length }})</div>
+      <div class="px-md py-sm bg-surface-container-low border-b border-outline-variant text-label-caps text-on-surface-variant">{{ t('component.portForward.activeForwards', { n: store.portForwards.length }) }}</div>
       <div v-if="store.portForwards.length" class="divide-y divide-outline-variant/30">
         <div v-for="pf in store.portForwards" :key="pf.id" class="flex items-center gap-md px-md py-sm">
           <span class="material-symbols-outlined text-primary text-lg">forward_media</span>
@@ -107,22 +107,22 @@ async function stopForward(id) {
             </p>
           </div>
           <span class="px-2 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full">{{ pf.status }}</span>
-          <button @click="openInBrowser(pf)" title="在浏览器打开" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+          <button @click="openInBrowser(pf)" :title="t('component.portForward.openInBrowser')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-lg">open_in_new</span>
           </button>
-          <button @click="stopForward(pf.id)" title="停止转发" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
+          <button @click="stopForward(pf.id)" :title="t('component.portForward.stopForward')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
             <span class="material-symbols-outlined text-lg">stop_circle</span>
           </button>
         </div>
       </div>
       <div v-else class="px-md py-xl text-center text-on-surface-variant">
         <span class="material-symbols-outlined text-3xl">cable</span>
-        <p class="mt-sm text-body-sm">暂无活动转发</p>
+        <p class="mt-sm text-body-sm">{{ t('component.portForward.noForwards') }}</p>
       </div>
     </div>
 
     <template #actions>
-      <button @click="open = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">关闭</button>
+      <button @click="open = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('component.portForward.close') }}</button>
     </template>
   </Modal>
 </template>
