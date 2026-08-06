@@ -172,3 +172,29 @@ test('resolveApiKey: 有效→row;错误/空→null', () => {
   assert.equal(resolveApiKey(db, { headers: { authorization: 'Bearer wrong' } }), null)
   assert.equal(resolveApiKey(db, { headers: {} }), null)
 })
+
+// --- exec_pod(DANGEROUS,admin 档;第一个接通的 stub,做后续 stub 的模板)---
+test('exec_pod(deny): read 档 → policy 拒(exec_pod 是 admin 档)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' }) // tier 默认 read
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: async () => { throw new Error('execFn 不应被调') } })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'ls' }),
+    (e) => e.code === 'PERMISSION_DENIED',
+  )
+})
+
+test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx,...) 被调,返 stdout + 审计 ok', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let called = null
+  const execFn = async (saCtx, ns, pod, container, command) => { called = { ns, pod, container, command, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0 } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', container: 'c1', command: 'ls -la' })
+  assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.equal(called.command, 'ls -la')
+  assert.ok(called.authHeader?.startsWith('Bearer '), 'execFn 拿到 SA-token ctx')
+  assert.equal(out.stdout, 'total 0\n')
+  assert.equal(out.exitCode, 0)
+  const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[rows.length - 1].result, 'ok')
+})

@@ -56,7 +56,7 @@ const WORKLOADS = ['deployments', 'statefulsets', 'daemonsets']
 function slimPod(p) { return { name: p.metadata?.name, phase: p.status?.phase, ready: (p.status?.containerStatuses || []).map(c => ({ name: c.name, ready: c.ready })) } }
 function slimWorkload(d) { return { name: d.metadata?.name, ready: d.status?.readyReplicas || 0, desired: d.spec?.replicas || 0, updated: d.status?.updatedReplicas || 0 } }
 
-export function createApiKeyTools({ db, requestFn }) {
+export function createApiKeyTools({ db, requestFn, execFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
   async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, fn }) {
@@ -150,6 +150,16 @@ export function createApiKeyTools({ db, requestFn }) {
           const restartedAt = new Date().toISOString()
           await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/${kind}/${enc(a.name)}`, { method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': restartedAt } } } } }) })
           return { kind, name: a.name, restartedAt }
+        } })
+    },
+    exec_pod: async (keyRow, cluster, a) => {
+      const command = Array.isArray(a.command) ? a.command.join(' ') : String(a.command || '')
+      return runBoundedTool({ keyRow, cluster, tool: 'exec_pod', namespace: a.namespace, verb: 'exec', resource: `Pod/${a.pod}`, summary: `pod=${a.pod} c=${a.container || ''} cmd=${command.slice(0, 80)}`,
+        fn: async (saCtx) => {
+          if (!execFn) throw new Error('exec_pod 未启用(网关未注入 execFn)')
+          if (!command) throw new Error('exec_pod 缺 command')
+          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', command)
+          return { pod: a.pod, container: a.container || '', exitCode: r.status ?? null, stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192) }
         } })
     },
   }
