@@ -79,17 +79,17 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'Storage' }
+      { label: t('ns.storage.title') }
     ]" />
 
     <!-- Tabs -->
     <div class="flex items-center gap-xs border-b border-outline-variant mb-md mt-sm">
       <button @click="activeTab = 'pvc'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'pvc' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-        PVCs ({{ store.nsPVCs.length }})
+        {{ t('ns.storage.pvcTab') }} ({{ store.nsPVCs.length }})
         <span v-if="activeTab === 'pvc'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
       <button @click="activeTab = 'storageclass'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'storageclass' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-        StorageClasses ({{ store.scList.length }})
+        {{ t('ns.storage.storageClassTab') }} ({{ store.scList.length }})
         <span v-if="activeTab === 'storageclass'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
     </div>
@@ -98,11 +98,11 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'pvc'">
       <div class="flex justify-between items-end mb-md">
         <div>
-          <h2 class="text-headline-md font-bold text-on-surface">Persistent Volume Claims</h2>
-          <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPVCs.length }} PVCs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+          <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.storage.pvcTab') }}</h2>
+          <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.pvcCount', { n: store.nsPVCs.length }) }} <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
         </div>
         <button @click="showCreatePVC = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> New PVC
+          <span class="material-symbols-outlined">add</span> {{ t('ns.storage.newPVC') }}
         </button>
       </div>
 
@@ -110,12 +110,12 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
       <div class="grid grid-cols-2 gap-sm mb-md">
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
           <span class="w-2.5 h-2.5 rounded-full bg-primary"></span>
-          <span class="text-body-sm text-on-surface-variant">Bound</span>
+          <span class="text-body-sm text-on-surface-variant">{{ t('ns.storage.bound') }}</span>
           <span class="text-body-md font-bold text-primary ml-auto">{{ boundCount }}</span>
         </div>
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
           <span class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
-          <span class="text-body-sm text-on-surface-variant">Pending</span>
+          <span class="text-body-sm text-on-surface-variant">{{ t('ns.storage.pending') }}</span>
           <span class="text-body-md font-bold text-tertiary-container ml-auto">{{ pendingCount }}</span>
         </div>
       </div>
@@ -124,7 +124,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
       <div class="flex items-center gap-md mb-md">
         <div class="relative flex-1 max-w-md">
           <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-          <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或 StorageClass 搜索..." />
+          <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.storage.searchPlaceholder')" />
           <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
         </div>
         <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ store.nsPVCs.length }}</span>
@@ -168,7 +168,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             <tr v-if="!filteredPVCs.length">
               <td :colspan="8" class="px-md py-md text-center">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-                <p class="text-body-sm text-on-surface-variant">暂无数据</p>
+                <p class="text-body-sm text-on-surface-variant">{{ t('ns.storage.noData') }}</p>
               </td>
             </tr>
           </tbody>
@@ -179,8 +179,8 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
       </div>
       <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
         <span class="material-symbols-outlined text-2xl text-surface-container-high">storage</span>
-        <p class="text-body-sm text-on-surface-variant mt-xs">No PVCs in this namespace</p>
-        <button @click="showCreatePVC = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">Create PVC</button>
+        <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('ns.storage.noPVCsInNs') }}</p>
+        <button @click="showCreatePVC = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">{{ t('ns.storage.createPVC') }}</button>
       </div>
     </div>
 
@@ -188,8 +188,8 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'storageclass'">
       <div class="flex justify-between items-end mb-md">
         <div>
-          <h2 class="text-headline-md font-bold text-on-surface">StorageClasses</h2>
-          <p class="text-body-sm text-on-surface-variant mt-1">Cluster-wide storage class definitions</p>
+          <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.storage.storageClassTab') }}</h2>
+          <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.clusterWide') }}</p>
         </div>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
@@ -226,7 +226,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             <tr v-if="!store.scList.length">
               <td :colspan="6" class="px-md py-md text-center">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-                <p class="text-body-sm text-on-surface-variant">暂无数据</p>
+                <p class="text-body-sm text-on-surface-variant">{{ t('ns.storage.noData') }}</p>
               </td>
             </tr>
           </tbody>
@@ -236,19 +236,19 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
   </section>
 
   <!-- Create PVC Modal -->
-  <Modal v-model="showCreatePVC" title="Create PVC" width="max-w-lg">
+  <Modal v-model="showCreatePVC" :title="t('ns.storage.createPVC')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">PVC Name *</label>
-        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-pvc" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.pvcName') }} *</label>
+        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('ns.storage.pvcName')" />
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity *</label>
-          <input v-model="createForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="10Gi" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.capacity') }} *</label>
+          <input v-model="createForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('ns.storage.capacity')" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.accessMode') }}</label>
           <select v-model="createForm.accessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option value="RWO">ReadWriteOnce</option>
             <option value="RWM">ReadWriteMany</option>
@@ -257,26 +257,26 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.storageClass') }}</label>
         <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="">Default</option>
+          <option value="">{{ t('ns.storage.defaultOption') }}</option>
           <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
         </select>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreatePVC" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreatePVC" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete PVC Modal -->
-  <Modal v-model="showDeleteModal" title="Delete PVC" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete PVC <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This may cause data loss. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.storage.deletePVC')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.storage.deletePVCConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.storage.deletePVCWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

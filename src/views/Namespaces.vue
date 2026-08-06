@@ -173,24 +173,24 @@ function submitDelete() {
     </DataTable>
 
     <!-- 创建 Namespace Modal -->
-    <Modal v-model="showCreate" title="Create Namespace" width="max-w-lg">
+    <Modal v-model="showCreate" :title="t('ns.namespaces.createTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div class="flex flex-col gap-sm">
-          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">Name <span class="text-error">*</span></label>
+          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">{{ t('ns.namespaces.nameLabel') }} <span class="text-error">*</span></label>
           <input
             v-model="createName"
             type="text"
-            placeholder="my-namespace"
+            :placeholder="t('ns.namespaces.namePlaceholder')"
             class="px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg text-body-md text-on-surface focus:outline-none focus:border-primary"
             @keyup.enter="submitCreate"
           />
         </div>
         <div class="flex flex-col gap-sm">
-          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">Labels <span class="text-on-surface-variant/60 normal-case tracking-normal">(可选，每行 key:value)</span></label>
+          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">{{ t('ns.namespaces.labelsLabel') }} <span class="text-on-surface-variant/60 normal-case tracking-normal">{{ t('ns.namespaces.labelsHint') }}</span></label>
           <textarea
             v-model="createLabelsText"
             rows="4"
-            placeholder="env: prod&#10;team: backend"
+            :placeholder="t('ns.namespaces.labelsPlaceholder')"
             class="px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg text-body-md text-on-surface font-mono focus:outline-none focus:border-primary resize-y"
           ></textarea>
         </div>
@@ -204,20 +204,20 @@ function submitDelete() {
           class="px-md py-sm border border-outline-variant rounded-lg text-body-md text-on-surface hover:bg-surface-container-high transition-colors"
           @click="showCreate = false"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
         <button
           class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
           :disabled="!canCreate"
           @click="submitCreate"
         >
-          Create
+          {{ t('common.create') }}
         </button>
       </template>
     </Modal>
 
     <!-- 删除确认 Modal -->
-    <Modal v-model="showDelete" title="Delete Namespace" width="max-w-md">
+    <Modal v-model="showDelete" :title="t('ns.namespaces.deleteTitle')" width="max-w-md">
       <div v-if="deleteTarget" class="flex flex-col gap-md">
         <div class="flex items-start gap-md">
           <div class="w-10 h-10 rounded-full bg-error-container/30 flex items-center justify-center shrink-0">
@@ -225,12 +225,10 @@ function submitDelete() {
           </div>
           <div class="flex flex-col gap-xs">
             <p class="text-body-md text-on-surface">
-              确定要删除 Namespace
-              <span class="font-bold font-mono">{{ deleteTarget.name }}</span>
-              吗？
+              {{ t('ns.namespaces.deleteConfirm') }} <span class="font-bold font-mono">{{ deleteTarget.name }}</span>{{ t('ns.namespaces.deleteSuffix') }}
             </p>
             <p class="text-body-sm text-on-surface-variant">
-              此操作将永久删除该命名空间及其下的所有资源（Pods、Services、Deployments 等），不可恢复。
+              {{ t('ns.namespaces.deleteWarning') }}
             </p>
           </div>
         </div>
@@ -238,7 +236,7 @@ function submitDelete() {
         <div v-if="deleteTargetProtected" class="flex items-start gap-sm p-md bg-error-container/20 border border-error/40 rounded-lg">
           <span class="material-symbols-outlined text-error text-lg shrink-0">block</span>
           <p class="text-body-sm text-error">
-            <span class="font-bold">{{ deleteTarget.name }}</span> 是系统命名空间，禁止删除。
+            <span class="font-bold">{{ deleteTarget.name }}</span> {{ t('ns.namespaces.isSystemNamespace') }}
           </p>
         </div>
       </div>
@@ -247,14 +245,14 @@ function submitDelete() {
           class="px-md py-sm border border-outline-variant rounded-lg text-body-md text-on-surface hover:bg-surface-container-high transition-colors"
           @click="showDelete = false"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
         <button
           v-if="!deleteTargetProtected"
           class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold transition-opacity hover:opacity-90"
           @click="submitDelete"
         >
-          Delete
+          {{ t('common.delete') }}
         </button>
       </template>
     </Modal>
