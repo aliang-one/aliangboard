@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
-import StatusChip from '@/components/common/StatusChip.vue'
+import ClusterCard from '@/components/common/ClusterCard.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
@@ -40,24 +40,6 @@ const filtered = computed(() => {
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
-
-// 集群状态：StatusChip 没有原生支持 Healthy/Degraded，映射到现有值
-function mapStatus(status) {
-  if (status === 'Healthy') return 'Ready'
-  if (status === 'Degraded') return 'Failed'
-  return status || 'Unknown'
-}
-
-async function switchTo(apiServer) {
-  await store.switchCluster(apiServer)
-  notify('success', `已切换到 ${store.currentCluster}`)
-}
-
-async function openCluster(c) {
-  // 先切到目标集群再进入概览
-  if (c.apiServer !== store.cluster?.apiServer) await store.switchCluster(c.apiServer)
-  router.push('/cluster')
-}
 
 function addCluster() {
   router.push('/login')
@@ -114,91 +96,13 @@ function removeCluster(c) {
 
     <!-- 卡片网格 -->
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-md">
-      <div
+      <ClusterCard
         v-for="c in paginated"
         :key="c.name"
-        class="rounded-xl overflow-hidden bg-surface-container-lowest border p-md flex flex-col gap-sm cursor-pointer hover:border-primary/40 transition-all"
-        :class="c.name === store.currentCluster ? 'border-primary/60' : 'border-outline-variant'"
-        @click="openCluster(c)"
-      >
-        <!-- 头部：名称 + 状态 -->
-        <div class="flex items-start justify-between gap-sm">
-          <div class="flex items-center gap-sm min-w-0">
-            <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
-              <span class="material-symbols-outlined text-base">hub</span>
-            </div>
-            <div class="min-w-0">
-              <h3 class="text-body-sm text-on-surface font-bold truncate">{{ c.name }}</h3>
-              <p class="text-xs text-on-surface-variant truncate">{{ c.version }}</p>
-            </div>
-          </div>
-          <StatusChip :status="mapStatus(c.status)" size="sm" />
-        </div>
-
-        <!-- 徽章区 -->
-        <div class="flex flex-wrap items-center gap-xs">
-          <span
-            v-if="c.name === store.currentCluster"
-            class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-primary text-on-primary text-xs font-bold"
-          >
-            <span class="material-symbols-outlined text-xs">check_circle</span>
-            CURRENT
-          </span>
-          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-xs font-medium">
-            <span class="material-symbols-outlined text-xs">dns</span>
-            {{ c.distribution || 'unknown' }}
-          </span>
-          <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-surface-container text-on-surface-variant text-xs font-medium">
-            <span class="material-symbols-outlined text-xs">account_tree</span>
-            {{ c.context || '—' }}
-          </span>
-        </div>
-
-        <!-- 指标 -->
-        <div class="grid grid-cols-2 gap-sm">
-          <div class="bg-surface-container-low rounded-lg px-sm py-xs">
-            <p class="text-xs text-on-surface-variant">NODES</p>
-            <p class="text-body-sm text-on-surface font-bold mt-0.5">{{ c.nodeCount ?? 0 }}</p>
-          </div>
-          <div class="bg-surface-container-low rounded-lg px-sm py-xs">
-            <p class="text-xs text-on-surface-variant">PODS</p>
-            <p class="text-body-sm text-on-surface font-bold mt-0.5">{{ c.podCount ?? 0 }}</p>
-          </div>
-        </div>
-
-        <!-- API Server -->
-        <div class="flex items-center gap-sm bg-surface-container-low rounded-lg px-sm py-xs">
-          <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0">link</span>
-          <span class="text-xs text-on-surface-variant truncate font-mono">{{ c.apiServer }}</span>
-        </div>
-
-        <!-- 操作区 -->
-        <div class="flex items-center justify-end gap-sm mt-auto pt-xs" @click.stop>
-          <button
-            v-if="c.name !== store.currentCluster"
-            @click="switchTo(c.apiServer)"
-            class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 active:scale-95 transition-all"
-          >
-            <span class="material-symbols-outlined text-sm">swap_horiz</span>
-            切换到此集群
-          </button>
-          <span
-            v-else
-            class="inline-flex items-center gap-xs px-3 py-1.5 text-primary font-semibold text-body-sm"
-          >
-            <span class="material-symbols-outlined text-sm">check_circle</span>
-            当前活动集群
-          </span>
-          <button
-            v-if="c.name !== store.currentCluster"
-            @click="removeCluster(c)"
-            title="移除已保存集群"
-            class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors"
-          >
-            <span class="material-symbols-outlined text-base">delete</span>
-          </button>
-        </div>
-      </div>
+        :cluster="c"
+        :active="c.name === store.currentCluster"
+        @remove="removeCluster(c)"
+      />
     </div>
 
     <div v-if="total > pageSize" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant flex items-center justify-between px-md py-2 bg-surface-container-low">
