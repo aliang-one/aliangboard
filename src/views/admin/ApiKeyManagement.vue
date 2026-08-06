@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import ToolOverrideEditor from '@/components/common/ToolOverrideEditor.vue'
 
 const auth = useAuthStore()
 const apikeys = ref([])
@@ -16,12 +17,42 @@ const showMintModal = ref(false)
 const mintForm = ref({ owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' })
 const newKey = ref(null) // 签发成功后展示明文(仅此次)
 
+const mintOverrides = ref({ allow: [], deny: [] })        // mint 用
+const editOverrides = ref({ allow: [], deny: [] })        // edit 用
+const showOverrideModal = ref(false)
+const editingKey = ref(null)
+
+// 列表展示:把 DB 的 tool_overrides 串解析成摘要
+const overrideSummary = k => {
+  if (!k.tool_overrides) return ''
+  let ov; try { ov = JSON.parse(k.tool_overrides) } catch { return '(损坏)' }
+  const parts = []; (ov.allow || []).forEach(t => parts.push(`+${t}`)); (ov.deny || []).forEach(t => parts.push(`−${t}`))
+  return parts.join(' ') || ''
+}
+// {allow,deny} 对象 → PATCH 载荷(空→null)
+const overridesPayload = ov => (ov && ((ov.allow || []).length || (ov.deny || []).length)) ? { allow: ov.allow || [], deny: ov.deny || [] } : null
+
+function openOverrideEditor(k) {
+  editingKey.value = k
+  let ov = { allow: [], deny: [] }
+  if (k.tool_overrides) { try { const p = JSON.parse(k.tool_overrides); ov = { allow: p.allow || [], deny: p.deny || [] } } catch { /* 损坏→空 */ } }
+  editOverrides.value = ov
+  showOverrideModal.value = true
+}
+async function saveOverrides() {
+  try {
+    await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
+    notify('success', '覆盖已更新'); showOverrideModal.value = false; load()
+  } catch (e) { notify('error', e.message || '更新失败') }
+}
+
 const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 const TIER_STYLE = { read: 'bg-status-running/10 text-status-running', operator: 'bg-status-warning/10 text-status-warning', admin: 'bg-error/10 text-error' }
 const headers = [
   { key: 'prefix', label: 'Key' },
   { key: 'tier', label: '权限' },
+  { key: 'overrides', label: '覆盖' },
   { key: 'owner', label: '归属人' },
   { key: 'boundSA', label: '绑定 SA' },
   { key: 'cluster', label: '集群' },
@@ -43,7 +74,8 @@ onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load() })
 
 async function doMint() {
   try {
-    const res = await adminApi.apikeys.create(mintForm.value)
+    const payload = { ...mintForm.value, tool_overrides: overridesPayload(mintOverrides.value) }
+    const res = await adminApi.apikeys.create(payload)
     newKey.value = res.apikey
     showMintModal.value = false
     mintForm.value = { owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
@@ -66,7 +98,7 @@ async function doRevoke(k) {
   <section class="animate-fade-in p-md">
     <div class="flex items-center justify-between mb-md">
       <div><h2 class="text-headline-lg font-bold text-on-surface">API Keys 管理</h2><p class="text-body-sm text-on-surface-variant mt-xs">签发/吊销 API key(绑定 K8s ServiceAccount,按 tier 授权;明文仅签发时可见)</p></div>
-      <button @click="showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+      <button @click="mintOverrides = { allow: [], deny: [] }; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
         <span class="material-symbols-outlined text-sm">add</span> 签发 API Key
       </button>
     </div>
@@ -76,6 +108,10 @@ async function doRevoke(k) {
     <DataTable v-else :headers="headers" :rows="apikeys">
       <template #prefix="{ row }"><span class="font-mono text-body-sm font-semibold">{{ row.prefix }}…</span></template>
       <template #tier="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="TIER_STYLE[row.tier]">{{ row.tier }}</span></template>
+      <template #overrides="{ row }">
+        <span v-if="overrideSummary(row)" class="font-mono text-body-xs text-on-surface-variant">{{ overrideSummary(row) }}</span>
+        <span v-else class="text-body-xs text-on-surface-variant/50">—</span>
+      </template>
       <template #boundSA="{ row }"><span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span></template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
       <template #state="{ row }">
@@ -84,6 +120,7 @@ async function doRevoke(k) {
       </template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
+        <button v-if="!row.revokedAt" @click.stop="openOverrideEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" title="编辑工具覆盖"><span class="material-symbols-outlined text-base">tune</span></button>
         <button v-if="!row.revokedAt" @click.stop="doRevoke(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="吊销"><span class="material-symbols-outlined text-base">block</span></button>
       </template>
     </DataTable>
@@ -111,6 +148,10 @@ async function doRevoke(k) {
             <option value="operator">operator(read + scale/restart)</option>
             <option value="admin">admin(全部,含危险——仅 agent 人审路径)</option>
           </select>
+        </div>
+        <div>
+          <label class="text-body-xs text-on-surface-variant block mb-xs">高级:工具覆盖(tier 之上 ± 每工具)</label>
+          <ToolOverrideEditor :tier="mintForm.tier" v-model="mintOverrides" />
         </div>
         <p class="text-body-xs text-on-surface-variant bg-surface-container-low rounded-lg p-sm">⚠️ 该 SA 必须已存在于集群(平台不自动建)。read/operator 档 SA 给 clusterrole=view 即可;SA 的 RBAC 决定 key 实际能做什么。</p>
       </div>
@@ -141,6 +182,18 @@ async function doRevoke(k) {
       </div>
       <template #actions>
         <button @click="newKey = null" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">我已复制保存</button>
+      </template>
+    </Modal>
+
+    <!-- 编辑工具覆盖 Modal -->
+    <Modal v-model="showOverrideModal" :title="`编辑工具覆盖 · ${editingKey?.prefix}…`" width="max-w-xl">
+      <div v-if="editingKey" class="flex flex-col gap-md">
+        <p class="text-body-xs text-on-surface-variant">tier=<b>{{ editingKey.tier }}</b>;SA={{ editingKey.boundSA_namespace }}/{{ editingKey.boundSA_name }}。改完无需重签 key。</p>
+        <ToolOverrideEditor :tier="editingKey.tier" v-model="editOverrides" />
+      </div>
+      <template #actions>
+        <button @click="showOverrideModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
+        <button @click="saveOverrides" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">保存</button>
       </template>
     </Modal>
   </section>

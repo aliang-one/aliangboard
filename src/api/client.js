@@ -219,6 +219,7 @@ export const adminApi = {
     list: () => platformHttp.request('/api/admin/apikeys'),
     create: payload => platformHttp.request('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    updateOverrides: (id, tool_overrides) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/overrides`, { method: 'PATCH', body: JSON.stringify({ tool_overrides }) }),
   },
   // Agent 聊天(第二阶段切片 4):{ message, apiKeyId, history } → { content, steps, denied, truncated?, trace[] }
   agent: {
