@@ -182,6 +182,15 @@ async function platformRequest(path, options = {}) {
   }
   return body
 }
+// 工作台 API(W2,第三阶段):任意平台用户,项目按 userId 归属
+export const workbenchApi = {
+  listProjects: () => platformRequest('/api/workbench/projects'),
+  createProject: payload => platformRequest('/api/workbench/projects', { method: 'POST', body: JSON.stringify(payload) }),
+  getProject: id => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}`),
+  readFile: (id, path) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
+  writeFile: (id, path, content) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  commit: (id, message) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
+}
 export const authApi = {
   login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => platformRequest('/api/auth/me'),
