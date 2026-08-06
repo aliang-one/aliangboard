@@ -2328,6 +2328,7 @@
     "saDetail": {
       "title": "ServiceAccount: {name}",
       "rbac": "RBAC",
+      "resource": "资源",
       "serviceAccount": "ServiceAccount",
       "namespace": "命名空间",
       "age": "年龄",

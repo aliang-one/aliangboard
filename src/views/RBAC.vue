@@ -194,7 +194,7 @@ async function doDelete() {
   <!-- Delete Confirm Modal -->
   <Modal v-model="showDeleteModal" :title="t('rbac.deleteResource')" width="max-w-md">
     <p class="text-body-md text-on-surface-variant" v-html="t('rbac.deleteConfirm', { name: deleteTarget?.name, namespace: deleteTarget?.namespace })"></p>
-    <p class="text-body-sm text-error mt-sm" v-html="t('rbac.deleteWarning', { resourceType: deleteTarget?.tab === 'roles' ? (deleteTarget?.scope === 'Cluster' ? 'ClusterRole' : 'Role') : deleteTarget?.tab === 'serviceaccounts' ? 'ServiceAccount' : '资源' })"></p>
+    <p class="text-body-sm text-error mt-sm" v-html="t('rbac.deleteWarning', { resourceType: deleteTarget?.tab === 'roles' ? (deleteTarget?.scope === 'Cluster' ? 'ClusterRole' : 'Role') : deleteTarget?.tab === 'serviceaccounts' ? 'ServiceAccount' : t('rbac.resource') })"></p>
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
       <button @click="doDelete" :disabled="deleting" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.delete') }}</button>

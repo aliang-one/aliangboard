@@ -1836,6 +1836,7 @@
       "deleteWarning": "This action cannot be undone. Deleting cluster-wide bindings will affect authorization across all namespaces.",
       "deleteBtn": "Delete",
       "cancelBtn": "Cancel",
+      "resource": "Resource",
       "roleNameLabel": "Role Name",
       "scopeLabel": "Scope",
       "namespaceScope": "Namespace",
