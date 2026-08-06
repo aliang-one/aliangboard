@@ -18,6 +18,7 @@ import { createAgentRunner } from './agent-runner.mjs'
 import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
+import { runDistill } from './distill.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -797,7 +798,12 @@ async function handle(req, res) {
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(proj.clusterId)
         const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
         const workbench = {
-          readLedger: async () => { try { return await wbReadFile(ledgerRepo, 'INDEX.md') } catch { return '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)' } },
+          readLedger: async () => {
+            let out = ''
+            try { out += await wbReadFile(ledgerRepo, 'INDEX.md') } catch {}
+            try { const l = await wbReadFile(ledgerRepo, 'learnings.md'); if (l && l.trim()) out += '\n\n# Learnings（团队知识/踩坑）\n' + l } catch {}
+            return out.trim() || '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)'
+          },
           readFile: (p) => wbReadFile(repo, p),
           writeFile: (p, c) => wbWriteFile(repo, p, c),
           readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
@@ -814,7 +820,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(复用已知能力)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
           out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
           if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }
@@ -971,12 +977,13 @@ async function handle(req, res) {
     const clusterId = url.searchParams.get('clusterId')
     if (!clusterId) return sendJson(res, 400, { message: '缺 clusterId' })
     const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
-    let files = [], index = null
+    let files = [], index = null, learnings = null
     if (await hasRepo(repo)) {
       files = await wbListFiles(repo)
       try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
+      try { learnings = await wbReadFile(repo, 'learnings.md') } catch { learnings = null }
     }
-    return sendJson(res, 200, { exists: !!index, files, index })
+    return sendJson(res, 200, { exists: !!index, files, index, learnings })
   }
   if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
@@ -987,6 +994,35 @@ async function handle(req, res) {
       const r = await bootstrapLedgerForCluster(cluster)
       return sendJson(res, 200, { index: r.index, files: r.files })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
+  }
+
+  // ====== 工作台:台账 distill(D2,自我学习;admin)======
+  if (url.pathname === '/api/workbench/distill' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(蒸馏需要 LLM)' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+      const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
+      return sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }) }
+  }
+  if (url.pathname === '/api/workbench/distill/apply' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+      if (!(await hasRepo(repo))) await initRepo(repo)
+      await wbWriteFile(repo, 'learnings.md', input.learnings || '')
+      await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
+      return sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '应用失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===

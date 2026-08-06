@@ -184,6 +184,9 @@ export const workbenchApi = {
   bootstrapLedger: clusterId => platformHttp.request('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
   // 项目 agent 聊天（W4b）：{ projectId, message?, resume? } → { status:'done'|'pending_approval', content, trace, ... }
   chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
+  // 台账蒸馏(D2,自我学习):{ clusterId } → { proposed, current, summary, stats }
+  distill: clusterId => platformHttp.request('/api/workbench/distill', { method: 'POST', body: JSON.stringify({ clusterId }) }),
+  applyDistill: (clusterId, learnings) => platformHttp.request('/api/workbench/distill/apply', { method: 'POST', body: JSON.stringify({ clusterId, learnings }) }),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===

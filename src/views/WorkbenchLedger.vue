@@ -5,6 +5,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { workbenchApi, authApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
+import Modal from '@/components/common/Modal.vue'
 
 const auth = useAuthStore()
 const clusters = ref([])
@@ -41,6 +42,32 @@ async function bootstrap() {
   finally { bootstrapping.value = false }
 }
 
+const distilling = ref(false)
+const applying = ref(false)
+const distillResult = ref(null)   // { proposed, current, summary, stats }
+const proposedEdit = ref('')
+
+async function distill() {
+  distilling.value = true
+  try {
+    const r = await workbenchApi.distill(clusterId.value)
+    distillResult.value = r
+    proposedEdit.value = r.proposed
+    notify('success', `蒸馏完成:${r.summary}`)
+  } catch (e) { notify('error', e.message || '蒸馏失败') }
+  finally { distilling.value = false }
+}
+async function applyDistill() {
+  applying.value = true
+  try {
+    await workbenchApi.applyDistill(clusterId.value, proposedEdit.value)
+    notify('success', '已应用 learnings')
+    distillResult.value = null
+    await loadLedger()
+  } catch (e) { notify('error', e.message || '应用失败') }
+  finally { applying.value = false }
+}
+
 const verifiedAt = computed(() => {
   const m = ledger.value?.index?.match(/^verified_at:\s*(.+)$/m)
   return m ? m[1].trim() : null
@@ -61,6 +88,9 @@ const verifiedAt = computed(() => {
         <button v-if="auth.isAdmin" @click="bootstrap" :disabled="!clusterId || bootstrapping" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">
           <span class="material-symbols-outlined text-sm">{{ bootstrapping ? 'progress_activity' : 'auto_awesome' }}</span> {{ bootstrapping ? 'survey 中…' : 'Bootstrap INDEX' }}
         </button>
+        <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" title="从近期对话+操作蒸馏知识,合并进 learnings">
+          <span class="material-symbols-outlined text-sm">{{ distilling ? 'progress_activity' : 'psychology' }}</span> {{ distilling ? '蒸馏中…' : '蒸馏台账' }}
+        </button>
       </div>
     </div>
 
@@ -72,7 +102,12 @@ const verifiedAt = computed(() => {
           <span v-if="verifiedAt" class="flex items-center gap-xs"><span class="material-symbols-outlined text-sm">schedule</span>verified_at: <span class="font-mono">{{ verifiedAt }}</span></span>
           <span>{{ (ledger.files || []).length }} 个文件</span>
         </div>
-        <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[60vh] overflow-y-auto">{{ ledger.index }}</pre>
+        <p class="text-label-caps text-on-surface-variant">INDEX.md(能力事实)</p>
+        <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.index }}</pre>
+        <template v-if="ledger.learnings">
+          <p class="text-label-caps text-on-surface-variant">learnings.md(团队知识/踩坑,蒸馏产出)</p>
+          <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.learnings }}</pre>
+        </template>
         <details class="bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant">台账文件</summary>
           <div class="px-md pb-md flex flex-col gap-xs">
@@ -85,5 +120,26 @@ const verifiedAt = computed(() => {
         <p class="text-body-sm text-on-surface-variant mt-md">该集群还没有台账。<span v-if="auth.isAdmin">点「Bootstrap INDEX」用平台凭据 survey 生成。</span><span v-else>请联系管理员 bootstrap。</span></p>
       </div>
     </template>
+
+    <!-- 蒸馏 diff 审批(现有 vs 蒸馏后可编辑)-->
+    <Modal :modelValue="!!distillResult" @update:modelValue="v => { if (!v) distillResult = null }" title="蒸馏 learnings(人审)" width="max-w-4xl">
+      <div v-if="distillResult" class="flex flex-col gap-md">
+        <p class="text-body-sm text-on-surface-variant">{{ distillResult.summary }} · 左=现有 learnings.md,右=蒸馏后(可改,确认后写入)。</p>
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <p class="text-body-xs text-on-surface-variant mb-xs">现有 learnings.md</p>
+            <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs whitespace-pre-wrap break-words max-h-[50vh] overflow-y-auto">{{ distillResult.current || '(空)' }}</pre>
+          </div>
+          <div>
+            <p class="text-body-xs text-on-surface-variant mb-xs">蒸馏后(可编辑)</p>
+            <textarea v-model="proposedEdit" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs max-h-[50vh] min-h-[40vh] resize-none outline-none"></textarea>
+          </div>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="distillResult = null" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
+        <button @click="applyDistill" :disabled="applying" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ applying ? '应用中…' : '应用' }}</button>
+      </template>
+    </Modal>
   </section>
 </template>
