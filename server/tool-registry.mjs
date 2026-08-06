@@ -94,6 +94,9 @@ export const registry = {
   // K8s 工具按 tier(WB 工具 minTier 缺失 → rank 99 → 自动排除)
   forTier: tier => ENTRIES.filter(t => rank(t.minTier) <= rank(tier)).map(t => t.name),
   toolDefsForTier: tier => ENTRIES.filter(t => rank(t.minTier) <= rank(tier)).map(toDef),
+  // 按显式名字集取 def(忽略 minTier):供 effectiveTools(per-key 覆盖)用——覆盖可越过 tier。
+  // 未知名静默忽略(不抛);接受数组或 Set。
+  toolDefsFor: (names) => { const set = names instanceof Set ? names : new Set(names); return ENTRIES.filter(t => set.has(t.name)).map(toDef) },
   // 工作台工具(无 tier)
   workbenchToolDefs: () => WB.map(toDef),
   // 所有需人审的(K8s scale/restart + WB write_project_file);runner 用 offering 交集判定

@@ -72,3 +72,12 @@ test('notification(无 id)→ null(无响应)', async () => {
   const r = await handleMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
   assert.equal(r, null)
 })
+
+test('tools/list(覆盖): effectiveTools allow 把 admin 工具暴露给 read key', async () => {
+  const readWithAllow = { ...readKey, tool_overrides: JSON.stringify({ allow: ['exec_pod'] }) }
+  // 内联 apiKeyTools:listTools 含 exec_pod(mockTools 的 listTools 不含,会被 .filter 过滤掉)
+  const apiKeyTools = { listTools: () => ['get_pod_logs', 'list_resources', 'get_resource', 'get_events', 'exec_pod'], callTool: async () => ({}) }
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 9, method: 'tools/list' }, { keyRow: readWithAllow, cluster, apiKeyTools })
+  const names = r.result.tools.map(t => t.name)
+  assert.ok(names.includes('exec_pod'), 'allow 越过 tier 出现在 tools/list')
+})

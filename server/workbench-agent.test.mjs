@@ -91,6 +91,18 @@ test('apply_project_manifests → checkpoint;resume 批准 → readManifests+app
   assert.equal(calls.length, 2, 'read + apply')
 })
 
+test('registry.toolDefsFor: 按显式名字集取 def(忽略 minTier,使覆盖可越过 tier)', () => {
+  const defs = registry.toolDefsFor(['get_pod_logs', 'exec_pod'])
+  const names = defs.map(t => t.function.name)
+  assert.ok(names.includes('get_pod_logs'))
+  assert.ok(names.includes('exec_pod'))
+  assert.equal(defs[0].type, 'function')
+  // 未知名静默忽略(不抛)
+  assert.equal(registry.toolDefsFor(['bogus_name']).length, 0)
+  // 支持传 Set
+  assert.ok(registry.toolDefsFor(new Set(['scale'])).map(t => t.function.name).includes('scale'))
+})
+
 test('propose_ledger_update 已移除:LLM 若调用 → 未知工具错误喂回(不再写台账)', async () => {
   const writes = []
   const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), appendLearning: async () => {} }

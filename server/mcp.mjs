@@ -3,7 +3,7 @@
 // 鉴权:Authorization: Bearer <apikey>——key 决定 cluster + SA + tier;endpoint /mcp 不含 cluster(eng-review 4A:同进程独立路由)。
 import { resolveApiKey } from './api-key-tools.mjs'
 import { checkRate } from './rate-limit.mjs'
-import { tierTools } from './authorize.mjs'
+import { effectiveTools } from './authorize.mjs'
 import { registry } from './tool-registry.mjs'
 
 const PROTOCOL = '2025-11-25'
@@ -24,8 +24,8 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
   if (method === 'initialize') return ok(id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: 'aliangboard', version: '0.1.0' } })
 
   if (method === 'tools/list') {
-    const allowed = tierTools(keyRow.tier)
-    const tools = apiKeyTools.listTools().filter(t => allowed.includes(t)).map(t => ({ name: t, ...TOOL_META[t] }))
+    const allowed = effectiveTools(keyRow)
+    const tools = apiKeyTools.listTools().filter(t => allowed.has(t)).map(t => ({ name: t, ...TOOL_META[t] }))
     return ok(id, { tools })
   }
 
