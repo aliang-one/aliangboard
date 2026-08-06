@@ -102,7 +102,12 @@ const verifiedAt = computed(() => {
           <span v-if="verifiedAt" class="flex items-center gap-xs"><span class="material-symbols-outlined text-sm">schedule</span>verified_at: <span class="font-mono">{{ verifiedAt }}</span></span>
           <span>{{ (ledger.files || []).length }} 个文件</span>
         </div>
-        <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[60vh] overflow-y-auto">{{ ledger.index }}</pre>
+        <p class="text-label-caps text-on-surface-variant">INDEX.md(能力事实)</p>
+        <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.index }}</pre>
+        <template v-if="ledger.learnings">
+          <p class="text-label-caps text-on-surface-variant">learnings.md(团队知识/踩坑,蒸馏产出)</p>
+          <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.learnings }}</pre>
+        </template>
         <details class="bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant">台账文件</summary>
           <div class="px-md pb-md flex flex-col gap-xs">
