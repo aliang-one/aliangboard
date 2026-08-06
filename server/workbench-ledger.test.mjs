@@ -50,3 +50,18 @@ test('formatIndexMd:全 null(空集群/survey 全失败)→ 仍成合法 md,Name
   assert.ok(md.includes('_(survey 不可用或无)_'))
   assert.ok(md.includes('工作负载概览'))
 })
+
+test('formatIndexMd:CRD/扩展段(group/kind + 常见 operator 推断)', () => {
+  const crds = [
+    { spec: { group: 'argoproj.io', names: { kind: 'Application' } } },
+    { spec: { group: 'cert-manager.io', names: { kind: 'Certificate' } } },
+    { spec: { group: 'acme.example.io', names: { kind: 'Widget' } } },
+    { spec: { names: { kind: 'NoGroup' } } }, // 无 group → 过滤
+  ]
+  const md = formatIndexMd({ clusterName: 'c', verifiedAt: '2026-08-06', crds })
+  assert.ok(md.includes('## 已安装扩展'), 'CRD 段标题')
+  assert.ok(md.includes('argoproj.io/Application  (ArgoCD)'), 'operator 推断 ArgoCD')
+  assert.ok(md.includes('cert-manager.io/Certificate  (cert-manager)'), 'operator 推断 cert-manager')
+  assert.ok(md.includes('acme.example.io/Widget'), '未知 group 原样列出(无产品名)')
+  assert.ok(!md.includes('NoGroup'), '无 group 的 CRD 被过滤')
+})
