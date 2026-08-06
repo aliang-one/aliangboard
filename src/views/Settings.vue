@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { api } from '@/api/client'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { i18n, setLocale } from '@/i18n'
 
 const { t } = useI18n()
 
@@ -94,6 +95,14 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
             <span class="text-body-sm font-semibold">{{ t('settings.clusterInfo') }}</span>
           </div>
           <div class="p-md space-y-md">
+            <!-- Language -->
+            <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
+              <span class="text-body-sm text-on-surface-variant">{{ t('settings.language') }}</span>
+              <div class="flex items-center gap-xs">
+                <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">中文</button>
+                <button @click="setLocale('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">EN</button>
+              </div>
+            </div>
             <div class="flex justify-between py-sm border-b border-outline-variant/50">
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.clusterName') }}</span>
               <span class="text-body-sm font-medium">{{ store.cluster.name }}</span>
