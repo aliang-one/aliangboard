@@ -72,7 +72,7 @@ async function doCreate() {
       <template #cluster="{ row }"><span class="text-body-sm">{{ row.clusterName || (row.clusterId ? row.clusterId.slice(0, 8) : '-') }}</span></template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
-        <button @click.stop="router.push({ name: 'WorkbenchProject', params: { id: row.id } })" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" title="打开"><span class="material-symbols-outlined text-base">folder_open</span></button>
+        <button @click.stop="router.push({ name: 'WorkbenchProject', params: { id: row.id } })" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" title="Open"><span class="material-symbols-outlined text-base">folder_open</span></button>
       </template>
     </DataTable>
 
