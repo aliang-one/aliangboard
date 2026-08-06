@@ -176,6 +176,26 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         })
         return { undone: a.name, toRevision: Number(a.toRevision), previousImage: prevImage, newImage }
       } }),
+    update_image: async (keyRow, cluster, a) => {
+      const kind = String(a.kind || '').toLowerCase()
+      return runBoundedTool({ keyRow, cluster, tool: 'update_image', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} ${a.container}=${(a.image || '').slice(0, 40)}`,
+        fn: async (saCtx) => {
+          if (!WORKLOADS.includes(kind)) throw new Error(`update_image 仅支持 ${WORKLOADS.join('/')},不是 ${kind}`)
+          if (!a.container) throw new Error('update_image 缺 container')
+          if (!a.image) throw new Error('update_image 缺 image')
+          const getter = GET_PATH[kind]
+          const cur = (await requestFn(saCtx, getter(a.namespace, a.name))).body
+          if (!cur) throw new Error(`${kind}/${a.name} 不存在`)
+          const containers = cur?.spec?.template?.spec?.containers || []
+          const targetC = containers.find(c => c.name === a.container)
+          if (!targetC) throw new Error(`容器 ${a.container} 不存在于 ${kind}/${a.name}(有: ${containers.map(c => c.name).join(',')})`)
+          await requestFn(saCtx, getter(a.namespace, a.name), {
+            method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' },
+            body: JSON.stringify({ spec: { template: { spec: { containers: [{ name: a.container, image: a.image }] } } } }),
+          })
+          return { kind, name: a.name, container: a.container, previousImage: targetC.image || null, newImage: a.image }
+        } })
+    },
     scale: async (keyRow, cluster, a) => {
       const kind = String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'scale', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,

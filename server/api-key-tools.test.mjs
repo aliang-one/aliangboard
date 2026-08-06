@@ -313,3 +313,27 @@ test('rollout_undo: revision 仅存在于外来 RS → 报"不存在"(ownerRefer
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ replicasets: [foreignRs] }) })
   await assert.rejects(tools.callTool(admin, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 3 }), /不存在/, '外来 RS 的 revision 不应被视为可用')
 })
+
+// --- update_image(admin 档:set image)---
+test('update_image(admin happy): PATCH 容器镜像,返 previous/new', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let patched = null
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && /\/deployments\/[^/]+$/.test(path)) { patched = JSON.parse(init.body); return { body: { ok: true } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'c1', image: 'img:9' })
+  assert.equal(out.newImage, 'img:9'); assert.equal(out.previousImage, 'img:2')
+  assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:9' }] } } } })
+})
+test('update_image: 不支持 kind / 容器不存在 → 报错;read 档 → policy 拒', async () => {
+  const db = makeDb()
+  const admin = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const read = mintKey(db, { owner: 'b', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(admin, cluster, 'update_image', { namespace: 'ns', kind: 'ingresses', name: 'x', container: 'c', image: 'i' }), /仅支持/)
+  await assert.rejects(tools.callTool(admin, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'nope', image: 'i' }), /不存在/)
+  await assert.rejects(tools.callTool(read, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'c1', image: 'i' }), (e) => e.reason === 'policy')
+})

@@ -52,6 +52,9 @@ const K8S = [
   { name: 'rollout_undo', minTier: 'admin', requiresApproval: true,
     description: '把 Deployment 回滚到指定 revision(kubectl rollout undo --to-revision=N 语义):取目标 ReplicaSet 的完整 template PATCH 回 Deployment。admin 档:内置 agent 需人审 / 外部 MCP 走 admin key。先 rollout_history 取 revision。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string', description: 'Deployment 名' }, toRevision: { type: 'number', description: '目标 revision(从 rollout_history 结果取)' } }, required: ['namespace', 'name', 'toRevision'] } },
+  { name: 'update_image', minTier: 'admin', requiresApproval: true,
+    description: '更新工作负载某容器的镜像(kubectl set image 语义)。先校验容器名存在再 strategic-merge-patch。admin 档:需人审/admin key。kind: deployments/statefulsets/daemonsets。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' }, container: { type: 'string' }, image: { type: 'string', description: '新镜像,如 nginx:1.25' } }, required: ['namespace', 'kind', 'name', 'container', 'image'] } },
 ].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。
