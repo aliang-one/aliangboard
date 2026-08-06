@@ -1,12 +1,12 @@
 // 把 agent 核心接到工具(W4:K8s 工具 + 工作台工具,双-principal 经 registry 分派)。
 // 双-principal 桥 = registry 本身:K8s 工具 exec 包 callTool(keyRow+SA+审计),
 // 工作台工具 exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入,平台侧 git)。
-// 按 ctx 里有什么决定 offering:有 keyRow → K8s 工具(按 tier);有 workbench → 工作台工具。
+// 按 ctx 里有什么决定 offering:有 keyRow → K8s 工具(按 effectiveTools:tier ∪ per-key tool_overrides 覆盖);有 workbench → 工作台工具。
 import { createAgent } from './agent.mjs'
 import { registry } from './tool-registry.mjs'
 import { effectiveTools } from './authorize.mjs'
 
-// OpenAI tools 格式:tier 允许的 K8s 工具(从 registry 按 minTier 过滤)。
+// OpenAI tools 格式:buildToolDefs(tier) 仅测试用;运行时 offering 用 registry.toolDefsFor(effectiveTools(keyRow))(per-key 覆盖)。
 export function buildToolDefs(tier) {
   return registry.toolDefsForTier(tier)
 }
