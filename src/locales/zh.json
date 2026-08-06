@@ -43,6 +43,10 @@
     "copyFailed": "复制失败",
     "applyFailed": "应用失败"
   },
+  "api": {
+    "requestFailed": "请求失败：HTTP {status}",
+    "downloadFailed": "下载失败：HTTP {status}"
+  },
   "component": {
     "modal": {
       "cancel": "取消",

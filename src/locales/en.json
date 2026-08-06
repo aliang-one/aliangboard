@@ -43,6 +43,10 @@
     "copyFailed": "Failed to copy",
     "applyFailed": "Apply failed"
   },
+  "api": {
+    "requestFailed": "Request failed: HTTP {status}",
+    "downloadFailed": "Download failed: HTTP {status}"
+  },
   "component": {
     "modal": {
       "cancel": "Cancel",
