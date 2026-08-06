@@ -26,7 +26,9 @@
     "namespace": "Namespace",
     "type": "Type",
     "version": "Version",
-    "role": "Role"
+    "role": "Role",
+    "cpu": "CPU",
+    "memory": "Memory"
   },
   "nav": {
     "clusterManagement": "Cluster Management",
@@ -51,15 +53,21 @@
     "subtitle": "Kubernetes Management Platform",
     "username": "Username",
     "password": "Password",
-    "submit": "Login"
+    "submit": "Login",
+    "loggingIn": "Logging in…",
+    "loginFailed": "Login failed"
   },
   "cluster": {
     "title": "Cluster Overview",
     "subtitle": "Real-time performance metrics and operational health",
+    "realtimeMetrics": "Real-time performance metrics and operational health for",
     "totalNodes": "TOTAL NODES",
     "totalPods": "TOTAL PODS",
     "activeEvents": "ACTIVE EVENTS",
     "operational": "Operational",
+    "controlPlane": "Control Plane",
+    "runningSmoothly": "Running smoothly",
+    "last60Minutes": "Last 60 minutes",
     "resourceUsage": "Resource Usage",
     "cpuUtilization": "CPU UTILIZATION",
     "memoryAllocation": "MEMORY ALLOCATION",
@@ -67,16 +75,33 @@
     "viewAllNodes": "View all nodes",
     "recentEvents": "Recent Events",
     "metricsUnavailable": "Metrics unavailable",
-    "showMoreEvents": "Show More Events"
+    "metricsUnavailableHint": "Metrics-server not installed or current credentials lack metrics read permission",
+    "nodePressureHint": "Node has pressure conditions (Disk/Memory/PID)",
+    "showMoreEvents": "Show More Events",
+    "ready": "Ready",
+    "notReady": "NotReady",
+    "mem": "Mem",
+    "timeAgo": "24h ago",
+    "timeNow": "Now"
   },
   "nodes": {
     "title": "Nodes",
     "subtitle": "Monitor and manage cluster nodes",
+    "subtitleDetail": "{healthy} of {total} healthy.",
     "healthy": "healthy",
     "addTaint": "Add Taint",
     "cordon": "Cordon",
     "uncordon": "Uncordon",
     "drain": "Drain",
-    "searchPlaceholder": "Search by name, role, or IP..."
+    "cordonTitle": "Cordon",
+    "uncordonTitle": "Uncordon",
+    "drainTitle": "Drain",
+    "searchPlaceholder": "Search by name, role, or IP...",
+    "syncing": "Syncing…",
+    "noSyncNeeded": "No sync needed in demo data mode",
+    "synced": "Nodes synced",
+    "syncFailed": "Sync failed",
+    "noNodesTitle": "No nodes found",
+    "noNodesDesc": "No nodes in the cluster, or filtered by search."
   }
 }

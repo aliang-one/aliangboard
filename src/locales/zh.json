@@ -26,7 +26,9 @@
     "namespace": "命名空间",
     "type": "类型",
     "version": "版本",
-    "role": "角色"
+    "role": "角色",
+    "cpu": "CPU",
+    "memory": "内存"
   },
   "nav": {
     "clusterManagement": "集群管理",
@@ -51,15 +53,21 @@
     "subtitle": "Kubernetes 管理平台",
     "username": "用户名",
     "password": "密码",
-    "submit": "登录"
+    "submit": "登录",
+    "loggingIn": "登录中…",
+    "loginFailed": "登录失败"
   },
   "cluster": {
     "title": "Cluster Overview",
     "subtitle": "实时性能指标与运维健康",
+    "realtimeMetrics": "实时性能指标与运维健康。",
     "totalNodes": "节点总数",
     "totalPods": "Pod 总数",
     "activeEvents": "活跃事件",
     "operational": "运行中",
+    "controlPlane": "控制面",
+    "runningSmoothly": "运行正常",
+    "last60Minutes": "最近 60 分钟",
     "resourceUsage": "资源使用",
     "cpuUtilization": "CPU 使用率",
     "memoryAllocation": "内存分配",
@@ -67,16 +75,33 @@
     "viewAllNodes": "查看所有节点",
     "recentEvents": "最近事件",
     "metricsUnavailable": "指标不可用",
-    "showMoreEvents": "显示更多事件"
+    "metricsUnavailableHint": "集群未安装 metrics-server 或当前凭证无 metrics 读取权限",
+    "nodePressureHint": "节点存在压力条件（Disk/Memory/PID）",
+    "showMoreEvents": "显示更多事件",
+    "ready": "Ready",
+    "notReady": "NotReady",
+    "mem": "内存",
+    "timeAgo": "24 小时前",
+    "timeNow": "现在"
   },
   "nodes": {
     "title": "Nodes",
     "subtitle": "监控和管理集群节点",
+    "subtitleDetail": "{healthy} / {total} 健康。",
     "healthy": "健康",
     "addTaint": "添加污点",
     "cordon": "封锁",
     "uncordon": "恢复调度",
     "drain": "驱逐",
-    "searchPlaceholder": "按名称、角色或 IP 搜索..."
+    "cordonTitle": "Cordon",
+    "uncordonTitle": "Uncordon",
+    "drainTitle": "Drain",
+    "searchPlaceholder": "按名称、角色或 IP 搜索...",
+    "syncing": "同步中…",
+    "noSyncNeeded": "演示数据模式下无需同步",
+    "synced": "已同步节点",
+    "syncFailed": "同步失败",
+    "noNodesTitle": "未找到节点",
+    "noNodesDesc": "集群暂无节点，或被搜索条件过滤。"
   }
 }
