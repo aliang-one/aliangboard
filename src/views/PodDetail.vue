@@ -14,6 +14,7 @@ import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import LabelChips from '@/components/common/LabelChips.vue'
 import AnnotationList from '@/components/common/AnnotationList.vue'
+import EventList from '@/components/common/EventList.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
@@ -472,29 +473,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
 
         <!-- Events View（可跳转关联资源）-->
         <div v-if="activeTab === 'events'" class="flex-1 p-lg overflow-y-auto max-h-[600px]">
-          <div class="flex flex-col gap-md">
-            <div v-for="(event, idx) in podEvents" :key="idx"
-              class="flex gap-md border-b border-outline-variant pb-md"
-              :class="event.relatedKind ? 'cursor-pointer hover:bg-surface-container-low/50 rounded-lg -mx-sm px-sm py-xs transition-colors' : ''"
-              @click="goToRelated(event)">
-              <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                :class="event.color === 'primary' ? 'bg-primary-container text-on-primary-container' : event.color === 'error' ? 'bg-error-container text-on-error-container' : 'bg-surface-container text-on-surface-variant'">
-                <span class="material-symbols-outlined text-lg">{{ event.icon }}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex justify-between items-start gap-sm">
-                  <h4 class="text-body-md font-semibold">{{ event.reason }}</h4>
-                  <span class="font-mono text-code-sm text-on-surface-variant shrink-0">{{ event.time }}</span>
-                </div>
-                <p class="text-body-sm text-on-surface-variant mt-xs">{{ event.message }}</p>
-                <div v-if="event.relatedKind" class="mt-xs inline-flex items-center gap-xs px-sm py-xs bg-primary-container/10 text-primary text-xs rounded-full">
-                  <span class="material-symbols-outlined text-sm">link</span>
-                  <span class="font-mono">{{ event.relatedKind }}/{{ event.relatedName }}</span>
-                  <span class="material-symbols-outlined text-sm">chevron_right</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <EventList :events="podEvents" @navigate="goToRelated" />
         </div>
       </div>
 
