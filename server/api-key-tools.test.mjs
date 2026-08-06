@@ -262,3 +262,30 @@ test('rollout_history: 只列该 Deployment 的 RS(ownerReference 过滤)', asyn
   const out = await tools.callTool(k, cluster, 'rollout_history', { namespace: 'ns', name: 'd1' })
   assert.equal(out.revisions.length, 0, '不属于 d1 的 RS 被过滤')
 })
+
+// --- rollout_undo(admin 档:回滚到 revision)---
+test('rollout_undo(admin happy): PATCH deployment template 成目标 RS template', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let patched = null
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && /\/deployments\/[^/]+$/.test(path)) { patched = JSON.parse(init.body); return { body: { ok: true } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 })
+  assert.equal(out.undone, 'd1'); assert.equal(out.toRevision, 1)
+  assert.equal(out.previousImage, 'img:2'); assert.equal(out.newImage, 'img:1')
+  assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } }, 'PATCH 成 revision1 的 template')
+  const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[rows.length - 1].result, 'ok')
+})
+test('rollout_undo: 缺 toRevision → 报错;revision 不存在 → 报错;read 档 → policy 拒', async () => {
+  const db = makeDb()
+  const admin = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const read = mintKey(db, { owner: 'b', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(admin, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1' }), /toRevision/)
+  await assert.rejects(tools.callTool(admin, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 99 }), /不存在/)
+  await assert.rejects(tools.callTool(read, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 }), (e) => e.reason === 'policy')
+})
