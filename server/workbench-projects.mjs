@@ -12,6 +12,14 @@ export function createWorkbenchSchema(db) {
     createdAt INTEGER NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_projects_owner ON workbench_projects(ownerId)`)
+  // 项目对话历史(跨会话;不进 git repo——决策 5:隐私 + repo 只放工程产物)
+  db.exec(`CREATE TABLE IF NOT EXISTS workbench_history (
+    projectId TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_history_proj ON workbench_history(projectId, ts)`)
 }
 
 export function createProject(db, { name, clusterId, ownerId }) {
@@ -30,4 +38,13 @@ export function listProjects(db, { userId, role }) {
 
 export function getProject(db, id) {
   return db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(id) || null
+}
+
+// 项目对话历史(跨会话)。append 一条;recent 取最近 n 条(最旧在前,喂给 agent 当 history)。
+export function appendHistory(db, projectId, role, content) {
+  db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)').run(projectId, role, String(content ?? ''), Date.now())
+}
+export function recentHistory(db, projectId, n = 30) {
+  const rows = db.prepare('SELECT role,content FROM workbench_history WHERE projectId=? ORDER BY ts DESC LIMIT ?').all(projectId, n)
+  return rows.reverse() // 最旧在前
 }
