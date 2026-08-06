@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -11,11 +13,24 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// NetworkPolicies 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const networkpoliciesKey = ['cluster', cid.value, 'networkpolicies']
+const networkpoliciesQuery = useResourceList({
+  key: networkpoliciesKey,
+  fetcher: () => store.fetchNetworkPolicies(),
+  mock: store.networkPolicyList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsNetworkPolicies = computed(() => (networkpoliciesQuery.data.value || []).filter(n => n.namespace === route.params.namespace))
 
 // Tab-based filter
 const activeFilter = ref('all')
 const filteredPolicies = computed(() => {
-  const all = store.nsNetworkPolicies
+  const all = nsNetworkPolicies
   switch (activeFilter.value) {
     case 'ingress':
       return all.filter(np => np.policyTypes.includes('Ingress') && !np.policyTypes.includes('Egress'))
@@ -76,6 +91,7 @@ function handleCreate() {
     ingressRules: f.policyTypes.includes('Ingress') ? [] : [],
     egressRules: f.policyTypes.includes('Egress') ? [] : [],
   })
+  queryClient.invalidateQueries({ queryKey: networkpoliciesKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -90,6 +106,7 @@ function confirmDelete(np) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteNetworkPolicy(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: networkpoliciesKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -105,7 +122,7 @@ function handleDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">NetworkPolicies</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsNetworkPolicies.length }} network policies in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsNetworkPolicies.length }} network policies in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> Create NetworkPolicy
@@ -113,7 +130,7 @@ function handleDelete() {
     </div>
 
     <!-- Filter Tabs -->
-    <div v-if="store.nsNetworkPolicies.length" class="flex border-b border-outline-variant mb-md">
+    <div v-if="nsNetworkPolicies.length" class="flex border-b border-outline-variant mb-md">
       <button v-for="tab in [
         { key: 'all', label: 'All' },
         { key: 'ingress', label: 'Ingress Only' },
@@ -124,12 +141,12 @@ function handleDelete() {
         :class="activeFilter === tab.key ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab.label }}
         <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" :class="activeFilter === tab.key ? 'bg-primary-container/20 text-primary' : 'bg-surface-container text-on-surface-variant'">
-          {{ tab.key === 'all' ? store.nsNetworkPolicies.length : filteredPolicies.length }}
+          {{ tab.key === 'all' ? nsNetworkPolicies.length : filteredPolicies.length }}
         </span>
       </button>
     </div>
 
-    <div v-if="store.nsNetworkPolicies.length">
+    <div v-if="nsNetworkPolicies.length">
       <div v-if="filteredPolicies.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
         <table class="w-full text-left border-collapse">
           <thead>
