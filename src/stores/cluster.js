@@ -1201,9 +1201,13 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
   async function fetchNetworkPolicy(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`); return d ? mapNetworkPolicy(d) : null }
   async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
+  async function fetchPDB(name, ns) { const d = await api.k8s(`/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`); return d ? mapPDB(d) : null }
   async function fetchLimitRanges() { const d = await api.k8s('/api/v1/limitranges?limit=5000'); return (d?.items || []).map(mapLimitRange) }
+  async function fetchLimitRange(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/limitranges/${encodeURIComponent(name)}`); return d ? mapLimitRange(d) : null }
   async function fetchResourceQuotas() { const d = await api.k8s('/api/v1/resourcequotas?limit=5000'); return (d?.items || []).map(mapResourceQuota) }
+  async function fetchResourceQuota(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/resourcequotas/${encodeURIComponent(name)}`); return d ? mapResourceQuota(d) : null }
   async function fetchHPAs() { const d = await api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'); return (d?.items || []).map(mapHPA) }
+  async function fetchHPA(name, ns) { const d = await api.k8s(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`); return d ? mapHPA(d) : null }
   async function fetchEndpoints() { const d = await api.k8s('/api/v1/endpoints?limit=5000'); return (d?.items || []).map(mapEndpoints) }
   // 工作负载列表（deploy+sts+ds 三类合一；remote 模式与 hydrate 一致不含 job/cronjob，那些按需在详情页补）
   async function fetchWorkloads() {
@@ -1286,8 +1290,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: HPAs ===
   async function addHPA(hpa) {
-    if (remoteMode.value) return remoteCreate(generateYAML('hpa', hpa), `HPA/${hpa.name}`, () => refetch('/apis/autoscaling/v2/horizontalpodautoscalers', hpaList, mapHPA))
-    hpaList.value.push({ ...hpa, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('hpa', hpa), `HPA/${hpa.name}`, () => refetch('/apis/autoscaling/v2/horizontalpodautoscalers', hpaList, mapHPA))
+    else hpaList.value.push({ ...hpa, age: 'Just now' })
+    invalidateResource('hpas')
   }
 
   async function updateHPA(name, ns, updates) {
@@ -1304,21 +1309,24 @@ export const useClusterStore = defineStore('cluster', () => {
       ],
     } }
     if (remoteMode.value) await remotePatch(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, patch, 'HPA', () => { hpaList.value[idx] = before })
+    invalidateResource('hpas')
   }
 
   async function deleteHPA(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, hpaList, h => h.name === name && h.namespace === ns)
-      return
+    } else {
+      const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
+      if (idx !== -1) hpaList.value.splice(idx, 1)
     }
-    const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
-    if (idx !== -1) hpaList.value.splice(idx, 1)
+    invalidateResource('hpas')
   }
 
   // === CRUD: ResourceQuotas ===
   async function addResourceQuota(rq) {
-    if (remoteMode.value) return remoteCreate(generateYAML('resourcequota', rq), `ResourceQuota/${rq.name}`, () => refetch('/api/v1/resourcequotas', resourceQuotaList, mapResourceQuota))
-    resourceQuotaList.value.push({ ...rq, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('resourcequota', rq), `ResourceQuota/${rq.name}`, () => refetch('/api/v1/resourcequotas', resourceQuotaList, mapResourceQuota))
+    else resourceQuotaList.value.push({ ...rq, age: 'Just now' })
+    invalidateResource('resourcequotas')
   }
 
   async function updateResourceQuota(name, ns, updates) {
@@ -1327,21 +1335,24 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(resourceQuotaList.value[idx]))
     resourceQuotaList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('resourcequota', resourceQuotaList.value[idx]), 'ResourceQuota', () => { resourceQuotaList.value[idx] = before })
+    invalidateResource('resourcequotas')
   }
 
   async function deleteResourceQuota(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/resourcequotas/${encodeURIComponent(name)}`, resourceQuotaList, r => r.name === name && r.namespace === ns)
-      return
+    } else {
+      const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
+      if (idx !== -1) resourceQuotaList.value.splice(idx, 1)
     }
-    const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
-    if (idx !== -1) resourceQuotaList.value.splice(idx, 1)
+    invalidateResource('resourcequotas')
   }
 
   // === CRUD: LimitRanges ===
   async function addLimitRange(lr) {
-    if (remoteMode.value) return remoteCreate(generateYAML('limitrange', lr), `LimitRange/${lr.name}`, () => refetch('/api/v1/limitranges', limitRangeList, mapLimitRange))
-    limitRangeList.value.push({ ...lr, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('limitrange', lr), `LimitRange/${lr.name}`, () => refetch('/api/v1/limitranges', limitRangeList, mapLimitRange))
+    else limitRangeList.value.push({ ...lr, age: 'Just now' })
+    invalidateResource('limitranges')
   }
 
   async function updateLimitRange(name, ns, updates) {
@@ -1350,15 +1361,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(limitRangeList.value[idx]))
     limitRangeList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('limitrange', limitRangeList.value[idx]), 'LimitRange', () => { limitRangeList.value[idx] = before })
+    invalidateResource('limitranges')
   }
 
   async function deleteLimitRange(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/limitranges/${encodeURIComponent(name)}`, limitRangeList, l => l.name === name && l.namespace === ns)
-      return
+    } else {
+      const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
+      if (idx !== -1) limitRangeList.value.splice(idx, 1)
     }
-    const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
-    if (idx !== -1) limitRangeList.value.splice(idx, 1)
+    invalidateResource('limitranges')
   }
 
   // === CRUD: RBAC ===
@@ -1474,8 +1487,9 @@ export const useClusterStore = defineStore('cluster', () => {
     return pdbList.value.find(p => p.name === name && p.namespace === namespace)
   }
   async function addPDB(pdb) {
-    if (remoteMode.value) return remoteCreate(generateExtraYAML('pdb', pdb), `PDB/${pdb.name}`, () => refetch('/apis/policy/v1/poddisruptionbudgets', pdbList, mapPDB))
-    pdbList.value.push({ allowedDisruptions: 0, currentHealthy: 0, desiredHealthy: 0, ...pdb, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateExtraYAML('pdb', pdb), `PDB/${pdb.name}`, () => refetch('/apis/policy/v1/poddisruptionbudgets', pdbList, mapPDB))
+    else pdbList.value.push({ allowedDisruptions: 0, currentHealthy: 0, desiredHealthy: 0, ...pdb, age: 'Just now' })
+    invalidateResource('pdbs')
   }
   async function updatePDB(name, ns, updates) {
     const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
@@ -1483,14 +1497,16 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(pdbList.value[idx]))
     pdbList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('pdb', pdbList.value[idx]), 'PDB', () => { pdbList.value[idx] = before })
+    invalidateResource('pdbs')
   }
   async function deletePDB(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`, pdbList, p => p.name === name && p.namespace === ns)
-      return
+    } else {
+      const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
+      if (idx !== -1) pdbList.value.splice(idx, 1)
     }
-    const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx !== -1) pdbList.value.splice(idx, 1)
+    invalidateResource('pdbs')
   }
 
   // === CRUD: PriorityClass（集群级）===
@@ -3518,6 +3534,7 @@ status:
     fetchService,
     fetchIngress,
     fetchNetworkPolicy, fetchPVC,
+    fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
