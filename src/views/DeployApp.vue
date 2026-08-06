@@ -127,7 +127,7 @@ const steps = [
   { title: 'Basic Information', icon: 'info' },
   { title: 'Container Config', icon: 'layers' },
   { title: 'Volumes', icon: 'storage' },
-  { title: 'Scheduling & Update', icon: 'tune' },
+  { title: '高级设置', icon: 'settings' },
   { title: 'Service & Ingress', icon: 'hub' },
   { title: 'Review & Deploy', icon: 'rocket_launch' },
 ]
@@ -1168,7 +1168,7 @@ async function handleDeploy() {
         </div>
       </div>
 
-      <!-- Step 4: Scheduling & Update -->
+      <!-- Step 4: 高级设置 -->
       <div v-if="currentStep === 3">
         <h3 class="text-headline-sm font-bold mb-md">高级设置</h3>
 
