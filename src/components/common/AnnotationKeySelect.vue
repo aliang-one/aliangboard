@@ -34,7 +34,7 @@ const groups = computed(() => {
     const prefix = i > 0 ? s.value.slice(0, i) : t('component.annotationKey.otherGroup')
     const suffix = i > 0 ? s.value.slice(i + 1) : s.value
     if (!map.has(prefix)) map.set(prefix, [])
-    map.get(prefix).push({ value: s.value, text: `${suffix} — ${s.desc}` })
+    map.get(prefix).push({ value: s.value, text: `${suffix} — ${t(s.descKey)}` })
   }
   return [...map.entries()].map(([label, items]) => ({ label, items }))
 })

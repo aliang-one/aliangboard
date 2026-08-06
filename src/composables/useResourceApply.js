@@ -1,5 +1,6 @@
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
+import { i18n } from '@/i18n'
 
 export function useResourceApply() {
   const store = useClusterStore()
@@ -8,9 +9,9 @@ export function useResourceApply() {
   async function applyYaml(yamlStr) {
     const res = await store.applyResourceYaml(yamlStr)
     if (res.ok) {
-      notify('success', `${res.kind}/${res.name} 已更新`)
+      notify('success', i18n.global.t('store.resourceUpdated', { kind: res.kind, name: res.name }))
     } else {
-      notify('error', res.error || '应用失败')
+      notify('error', res.error || i18n.global.t('common.applyFailed'))
     }
     return res
   }

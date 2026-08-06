@@ -1,71 +1,75 @@
 // Secret 预设模板：8 种常见类型，每种含类型化表单字段 + buildData(formData)→{key:value}。
 // detectSecretTemplate(secret) 按类型+data keys 判定模板（供详情页摘要卡）。
 // 纯 JS（buildData 用 Buffer 做 base64 auth），便于 scripts/test.mjs 直接 import。
+//
+// labelKey/descriptionKey/hintKey/fields[].labelKey 存 i18n 键（secretTemplate.* 命名空间）——
+// 保持模块纯净（不引 @/i18n），消费方（NsSecretDetail/CreateResourceDialog）渲染时 t(...Key) 翻译。
+// test.mjs 只校验 buildSecretData/detectSecretTemplate 的数据形态，不读 label 文案，故存键不影响。
 
 const GIT_SERVICES = {
-  github: { key: 'GITHUB_TOKEN', hint: 'scopes: repo / read:packages / read:org' },
-  gitlab: { key: 'GITLAB_TOKEN', hint: 'scopes: api / read_repository / read_registry' },
-  gitea: { key: 'GITEA_TOKEN', hint: '自建 Gitea 服务' },
-  custom: { key: 'token', hint: '自定义 Git 服务' },
+  github: { key: 'GITHUB_TOKEN', hintKey: 'secretTemplate.gitScopeGithub' },
+  gitlab: { key: 'GITLAB_TOKEN', hintKey: 'secretTemplate.gitScopeGitlab' },
+  gitea: { key: 'GITEA_TOKEN', hintKey: 'secretTemplate.gitScopeGitea' },
+  custom: { key: 'token', hintKey: 'secretTemplate.gitScopeCustom' },
 }
 
 export const SECRET_TEMPLATES = [
   {
-    id: 'opaque', label: '通用 Opaque', icon: 'description', k8sType: 'Opaque',
-    description: '自由键值对（最常见）',
-    fields: [{ key: 'data', label: '', type: 'keyvalue' }],
+    id: 'opaque', labelKey: 'secretTemplate.opaque', icon: 'description', k8sType: 'Opaque',
+    descriptionKey: 'secretTemplate.opaqueDesc',
+    fields: [{ key: 'data', labelKey: '', type: 'keyvalue' }],
   },
   {
-    id: 'docker', label: 'Docker 仓库凭证', icon: 'dock', k8sType: 'kubernetes.io/dockerconfigjson',
-    description: '私有镜像拉取（Docker Hub / ghcr.io / registry.gitlab.io 等）',
+    id: 'docker', labelKey: 'secretTemplate.docker', icon: 'dock', k8sType: 'kubernetes.io/dockerconfigjson',
+    descriptionKey: 'secretTemplate.dockerDesc',
     fields: [
-      { key: 'server', label: 'Registry URL', type: 'text', placeholder: 'https://index.docker.io/v1/' },
-      { key: 'username', label: '用户名', type: 'text' },
-      { key: 'password', label: '密码 / PAT', type: 'password' },
-      { key: 'email', label: '邮箱（可选）', type: 'text', optional: true },
+      { key: 'server', labelKey: 'secretTemplate.registryUrl', type: 'text', placeholder: 'https://index.docker.io/v1/' },
+      { key: 'username', labelKey: 'common.name', type: 'text' },
+      { key: 'password', labelKey: 'secretTemplate.passwordOrPat', type: 'password' },
+      { key: 'email', labelKey: 'secretTemplate.emailOptional', type: 'text', optional: true },
     ],
     quickFills: [
       { label: 'Docker Hub', server: 'https://index.docker.io/v1/' },
-      { label: 'GitHub', server: 'ghcr.io', hint: 'username=GitHub 用户名，password=PAT（read:packages）' },
-      { label: 'GitLab', server: 'registry.gitlab.io', hint: 'password=Deploy Token / PAT（read_registry）' },
+      { label: 'GitHub', server: 'ghcr.io', hintKey: 'secretTemplate.quickFillGithub' },
+      { label: 'GitLab', server: 'registry.gitlab.io', hintKey: 'secretTemplate.quickFillGitlab' },
       { label: 'GCR', server: 'gcr.io' },
     ],
   },
   {
-    id: 'tls', label: 'TLS 证书', icon: 'lock', k8sType: 'kubernetes.io/tls',
-    description: 'HTTPS 证书 + 私钥（Ingress TLS）',
+    id: 'tls', labelKey: 'secretTemplate.tls', icon: 'lock', k8sType: 'kubernetes.io/tls',
+    descriptionKey: 'secretTemplate.tlsDesc',
     fields: [
-      { key: 'cert', label: '证书 (PEM)', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----\n...' },
-      { key: 'key', label: '私钥 (PEM)', type: 'textarea', placeholder: '-----BEGIN PRIVATE KEY-----\n...' },
+      { key: 'cert', labelKey: 'secretTemplate.certPem', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----\n...' },
+      { key: 'key', labelKey: 'secretTemplate.keyPem', type: 'textarea', placeholder: '-----BEGIN PRIVATE KEY-----\n...' },
     ],
   },
   {
-    id: 'ssh', label: 'SSH 认证密钥', icon: 'key', k8sType: 'kubernetes.io/ssh-auth',
-    description: 'Git Deploy Key / SSH 认证',
+    id: 'ssh', labelKey: 'secretTemplate.ssh', icon: 'key', k8sType: 'kubernetes.io/ssh-auth',
+    descriptionKey: 'secretTemplate.sshDesc',
     fields: [
-      { key: 'privatekey', label: 'SSH 私钥', type: 'textarea', placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----\n...' },
-      { key: 'known_hosts', label: 'known_hosts（可选）', type: 'textarea', optional: true, placeholder: 'github.com ssh-ed25519 AAAA...' },
+      { key: 'privatekey', labelKey: 'secretTemplate.sshPrivateKey', type: 'textarea', placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----\n...' },
+      { key: 'known_hosts', labelKey: 'secretTemplate.knownHostsOptional', type: 'textarea', optional: true, placeholder: 'github.com ssh-ed25519 AAAA...' },
     ],
   },
   {
-    id: 'basic-auth', label: '基本认证', icon: 'person', k8sType: 'kubernetes.io/basic-auth',
-    description: '用户名 + 密码（htpasswd / 简单认证）',
+    id: 'basic-auth', labelKey: 'secretTemplate.basicAuth', icon: 'person', k8sType: 'kubernetes.io/basic-auth',
+    descriptionKey: 'secretTemplate.basicAuthDesc',
     fields: [
-      { key: 'username', label: '用户名', type: 'text' },
-      { key: 'password', label: '密码', type: 'password' },
+      { key: 'username', labelKey: 'common.name', type: 'text' },
+      { key: 'password', labelKey: 'secretTemplate.password', type: 'password' },
     ],
   },
   {
-    id: 'git-token', label: 'Git Token', icon: 'cloud_sync', k8sType: 'Opaque',
-    description: 'GitHub / GitLab / Gitea 访问令牌（CI/CD、GitOps）',
+    id: 'git-token', labelKey: 'secretTemplate.gitToken', icon: 'cloud_sync', k8sType: 'Opaque',
+    descriptionKey: 'secretTemplate.gitTokenDesc',
     fields: [
-      { key: 'service', label: 'Git 服务', type: 'select', options: Object.entries(GIT_SERVICES).map(([v, { hint }]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), hint })) },
-      { key: 'token', label: 'Token 值', type: 'password' },
+      { key: 'service', labelKey: 'secretTemplate.gitService', type: 'select', options: Object.entries(GIT_SERVICES).map(([v, { hintKey }]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), hintKey })) },
+      { key: 'token', labelKey: 'secretTemplate.tokenValue', type: 'password' },
     ],
   },
   {
-    id: 'aws', label: 'AWS 凭证', icon: 'cloud', k8sType: 'Opaque',
-    description: 'AWS Access Key（外部云操作、S3、IRSA 等）',
+    id: 'aws', labelKey: 'secretTemplate.aws', icon: 'cloud', k8sType: 'Opaque',
+    descriptionKey: 'secretTemplate.awsDesc',
     fields: [
       { key: 'access_key_id', label: 'AWS_ACCESS_KEY_ID', type: 'text' },
       { key: 'secret_access_key', label: 'AWS_SECRET_ACCESS_KEY', type: 'password' },
@@ -73,10 +77,10 @@ export const SECRET_TEMPLATES = [
     ],
   },
   {
-    id: 'db', label: '数据库连接', icon: 'database', k8sType: 'Opaque',
-    description: '数据库连接参数',
+    id: 'db', labelKey: 'secretTemplate.db', icon: 'database', k8sType: 'Opaque',
+    descriptionKey: 'secretTemplate.dbDesc',
     fields: [
-      { key: 'mode', label: '格式', type: 'select', options: [{ value: 'split', label: '拆分字段' }, { value: 'url', label: '单 URL' }] },
+      { key: 'mode', labelKey: 'secretTemplate.dbFormat', type: 'select', options: [{ value: 'split', labelKey: 'secretTemplate.dbModeSplit' }, { value: 'url', labelKey: 'secretTemplate.dbModeUrl' }] },
       { key: 'host', label: 'DB_HOST', type: 'text', placeholder: 'db.example.com' },
       { key: 'port', label: 'DB_PORT', type: 'text', placeholder: '5432' },
       { key: 'name', label: 'DB_NAME', type: 'text', placeholder: 'myapp' },

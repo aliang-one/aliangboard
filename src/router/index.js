@@ -15,7 +15,7 @@ const routes = [
     path: '/select-cluster',
     name: 'SelectCluster',
     component: () => import('@/views/SelectCluster.vue'),
-    meta: { title: '选择集群' }
+    meta: { titleKey: 'selectCluster.title' }
   },
   {
     // 独立终端弹窗（新标签页打开），不走 AppLayout（无侧栏/顶栏，纯全屏终端）
@@ -40,7 +40,7 @@ const routes = [
         path: 'monitoring',
         name: 'MonitoringCenter',
         component: () => import('@/views/MonitoringCenter.vue'),
-        meta: { title: '监控中心', icon: 'monitoring', scope: 'global' }
+        meta: { titleKey: 'nav.monitoring', icon: 'monitoring', scope: 'global' }
       },
       {
         path: 'nodes',
@@ -100,7 +100,7 @@ const routes = [
         path: 'rbac/can-i',
         name: 'RbacCanI',
         component: () => import('@/views/RbacCanI.vue'),
-        meta: { title: '权限模拟 (can-i)', icon: 'verified_user', scope: 'global' }
+        meta: { titleKey: 'route.canI', icon: 'verified_user', scope: 'global' }
       },
       {
         path: 'deploy',
@@ -246,7 +246,7 @@ const routes = [
         path: 'ns/:namespace/layers',
         name: 'NsLayers',
         component: () => import('@/views/NsLayers.vue'),
-        meta: { title: '应用分层', icon: 'layers', scope: 'namespace' }
+        meta: { titleKey: 'route.layers', icon: 'layers', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/workloads/:type/:name',
@@ -432,56 +432,56 @@ const routes = [
         path: 'workbench',
         name: 'Workbench',
         component: () => import('@/views/WorkbenchList.vue'),
-        meta: { title: '工作台', icon: 'workspaces', scope: 'global' }
+        meta: { titleKey: 'nav.workbench', icon: 'workspaces', scope: 'global' }
       },
       {
         path: 'workbench/ledger',
         name: 'WorkbenchLedger',
         component: () => import('@/views/WorkbenchLedger.vue'),
-        meta: { title: '集群台账', scope: 'global' }
+        meta: { titleKey: 'route.clusterLedger', scope: 'global' }
       },
       {
         path: 'workbench/:id',
         name: 'WorkbenchProject',
         component: () => import('@/views/WorkbenchDetail.vue'),
-        meta: { title: '项目', scope: 'global' }
+        meta: { titleKey: 'route.project', scope: 'global' }
       },
       {
         path: 'workbench/:id/chat',
         name: 'WorkbenchProjectChat',
         component: () => import('@/views/WorkbenchProjectChat.vue'),
-        meta: { title: '项目 AI 助手', scope: 'global' }
+        meta: { titleKey: 'route.projectAiAssistant', scope: 'global' }
       },
       // === 平台管理（admin only）===
       {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/UserManagement.vue'),
-        meta: { title: '用户管理', icon: 'group', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.userManagement', icon: 'group', scope: 'global', requireAdmin: true }
       },
       {
         path: 'admin/clusters',
         name: 'AdminClusters',
         component: () => import('@/views/admin/ClusterManagement.vue'),
-        meta: { title: '集群管理', icon: 'cloud', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.clusterManagement', icon: 'cloud', scope: 'global', requireAdmin: true }
       },
       {
         path: 'admin/apikeys',
         name: 'AdminApiKeys',
         component: () => import('@/views/admin/ApiKeyManagement.vue'),
-        meta: { title: 'API Keys 管理', icon: 'vpn_key', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.apiKeys', icon: 'vpn_key', scope: 'global', requireAdmin: true }
       },
       {
         path: 'admin/agent',
         name: 'AdminAgentConsole',
         component: () => import('@/views/admin/AgentConsole.vue'),
-        meta: { title: 'AI 控制台', icon: 'smart_toy', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.aiConsole', icon: 'smart_toy', scope: 'global', requireAdmin: true }
       },
       {
         path: 'admin/llm-config',
         name: 'AdminLlmConfig',
         component: () => import('@/views/admin/LlmConfig.vue'),
-        meta: { title: 'LLM 配置', icon: 'neurology', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true }
       },
     ]
   }

@@ -266,6 +266,7 @@ async function handleDeleteRev() {
 }
 
 const tierOptions = TIER_OPTIONS
+function tierLabel(o) { return o.parentLabelKey ? `${t(o.parentLabelKey)} / ${t(o.labelKey)}` : t(o.labelKey) }
 
 async function handleDelete() {
   await store.deleteWorkload(route.params.name, route.params.namespace)
@@ -1819,7 +1820,7 @@ function podStatusBorder(s) {
           <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.tier') }}</label>
           <div class="flex flex-wrap gap-xs">
             <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm transition-colors" :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:bg-surface-container'">
-              <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+              <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ tierLabel(t) }}
             </button>
           </div>
         </div>
@@ -2018,8 +2019,8 @@ function podStatusBorder(s) {
           <div class="col-span-2">
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.layerLabel') }}</label>
             <div class="flex flex-wrap gap-xs">
-              <button v-for="t in tierOptions" :key="t.value" @click="metaForm.layer = metaForm.layer === t.value ? '' : t.value" :title="t.desc" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm" :class="metaForm.layer === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">
-                <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
+              <button v-for="t in tierOptions" :key="t.value" @click="metaForm.layer = metaForm.layer === t.value ? '' : t.value" :title="$t(t.descKey)" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm" :class="metaForm.layer === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">
+                <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ tierLabel(t) }}
               </button>
             </div>
           </div>

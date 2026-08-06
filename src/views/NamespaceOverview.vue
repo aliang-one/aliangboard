@@ -63,13 +63,13 @@ const layerSections = computed(() => {
     if (!buckets[key]) buckets[key] = []
     buckets[key].push(d)
   }
-  const make = (k, l, i, d, c, col, coll) => ({ key: k, label: l, icon: i, desc: d, color: c, column: col, collapsible: coll, items: (buckets[k] || []).map(x => ({ dep: x, assoc: associations(x) })) })
+  const make = (k, lk, i, dk, c, col, coll) => ({ key: k, labelKey: lk, icon: i, descKey: dk, color: c, column: col, collapsible: coll, items: (buckets[k] || []).map(x => ({ dep: x, assoc: associations(x) })) })
   const sections = []
   for (const node of LAYER_TAXONOMY) {
     if (node.children) {
-      for (const sub of node.children) sections.push(make(sub.key, sub.label, sub.icon, sub.desc, sub.color, node.column, COLLAPSIBLE.has(sub.key)))
+      for (const sub of node.children) sections.push(make(sub.key, sub.labelKey, sub.icon, sub.descKey, sub.color, node.column, COLLAPSIBLE.has(sub.key)))
     } else {
-      sections.push(make(node.key, node.label, node.icon, node.desc, node.color, node.column, COLLAPSIBLE.has(node.key)))
+      sections.push(make(node.key, node.labelKey, node.icon, node.descKey, node.color, node.column, COLLAPSIBLE.has(node.key)))
     }
   }
   return sections
@@ -237,7 +237,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <section v-for="section in centerSections" :key="section.key">
           <div class="flex items-center gap-sm mb-sm" :class="section.collapsible ? 'cursor-pointer select-none hover:bg-surface-container-low/40 -mx-sm px-sm py-xs rounded-lg transition-colors' : ''" @click="section.collapsible && toggleLayer(section)">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" :class="LAYER_COLOR[section.color] || LAYER_COLOR.surface"><span class="material-symbols-outlined text-base">{{ section.icon }}</span></div>
-            <div class="min-w-0 flex-1"><div class="flex items-center gap-xs"><h2 class="text-body-md font-bold text-on-surface">{{ section.label }}</h2><span v-if="section.collapsible" class="px-1 py-0.5 rounded bg-surface-container text-[10px] text-on-surface-variant">{{ t('ns.namespaceOverview.collapsible') }}</span></div><p class="text-xs text-on-surface-variant truncate">{{ section.desc }}</p></div>
+            <div class="min-w-0 flex-1"><div class="flex items-center gap-xs"><h2 class="text-body-md font-bold text-on-surface">{{ t(section.labelKey) }}</h2><span v-if="section.collapsible" class="px-1 py-0.5 rounded bg-surface-container text-[10px] text-on-surface-variant">{{ t('ns.namespaceOverview.collapsible') }}</span></div><p class="text-xs text-on-surface-variant truncate">{{ t(section.descKey) }}</p></div>
             <span class="px-1.5 py-0.5 rounded-full bg-surface-container text-xs text-on-surface-variant font-medium">{{ section.items.length }}</span>
             <span v-if="section.collapsible" class="material-symbols-outlined text-on-surface-variant text-base">{{ isLayerCollapsed(section) ? 'chevron_right' : 'expand_more' }}</span>
           </div>

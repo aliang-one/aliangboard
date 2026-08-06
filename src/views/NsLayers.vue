@@ -47,7 +47,14 @@ const layerTarget = ref(null)
 const layerSaving = ref(false)
 function setLayer(it) { layerTarget.value = it; showLayerModal.value = true }
 function currentLayerOf(it) { return it ? classifyResource(it) : '' }
-function layerLabel(key) { return TIER_OPTIONS.find(o => o.value === key)?.label || key }
+function layerLabel(key) {
+  const o = TIER_OPTIONS.find(o => o.value === key)
+  if (!o) return key
+  return o.parentLabelKey ? `${t(o.parentLabelKey)} / ${t(o.labelKey)}` : t(o.labelKey)
+}
+function tierOptionLabel(o) {
+  return o.parentLabelKey ? `${t(o.parentLabelKey)} / ${t(o.labelKey)}` : t(o.labelKey)
+}
 async function applyLayer(key) {
   const it = layerTarget.value
   if (!it) return
@@ -92,7 +99,7 @@ async function applyLayer(key) {
         <div v-for="g in leftGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
             <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
-            <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
+            <h3 class="text-body-sm text-on-surface font-bold">{{ $t(g.labelKey) }}</h3>
             <span class="text-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs">
@@ -121,8 +128,8 @@ async function applyLayer(key) {
           <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40 bg-surface-container-low/40">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span></div>
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-xs"><h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3><span class="px-1.5 py-0.5 rounded bg-primary-container/15 text-primary text-xs font-semibold">{{ g.count }}</span></div>
-              <p class="text-xs text-on-surface-variant truncate">{{ g.desc }}</p>
+              <div class="flex items-center gap-xs"><h3 class="text-body-sm text-on-surface font-bold">{{ $t(g.labelKey) }}</h3><span class="px-1.5 py-0.5 rounded bg-primary-container/15 text-primary text-xs font-semibold">{{ g.count }}</span></div>
+              <p class="text-xs text-on-surface-variant truncate">{{ $t(g.descKey) }}</p>
             </div>
           </div>
           <!-- 微服务子层 -->
@@ -130,7 +137,7 @@ async function applyLayer(key) {
             <div v-for="sub in g.children" :key="sub.key" class="px-md py-2">
               <div class="flex items-center gap-xs mb-xs">
                 <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ sub.icon }}</span>
-                <h4 class="text-xs font-semibold text-on-surface">{{ sub.label }}</h4>
+                <h4 class="text-xs font-semibold text-on-surface">{{ $t(sub.labelKey) }}</h4>
                 <span class="text-xs text-on-surface-variant">{{ sub.items.length }}</span>
               </div>
               <div class="flex flex-wrap gap-xs">
@@ -167,7 +174,7 @@ async function applyLayer(key) {
         <div v-for="g in rightGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="flex items-center gap-sm px-md py-2 border-b border-outline-variant/40">
             <div class="w-7 h-7 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-base">{{ g.icon }}</span></div>
-            <h3 class="text-body-sm text-on-surface font-bold">{{ g.label }}</h3>
+            <h3 class="text-body-sm text-on-surface font-bold">{{ $t(g.labelKey) }}</h3>
             <span class="text-xs text-on-surface-variant ml-auto">{{ g.count }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs">
@@ -204,7 +211,7 @@ async function applyLayer(key) {
       <div class="flex flex-wrap gap-sm p-md border-t border-outline-variant/50">
         <div v-for="n in LAYER_TAXONOMY" :key="n.key" class="flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded-lg">
           <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ n.icon }}</span>
-          <span class="text-xs font-medium text-on-surface">{{ n.label }}</span>
+          <span class="text-xs font-medium text-on-surface">{{ $t(n.labelKey) }}</span>
         </div>
       </div>
     </details>
@@ -216,7 +223,7 @@ async function applyLayer(key) {
         <button v-for="t in TIER_OPTIONS" :key="t.value" @click="applyLayer(t.value)" :disabled="layerSaving"
           class="flex items-center gap-xs px-md py-sm rounded-lg border text-body-sm transition-colors disabled:opacity-50"
           :class="currentLayerOf(layerTarget) === t.value ? 'bg-primary text-on-primary border-primary font-semibold' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
-          <span class="material-symbols-outlined text-base">{{ t.icon }}</span>{{ t.label }}
+          <span class="material-symbols-outlined text-base">{{ t.icon }}</span>{{ tierOptionLabel(t) }}
         </button>
       </div>
     </Modal>
