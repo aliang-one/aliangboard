@@ -7,6 +7,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { dump as yamlDump } from 'js-yaml'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { api, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -25,7 +26,16 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const svc = computed(() => store.getServiceByName(route.params.name, route.params.namespace))
+// 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('services')，编辑后自动刷新。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const svcDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'services', route.params.name],
+  fetcher: () => store.fetchService(route.params.name, route.params.namespace),
+  mock: store.getServiceByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const svc = computed(() => svcDetail.data.value ?? store.getServiceByName(route.params.name, route.params.namespace))
 
 const showEditModal = ref(false)
 const showYamlModal = ref(false)
