@@ -18,6 +18,7 @@ import { createAgentRunner } from './agent-runner.mjs'
 import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
+import { runDistill } from './distill.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -987,6 +988,35 @@ async function handle(req, res) {
       const r = await bootstrapLedgerForCluster(cluster)
       return sendJson(res, 200, { index: r.index, files: r.files })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
+  }
+
+  // ====== 工作台:台账 distill(D2,自我学习;admin)======
+  if (url.pathname === '/api/workbench/distill' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(蒸馏需要 LLM)' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+      const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
+      return sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }) }
+  }
+  if (url.pathname === '/api/workbench/distill/apply' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+      if (!(await hasRepo(repo))) await initRepo(repo)
+      await wbWriteFile(repo, 'learnings.md', input.learnings || '')
+      await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
+      return sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '应用失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
