@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
 import { readMeta } from '@/composables/useBusinessMeta'
@@ -9,6 +10,8 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -63,10 +66,10 @@ function exportWorkload(row) {
 // 行操作菜单
 function menuItems(row) {
   return [
-    { label: '查看详情', icon: 'open_in_new', action: () => goDetail(row) },
-    { label: '导出 YAML', icon: 'download', action: () => exportWorkload(row) },
-    { label: '重启', icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
-    { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
+    { label: t('ns.workloads.viewDetail'), icon: 'open_in_new', action: () => goDetail(row) },
+    { label: t('ns.workloads.exportYaml'), icon: 'download', action: () => exportWorkload(row) },
+    { label: t('ns.workloads.restart'), icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
+    { label: t('ns.workloads.delete'), icon: 'delete', danger: true, action: () => confirmDelete(row) },
   ]
 }
 
@@ -95,11 +98,11 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md font-bold text-on-surface">Workloads</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: store.nsWorkloads.length, ns: route.params.namespace }) }}</p>
       </div>
       <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">rocket_launch</span> New Workload
+        <span class="material-symbols-outlined">rocket_launch</span> {{ t('ns.workloads.new') }}
       </router-link>
     </div>
 
@@ -107,22 +110,22 @@ function handleDelete() {
     <div class="grid grid-cols-4 gap-sm mb-md">
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Deployment' ? 'All' : 'Deployment'">
         <span class="material-symbols-outlined text-primary text-base">view_carousel</span>
-        <span class="text-body-sm text-on-surface-variant">Deployments</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.deployments') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ deployCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'StatefulSet' ? 'All' : 'StatefulSet'">
         <span class="material-symbols-outlined text-secondary text-base">database</span>
-        <span class="text-body-sm text-on-surface-variant">StatefulSets</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.statefulSets') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ stsCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'DaemonSet' ? 'All' : 'DaemonSet'">
         <span class="material-symbols-outlined text-tertiary text-base">settings_slow_motion</span>
-        <span class="text-body-sm text-on-surface-variant">DaemonSets</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.daemonSets') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ dsCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Job' ? 'All' : 'Job'">
         <span class="material-symbols-outlined text-on-surface-variant text-base">schedule</span>
-        <span class="text-body-sm text-on-surface-variant">Jobs</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.jobs') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ jobCount }}</span>
       </div>
     </div>
@@ -131,15 +134,15 @@ function handleDelete() {
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索名称或镜像..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.workloads.searchPlaceholder')" />
       </div>
       <select v-model="typeFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
-        <option v-for="t in typeOptions" :key="t" :value="t">{{ t === 'All' ? 'All Types' : t }}</option>
+        <option v-for="t in typeOptions" :key="t" :value="t">{{ t === 'All' ? t('ns.workloads.allTypes') : t }}</option>
       </select>
       <select v-model="statusFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
-        <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? 'All Statuses' : s }}</option>
+        <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? t('ns.workloads.allStatuses') : s }}</option>
       </select>
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} result{{ filtered.length !== 1 ? 's' : '' }}</span>
+      <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.results', { n: filtered.length }) }}</span>
     </div>
 
     <!-- Table -->
@@ -147,12 +150,12 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Image</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thType') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thStatus') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thReplicas') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thImage') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thAge') }}</th>
             <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-12"></th>
           </tr>
         </thead>
@@ -186,7 +189,7 @@ function handleDelete() {
           <tr v-if="!filtered.length">
             <td colspan="7" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-body-sm text-on-surface-variant">No workloads found matching your filters</p>
+              <p class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.noMatch') }}</p>
             </td>
           </tr>
         </tbody>
@@ -206,12 +209,12 @@ function handleDelete() {
   </section>
 
   <!-- 删除确认 -->
-  <Modal v-model="showDeleteModal" title="删除工作负载" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定要删除工作负载 <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span> 吗？</p>
-    <p class="text-body-sm text-error mt-sm">此操作不可撤销，其管理的所有 Pod 将被终止。</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.workloads.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.workloads.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.workloads.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('ns.workloads.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('ns.workloads.delete') }}</button>
     </template>
   </Modal>
 </template>

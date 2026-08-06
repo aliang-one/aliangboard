@@ -3,10 +3,13 @@
 // 关联 Service/Ingress 仅以标签呈现，hover 弹出富信息卡片（teleport 至 body，不被卡片裁切）。
 import { computed, ref, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -132,10 +135,10 @@ function flatItems(section) {
 
 // 健康度
 const HEALTH_META = {
-  healthy: { dot: 'bg-status-running', text: 'text-status-running', label: '正常运行', spin: false, accent: 'border-l-status-running' },
-  updating: { dot: 'bg-status-succeeded', text: 'text-status-succeeded', label: '滚动更新中', spin: true, accent: 'border-l-status-succeeded' },
-  warning: { dot: 'bg-status-pending', text: 'text-status-pending', label: '部分就绪', spin: false, accent: 'border-l-status-pending' },
-  failed: { dot: 'bg-status-failed', text: 'text-status-failed', label: '异常', spin: false, accent: 'border-l-status-failed' },
+  healthy: { dot: 'bg-status-running', text: 'text-status-running', label: 'ns.namespaceOverview.healthy', spin: false, accent: 'border-l-status-running' },
+  updating: { dot: 'bg-status-succeeded', text: 'text-status-succeeded', label: 'ns.namespaceOverview.updating', spin: true, accent: 'border-l-status-succeeded' },
+  warning: { dot: 'bg-status-pending', text: 'text-status-pending', label: 'ns.namespaceOverview.warning', spin: false, accent: 'border-l-status-pending' },
+  failed: { dot: 'bg-status-failed', text: 'text-status-failed', label: 'ns.namespaceOverview.failed', spin: false, accent: 'border-l-status-failed' },
 }
 function healthOf(dep) {
   const st = dep?.raw?.status || {}
@@ -149,7 +152,8 @@ function healthOf(dep) {
   else if (desired === 0) level = 'warning'
   else if (updated < desired) level = 'updating'
   else if (ready < desired) level = 'warning'
-  return { desired, ready, ...HEALTH_META[level] }
+  const meta = HEALTH_META[level]
+  return { desired, ready, ...meta, label: t(meta.label) }
 }
 
 // hover 富信息卡片
@@ -180,17 +184,16 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <div>
           <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }}</h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
-            <span class="text-primary font-semibold">{{ deployments.length }}</span> 个 Deployment ·
-            <span class="text-on-surface-variant">{{ layerSections.filter(s => s.items.length).length }} 个分层有实例</span>
+            <span class="text-primary font-semibold">{{ deployments.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: deployments.length, layers: layerSections.filter(s => s.items.length).length }) }}
           </p>
         </div>
       </div>
       <div class="flex items-center gap-xs">
-        <button @click="router.push({ name: 'NsLayers', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors" title="调整应用分层">
-          <span class="material-symbols-outlined text-sm">layers</span><span class="hidden sm:inline">调整分组</span>
+        <button @click="router.push({ name: 'NsLayers', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors" :title="t('ns.namespaceOverview.adjustGroupTitle')">
+          <span class="material-symbols-outlined text-sm">layers</span><span class="hidden sm:inline">{{ t('ns.namespaceOverview.adjustGroup') }}</span>
         </button>
         <button @click="router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-          <span class="material-symbols-outlined text-sm">add</span> Deploy
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.namespaceOverview.deploy') }}
         </button>
       </div>
     </div>
@@ -201,10 +204,10 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
       <!-- ============ 左：监控层（竖直可折叠） ============ -->
       <template v-if="monitoringSection">
         <div v-if="!isLayerCollapsed(monitoringSection)" class="w-full xl:w-[200px] shrink-0 flex flex-col gap-sm xl:sticky xl:top-2 xl:max-h-[calc(100vh-160px)] xl:overflow-y-auto">
-          <div class="flex items-center gap-xs px-xs py-xs rounded-lg cursor-pointer select-none hover:bg-surface-container-low/50 transition-colors" @click="toggleLayer(monitoringSection)" title="收起整列">
+          <div class="flex items-center gap-xs px-xs py-xs rounded-lg cursor-pointer select-none hover:bg-surface-container-low/50 transition-colors" @click="toggleLayer(monitoringSection)" :title="t('ns.namespaceOverview.collapseColumn')">
             <span class="material-symbols-outlined text-on-surface-variant text-base">chevron_right</span>
             <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" :class="LAYER_COLOR[monitoringSection.color] || LAYER_COLOR.surface"><span class="material-symbols-outlined text-base">{{ monitoringSection.icon }}</span></div>
-            <h3 class="text-body-sm font-bold text-on-surface">{{ monitoringSection.label }}</h3>
+            <h3 class="text-body-sm font-bold text-on-surface">{{ t('ns.namespaceOverview.monitoringLayer') }}</h3>
             <span class="text-body-xs text-on-surface-variant ml-auto">{{ monitoringSection.items.length }}</span>
           </div>
           <div v-if="monitoringSection.items.length" class="flex flex-col gap-xs px-xs">
@@ -219,13 +222,13 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
           </div>
           <div v-else class="rounded-lg border border-dashed border-outline-variant/40 py-sm text-center">
             <span class="material-symbols-outlined text-lg text-surface-container-high">{{ monitoringSection.icon }}</span>
-            <p class="text-[10px] text-on-surface-variant/50 mt-0.5">本命名空间暂无</p>
+            <p class="text-[10px] text-on-surface-variant/50 mt-0.5">{{ t('ns.namespaceOverview.noLayerItems') }}</p>
           </div>
         </div>
-        <button v-else @click="toggleLayer(monitoringSection)" :title="`监控层 · ${monitoringSection.items.length} 个 · 点击展开`" class="w-full xl:w-9 shrink-0 flex xl:flex-col items-center justify-center gap-xs py-sm xl:py-md rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary/5 transition-colors group">
+        <button v-else @click="toggleLayer(monitoringSection)" :title="t('ns.namespaceOverview.expandLayer', { n: monitoringSection.items.length })" class="w-full xl:w-9 shrink-0 flex xl:flex-col items-center justify-center gap-xs py-sm xl:py-md rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary/5 transition-colors group">
           <span class="material-symbols-outlined text-base" :class="(LAYER_COLOR[monitoringSection.color] || LAYER_COLOR.surface).split(' ').find(c => c.startsWith('text-'))">monitoring</span>
           <span class="text-xs font-bold text-on-surface">{{ monitoringSection.items.length }}</span>
-          <span class="hidden xl:inline text-[9px] text-on-surface-variant/60 [writing-mode:vertical-rl] group-hover:text-primary">监控层</span>
+          <span class="hidden xl:inline text-[9px] text-on-surface-variant/60 [writing-mode:vertical-rl] group-hover:text-primary">{{ t('ns.namespaceOverview.monitoringLayer') }}</span>
         </button>
       </template>
 
@@ -234,7 +237,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <section v-for="section in centerSections" :key="section.key">
           <div class="flex items-center gap-sm mb-sm" :class="section.collapsible ? 'cursor-pointer select-none hover:bg-surface-container-low/40 -mx-sm px-sm py-xs rounded-lg transition-colors' : ''" @click="section.collapsible && toggleLayer(section)">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" :class="LAYER_COLOR[section.color] || LAYER_COLOR.surface"><span class="material-symbols-outlined text-base">{{ section.icon }}</span></div>
-            <div class="min-w-0 flex-1"><div class="flex items-center gap-xs"><h2 class="text-body-md font-bold text-on-surface">{{ section.label }}</h2><span v-if="section.collapsible" class="px-1 py-0.5 rounded bg-surface-container text-[10px] text-on-surface-variant">可折叠</span></div><p class="text-xs text-on-surface-variant truncate">{{ section.desc }}</p></div>
+            <div class="min-w-0 flex-1"><div class="flex items-center gap-xs"><h2 class="text-body-md font-bold text-on-surface">{{ section.label }}</h2><span v-if="section.collapsible" class="px-1 py-0.5 rounded bg-surface-container text-[10px] text-on-surface-variant">{{ t('ns.namespaceOverview.collapsible') }}</span></div><p class="text-xs text-on-surface-variant truncate">{{ section.desc }}</p></div>
             <span class="px-1.5 py-0.5 rounded-full bg-surface-container text-xs text-on-surface-variant font-medium">{{ section.items.length }}</span>
             <span v-if="section.collapsible" class="material-symbols-outlined text-on-surface-variant text-base">{{ isLayerCollapsed(section) ? 'chevron_right' : 'expand_more' }}</span>
           </div>
@@ -262,13 +265,13 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
                     </div>
                   </div>
                   <div v-if="it.assoc.services.length || it.assoc.ingressRules.length" class="shrink-0 w-[116px] border-l border-outline-variant/40 bg-surface-container-low/40 p-sm flex flex-col gap-xs justify-center">
-                    <button v-if="it.assoc.services.length" @click.stop="goSvc(it.assoc.services[0])" @mouseenter="onEnterAssoc($event, 'svc', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">hub</span> Service<span v-if="it.assoc.services.length > 1" class="font-semibold text-primary">{{ it.assoc.services.length }}</span></button>
-                    <button v-if="it.assoc.ingressRules.length" @click.stop="goIng(it.assoc.ingressRules[0])" @mouseenter="onEnterAssoc($event, 'ing', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">alt_route</span> Ingress<span v-if="it.assoc.ingressRules.length > 1" class="font-semibold text-primary">{{ it.assoc.ingressRules.length }}</span></button>
+                    <button v-if="it.assoc.services.length" @click.stop="goSvc(it.assoc.services[0])" @mouseenter="onEnterAssoc($event, 'svc', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">hub</span> {{ t('ns.namespaceOverview.relatedService') }}<span v-if="it.assoc.services.length > 1" class="font-semibold text-primary">{{ it.assoc.services.length }}</span></button>
+                    <button v-if="it.assoc.ingressRules.length" @click.stop="goIng(it.assoc.ingressRules[0])" @mouseenter="onEnterAssoc($event, 'ing', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">alt_route</span> {{ t('ns.namespaceOverview.relatedIngress') }}<span v-if="it.assoc.ingressRules.length > 1" class="font-semibold text-primary">{{ it.assoc.ingressRules.length }}</span></button>
                   </div>
                 </div>
               </div>
             </div>
-            <p v-else class="text-xs text-on-surface-variant/40 py-sm pl-sm">该层暂无 Deployment</p>
+            <p v-else class="text-xs text-on-surface-variant/40 py-sm pl-sm">{{ t('ns.namespaceOverview.noDeployInLayer') }}</p>
           </div>
         </section>
       </div>
@@ -276,9 +279,9 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
       <!-- ============ 右：中间件层（竖直可折叠） ============ -->
       <template v-if="middlewareSection">
         <div v-if="!isLayerCollapsed(middlewareSection)" class="w-full xl:w-[200px] shrink-0 flex flex-col gap-sm xl:sticky xl:top-2 xl:max-h-[calc(100vh-160px)] xl:overflow-y-auto">
-          <div class="flex items-center gap-xs px-xs py-xs rounded-lg cursor-pointer select-none hover:bg-surface-container-low/50 transition-colors" @click="toggleLayer(middlewareSection)" title="收起整列">
+          <div class="flex items-center gap-xs px-xs py-xs rounded-lg cursor-pointer select-none hover:bg-surface-container-low/50 transition-colors" @click="toggleLayer(middlewareSection)" :title="t('ns.namespaceOverview.collapseColumn')">
             <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" :class="LAYER_COLOR[middlewareSection.color] || LAYER_COLOR.surface"><span class="material-symbols-outlined text-base">{{ middlewareSection.icon }}</span></div>
-            <h3 class="text-body-sm font-bold text-on-surface">{{ middlewareSection.label }}</h3><span class="text-body-xs text-on-surface-variant ml-auto">{{ middlewareSection.items.length }}</span>
+            <h3 class="text-body-sm font-bold text-on-surface">{{ t('ns.namespaceOverview.middlewareLayer') }}</h3><span class="text-body-xs text-on-surface-variant ml-auto">{{ middlewareSection.items.length }}</span>
           </div>
           <div v-if="middlewareSection.items.length" class="flex flex-col gap-xs px-xs">
             <div v-for="it in middlewareSection.items" :key="it.dep.name" @click="goDeploy(it.dep)" class="rounded-lg bg-surface-container-lowest border border-outline-variant border-l-4 p-sm cursor-pointer hover:border-primary hover:shadow-sm transition-all" :class="healthOf(it.dep).accent">
@@ -287,12 +290,12 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
               <div class="flex items-center justify-between mt-1 text-[11px]"><span class="font-mono text-on-surface">{{ healthOf(it.dep).ready }}/{{ healthOf(it.dep).desired }}</span><span :class="healthOf(it.dep).text">{{ healthOf(it.dep).label }}</span></div>
             </div>
           </div>
-          <div v-else class="rounded-lg border border-dashed border-outline-variant/40 py-sm text-center"><span class="material-symbols-outlined text-lg text-surface-container-high">{{ middlewareSection.icon }}</span><p class="text-[10px] text-on-surface-variant/50 mt-0.5">本命名空间暂无</p></div>
+          <div v-else class="rounded-lg border border-dashed border-outline-variant/40 py-sm text-center"><span class="material-symbols-outlined text-lg text-surface-container-high">{{ middlewareSection.icon }}</span><p class="text-[10px] text-on-surface-variant/50 mt-0.5">{{ t('ns.namespaceOverview.noLayerItems') }}</p></div>
         </div>
-        <button v-else @click="toggleLayer(middlewareSection)" :title="`中间件层 · ${middlewareSection.items.length} 个 · 点击展开`" class="w-full xl:w-9 shrink-0 flex xl:flex-col items-center justify-center gap-xs py-sm xl:py-md rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary/5 transition-colors group">
+        <button v-else @click="toggleLayer(middlewareSection)" :title="t('ns.namespaceOverview.expandMiddleware', { n: middlewareSection.items.length })" class="w-full xl:w-9 shrink-0 flex xl:flex-col items-center justify-center gap-xs py-sm xl:py-md rounded-lg border border-outline-variant bg-surface-container-lowest hover:border-primary hover:bg-primary/5 transition-colors group">
           <span class="material-symbols-outlined text-base" :class="(LAYER_COLOR[middlewareSection.color] || LAYER_COLOR.surface).split(' ').find(c => c.startsWith('text-'))">sync_alt</span>
           <span class="text-xs font-bold text-on-surface">{{ middlewareSection.items.length }}</span>
-          <span class="hidden xl:inline text-[9px] text-on-surface-variant/60 [writing-mode:vertical-rl] group-hover:text-primary">中间件</span>
+          <span class="hidden xl:inline text-[9px] text-on-surface-variant/60 [writing-mode:vertical-rl] group-hover:text-primary">{{ t('ns.namespaceOverview.middlewareLayer') }}</span>
         </button>
       </template>
     </div>
@@ -300,8 +303,8 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
     <!-- 空状态 -->
     <div v-else class="rounded-xl border border-dashed border-outline-variant/50 py-xl text-center">
       <span class="material-symbols-outlined text-3xl text-surface-container-high">workspaces</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">该命名空间暂无 Deployment</p>
-      <button @click="router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })" class="mt-md inline-flex items-center gap-xs px-md py-sm text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity"><span class="material-symbols-outlined text-sm">rocket_launch</span> 部署应用</button>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('ns.namespaceOverview.emptyDeploy') }}</p>
+      <button @click="router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })" class="mt-md inline-flex items-center gap-xs px-md py-sm text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity"><span class="material-symbols-outlined text-sm">rocket_launch</span> {{ t('ns.namespaceOverview.deployApp') }}</button>
     </div>
 
     <!-- hover 富信息卡片 -->
@@ -309,7 +312,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
       <div v-if="hover" class="fixed z-[100] w-80 rounded-xl bg-surface-container-lowest border border-outline-variant shadow-2xl overflow-hidden animate-fade-in" :style="{ top: hover.top + 'px', right: hover.right + 'px' }" @mouseenter="onPopoverEnter" @mouseleave="onLeaveAssoc">
         <div class="px-md py-1.5 border-b border-outline-variant/40" :class="hover.type === 'svc' ? 'bg-primary/5' : 'bg-secondary/5'">
           <span class="material-symbols-outlined text-base" :class="hover.type === 'svc' ? 'text-primary' : 'text-secondary'">{{ hover.type === 'svc' ? 'hub' : 'alt_route' }}</span>
-          <span class="text-body-sm font-semibold text-on-surface">{{ hover.type === 'svc' ? '关联 Service' : '关联 Ingress' }}</span>
+          <span class="text-body-sm font-semibold text-on-surface">{{ hover.type === 'svc' ? t('ns.namespaceOverview.relatedService') : t('ns.namespaceOverview.relatedIngress') }}</span>
           <span class="text-body-xs text-on-surface-variant ml-auto">{{ hover.items.length }}</span>
         </div>
         <div v-if="hover.type === 'svc'" class="p-sm flex flex-col gap-sm max-h-72 overflow-y-auto">
@@ -318,7 +321,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <div v-else class="p-sm flex flex-col gap-sm max-h-72 overflow-y-auto">
           <div v-for="(r, i) in hover.items" :key="r.ingName + i" class="flex flex-col gap-0.5"><div class="flex items-center gap-xs"><span class="font-mono text-xs font-semibold text-secondary truncate">{{ r.host }}<span class="text-on-surface-variant font-normal">{{ r.path }}</span></span><span v-if="r.tls" class="ml-auto shrink-0 px-1 py-0.5 rounded bg-status-running/10 text-status-running text-[10px] flex items-center gap-0.5"><span class="material-symbols-outlined" style="font-size:11px">lock</span>TLS</span></div><p class="font-mono text-[11px] truncate"><span class="text-on-surface-variant/50">后端</span> <span class="text-primary">{{ r.serviceName }}{{ r.servicePort ? ':' + r.servicePort : '' }}</span></p><p class="text-[11px] text-on-surface-variant truncate"><span class="text-on-surface-variant/50">Ingress</span> {{ r.ingName }}<span v-if="r.className"> · {{ r.className }}</span></p><p v-if="r.tlsSecret" class="text-[11px] text-on-surface-variant truncate"><span class="text-on-surface-variant/50">TLS Secret</span> {{ r.tlsSecret }}</p><p class="text-[11px] text-on-surface-variant/50">创建于 {{ r.age }}</p></div>
         </div>
-        <div class="px-md py-1 border-t border-outline-variant/40 text-[10px] text-on-surface-variant/50 text-center">点击标签进入详情页</div>
+        <div class="px-md py-1 border-t border-outline-variant/40 text-[10px] text-on-surface-variant/50 text-center">{{ t('ns.namespaceOverview.clickToDetail') }}</div>
       </div>
     </Teleport>
   </div>
