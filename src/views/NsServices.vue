@@ -190,7 +190,7 @@ function handleDelete() {
           <span class="material-symbols-outlined text-base">cable</span> {{ t('ns.services.endpoints') }}
         </button>
         <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> {{ t('common.create') }} Service
+          <span class="material-symbols-outlined">add</span> {{ t('common.create') }} {{ t('ns.services.title') }}
         </button>
       </div>
     </div>
