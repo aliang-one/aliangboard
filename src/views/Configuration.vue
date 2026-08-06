@@ -111,7 +111,7 @@ async function doDelete() {
     await deleteFn[tab](name, namespace)
     showDeleteModal.value = false
   } catch (e) {
-    alert(e.message || '删除失败')
+    alert(e.message || 'Delete failed')
   } finally {
     deleting.value = false
   }

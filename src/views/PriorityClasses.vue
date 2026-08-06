@@ -204,7 +204,7 @@ function handleDelete() {
                   <div>
                     <div class="flex items-center gap-sm mb-md">
                       <span class="material-symbols-outlined text-on-surface-variant text-lg">info</span>
-                      <h4 class="text-label-caps text-on-surface-variant">详情</h4>
+                      <h4 class="text-label-caps text-on-surface-variant">Details</h4>
                     </div>
                     <dl class="flex flex-col gap-md">
                       <div>
