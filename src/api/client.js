@@ -187,6 +187,7 @@ export const workbenchApi = {
   // 台账蒸馏(D2,自我学习):{ clusterId } → { proposed, current, summary, stats }
   distill: clusterId => platformHttp.request('/api/workbench/distill', { method: 'POST', body: JSON.stringify({ clusterId }) }),
   applyDistill: (clusterId, learnings) => platformHttp.request('/api/workbench/distill/apply', { method: 'POST', body: JSON.stringify({ clusterId, learnings }) }),
+  dismissDistill: clusterId => platformHttp.request('/api/workbench/distill/dismiss', { method: 'POST', body: JSON.stringify({ clusterId }) }),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===

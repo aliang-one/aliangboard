@@ -67,6 +67,16 @@ async function applyDistill() {
   } catch (e) { notify('error', e.message || '应用失败') }
   finally { applying.value = false }
 }
+function openPending() {
+  const p = ledger.value?.pending
+  if (!p) return
+  distillResult.value = { proposed: p.proposed, current: p.current, summary: p.summary }
+  proposedEdit.value = p.proposed
+}
+async function dismissPending() {
+  try { await workbenchApi.dismissDistill(clusterId.value); await loadLedger() }
+  catch (e) { notify('error', e.message || '失败') }
+}
 
 const verifiedAt = computed(() => {
   const m = ledger.value?.index?.match(/^verified_at:\s*(.+)$/m)
@@ -97,6 +107,12 @@ const verifiedAt = computed(() => {
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
     <template v-else-if="ledger">
+      <div v-if="ledger.pending" class="flex items-center gap-sm bg-status-warning/10 border border-status-warning/30 rounded-lg px-md py-sm text-body-sm">
+        <span class="material-symbols-outlined text-status-warning">schedule</span>
+        <span class="text-status-warning">定时蒸馏待审:{{ ledger.pending.summary }}</span>
+        <button @click="openPending" class="ml-auto px-md py-xs bg-primary text-on-primary rounded text-body-xs font-semibold">查看 diff</button>
+        <button @click="dismissPending" class="px-md py-xs border border-outline-variant rounded text-body-xs">忽略</button>
+      </div>
       <div v-if="ledger.exists" class="flex flex-col gap-sm">
         <div class="flex items-center gap-md text-body-xs text-on-surface-variant">
           <span v-if="verifiedAt" class="flex items-center gap-xs"><span class="material-symbols-outlined text-sm">schedule</span>verified_at: <span class="font-mono">{{ verifiedAt }}</span></span>
