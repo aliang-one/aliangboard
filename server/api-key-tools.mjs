@@ -163,9 +163,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         if (a.toRevision == null || a.toRevision === '') throw new Error('rollout_undo 缺 toRevision(先 rollout_history 看 revisions)')
         const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
         if (!dp) throw new Error(`Deployment ${a.name} 不存在`)
+        const uid = dp.metadata?.uid
         const prevImage = dp.spec?.template?.spec?.containers?.[0]?.image || null
         const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/replicasets`)
-        const target = (body?.items || []).find(rs => rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === String(a.toRevision))
+        const owned = (body?.items || []).filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.uid === uid && o.kind === 'Deployment'))
+        const target = owned.find(rs => rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === String(a.toRevision))
         if (!target) throw new Error(`revision ${a.toRevision} 不存在`)
         const newImage = target.spec?.template?.spec?.containers?.[0]?.image || null
         await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`, {

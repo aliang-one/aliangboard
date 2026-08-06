@@ -289,3 +289,27 @@ test('rollout_undo: 缺 toRevision → 报错;revision 不存在 → 报错;read
   await assert.rejects(tools.callTool(admin, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 99 }), /不存在/)
   await assert.rejects(tools.callTool(read, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 }), (e) => e.reason === 'policy')
 })
+test('rollout_undo: 按 ownerReference 过滤 RS,防跨 Deployment 回滚串台(回归)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  // 外来 RS:同样 revision '1',但 ownerReferences 指向另一个 Deployment(uid-other),镜像为 FOREIGN
+  const foreignRs = { metadata: { name: 'other-rs', ownerReferences: [{ uid: 'uid-other', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '1' } }, spec: { template: { spec: { containers: [{ name: 'cx', image: 'FOREIGN' }] } } } }
+  // 本 Deployment 的 RS:revision '1',ownerReferences 指向 uid-d1
+  const ownedRs = { metadata: { name: 'd1-rs1', ownerReferences: [{ uid: 'uid-d1', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '1' } }, spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } }
+  let patched = null
+  const base = mockRequestFn({ replicasets: [foreignRs, ownedRs] })
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && /\/deployments\/[^/]+$/.test(path)) { patched = JSON.parse(init.body); return { body: { ok: true } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 })
+  assert.equal(out.newImage, 'img:1', '用本 Deployment 的 RS,不是外来 RS')
+  assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } }, 'PATCH 成 owned RS 的 template,而非 FOREIGN')
+})
+test('rollout_undo: revision 仅存在于外来 RS → 报"不存在"(ownerReference 过滤回归)', async () => {
+  const db = makeDb()
+  const admin = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const foreignRs = { metadata: { name: 'other-rs', ownerReferences: [{ uid: 'uid-other', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '3' } }, spec: { template: { spec: { containers: [{ name: 'cx', image: 'FOREIGN' }] } } } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ replicasets: [foreignRs] }) })
+  await assert.rejects(tools.callTool(admin, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 3 }), /不存在/, '外来 RS 的 revision 不应被视为可用')
+})
