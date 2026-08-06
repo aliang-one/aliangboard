@@ -120,7 +120,7 @@ async function ensureYaml(it) {
     if (obj?.metadata) delete obj.metadata.managedFields
     yamlCache.value = { ...yamlCache.value, [k]: yamlDump(obj) }
   } catch {
-    // 无权限读取：编辑器回退到列表项自身的 dump
+    // 无权限读取：t('common.edit')器回退到列表项自身的 dump
   }
 }
 function toggleExpand(it) {
@@ -148,7 +148,7 @@ async function applyYaml(yaml) {
   }
 }
 
-// 删除
+// t('common.delete')
 const showDelete = ref(false)
 const delTarget = ref(null)
 function confirmDelete(it) { delTarget.value = it; showDelete.value = true }
@@ -249,7 +249,7 @@ const ageOf = ts => {
       </div>
     </div>
 
-    <!-- 删除确认 -->
+    <!-- t('common.delete')确认 -->
     <Modal v-model="showDelete" :title="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })" width="max-w-md">
       <p class="text-body-md text-on-surface-variant">
         {{ t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name }) }}

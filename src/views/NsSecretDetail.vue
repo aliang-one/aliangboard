@@ -29,7 +29,7 @@ const editingKey = ref(null)
 const editValue = ref('')
 const revealedKeys = ref(new Set())
 
-// Secret.data 存的是 base64；展示/编辑时解码，回写时由 store 重新编码
+// Secret.data 存的是 base64；展示/t('common.edit')时解码，回写时由 store 重新编码
 const decode = (v) => store.decodeBase64(v)
 const decodedData = (d) => Object.fromEntries(Object.entries(d || {}).map(([k, v]) => [k, decode(v)]))
 
@@ -100,7 +100,7 @@ const allLabels = computed(() => {
   return Object.entries(secret.value.labels)
 })
 
-// === Annotations 编辑 ===
+// === Annotations t('common.edit') ===
 const showAddAnnModal = ref(false)
 const newAnnKey = ref('')
 const newAnnValue = ref('')
@@ -128,7 +128,7 @@ function saveEditAnn() {
   editingAnn.value = null
 }
 
-// === Labels 编辑 ===
+// === Labels t('common.edit') ===
 const showAddLabelModal = ref(false)
 const newLabelKey = ref('')
 const newLabelValue = ref('')
@@ -284,7 +284,7 @@ const refCount = computed(() =>
       <ResourceReferences kind="Secret" :name="route.params.name" />
     </div>
 
-    <!-- Annotations Tab（可编辑）-->
+    <!-- Annotations Tab（可t('common.edit')）-->
     <div v-if="activeTab === 'annotations'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
@@ -319,7 +319,7 @@ const refCount = computed(() =>
       </div>
     </div>
 
-    <!-- Labels Tab（可编辑）-->
+    <!-- Labels Tab（可t('common.edit')）-->
     <div v-if="activeTab === 'labels'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">

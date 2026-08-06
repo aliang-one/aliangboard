@@ -228,7 +228,7 @@ function openYaml() {
   showYamlModal.value = true
   if (!svcYaml.value) loadYaml()
 }
-watch(() => svc.value?.name, () => { svcYaml.value = '' })     // 切换 Service 重新加载
+watch(() => svc.value?.name, () => { svcYaml.value = '' })     // t('ns.svcDetail.serviceChangedReload')
 async function onYamlSave(yamlStr) {
   const res = await applyYaml(yamlStr)
   if (res?.ok) { svcYaml.value = ''; loadYaml() }
@@ -756,7 +756,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
               <span class="material-symbols-outlined text-lg">remove</span>
             </button>
           </div>
-          <p v-if="!editForm.selector.length" class="text-body-sm text-on-surface-variant italic">No selector（ExternalName / headless）</p>
+          <p v-if="!editForm.selector.length" class="text-body-sm text-on-surface-variant italic">{{ $t('ns.svcDetail.noSelectorHint') }}</p>
         </div>
       </div>
 
@@ -765,8 +765,8 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Session Affinity</label>
           <select v-model="editForm.sessionAffinity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary">
-            <option value="None">None（负载均衡）</option>
-            <option value="ClientIP">ClientIP（会话保持）</option>
+            <option value="None">{{ $t('ns.svcDetail.sessionNoneOption') }}</option>
+            <option value="ClientIP">{{ $t('ns.svcDetail.sessionClientIpOption') }}</option>
           </select>
         </div>
         <div v-if="editForm.sessionAffinity === 'ClientIP'">
@@ -780,7 +780,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">External Traffic</label>
           <select v-model="editForm.externalTrafficPolicy" :disabled="editForm.type !== 'NodePort' && editForm.type !== 'LoadBalancer'" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary disabled:opacity-50">
-            <option value="">默认（Cluster）</option>
+            <option value="">{{ $t('ns.svcDetail.defaultTrafficOption') }}</option>
             <option value="Cluster">Cluster</option>
             <option value="Local">Local</option>
           </select>
@@ -802,7 +802,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
 
   <!-- YAML 弹窗 -->
   <Modal v-model="showYamlModal" title="Service YAML" width="max-w-4xl">
-    <p v-if="yamlLoading" class="text-body-sm text-on-surface-variant">加载 YAML…</p>
+    <p v-if="yamlLoading" class="text-body-sm text-on-surface-variant">{{ $t('ns.svcDetail.loadYaml') }}</p>
     <YamlEditor v-else :model-value="svcYaml" :readonly="false" height="60vh" @save="onYamlSave" />
     <template #actions>
       <button @click="showYamlModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Close</button>
@@ -820,87 +820,86 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
   </Modal>
 
   <!-- 删除端口确认 -->
-  <Modal v-model="showDeletePortModal" title="删除端口" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant" v-if="deletePortTarget">确认删除端口 <span class="font-mono font-semibold text-on-surface">{{ deletePortTarget.port }}</span><span class="text-on-surface-variant"> → target {{ deletePortTarget.targetPort }} / {{ deletePortTarget.protocol }}</span>？</p>
-    <p class="text-body-sm text-error mt-sm">删除后该端口不再暴露，相关流量会中断；如需保留可取消。</p>
+  <Modal v-model="showDeletePortModal" :title="$t('ns.svcDetail.deletePortTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-if="deletePortTarget">{{ $t('ns.svcDetail.deletePortQuestion') }} <span class="font-mono font-semibold text-on-surface">{{ deletePortTarget.port }}</span><span class="text-on-surface-variant"> → target {{ deletePortTarget.targetPort }} / {{ deletePortTarget.protocol }}</span>？</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.svcDetail.deletePortWarning') }}</p>
     <template #actions>
-      <button @click="showDeletePortModal = false; deletePortIdx = -1" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="confirmDeletePort" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      <button @click="showDeletePortModal = false; deletePortIdx = -1" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="confirmDeletePort" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('ns.svcDetail.confirmDeletePort') }}</button>
     </template>
   </Modal>
 
   <!-- 添加后端工作负载（取共有 label 作新 selector）-->
-  <Modal v-model="showAddBackendModal" title="添加后端工作负载" width="max-w-xl">
+  <Modal v-model="showAddBackendModal" :title="$t('ns.svcDetail.addBackendWorkloadTitle')" width="max-w-xl">
     <p class="text-body-sm text-on-surface-variant mb-md">
-      把另一个工作负载并入后端。Service selector 是 label 的 <strong>AND</strong> 查询（不能「A 或 B」），故新 selector 取
-      <span class="text-on-surface font-medium">当前绑定 ∪ 所选工作负载</span> 的 pod-template <span class="text-on-surface font-medium">共有 label</span>——它们必须共享 label 才能同时被选中。
+      {{ $t('ns.svcDetail.addBackendWorkloadHint') }}
     </p>
     <div class="mb-md">
-      <label class="text-label-caps text-on-surface-variant block mb-xs">选择要添加的工作负载</label>
+      <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.selectWorkloadLabel') }}</label>
       <select v-model="pickedBackend" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
-        <option value="">— 选择工作负载 —</option>
-        <option v-for="w in unmatchedWorkloads" :key="w.name" :value="w.name">{{ w.name }}（{{ w.type }}）</option>
+        <option value="">{{ $t('ns.svcDetail.selectWorkloadEmpty') }}</option>
+        <option v-for="w in unmatchedWorkloads" :key="w.name" :value="w.name">{{ w.name }}{{ $t('ns.svcDetail.workloadTypeSuffix', { type: w.type }) }}</option>
       </select>
-      <p v-if="!unmatchedWorkloads.length" class="text-xs text-on-surface-variant/60 mt-xs">当前命名空间没有可添加的工作负载（全部已绑定或无工作负载）。</p>
+      <p v-if="!unmatchedWorkloads.length" class="text-xs text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.currentNsNoWorkloads') }}</p>
     </div>
 
     <div v-if="pickedBackend" class="space-y-sm">
       <!-- 当前 selector -->
       <div class="p-sm rounded-md bg-surface-container-low">
-        <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wide mb-xs">当前 selector</p>
+        <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wide mb-xs">{{ $t('ns.svcDetail.currentSelectorLabel') }}</p>
         <div class="flex flex-wrap gap-xs">
           <span v-for="(v, k) in (svc.selector || {})" :key="k" class="px-1.5 py-0.5 rounded bg-surface-container text-xs font-mono border border-outline-variant"><span class="text-secondary font-semibold">{{ k }}</span>={{ v }}</span>
-          <span v-if="!Object.keys(svc.selector || {}).length" class="text-xs text-on-surface-variant italic">（空 selector）</span>
+          <span v-if="!Object.keys(svc.selector || {}).length" class="text-xs text-on-surface-variant italic">{{ $t('ns.svcDetail.emptySelectorHint') }}</span>
         </div>
       </div>
       <!-- 新 selector（共有 label 交集）-->
       <div class="p-sm rounded-md" :class="canAddBackend ? 'bg-primary-container/10 border border-primary/20' : 'bg-error-container/10 border border-error/20'">
-        <p class="text-[10px] uppercase tracking-wide mb-xs" :class="canAddBackend ? 'text-primary/70' : 'text-error/70'">新 selector（共有 label）</p>
+        <p class="text-[10px] uppercase tracking-wide mb-xs" :class="canAddBackend ? 'text-primary/70' : 'text-error/70'">{{ $t('ns.svcDetail.newSelectorCommon') }}</p>
         <div v-if="canAddBackend" class="flex flex-wrap gap-xs">
           <span v-for="(v, k) in mergedSelector" :key="k" class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary text-xs font-mono border border-primary/30"><span class="font-semibold">{{ k }}</span>={{ v }}</span>
         </div>
-        <p v-else class="text-xs text-error flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>无法添加：该工作负载与当前后端没有共享 label。需先给它们打上共同 label，或手动改 selector。</p>
+        <p v-else class="text-xs text-error flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>{{ $t('ns.svcDetail.warningNoSharedLabel') }}</p>
       </div>
       <!-- 副作用预警 -->
       <div v-if="wouldAlsoMatch.length" class="p-sm rounded-md bg-tertiary-container/10 border border-tertiary-container/30 flex items-start gap-xs">
         <span class="material-symbols-outlined text-tertiary-container text-base shrink-0">warning</span>
-        <p class="text-xs text-on-surface-variant">新 selector 放宽后还会顺带命中：<span class="font-mono text-tertiary-container font-semibold">{{ wouldAlsoMatch.join('、') }}</span>（这些工作负载也有相同 label，会成为后端）</p>
+        <p class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.warningAlsoMatch', { workloads: wouldAlsoMatch.join('、') }) }}</p>
       </div>
-      <p v-else-if="canAddBackend" class="text-xs text-status-running flex items-center gap-1"><span class="material-symbols-outlined text-sm">check_circle</span>新 selector 精确命中目标，无额外工作负载被卷入。</p>
+      <p v-else-if="canAddBackend" class="text-xs text-status-running flex items-center gap-1"><span class="material-symbols-outlined text-sm">check_circle</span>{{ $t('ns.svcDetail.newSelectorExact') }}</p>
     </div>
 
     <template #actions>
-      <button @click="showAddBackendModal = false; pickedBackend = ''" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="confirmAddBackend" :disabled="!canAddBackend" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">更新 selector 并添加</button>
+      <button @click="showAddBackendModal = false; pickedBackend = ''" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="confirmAddBackend" :disabled="!canAddBackend" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('ns.svcDetail.updateSelectorButton') }}</button>
     </template>
   </Modal>
 
   <!-- 快速添加端口（同类型追加）-->
-  <Modal v-model="showAddPortModal" title="快速添加端口" width="max-w-lg">
+  <Modal v-model="showAddPortModal" :title="$t('ns.svcDetail.addPortModalTitle')" width="max-w-lg">
     <p class="text-body-sm text-on-surface-variant mb-md">
-      为该 <span class="font-semibold text-on-surface">{{ svc.type }}</span> Service 追加一个端口——类型保持一致（一个 Service 只能有一种暴露类型）。
+      {{ $t('ns.svcDetail.addPortModalDesc', { type: svc.type }) }}
     </p>
     <div class="grid grid-cols-2 gap-sm">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Port *</label>
-        <input v-model="addPortForm.port" type="number" min="1" max="65535" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="80" />
-        <p class="text-[10px] text-on-surface-variant/60 mt-xs">客户端访问 Service 的端口</p>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.portLabel') }}</label>
+        <input v-model="addPortForm.port" type="number" min="1" max="65535" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.svcDetail.portPlaceholder')" />
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.portClientAccess') }}</p>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.targetPortLabel') }}</label>
         <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" :placeholder="$t('ns.svcDetail.leaveEmptyForPort')" :empty-hint="$t('ns.svcDetail.emptyWorkloadHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" @pick="onPickTarget" />
-        <p class="text-[10px] text-on-surface-variant/60 mt-xs">转发到后端 Pod 的端口</p>
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.portForwardToBackend') }}</p>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Protocol</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.protocolLabel') }}</label>
         <select v-model="addPortForm.protocol" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
           <option>TCP</option><option>UDP</option><option>SCTP</option>
         </select>
       </div>
       <div v-if="addPortNeedsNodePort">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Node Port</label>
-        <input v-model="addPortForm.nodePort" type="number" min="30000" max="32767" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.svcDetail.autoAllocateHint')" />
-        <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ svc.type }} 类型：节点对外端口</p>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.nodePortLabel') }}</label>
+        <input v-model="addPortForm.nodePort" type="number" min="30000" max="32767" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.svcDetail.nodePortPlaceholder')" />
+        <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.nodePortTypeDesc', { type: svc.type }) }}</p>
       </div>
     </div>
     <!-- 选了未绑定工作负载的端口：自动并入后端（取共有 label 作新 selector）-->
@@ -925,7 +924,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
     <template #actions>
       <button @click="showAddPortModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
       <button @click="saveAddPort" :disabled="!canAddPort || addingPort" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
-        <span v-if="addingPort" class="material-symbols-outlined text-base align-middle animate-spin mr-xs">progress_activity</span>{{ $t('ns.svcDetail.add') }}
+        <span v-if="addingPort" class="material-symbols-outlined text-base align-middle animate-spin mr-xs">progress_activity</span>{{ $t('ns.svcDetail.addButton') }}
       </button>
     </template>
   </Modal>

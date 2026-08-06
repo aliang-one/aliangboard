@@ -249,14 +249,14 @@ function saveEditLabel() {
             <span class="material-symbols-outlined text-base shrink-0" :class="selectedKey === key ? 'text-primary' : 'text-on-surface-variant'">{{ detectLang(key).icon }}</span>
             <span class="text-body-sm font-mono truncate flex-1">{{ key }}</span>
             <span class="text-[10px] text-on-surface-variant shrink-0">{{ lineCount(val) }}</span>
-            <span @click.stop="deleteKey(key); selectedKey = dataEntries.find(([k]) => k !== key)?.[0] || ''" class="opacity-0 group-hover:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0 cursor-pointer" title="删除">
+            <span @click.stop="deleteKey(key); selectedKey = dataEntries.find(([k]) => k !== key)?.[0] || ''" class="opacity-0 group-hover:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0 cursor-pointer" :title="$t('ns.cmDetail.delete')">
               <span class="material-symbols-outlined text-sm">close</span>
             </span>
           </button>
-          <div v-if="!dataEntries.length" class="px-md py-lg text-center text-on-surface-variant text-body-sm">无文件</div>
+          <div v-if="!dataEntries.length" class="px-md py-lg text-center text-on-surface-variant text-body-sm">{{ $t('ns.cmDetail.noFiles') }}</div>
         </div>
         <button @click="showAddKeyModal = true" class="flex items-center justify-center gap-sm px-md py-sm border-t border-outline-variant text-body-sm text-primary font-medium hover:bg-primary-container/10 transition-colors">
-          <span class="material-symbols-outlined text-sm">add</span> 新建文件
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.cmDetail.newFile') }}
         </button>
       </div>
 
@@ -275,7 +275,7 @@ function saveEditLabel() {
             </div>
             <div class="flex gap-xs">
               <button v-if="editingKey !== selectedKey" @click="startEdit(selectedKey)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="编辑"><span class="material-symbols-outlined text-lg">edit</span></button>
-              <button @click="deleteKey(selectedKey); selectedKey = dataEntries.find(([k]) => k !== selectedKey)?.[0] || ''" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除"><span class="material-symbols-outlined text-lg">delete</span></button>
+              <button @click="deleteKey(selectedKey); selectedKey = dataEntries.find(([k]) => k !== selectedKey)?.[0] || ''" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('ns.cmDetail.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
             </div>
           </div>
           <!-- 编辑模式 -->

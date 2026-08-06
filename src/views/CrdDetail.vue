@@ -100,7 +100,7 @@ function toggleInst(inst) {
 // 实时 YAML 优先；未加载完或失败时回退静态模板
 const instYamlModel = (inst) => instYaml.value[instKey(inst)] ?? store.generateCRYaml(crd.value, inst)
 
-// 保存编辑（通用 server-side apply，适用于任意 CR kind）+ 局部刷新
+// t('common.save')t('common.edit')（通用 server-side apply，适用于任意 CR kind）+ 局部刷新
 async function applyInstYaml(yaml) {
   const r = await store.applyCRYaml(crd.value.name, yaml)
   notify(r.ok ? 'success' : 'error', r.ok ? t('admin.crdDetail.updatedSuccess', { kind: r.kind, name: r.name }) : (r.error || t('admin.crdDetail.applyFailed')))
@@ -115,7 +115,7 @@ async function applyInstYaml(yaml) {
   return r
 }
 
-// 删除实例
+// t('common.delete')实例
 const showDeleteInst = ref(false)
 const deleteInstTarget = ref(null)
 function confirmDeleteInst(inst) { deleteInstTarget.value = inst; showDeleteInst.value = true }
@@ -366,7 +366,7 @@ async function handleCreateInst(yaml) {
       </template>
     </Modal>
 
-    <!-- 删除实例 Modal -->
+    <!-- t('common.delete')实例 Modal -->
     <Modal v-model="showDeleteInst" :title="t('admin.crdDetail.deleteModalTitle', { kind: crd.kind })" width="max-w-md">
       <p class="text-body-md text-on-surface-variant" v-html="t('admin.crdDetail.deleteConfirm', { kind: crd.kind, name: deleteInstTarget?.name, namespace: deleteInstTarget?.namespace })"></p>
       <p class="text-body-sm text-error mt-sm" v-html="t('admin.crdDetail.deleteWarning')"></p>
