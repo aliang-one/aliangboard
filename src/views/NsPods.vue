@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -12,6 +13,7 @@ import Pagination from '@/components/common/Pagination.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 const searchQuery = ref('')
@@ -67,13 +69,13 @@ async function handleDelete() {
   if (!p) return
   try {
     await store.deletePod(p.name, route.params.namespace)
-    notify('success', `已删除 Pod ${p.name}，控制器将重建并重新拉镜像`)
+    notify('success', t('ns.pods.deletedPod', { name: p.name }))
     showDeleteModal.value = false
     deleteTarget.value = null
     // Deployment/控制器会立即重建 Pod → 延时轻量刷新看到新 Pod（重新拉镜像）；开启 Live watch 时则自动更新
     setTimeout(() => store.refreshPods(), 1500)
   } catch (e) {
-    notify('error', e.message || '删除 Pod 失败')
+    notify('error', e.message || t('ns.pods.deleteFailed'))
   }
 }
 
@@ -106,21 +108,21 @@ function handleCreate() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md font-bold text-on-surface">Pods</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPods.length }} pods in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.pods.title') }}</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: store.nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
         <button v-if="store.remoteMode" @click="toggleLive"
           class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border transition-colors"
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
-          :title="store.podWatchLive ? '正在实时监听 Pod 变化（watch），点击停止' : '开启实时监听 Pod 变化（watch=true）'">
+          :title="store.podWatchLive ? t('ns.pods.liveOn') : t('ns.pods.liveOff')">
           <span class="material-symbols-outlined">{{ store.podWatchLive ? 'pause' : 'play_arrow' }}</span>
           <span class="flex items-center gap-xs">Live
             <span v-if="store.podWatchLive" class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>
           </span>
         </button>
         <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> Create Pod
+          <span class="material-symbols-outlined">add</span> {{ t('ns.pods.createShort') }}
         </button>
       </div>
     </div>
@@ -129,7 +131,7 @@ function handleCreate() {
     <div class="grid grid-cols-4 gap-sm mb-md">
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
         <span class="w-2.5 h-2.5 rounded-full bg-on-surface-variant"></span>
-        <span class="text-body-sm text-on-surface-variant">Total</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.total') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto">{{ store.nsPods.length }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
@@ -153,15 +155,15 @@ function handleCreate() {
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="Search pods by name or IP..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.pods.searchPlaceholder')" />
       </div>
       <select v-model="statusFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
-        <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? 'All Statuses' : s }}</option>
+        <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? t('ns.pods.allStatuses') : s }}</option>
       </select>
       <select v-model="nodeFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
         <option v-for="n in nodeOptions" :key="n" :value="n">{{ n }}</option>
       </select>
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} result{{ filtered.length !== 1 ? 's' : '' }}</span>
+      <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.results', { n: filtered.length }) }}</span>
     </div>
 
     <!-- Pods Table -->
@@ -173,7 +175,7 @@ function handleCreate() {
           @delete="confirmDelete"
         >
           <template #actions>
-            <button @click.stop="exportPod(p)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" title="导出 YAML">
+            <button @click.stop="exportPod(p)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="t('ns.pods.exportYaml')">
               <span class="material-symbols-outlined text-sm">download</span>
             </button>
           </template>
@@ -181,7 +183,7 @@ function handleCreate() {
       </div>
       <div v-else class="py-md text-center">
         <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-        <p class="text-body-sm text-on-surface-variant">No pods found matching your filters</p>
+        <p class="text-body-sm text-on-surface-variant">{{ t('ns.pods.noMatch') }}</p>
       </div>
       <!-- 分页 -->
       <div v-if="filtered.length" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
@@ -198,34 +200,34 @@ function handleCreate() {
   </section>
 
   <!-- 删除确认 -->
-  <Modal v-model="showDeleteModal" title="删除 Pod" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定要删除 Pod <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span> 吗？</p>
-    <p class="text-body-sm text-error mt-sm">此操作不可撤销。若 Pod 由工作负载管理，控制器可能会重新创建它。</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.pods.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.pods.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.pods.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- 创建 Pod -->
-  <Modal v-model="showCreateModal" title="创建 Pod" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="t('ns.pods.createTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Pod 名称 *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pods.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-pod" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">容器镜像 *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pods.imageLabel') }}</label>
         <input v-model="createForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">容器名称（可选）</label>
-        <input v-model="createForm.container" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="默认使用 Pod 名称" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pods.containerLabel') }}</label>
+        <input v-model="createForm.container" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pods.containerPlaceholder')" />
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleCreate" :disabled="!createForm.name || !createForm.image" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">创建</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name || !createForm.image" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 </template>

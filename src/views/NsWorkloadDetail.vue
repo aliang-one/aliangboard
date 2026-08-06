@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -26,6 +27,7 @@ import { useTerminalStore } from '@/stores/terminals'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const store = useClusterStore()
 const termStore = useTerminalStore()
 const { applyYaml } = useResourceApply()
@@ -101,7 +103,7 @@ const diffLines = ref([])
 const pendingYaml = ref('')
 const diffStat = computed(() => ({ add: diffLines.value.filter(l => l.t === 'add').length, del: diffLines.value.filter(l => l.t === 'del').length }))
 function onYamlSave(edited) {
-  if (edited === workloadYaml.value) { notify('info', '内容未变更'); return }
+  if (edited === workloadYaml.value) { notify('info', t('workload.notify.contentUnchanged')); return }
   pendingYaml.value = edited
   diffLines.value = lineDiff(workloadYaml.value, edited)
   showDiffModal.value = true
@@ -160,10 +162,10 @@ const revisions = computed(() => workload.value?.revisions || [])
 // 副本/滚动状态：从 Deployment/StatefulSet/DaemonSet 的 status 推导健康等级 + 新旧版本进度
 // level: healthy(绿) / updating(蓝) / warning(黄) / failed(红)，对应 status-* 设计令牌
 const STATUS_META = {
-  healthy: { dot: 'bg-status-running', text: 'text-status-running', label: '正常运行', icon: 'check_circle' },
-  updating: { dot: 'bg-status-succeeded', text: 'text-status-succeeded', label: '滚动更新中', icon: 'sync' },
-  warning: { dot: 'bg-status-pending', text: 'text-status-pending', label: '部分就绪', icon: 'warning' },
-  failed: { dot: 'bg-status-failed', text: 'text-status-failed', label: '异常', icon: 'error' },
+  healthy: { dot: 'bg-status-running', text: 'text-status-running', label: computed(() => t('workload.rollout.healthy')), icon: 'check_circle' },
+  updating: { dot: 'bg-status-succeeded', text: 'text-status-succeeded', label: computed(() => t('workload.rollout.updating')), icon: 'sync' },
+  warning: { dot: 'bg-status-pending', text: 'text-status-pending', label: computed(() => t('workload.rollout.warning')), icon: 'warning' },
+  failed: { dot: 'bg-status-failed', text: 'text-status-failed', label: computed(() => t('workload.rollout.failed')), icon: 'error' },
 }
 const rollout = computed(() => {
   const wl = workload.value
@@ -173,7 +175,7 @@ const rollout = computed(() => {
     const desired = Number(wl.replicas?.split('/')[1]) || 1
     const ready = Number(wl.replicas?.split('/')[0]) || 0
     const level = ready >= desired && desired > 0 ? 'healthy' : ready === 0 ? 'failed' : 'warning'
-    const reason = ready >= desired ? '所有副本就绪' : ready === 0 ? '副本均未就绪，检查事件/日志' : `${ready}/${desired} 副本就绪`
+    const reason = ready >= desired ? t('workload.rollout.allReplicasReady') : ready === 0 ? t('workload.rollout.noReplicasReady') : t('workload.rollout.replicasReadyRatio', { ready, desired })
     return { desired, updated: ready, ready, total: ready, oldCount: 0, level, reason, newW: 100, oldW: 0, meta: STATUS_META[level] }
   }
   const st = wl.raw.status || {}
@@ -188,12 +190,12 @@ const rollout = computed(() => {
   const progressing = cond('Progressing')
   const availableCond = cond('Available') || cond('DaemonSetAvailable')
   const replicaFailure = cond('ReplicaFailure')
-  let level = 'healthy', reason = availableCond?.reason || (ready >= desired ? '所有副本就绪' : '')
-  if (replicaFailure?.status === 'True') { level = 'failed'; reason = replicaFailure.reason || '副本创建失败，请查看事件' }
-  else if (desired === 0) { level = 'warning'; reason = '期望副本数为 0（已缩容）' }
-  else if (ready === 0 && total > 0) { level = 'failed'; reason = '副本均未就绪，检查事件/日志' }
-  else if (updated < desired) { level = 'updating'; reason = progressing?.reason || `新版本 ${updated}/${desired} 就绪中` }
-  else if (ready < desired) { level = 'warning'; reason = `${ready}/${desired} 副本就绪` }
+  let level = 'healthy', reason = availableCond?.reason || (ready >= desired ? t('workload.rollout.allReplicasReady') : '')
+  if (replicaFailure?.status === 'True') { level = 'failed'; reason = replicaFailure.reason || t('workload.rollout.replicaCreateFailed') }
+  else if (desired === 0) { level = 'warning'; reason = t('workload.rollout.desiredZero') }
+  else if (ready === 0 && total > 0) { level = 'failed'; reason = t('workload.rollout.noReplicasReady') }
+  else if (updated < desired) { level = 'updating'; reason = progressing?.reason || t('workload.rollout.newVersionProgress', { updated, desired }) }
+  else if (ready < desired) { level = 'warning'; reason = t('workload.rollout.replicasReadyRatio', { ready, desired }) }
   // 进度条以"当前 Pod 总数"为分母，展示新旧版本占比（滚动时 total 可能 > desired）
   const oldCount = Math.max(0, (total || ready) - updated)
   const denom = Math.max(total, updated, 1)
@@ -215,7 +217,7 @@ async function handleRollback() {
     showRollbackModal.value = false
     rollbackTarget.value = null
     refreshSoon()
-  } catch (e) { notify('error', e.message || '回滚失败') }
+  } catch (e) { notify('error', e.message || t('workload.notify.rollbackFailed')) }
 }
 
 // === 版本历史增强 ===
@@ -256,10 +258,10 @@ async function handleDeleteRev() {
   if (!rev?.rsName) return
   try {
     await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
-    notify('success', `已删除旧版本 Rev ${rev.rev} (${rev.rsName})`)
+    notify('success', t('workload.notify.deletedRev', { rev: rev.rev, rsName: rev.rsName }))
     if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
     if (expandedRev.value === rev.rev) expandedRev.value = null
-  } catch (e) { notify('error', e.message || '删除失败') }
+  } catch (e) { notify('error', e.message || t('workload.notify.deleteFailed')) }
   showDeleteRevModal.value = false; deleteRevTarget.value = null
 }
 
@@ -275,7 +277,7 @@ function handleRestart() { store.restartWorkload(route.params.name, route.params
 const refreshing = ref(false)
 async function refresh() {
   refreshing.value = true
-  try { await store.hydrateCoreResources() } catch (e) { notify('error', e.message || '刷新失败') }
+  try { await store.hydrateCoreResources() } catch (e) { notify('error', e.message || t('workload.notify.refreshFailed')) }
   finally { refreshing.value = false }
 }
 // 模板变更（镜像/回滚/重启/深编辑）后延时静默刷新：等控制器创建新 ReplicaSet，再重取 workloads + replicasets(历史版本) + pods，
@@ -304,11 +306,11 @@ async function handleDeletePod() {
   if (!p) return
   try {
     await store.deletePod(p.name, p.namespace || route.params.namespace)
-    notify('success', `已删除 Pod ${p.name}，控制器将重建并重新拉镜像`)
+    notify('success', t('workload.notify.deletedPod', { name: p.name }))
     showDeletePodModal.value = false
     deletePodTarget.value = null
     setTimeout(() => refresh(), 1500) // 重建后刷新看到新 Pod
-  } catch (e) { notify('error', e.message || '删除 Pod 失败') }
+  } catch (e) { notify('error', e.message || t('workload.notify.deletePodFailed')) }
 }
 
 const triggering = ref(false)
@@ -316,8 +318,8 @@ async function triggerCron() {
   triggering.value = true
   try {
     const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
-    notify('success', `已触发 Job：${res.job || route.params.name}`)
-  } catch (e) { notify('error', e.message || '触发失败') }
+    notify('success', t('workload.notify.triggeredJob', { name: res.job || route.params.name }))
+  } catch (e) { notify('error', e.message || t('workload.notify.triggerFailed')) }
   finally { triggering.value = false }
 }
 function openScale() {
@@ -334,7 +336,7 @@ async function quickScale(delta) {
   if (next === cur) return
   scaling.value = true
   try { await store.scaleWorkload(route.params.name, route.params.namespace, next) }
-  catch (e) { notify('error', e.message || '伸缩失败') }
+  catch (e) { notify('error', e.message || t('workload.notify.scaleFailed')) }
   finally { scaling.value = false }
 }
 
@@ -380,9 +382,9 @@ async function fetchTags() {
   try {
     const r = await registryApi.tags({ image: `${f.repo}:${f.oldTag || 'latest'}`, username: registryAuth.value.username, password: registryAuth.value.password })
     availableTags.value = r.tags || []
-    if (!availableTags.value.length) tagError.value = '该仓库暂无可用 tag'
+    if (!availableTags.value.length) tagError.value = t('workload.notify.noTags')
   } catch (e) {
-    tagError.value = e.message || '拉取失败'
+    tagError.value = e.message || t('workload.notify.fetchFailed')
     availableTags.value = []
   } finally { tagLoading.value = false }
 }
@@ -397,7 +399,7 @@ function openImageTagEditor() {
 }
 async function saveImageTag() {
   const f = imageTagForm.value
-  if (!f.newTag) { notify('error', '版本不能为空'); return }
+  if (!f.newTag) { notify('error', t('workload.notify.tagEmpty')); return }
   const newImage = f.newTag ? `${f.repo}:${f.newTag}` : f.repo
   try {
     // 走 updateWorkload image patch
@@ -408,10 +410,10 @@ async function saveImageTag() {
       if (tpl.spec?.containers?.[0]) tpl.spec.containers[0].image = newImage
       await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl)
     }
-    notify('success', `镜像版本已更新为 ${newImage}`)
+    notify('success', t('workload.notify.imageUpdated', { image: newImage }))
     showImageTagModal.value = false
     refreshSoon()
-  } catch (e) { notify('error', e.message || '更新失败') }
+  } catch (e) { notify('error', e.message || t('workload.notify.updateFailed')) }
 }
 
 // === Deployment 关联事件（最新 5 条） ===
@@ -643,8 +645,8 @@ function openExpose() {
 async function saveExpose() {
   try {
     await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: { ...podLabels.value } })
-    notify('success', `已创建 Service ${exposeForm.value.name}`); showExposeModal.value = false
-  } catch (e) { notify('error', e.message || '创建 Service 失败') }
+    notify('success', t('workload.notify.createdService', { name: exposeForm.value.name })); showExposeModal.value = false
+  } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
 }
 const showIngressMapModal = ref(false)
 const ingressMapForm = ref({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
@@ -656,11 +658,11 @@ function openIngressMap() {
 }
 async function saveIngressMap() {
   const f = ingressMapForm.value
-  if (!f.serviceName) { notify('error', '请选择目标 Service'); return }
+  if (!f.serviceName) { notify('error', t('workload.notify.selectService')); return }
   try {
     await store.addIngress({ name: `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: f.host, path: f.path, pathType: f.pathType, serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 }] })
-    notify('success', `已创建 Ingress ${f.host || '*'}${f.path} → ${f.serviceName}:${f.servicePort}`); showIngressMapModal.value = false
-  } catch (e) { notify('error', e.message || '创建 Ingress 失败') }
+    notify('success', t('workload.notify.createdIngress', { host: f.host || '*', path: f.path, service: f.serviceName, port: f.servicePort })); showIngressMapModal.value = false
+  } catch (e) { notify('error', e.message || t('workload.notify.createIngressFailed')) }
 }
 
 // === Edit（结构化深编辑：与创建 DeployApp 字段对齐）===
@@ -723,10 +725,10 @@ function mergeVolumes(tplSpec, c0) {
 }
 // 卷挂载目标 + PVC 候选
 const containerTargets = computed(() => {
-  const t = [{ value: 'main', label: '主容器' }]
-  ;(editForm.value.initContainers || []).forEach((c, i) => { if (c.image) t.push({ value: `init:${i}`, label: `Init: ${c.name || '#' + i}` }) })
-  ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) t.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
-  return t
+  const targets = [{ value: 'main', label: t('workload.edit.mainContainer') }]
+  ;(editForm.value.initContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `init:${i}`, label: `Init: ${c.name || '#' + i}` }) })
+  ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
+  return targets
 })
 const availablePVCs = computed(() => (store.pvcList || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
 const availableConfigMaps = computed(() => (store.configMapList || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
@@ -841,28 +843,28 @@ function buildSubContainer(c, target, f) {
 function validateEdit() {
   const f = editForm.value, errs = []
   ;(f.volumeMounts || []).forEach((v, i) => {
-    const w = `卷 ${v.name || '#' + (i + 1)}`
-    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(`${w}：空卷挂载，请填写或删除`)
+    const w = t('common.name') + ' ' + (v.name || '#' + (i + 1))
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(t('workload.validation.volumeEmpty', { name: v.name || '#' + (i + 1) }))
     else {
-      if (!v.mountPath) errs.push(`${w}：缺少挂载路径`)
-      if (v.type === 'pvc' && !v.pvcName) errs.push(`${w}：缺少 PVC`)
-      if (v.type === 'hostPath' && !v.hostPath) errs.push(`${w}：缺少宿主路径`)
-      if (v.type === 'nfs' && !v.server) errs.push(`${w}：缺少 NFS server`)
-      if (v.type === 'configMap' && !v.cmName) errs.push(`${w}：缺少 ConfigMap`)
-      if (v.type === 'secret' && !v.secretName) errs.push(`${w}：缺少 Secret`)
+      if (!v.mountPath) errs.push(t('workload.validation.volumeMissingMountPath', { name: v.name || '#' + (i + 1) }))
+      if (v.type === 'pvc' && !v.pvcName) errs.push(t('workload.validation.volumeMissingPvc', { name: v.name || '#' + (i + 1) }))
+      if (v.type === 'hostPath' && !v.hostPath) errs.push(t('workload.validation.volumeMissingHostPath', { name: v.name || '#' + (i + 1) }))
+      if (v.type === 'nfs' && !v.server) errs.push(t('workload.validation.volumeMissingNfs', { name: v.name || '#' + (i + 1) }))
+      if (v.type === 'configMap' && !v.cmName) errs.push(t('workload.validation.volumeMissingConfigMap', { name: v.name || '#' + (i + 1) }))
+      if (v.type === 'secret' && !v.secretName) errs.push(t('workload.validation.volumeMissingSecret', { name: v.name || '#' + (i + 1) }))
     }
   })
-  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Init 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
-  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(`Sidecar 容器 ${c.name || '#' + (i + 1)}：缺少镜像`) })
-  ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(`端口 #${i + 1}：缺少端口号`) })
-  ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(`环境变量 #${i + 1}：缺少 KEY`) })
-  ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(`ConfigMap 环境变量 ${e.name || '未命名'}：需 ENV 名 / ConfigMap / key`) })
-  ;(f.envSecretKeys || []).forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(`Secret 环境变量 ${e.name || '未命名'}：需 ENV 名 / Secret / key`) })
+  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.initMissingImage', { name: c.name || '#' + (i + 1) })) })
+  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.sidecarMissingImage', { name: c.name || '#' + (i + 1) })) })
+  ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(t('workload.validation.portMissing', { idx: i + 1 })) })
+  ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(t('workload.validation.envMissingKey', { idx: i + 1 })) })
+  ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(t('workload.validation.envCmMissing', { name: e.name || '—' })) })
+  ;(f.envSecretKeys || []).forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(t('workload.validation.envSecretMissing', { name: e.name || '—' })) })
   return errs
 }
 async function saveEdit() {
   const errs = validateEdit()
-  if (errs.length) { notify('error', '请修正：' + errs.join('；')); return }
+  if (errs.length) { notify('error', t('workload.notify.fixErrors') + errs.join('；')); return }
   const f = editForm.value
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
@@ -939,7 +941,7 @@ async function saveEdit() {
       spec.priorityClassName = f.priorityClassName || null
       spec.imagePullSecrets = f.imagePullSecrets ? [{ name: f.imagePullSecrets }] : null
       try { await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl) }
-      catch (e) { notify('error', e.message || '容器配置保存失败') }
+      catch (e) { notify('error', e.message || t('workload.notify.containerSaveFailed')) }
     }
   }
   refreshSoon()
@@ -1057,10 +1059,10 @@ async function saveTemplate(yamlStr) {
     const { load: yamlLoad } = await import('js-yaml')
     const parsed = yamlLoad(yamlStr)
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
-    notify('success', 'Pod 模板已更新')
+    notify('success', t('workload.notify.templateSaved'))
     showTemplateModal.value = false
     refreshSoon()
-  } catch (e) { notify('error', e.message || '保存失败') }
+  } catch (e) { notify('error', e.message || t('workload.notify.saveFailed')) }
 }
 
 // Pod status color helper
@@ -1079,7 +1081,7 @@ function podStatusBorder(s) {
   <div class="animate-fade-in" v-if="workload">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'Workloads', route: `/ns/${route.params.namespace}/workloads` },
+      { label: $t('workload.workloads'), route: `/ns/${route.params.namespace}/workloads` },
       { label: route.params.type, route: `/ns/${route.params.namespace}/workloads` },
       { label: workload.name }
     ]" />
@@ -1107,15 +1109,15 @@ function podStatusBorder(s) {
         </div>
       </div>
       <div class="flex gap-xs shrink-0">
-        <button @click="refresh" :disabled="refreshing" :title="refreshing ? '刷新中…' : '刷新（重新拉取工作负载/Pod/事件）'" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
-          <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">刷新</span>
+        <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
+          <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">{{ $t('workload.refresh') }}</span>
         </button>
-        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Scale</button>
-        <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Restart</button>
-        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : ''" class="px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">元数据</button>
-        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">Edit</button>
-        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Template</button>
-        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? '无 delete 权限' : ''" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Delete</button>
+        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
+        <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
+        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
+        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.edit') }}</button>
+        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
+        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
       </div>
     </div>
 
@@ -1150,13 +1152,13 @@ function podStatusBorder(s) {
               <span class="text-[32px] font-bold font-mono leading-none" :class="rollout.meta.text">{{ rollout.ready }}</span>
               <span class="text-headline-sm text-on-surface-variant/40 font-mono">/ {{ rollout.desired }}</span>
             </div>
-            <span class="text-xs text-on-surface-variant">就绪副本</span>
+            <span class="text-xs text-on-surface-variant">{{ $t('workload.rollout.readyReplicas') }}</span>
             <!-- 快速伸缩 ±1（Deployment/StatefulSet） -->
             <div v-if="isScalable" class="flex items-center gap-0.5">
-              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="减少 1 个副本">
+              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="−1">
                 <span class="material-symbols-outlined" style="font-size:16px">remove</span>
               </button>
-              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="增加 1 个副本">
+              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="+1">
                 <span class="material-symbols-outlined" style="font-size:16px">{{ scaling ? 'progress_activity' : 'add' }}</span>
               </button>
             </div>
@@ -1164,10 +1166,10 @@ function podStatusBorder(s) {
           <!-- 滚动发布进度 -->
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-medium text-on-surface">滚动发布</span>
+              <span class="text-xs font-medium text-on-surface">{{ $t('workload.rollout.rollingUpdate') }}</span>
               <span class="text-xs text-on-surface-variant">
-                <span class="font-mono font-semibold" :class="rollout.level === 'updating' ? 'text-status-succeeded' : 'text-status-running'">{{ rollout.updated }}</span> 新版本
-                <template v-if="rollout.oldCount > 0"><span class="text-on-surface-variant/40 mx-0.5">·</span><span class="text-status-pending font-mono">{{ rollout.oldCount }}</span> 旧版本</template>
+                <span class="font-mono font-semibold" :class="rollout.level === 'updating' ? 'text-status-succeeded' : 'text-status-running'">{{ rollout.updated }}</span> {{ $t('workload.rollout.newVersion') }}
+                <template v-if="rollout.oldCount > 0"><span class="text-on-surface-variant/40 mx-0.5">·</span><span class="text-status-pending font-mono">{{ rollout.oldCount }}</span> {{ $t('workload.rollout.oldVersion') }}</template>
               </span>
             </div>
             <div class="h-2.5 rounded-full bg-surface-container overflow-hidden flex">
@@ -1175,14 +1177,14 @@ function podStatusBorder(s) {
               <div v-if="rollout.oldCount > 0" class="h-full bg-status-pending transition-all duration-500" :style="{ width: rollout.oldW + '%' }"></div>
             </div>
             <div class="flex items-center gap-md mt-1 text-xs text-on-surface-variant">
-              <span class="flex items-center gap-0.5"><span class="w-2 h-2 rounded-full" :class="rollout.level === 'updating' ? 'bg-status-succeeded' : 'bg-status-running'"></span>新 {{ rollout.updated }}</span>
-              <span v-if="rollout.oldCount > 0" class="flex items-center gap-0.5"><span class="w-2 h-2 rounded-full bg-status-pending"></span>旧 {{ rollout.oldCount }}</span>
-              <span class="ml-auto text-on-surface-variant/60">期望 {{ rollout.desired }} · 已创建 {{ rollout.total }}</span>
+              <span class="flex items-center gap-0.5"><span class="w-2 h-2 rounded-full" :class="rollout.level === 'updating' ? 'bg-status-succeeded' : 'bg-status-running'"></span>{{ $t('workload.rollout.newShort') }} {{ rollout.updated }}</span>
+              <span v-if="rollout.oldCount > 0" class="flex items-center gap-0.5"><span class="w-2 h-2 rounded-full bg-status-pending"></span>{{ $t('workload.rollout.oldShort') }} {{ rollout.oldCount }}</span>
+              <span class="ml-auto text-on-surface-variant/60">{{ $t('workload.rollout.desired') }} {{ rollout.desired }} · {{ $t('workload.rollout.created') }} {{ rollout.total }}</span>
             </div>
           </div>
           <!-- 改版本（镜像 tag） -->
-          <button v-if="canMutate" @click="openImageTagEditor" class="shrink-0 flex items-center gap-xs px-md py-1.5 rounded-lg border border-outline-variant text-on-surface hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors" title="调整镜像版本">
-            <span class="material-symbols-outlined text-base">swap_horiz</span><span class="text-body-sm font-medium">改版本</span>
+          <button v-if="canMutate" @click="openImageTagEditor" class="shrink-0 flex items-center gap-xs px-md py-1.5 rounded-lg border border-outline-variant text-on-surface hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors" :title="$t('workload.rollout.changeTagTitle')">
+            <span class="material-symbols-outlined text-base">swap_horiz</span><span class="text-body-sm font-medium">{{ $t('workload.rollout.changeTag') }}</span>
           </button>
         </div>
       </div>
@@ -1194,20 +1196,20 @@ function podStatusBorder(s) {
           <p class="text-headline-sm font-bold text-on-surface font-mono mt-0.5">{{ workload.replicas }}</p>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant px-md py-2.5">
-          <p class="text-xs text-on-surface-variant">就绪 Pod</p>
+          <p class="text-xs text-on-surface-variant">{{ $t('workload.summary.readyPods') }}</p>
           <p class="text-headline-sm font-bold mt-0.5"><span class="text-primary font-mono">{{ managedPods.filter(p => p.status === 'Running').length }}</span><span class="text-on-surface-variant/40 text-body-md"> / {{ managedPods.length }}</span></p>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant px-md py-2.5">
-          <p class="text-xs text-on-surface-variant">运行时长</p>
+          <p class="text-xs text-on-surface-variant">{{ $t('workload.summary.uptime') }}</p>
           <p class="text-headline-sm font-bold text-on-surface mt-0.5">{{ workload.age }}</p>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant px-md py-2.5 xl:col-span-2">
-          <div class="flex items-center justify-between"><p class="text-xs text-on-surface-variant">镜像</p><button v-if="canMutate" @click="openImageTagEditor" class="text-xs text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">swap_horiz</span>改版本</button></div>
+          <div class="flex items-center justify-between"><p class="text-xs text-on-surface-variant">{{ $t('workload.summary.image') }}</p><button v-if="canMutate" @click="openImageTagEditor" class="text-xs text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">swap_horiz</span>{{ $t('workload.rollout.changeTag') }}</button></div>
           <p class="font-mono text-code-sm truncate mt-0.5"><span class="text-on-surface-variant">{{ imgBase(workload.image) }}</span><span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
           <div v-if="metricsAvailable" class="flex items-center gap-md mt-1 text-xs text-on-surface-variant">
             <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-primary">memory</span><b class="text-primary font-mono">{{ metricsNow.cpu }}</b>m</span>
             <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-secondary">storage</span><b class="text-secondary font-mono">{{ metricsNow.mem }}</b>Mi</span>
-            <span class="text-on-surface-variant/40">实时聚合</span>
+            <span class="text-on-surface-variant/40">{{ $t('workload.summary.realtimeAggregate') }}</span>
           </div>
         </div>
       </div>
@@ -1219,7 +1221,7 @@ function podStatusBorder(s) {
         <div v-if="isRolloutType && revisions.length" class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col lg:max-h-[calc(100vh-210px)] lg:sticky lg:top-2">
           <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40">
             <span class="material-symbols-outlined text-primary text-base">history</span>
-            <span class="text-body-sm font-semibold text-on-surface">版本历史</span>
+            <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.revision.history') }}</span>
             <span class="text-xs text-on-surface-variant ml-auto">{{ revisions.length }}</span>
           </div>
           <div class="flex-1 overflow-y-auto p-sm flex flex-col gap-xs">
@@ -1229,8 +1231,8 @@ function podStatusBorder(s) {
               <!-- 头：Rev + 徽标 + 年龄 -->
               <div class="flex items-center gap-1 min-w-0">
                 <span class="text-xs font-bold shrink-0" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">Rev {{ rev.rev }}</span>
-                <span v-if="rev.current" class="px-1 py-px rounded text-[10px] font-bold leading-none bg-on-primary/20 text-on-primary shrink-0">活跃</span>
-                <span v-else class="px-1 py-px rounded text-[10px] leading-none shrink-0" :class="selectedRev?.rev === rev.rev ? 'bg-primary/15 text-primary' : 'bg-surface-container text-on-surface-variant/60'">历史</span>
+                <span v-if="rev.current" class="px-1 py-px rounded text-[10px] font-bold leading-none bg-on-primary/20 text-on-primary shrink-0">{{ $t('workload.revision.active') }}</span>
+                <span v-else class="px-1 py-px rounded text-[10px] leading-none shrink-0" :class="selectedRev?.rev === rev.rev ? 'bg-primary/15 text-primary' : 'bg-surface-container text-on-surface-variant/60'">{{ $t('workload.revision.historical') }}</span>
                 <span class="text-[11px] shrink-0 ml-auto" :class="rev.current ? 'text-on-primary/70' : 'text-on-surface-variant/50'">{{ rev.age }}</span>
               </div>
               <!-- 镜像 -->
@@ -1240,23 +1242,23 @@ function podStatusBorder(s) {
               <!-- 副本统计：期望 / 当前 / 就绪 -->
               <div class="grid grid-cols-3 gap-1 mt-1">
                 <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">期望</p>
+                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.desired') }}</p>
                   <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.desiredReplicas ?? '—' }}</p>
                 </div>
                 <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">当前</p>
+                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.current') }}</p>
                   <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.replicas ?? 0 }}</p>
                 </div>
                 <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">就绪</p>
+                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.ready') }}</p>
                   <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="revReadyClass(rev)">{{ rev.readyReplicas ?? 0 }}</p>
                 </div>
               </div>
               <!-- 操作 -->
               <div class="flex items-center justify-end gap-0.5 mt-1 -mr-0.5">
-                <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-black/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" title="查看 YAML"><span class="material-symbols-outlined text-sm">code</span></button>
-                <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" title="回滚到此版本"><span class="material-symbols-outlined text-sm">undo</span></button>
-                <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="删除该版本"><span class="material-symbols-outlined text-sm">delete</span></button>
+                <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-black/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
+                <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
+                <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
             </button>
           </div>
@@ -1268,11 +1270,11 @@ function podStatusBorder(s) {
           <template v-if="selectedRev?.current">
             <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40">
               <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
-              <span class="text-body-sm font-semibold text-on-surface">Pods</span>
+              <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.podList.pods') }}</span>
               <span class="text-xs text-on-surface-variant">Rev {{ selectedRev.rev }}</span>
               <div class="flex items-center gap-sm ml-auto">
-                <span class="text-xs text-primary font-medium">{{ currentRevPods.filter(p => p.status === 'Running').length }} 运行</span>
-                <span v-if="currentRevPods.filter(p => p.status !== 'Running').length" class="text-xs text-tertiary-container">{{ currentRevPods.filter(p => p.status !== 'Running').length }} 异常</span>
+                <span class="text-xs text-primary font-medium">{{ currentRevPods.filter(p => p.status === 'Running').length }} {{ $t('workload.podList.running') }}</span>
+                <span v-if="currentRevPods.filter(p => p.status !== 'Running').length" class="text-xs text-tertiary-container">{{ currentRevPods.filter(p => p.status !== 'Running').length }} {{ $t('workload.podList.abnormal') }}</span>
               </div>
             </div>
             <div v-if="currentRevPods.length" class="flex-1 overflow-y-auto p-sm flex flex-col gap-xs">
@@ -1284,7 +1286,7 @@ function podStatusBorder(s) {
                 @click="selectPod(p)" @delete="confirmDeletePod($event)"
               >
                 <template #actions>
-                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" title="打开终端（浮动窗口）">
+                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
                     <span class="material-symbols-outlined text-sm">terminal</span>
                   </button>
                 </template>
@@ -1292,7 +1294,7 @@ function podStatusBorder(s) {
             </div>
             <div v-else class="flex-1 py-md text-center text-body-sm text-on-surface-variant">
               <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>
-              <p class="mt-xs">该版本暂无 Pod</p>
+              <p class="mt-xs">{{ $t('workload.revision.noPods') }}</p>
             </div>
           </template>
 
@@ -1301,13 +1303,13 @@ function podStatusBorder(s) {
             <!-- 头 -->
             <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40">
               <span class="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-sm">history</span></span>
-              <span class="text-body-sm font-semibold text-on-surface">历史版本</span>
+              <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.revision.historicalRev') }}</span>
               <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">Rev {{ selectedRev.rev }}</span>
             </div>
             <div class="flex-1 overflow-y-auto flex flex-col">
               <!-- Hero：镜像（最显眼）+ ReplicaSet 副标题 -->
               <div class="px-md py-md">
-                <p class="text-[10px] uppercase tracking-wide text-on-surface-variant/50 mb-1">镜像</p>
+                <p class="text-[10px] uppercase tracking-wide text-on-surface-variant/50 mb-1">{{ $t('workload.summary.image') }}</p>
                 <p class="font-mono text-body-sm font-semibold break-all leading-tight"><span class="text-on-surface-variant">{{ revImgBase(selectedRev.image) }}</span><span class="text-primary">:{{ imageTag(selectedRev.image) || 'latest' }}</span></p>
                 <div class="flex items-center gap-1 mt-1.5 text-[11px] text-on-surface-variant/60">
                   <span class="material-symbols-outlined text-sm">group_work</span>
@@ -1317,22 +1319,22 @@ function podStatusBorder(s) {
               <!-- 副本统计：扁平 3 列（竖线分隔，无盒子） -->
               <div class="grid grid-cols-3 px-md py-sm border-y border-outline-variant/40">
                 <div class="text-center">
-                  <p class="text-[10px] text-on-surface-variant/50">期望</p>
+                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.desired') }}</p>
                   <p class="font-mono text-body-sm font-bold text-on-surface mt-0.5">{{ selectedRev.desiredReplicas ?? '—' }}</p>
                 </div>
                 <div class="text-center border-x border-outline-variant/40">
-                  <p class="text-[10px] text-on-surface-variant/50">当前</p>
+                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.current') }}</p>
                   <p class="font-mono text-body-sm font-bold mt-0.5" :class="(selectedRev.replicas ?? 0) > 0 ? 'text-primary' : 'text-on-surface-variant/50'">{{ selectedRev.replicas ?? 0 }}</p>
                 </div>
                 <div class="text-center">
-                  <p class="text-[10px] text-on-surface-variant/50">就绪</p>
+                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.ready') }}</p>
                   <p class="font-mono text-body-sm font-bold mt-0.5" :class="revReadyClass(selectedRev)">{{ selectedRev.readyReplicas ?? 0 }}</p>
                 </div>
               </div>
               <!-- 元信息 -->
               <div class="px-md py-sm flex flex-col gap-1 text-xs">
                 <div class="flex items-center justify-between">
-                  <span class="text-on-surface-variant/60 flex items-center gap-1"><span class="material-symbols-outlined text-sm">schedule</span>创建于</span>
+                  <span class="text-on-surface-variant/60 flex items-center gap-1"><span class="material-symbols-outlined text-sm">schedule</span>{{ $t('workload.revision.createdAt') }}</span>
                   <span class="text-on-surface">{{ selectedRev.age }}</span>
                 </div>
                 <div v-if="selectedRev.reason && selectedRev.reason !== '—'" class="flex items-start gap-1">
@@ -1343,8 +1345,8 @@ function podStatusBorder(s) {
               <!-- 操作（吸底，无边框仅 hover 底色） -->
               <div class="mt-auto px-md py-md border-t border-outline-variant/40 grid grid-cols-3 gap-1">
                 <button @click="viewRevYaml(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">YAML</span></button>
-                <button @click="confirmRollback(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-base">undo</span><span class="text-[11px]">回滚</span></button>
-                <button @click="confirmDeleteRev(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"><span class="material-symbols-outlined text-base">delete</span><span class="text-[11px]">删除</span></button>
+                <button @click="confirmRollback(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-base">undo</span><span class="text-[11px]">{{ $t('workload.revision.rollback') }}</span></button>
+                <button @click="confirmDeleteRev(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"><span class="material-symbols-outlined text-base">delete</span><span class="text-[11px]">{{ $t('workload.revision.delete') }}</span></button>
               </div>
             </div>
           </template>
@@ -1358,10 +1360,10 @@ function podStatusBorder(s) {
               <div class="flex items-center justify-between px-md py-2 border-b border-outline-variant/40">
                 <div class="flex items-center gap-xs">
                   <span class="w-5 h-5 rounded-md bg-primary/10 flex items-center justify-center"><span class="material-symbols-outlined text-primary" style="font-size:14px">notifications_active</span></span>
-                  <span class="text-xs font-semibold">事件</span>
+                  <span class="text-xs font-semibold">{{ $t('workload.podDetail.events') }}</span>
                   <span class="px-1.5 py-0.5 rounded-full bg-surface-container text-[10px] text-on-surface-variant font-medium">{{ workloadEvents.length }}</span>
                 </div>
-                <button v-if="workloadEvents.length > 6" @click="activeTab = 'events'" class="text-[11px] text-primary hover:underline flex items-center gap-0.5">全部<span class="material-symbols-outlined" style="font-size:13px">arrow_forward</span></button>
+                <button v-if="workloadEvents.length > 6" @click="activeTab = 'events'" class="text-[11px] text-primary hover:underline flex items-center gap-0.5">{{ $t('workload.podDetail.allEvents') }}<span class="material-symbols-outlined" style="font-size:13px">arrow_forward</span></button>
               </div>
               <div v-if="workloadEvents.length" class="px-md py-sm">
                 <div class="relative">
@@ -1380,7 +1382,7 @@ function podStatusBorder(s) {
               </div>
               <div v-else class="py-md text-center">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-                <p class="text-xs text-on-surface-variant/50 mt-xs">该工作负载暂无事件</p>
+                <p class="text-xs text-on-surface-variant/50 mt-xs">{{ $t('workload.podDetail.noEvents') }}</p>
               </div>
             </div>
 
@@ -1389,8 +1391,8 @@ function podStatusBorder(s) {
               <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/40">
                 <div class="flex items-center gap-sm">
                   <span class="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-sm">monitoring</span></span>
-                  <span class="text-body-sm font-semibold">性能指标</span>
-                  <span class="text-xs text-on-surface-variant/60">{{ metricsWindow }} 窗口</span>
+                  <span class="text-body-sm font-semibold">{{ $t('workload.podDetail.metrics') }}</span>
+                  <span class="text-xs text-on-surface-variant/60">{{ $t('workload.podDetail.metricsWindow', { window: metricsWindow }) }}</span>
                 </div>
                 <div class="flex items-center gap-0.5 bg-surface-container-low rounded-lg p-0.5">
                   <button v-for="w in METRIC_WINDOWS" :key="w.key" @click="metricsWindow = w.key" class="px-2 py-0.5 text-xs rounded-md transition-colors" :class="metricsWindow === w.key ? 'bg-primary text-on-primary font-semibold' : 'text-on-surface-variant hover:text-on-surface'">{{ w.label }}</button>
@@ -1409,7 +1411,7 @@ function podStatusBorder(s) {
                 </div>
                 <div class="p-md">
                   <div class="flex items-baseline justify-between mb-xs">
-                    <span class="flex items-center gap-1 text-xs text-on-surface-variant"><span class="material-symbols-outlined text-secondary text-sm">memory</span>内存</span>
+                    <span class="flex items-center gap-1 text-xs text-on-surface-variant"><span class="material-symbols-outlined text-secondary text-sm">memory</span>{{ $t('common.memory') }}</span>
                     <span class="font-mono text-headline-sm font-bold text-secondary leading-none">{{ podMetricsNow.mem }}<span class="text-xs text-on-surface-variant/50 font-normal ml-0.5">Mi</span></span>
                   </div>
                   <MiniChart :series="windowed(podMemSeries)" color="var(--md-sys-color-secondary)" :ref-lines="podMemRefLines" :height="72" />
@@ -1418,7 +1420,7 @@ function podStatusBorder(s) {
                   </div>
                 </div>
               </div>
-              <div v-else class="py-md text-center"><span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span><p class="text-body-sm text-on-surface-variant mt-xs">metrics-server 未就绪</p></div>
+              <div v-else class="py-md text-center"><span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('workload.podDetail.metricsNotReady') }}</p></div>
             </div>
 
             <!-- 选中 Pod 的容器详情：以「容器(应用进程)」为主体，Pod 作为它的运行实例 -->
@@ -1426,8 +1428,8 @@ function podStatusBorder(s) {
               <!-- 主体：容器（= 服务本身，你最关心的） -->
               <div class="p-md">
                 <div class="flex items-center gap-xs mb-sm">
-                  <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold tracking-wider">容器 · CONTAINER</span>
-                  <span class="text-xs text-on-surface-variant ml-auto">{{ podContainers(selectedPod).length }} 个</span>
+                  <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold tracking-wider">{{ $t('workload.podDetail.container') }}</span>
+                  <span class="text-xs text-on-surface-variant ml-auto">{{ $t('workload.podDetail.containerCount', { n: podContainers(selectedPod).length }) }}</span>
                 </div>
                 <div v-if="podContainers(selectedPod).length" class="flex flex-col gap-xs">
                   <div v-for="c in podContainers(selectedPod)" :key="c.name" class="rounded-lg border-2 border-primary/30 bg-primary/5 px-sm py-1.5">
@@ -1441,17 +1443,17 @@ function podStatusBorder(s) {
                     <p class="font-mono text-[11px] truncate mt-0.5"><span class="text-on-surface-variant">{{ imgBase(c.image) }}</span><span class="text-primary font-semibold">:{{ imgTag(c.image) || 'latest' }}</span><span class="text-on-surface-variant/40"> · {{ c.pullPolicy }}<span v-if="c.ports"> · {{ c.ports }}</span></span></p>
                   </div>
                 </div>
-                <p v-else class="text-xs text-on-surface-variant/50 py-sm">无容器</p>
+                <p v-else class="text-xs text-on-surface-variant/50 py-sm">{{ $t('workload.podDetail.noContainers') }}</p>
                 <!-- 操作 -->
                 <div class="flex items-center gap-0.5 mt-sm">
-                  <button @click="viewLogs(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" title="日志"><span class="material-symbols-outlined text-base">terminal</span><span class="text-[11px]">日志</span></button>
-                  <button @click="openExec(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" title="终端"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">终端</span></button>
-                  <button @click="viewFiles()" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" title="文件"><span class="material-symbols-outlined text-base">folder_open</span><span class="text-[11px]">文件</span></button>
-                  <button @click="openPortForward" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors ml-auto" title="端口转发"><span class="material-symbols-outlined text-base">forward_media</span><span class="text-[11px]">转发</span></button>
+                  <button @click="viewLogs(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.logs')"><span class="material-symbols-outlined text-base">terminal</span><span class="text-[11px]">{{ $t('workload.podDetail.logs') }}</span></button>
+                  <button @click="openExec(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.terminal')"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">{{ $t('workload.podDetail.terminal') }}</span></button>
+                  <button @click="viewFiles()" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.files')"><span class="material-symbols-outlined text-base">folder_open</span><span class="text-[11px]">{{ $t('workload.podDetail.files') }}</span></button>
+                  <button @click="openPortForward" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors ml-auto" :title="$t('component.portForward.title')"><span class="material-symbols-outlined text-base">forward_media</span><span class="text-[11px]">{{ $t('workload.podDetail.forward') }}</span></button>
                 </div>
                 <!-- 生命周期（Pod 就绪状态） -->
                 <div v-if="podConditions(selectedPod)" class="grid grid-cols-2 gap-1 mt-sm">
-                  <template v-for="ck in [{k:'scheduled',l:'已调度'},{k:'initialized',l:'已初始化'},{k:'containersReady',l:'容器就绪'},{k:'podReady',l:'Pod 就绪'}]" :key="ck.k">
+                  <template v-for="ck in [{k:'scheduled',l:$t('workload.podDetail.scheduled')},{k:'initialized',l:$t('workload.podDetail.initialized')},{k:'containersReady',l:$t('workload.podDetail.containersReady')},{k:'podReady',l:$t('workload.podDetail.podReady')}]" :key="ck.k">
                     <div class="flex items-center gap-1 px-1.5 py-1 rounded bg-surface-container-low">
                       <span class="material-symbols-outlined" style="font-size:14px" :class="condChip(podConditions(selectedPod)[ck.k]).ok ? 'text-primary' : 'text-on-surface-variant/40'">{{ condChip(podConditions(selectedPod)[ck.k]).ok ? 'check_circle' : 'radio_button_unchecked' }}</span>
                       <span class="text-[11px]" :class="condChip(podConditions(selectedPod)[ck.k]).ok ? 'text-on-surface' : 'text-on-surface-variant'">{{ ck.l }}</span>
@@ -1462,11 +1464,11 @@ function podStatusBorder(s) {
               <!-- 运行实例：Pod（上述容器运行所在的实例） -->
               <div class="px-md py-2 border-t border-outline-variant/40 bg-surface-container-low/30">
                 <div class="flex items-center gap-xs mb-1">
-                  <span class="px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-[10px] font-bold tracking-wider">运行实例 · POD</span>
-                  <span class="text-xs text-on-surface-variant/70 ml-auto">该容器运行于此 Pod 实例</span>
+                  <span class="px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-[10px] font-bold tracking-wider">{{ $t('workload.podDetail.runningInstance') }}</span>
+                  <span class="text-xs text-on-surface-variant/70 ml-auto">{{ $t('workload.podDetail.runningInstanceHint') }}</span>
                 </div>
                 <div class="flex items-center gap-sm">
-                  <span class="relative shrink-0" title="Pod 实例">
+                  <span class="relative shrink-0" :title="$t('workload.podDetail.podInstance')">
                     <span class="material-symbols-outlined text-on-surface-variant">view_in_ar</span>
                     <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface-container-low" :class="podHealth(selectedPod).dot"></span>
                   </span>
@@ -1483,7 +1485,7 @@ function podStatusBorder(s) {
           <!-- 未选中 Pod 空状态 -->
           <div v-else class="rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant/50 py-xl text-center">
             <span class="material-symbols-outlined text-3xl text-surface-container-high">touch_app</span>
-            <p class="text-body-sm text-on-surface-variant mt-xs">从左侧选择一个 Pod 查看详情</p>
+            <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('workload.podDetail.selectPodHint') }}</p>
           </div>
         </div>
       </div>
@@ -1491,17 +1493,17 @@ function podStatusBorder(s) {
       <!-- 底部：Labels + 配置依赖 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
-          <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">label</span><span class="text-body-sm font-semibold">Labels</span><span class="text-xs text-on-surface-variant ml-auto">{{ Object.keys(workload.labels || {}).length }}</span></div>
+          <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">label</span><span class="text-body-sm font-semibold">{{ $t('workload.bottomBar.labels') }}</span><span class="text-xs text-on-surface-variant ml-auto">{{ Object.keys(workload.labels || {}).length }}</span></div>
           <div class="px-md py-sm flex flex-wrap gap-1">
             <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant"><span class="font-semibold">{{ key }}</span>={{ val }}</span>
-            <span v-if="!Object.keys(workload.labels || {}).length" class="text-xs text-on-surface-variant/50">无</span>
+            <span v-if="!Object.keys(workload.labels || {}).length" class="text-xs text-on-surface-variant/50">{{ $t('workload.bottomBar.none') }}</span>
           </div>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
-          <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">link</span><span class="text-body-sm font-semibold">配置依赖</span><span class="text-xs text-on-surface-variant ml-auto">{{ configRefs.length }}</span></div>
+          <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">link</span><span class="text-body-sm font-semibold">{{ $t('workload.bottomBar.configRefs') }}</span><span class="text-xs text-on-surface-variant ml-auto">{{ configRefs.length }}</span></div>
           <div class="px-md py-sm flex flex-wrap gap-xs">
             <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="inline-flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span><span class="font-mono text-xs font-medium">{{ ref.name }}</span></span>
-            <span v-if="!configRefs.length" class="text-xs text-on-surface-variant/50">无</span>
+            <span v-if="!configRefs.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.bottomBar.none') }}</span>
           </div>
         </div>
       </div>
@@ -1514,7 +1516,7 @@ function podStatusBorder(s) {
         <div class="flex-1 min-w-[200px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
           <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-base">alt_route</span>
-            <span class="text-body-sm font-semibold">应用路由</span>
+            <span class="text-body-sm font-semibold">{{ $t('workload.topology.ingress') }}</span>
             <span class="text-xs text-on-surface-variant ml-auto">{{ topoIngressRules.length }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs flex-1">
@@ -1523,7 +1525,7 @@ function podStatusBorder(s) {
               <p class="text-[11px] text-on-surface-variant truncate">→ {{ r.serviceName }}<span v-if="r.port">:{{ r.port }}</span></p>
             </div>
             <div v-if="!topoIngressRules.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>未配置 Ingress
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noIngress') }}
             </div>
           </div>
         </div>
@@ -1532,13 +1534,13 @@ function podStatusBorder(s) {
 
         <!-- Service -->
         <div class="flex-1 min-w-[200px] relative">
-          <button @click="openIngressMap" :disabled="!canMutate || !relatedServices.length" :title="!relatedServices.length ? '无关联 Service，无法映射 Ingress' : !canMutate ? '无 update 权限' : '为 Service 新建 Ingress 路由'" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
+          <button @click="openIngressMap" :disabled="!canMutate || !relatedServices.length" :title="!relatedServices.length ? $t('workload.topology.noService') : !canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
             <span class="material-symbols-outlined text-base">add</span>
           </button>
           <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col h-full">
             <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
               <span class="material-symbols-outlined text-primary text-base">hub</span>
-              <span class="text-body-sm font-semibold">Service</span>
+              <span class="text-body-sm font-semibold">{{ $t('workload.topology.service') }}</span>
               <span class="text-xs text-on-surface-variant ml-auto">{{ relatedServices.length }}</span>
             </div>
             <div class="p-sm flex flex-col gap-xs flex-1">
@@ -1547,7 +1549,7 @@ function podStatusBorder(s) {
                 <p class="text-[11px] text-on-surface-variant truncate"><span class="px-1 rounded bg-surface-container">{{ s.type }}</span> {{ s.ports }}</p>
               </div>
               <div v-if="!relatedServices.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-                <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>无关联 Service
+                <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
               </div>
             </div>
           </div>
@@ -1557,7 +1559,7 @@ function podStatusBorder(s) {
 
         <!-- Deployment (self) -->
         <div class="flex-1 min-w-[200px] relative">
-          <button @click="openExpose" :disabled="!canMutate" :title="!canMutate ? '无 update 权限' : '在已暴露端口上新建 Service'" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
+          <button @click="openExpose" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
             <span class="material-symbols-outlined text-base">add</span>
           </button>
           <div class="rounded-xl bg-primary/5 border-2 border-primary/40 overflow-hidden flex flex-col h-full">
@@ -1568,11 +1570,11 @@ function podStatusBorder(s) {
             <div class="p-sm flex flex-col gap-xs">
               <div class="rounded-lg border border-primary/30 bg-surface-container-lowest px-sm py-1.5">
                 <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ workload.name }}</p>
-                <p class="text-[11px] text-on-surface-variant">{{ workload.replicas }} 副本 · {{ workload.age }}</p>
+                <p class="text-[11px] text-on-surface-variant">{{ $t('workload.topology.replicasCount', { replicas: workload.replicas, age: workload.age }) }}</p>
                 <p class="font-mono text-[11px] text-on-surface-variant truncate mt-0.5">{{ imgBase(workload.image) }}<span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
               </div>
               <div v-if="configRefs.length" class="mt-1">
-                <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-0.5">挂载配置</p>
+                <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-0.5">{{ $t('workload.bottomBar.mountConfig') }}</p>
                 <div class="flex flex-wrap gap-0.5">
                   <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="cursor-pointer inline-flex items-center gap-0.5 px-1 py-0.5 bg-surface-container-low rounded text-[11px] hover:bg-surface-container">
                     <span class="material-symbols-outlined" style="font-size:11px">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>{{ ref.name }}
@@ -1589,7 +1591,7 @@ function podStatusBorder(s) {
         <div class="flex-1 min-w-[220px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
           <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
-            <span class="text-body-sm font-semibold">Pods</span>
+            <span class="text-body-sm font-semibold">{{ $t('workload.topology.pods') }}</span>
             <span class="text-xs text-on-surface-variant ml-auto">{{ managedPods.length }}</span>
           </div>
           <div class="p-sm flex flex-col gap-xs flex-1 max-h-[340px] overflow-y-auto">
@@ -1599,7 +1601,7 @@ function podStatusBorder(s) {
               <span class="text-[11px] shrink-0" :class="podHealth(p).text">{{ podHealth(p).label }}</span>
             </div>
             <div v-if="!managedPods.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>无运行实例
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>{{ $t('workload.topology.noPods') }}
             </div>
           </div>
         </div>
@@ -1609,9 +1611,9 @@ function podStatusBorder(s) {
       <div class="rounded-xl bg-surface-container-low border border-outline-variant/60 p-md flex items-start gap-sm">
         <span class="material-symbols-outlined text-on-surface-variant text-base mt-0.5">info</span>
         <p class="text-xs text-on-surface-variant">
-          流量路径：<b class="text-on-surface">外部请求</b> → <b class="text-on-surface">Ingress</b>（域名/路径）→ <b class="text-on-surface">Service</b>（经 selector）→ <b class="text-primary">{{ workload.type }}</b> 副本 <b class="text-on-surface">Pod</b>。
-          <span v-if="!relatedServices.length" class="text-tertiary-container">当前无关联 Service，外部无法访问——点 <b class="text-primary">Deployment 卡片左侧 +</b> 在已暴露端口上创建。</span>
-          <span v-else class="text-on-surface-variant/70">点 <b class="text-primary">卡片左侧 +</b> 可在任一层继续新增：Deployment→Service、Service→Ingress。</span>
+          {{ $t('workload.topology.flowPath') }}{{ $t('workload.topology.flowPathDesc', { type: workload.type }) }}
+          <span v-if="!relatedServices.length" class="text-tertiary-container">{{ $t('workload.topology.noServiceHint') }}</span>
+          <span v-else class="text-on-surface-variant/70">{{ $t('workload.topology.addHint') }}</span>
         </p>
       </div>
     </div>
@@ -1619,16 +1621,16 @@ function podStatusBorder(s) {
     <!-- ====== Network Tab ====== -->
     <div v-if="activeTab === 'network'" class="flex flex-col gap-md">
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant p-md">
-        <h3 class="text-body-sm font-semibold mb-sm">容器端口</h3>
+        <h3 class="text-body-sm font-semibold mb-sm">{{ $t('workload.network.containerPorts') }}</h3>
         <div v-if="containerPorts.length" class="flex flex-wrap gap-xs">
           <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-xs px-sm py-xs bg-surface-container-low rounded border border-outline-variant">{{ p.container }}: <b class="text-primary">{{ p.port }}</b>/{{ p.protocol }}</span>
         </div>
-        <p v-else class="text-body-sm text-on-surface-variant">未定义</p>
+        <p v-else class="text-body-sm text-on-surface-variant">{{ $t('workload.network.portsUndefined') }}</p>
       </div>
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
-          <span class="text-body-sm font-semibold">关联 Service</span>
-          <button @click="openExpose" class="text-xs text-primary hover:underline">+ 暴露</button>
+          <span class="text-body-sm font-semibold">{{ $t('workload.network.relatedServices') }}</span>
+          <button @click="openExpose" class="text-xs text-primary hover:underline">{{ $t('workload.network.expose') }}</button>
         </div>
         <div v-if="relatedServices.length" class="divide-y divide-outline-variant/15">
           <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="flex items-center gap-sm px-md py-2 hover:bg-surface-container-low/40 cursor-pointer">
@@ -1638,12 +1640,12 @@ function podStatusBorder(s) {
             <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ s.type }}</span>
           </div>
         </div>
-        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">暂无关联 Service</p>
+        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">{{ $t('workload.network.noRelatedServices') }}</p>
       </div>
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
-          <span class="text-body-sm font-semibold">关联 Ingress</span>
-          <button @click="openIngressMap" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">+ 映射</button>
+          <span class="text-body-sm font-semibold">{{ $t('workload.network.relatedIngress') }}</span>
+          <button @click="openIngressMap" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">{{ $t('workload.network.mapIngress') }}</button>
         </div>
         <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/15">
           <template v-for="ing in relatedIngresses" :key="ing.name">
@@ -1653,7 +1655,7 @@ function podStatusBorder(s) {
             </div>
           </template>
         </div>
-        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">暂无关联 Ingress</p>
+        <p v-else class="px-md py-sm text-body-sm text-on-surface-variant">{{ $t('workload.network.noRelatedIngress') }}</p>
       </div>
     </div>
 
@@ -1663,9 +1665,9 @@ function podStatusBorder(s) {
       <div class="flex items-center gap-sm flex-wrap">
         <div class="flex items-center gap-sm mr-sm">
           <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
-          <span class="text-body-sm font-semibold text-on-surface">{{ managedPods.length }} 个 Pod</span>
+          <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.podList.podCount', { n: managedPods.length }) }}</span>
         </div>
-        <button v-for="f in [{ k: 'All', l: '全部' }, { k: 'Running', l: '运行' }, { k: 'Pending', l: '启动中' }, { k: 'Failed', l: '失败' }, { k: 'Other', l: '其它' }]" :key="f.k"
+        <button v-for="f in [{ k: 'All', l: $t('workload.podList.filterAll') }, { k: 'Running', l: $t('workload.podList.filterRunning') }, { k: 'Pending', l: $t('workload.podList.filterPending') }, { k: 'Failed', l: $t('workload.podList.filterFailed') }, { k: 'Other', l: $t('workload.podList.filterOther') }]" :key="f.k"
           @click="podFilter = podFilter === f.k ? 'All' : f.k"
           class="inline-flex items-center gap-1 px-sm py-1 rounded-full text-xs font-medium border transition-colors"
           :class="podFilter === f.k ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:bg-surface-container'">
@@ -1680,7 +1682,7 @@ function podStatusBorder(s) {
           :show-terminal="false" show-delete
           @click="goPodDetail" @delete="confirmDeletePod($event)">
           <template #actions>
-            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" title="打开终端（浮动窗口）">
+            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
               <span class="material-symbols-outlined text-sm">terminal</span>
             </button>
           </template>
@@ -1690,7 +1692,7 @@ function podStatusBorder(s) {
       <!-- 空状态 -->
       <div v-else class="rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant/50 py-xl text-center">
         <span class="material-symbols-outlined text-3xl text-surface-container-high">pod</span>
-        <p class="text-body-sm text-on-surface-variant mt-xs">{{ managedPods.length ? '该过滤条件下无 Pod' : '该工作负载暂无运行实例' }}</p>
+        <p class="text-body-sm text-on-surface-variant mt-xs">{{ managedPods.length ? $t('workload.podList.noPodsFiltered') : $t('workload.podList.noPodsAtAll') }}</p>
       </div>
     </div>
 
@@ -1703,7 +1705,7 @@ function podStatusBorder(s) {
             <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Image</th>
             <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
             <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-20">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-20">{{ $t('workload.revisionsTab.actions') }}</th>
           </tr></thead>
           <tbody class="divide-y divide-outline-variant/15">
             <tr v-for="rev in revisions" :key="rev.rev" class="hover:bg-surface-container-low/40">
@@ -1711,7 +1713,7 @@ function podStatusBorder(s) {
               <td class="px-md py-2 font-mono text-xs truncate max-w-[200px]">{{ rev.image }}</td>
               <td class="px-md py-2 text-xs">{{ rev.readyReplicas }}/{{ rev.desiredReplicas }}</td>
               <td class="px-md py-2 text-xs text-on-surface-variant">{{ rev.age }}</td>
-              <td class="px-md py-2"><button v-if="!rev.current" @click="confirmRollback(rev)" class="text-xs text-primary hover:underline">回滚</button></td>
+              <td class="px-md py-2"><button v-if="!rev.current" @click="confirmRollback(rev)" class="text-xs text-primary hover:underline">{{ $t('workload.revisionsTab.rollback') }}</button></td>
             </tr>
           </tbody>
         </table>
@@ -1727,7 +1729,7 @@ function podStatusBorder(s) {
     <div v-if="activeTab === 'events'" class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
       <table class="w-full text-left">
         <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">对象</th>
+          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('workload.eventsTab.object') }}</th>
           <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reason</th>
           <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
           <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
@@ -1743,74 +1745,74 @@ function podStatusBorder(s) {
           </tr>
         </tbody>
       </table>
-      <p v-if="!workloadEvents.length" class="py-md text-center text-body-sm text-on-surface-variant">暂无事件</p>
+      <p v-if="!workloadEvents.length" class="py-md text-center text-body-sm text-on-surface-variant">{{ $t('workload.eventsTab.noEvents') }}</p>
     </div>
   </div>
 
   <!-- Not Found -->
   <div v-else class="text-center py-xl">
     <span class="material-symbols-outlined text-4xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">Workload Not Found</h2>
-    <button @click="router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ $t('workload.notFound') }}</h2>
+    <button @click="router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.back') }}</button>
   </div>
 
   <!-- ====== Modals ====== -->
-  <Modal v-model="showDeleteModal" title="Delete Workload" width="max-w-md">
-    <p class="text-body-md">Delete <b>{{ route.params.name }}</b>?</p>
+  <Modal v-model="showDeleteModal" :title="$t('workload.modals.deleteTitle')" width="max-w-md">
+    <p class="text-body-md">{{ $t('workload.modals.deleteConfirm', { name: route.params.name }) }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- 删除 Pod（控制器会重建并重新拉镜像） -->
-  <Modal v-model="showDeletePodModal" title="删除 Pod" width="max-w-md">
-    <p class="text-body-md">删除 Pod <b class="font-mono text-xs">{{ deletePodTarget?.name }}</b>？</p>
-    <p class="text-body-sm text-on-surface-variant mt-sm">Deployment/ReplicaSet 控制器会立即拉起一个新 Pod（会重新触发镜像拉取）。适用于镜像补传后仍卡在 PullImage/ImagePullBackOff 的 Pod。</p>
+  <Modal v-model="showDeletePodModal" :title="$t('workload.modals.deletePodTitle')" width="max-w-md">
+    <p class="text-body-md">{{ $t('workload.modals.deletePodConfirm', { name: deletePodTarget?.name }) }}</p>
+    <p class="text-body-sm text-on-surface-variant mt-sm">{{ $t('workload.modals.deletePodHint') }}</p>
     <template #actions>
-      <button @click="showDeletePodModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="handleDeletePod" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">删除</button>
+      <button @click="showDeletePodModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleDeletePod" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showScaleModal" title="Scale" width="max-w-sm">
+  <Modal v-model="showScaleModal" :title="$t('workload.modals.scaleTitle')" width="max-w-sm">
     <input v-model.number="scaleReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm" />
     <template #actions>
-      <button @click="showScaleModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
-      <button @click="handleScale" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Scale</button>
+      <button @click="showScaleModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleScale" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.scale') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showRollbackModal" title="Rollback" width="max-w-md">
-    <p>Rollback to <b>Rev {{ rollbackTarget?.rev }}</b>?</p>
+  <Modal v-model="showRollbackModal" :title="$t('workload.modals.rollbackTitle')" width="max-w-md">
+    <p>{{ $t('workload.modals.rollbackConfirm', { rev: rollbackTarget?.rev }) }}</p>
     <template #actions>
-      <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
-      <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Rollback</button>
+      <button @click="showRollbackModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleRollback" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.modals.rollbackTitle') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showEditModal" title="Edit Workload" width="max-w-3xl">
+  <Modal v-model="showEditModal" :title="$t('workload.modals.editTitle')" width="max-w-3xl">
     <div class="flex flex-col gap-md max-h-[70vh] overflow-y-auto pr-xs">
       <!-- 基本配置（镜像 / 副本 / 分层） -->
       <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
-        <div class="flex items-center gap-xs mb-md"><span class="material-symbols-outlined text-primary text-lg">info</span><h4 class="text-body-sm font-semibold text-on-surface">基本配置</h4></div>
+        <div class="flex items-center gap-xs mb-md"><span class="material-symbols-outlined text-primary text-lg">info</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.basicConfig') }}</h4></div>
         <div class="grid grid-cols-2 gap-sm">
           <div class="col-span-2 grid grid-cols-[1fr_180px] gap-sm">
             <div>
-              <label class="text-xs font-medium text-on-surface-variant block mb-xs">镜像仓库（不可改）</label>
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageRepoReadonly') }}</label>
               <input :value="editForm.imageRepo" readonly class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono opacity-60" />
             </div>
             <div>
-              <label class="text-xs font-medium text-on-surface-variant block mb-xs">版本 Tag</label>
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageTag') }}</label>
               <input v-model="editForm.imageTag" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="v1.0.0" />
             </div>
           </div>
-          <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Replicas</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-          <div v-if="isCronJob"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Schedule</label><input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" /></div>
-          <div class="col-span-2"><p class="text-xs text-on-surface-variant/60">新镜像预览：<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
+          <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.replicas') }}</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+          <div v-if="isCronJob"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.schedule') }}</label><input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" /></div>
+          <div class="col-span-2"><p class="text-xs text-on-surface-variant/60">{{ $t('workload.edit.imagePreview') }}<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
         </div>
         <div class="mt-md pt-md border-t border-outline-variant/40">
-          <label class="text-xs font-medium text-on-surface-variant block mb-xs">分层</label>
+          <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.tier') }}</label>
           <div class="flex flex-wrap gap-xs">
             <button v-for="t in tierOptions" :key="t.value" @click="editForm.tier = t.value" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm transition-colors" :class="editForm.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:bg-surface-container'">
               <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
