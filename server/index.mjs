@@ -15,7 +15,7 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
@@ -983,7 +983,7 @@ async function handle(req, res) {
       try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
       try { learnings = await wbReadFile(repo, 'learnings.md') } catch { learnings = null }
     }
-    return sendJson(res, 200, { exists: !!index, files, index, learnings })
+    return sendJson(res, 200, { exists: !!index, files, index, learnings, pending: getPendingDistill(db, clusterId) })
   }
   if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
@@ -1021,8 +1021,17 @@ async function handle(req, res) {
       if (!(await hasRepo(repo))) await initRepo(repo)
       await wbWriteFile(repo, 'learnings.md', input.learnings || '')
       await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
+      clearPendingDistill(db, input.clusterId)
       return sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '应用失败' }) }
+  }
+  if (url.pathname === '/api/workbench/distill/dismiss' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      clearPendingDistill(db, input.clusterId)
+      return sendJson(res, 200, { ok: true })
+    } catch (e) { return sendJson(res, 500, { message: e?.message || '失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
@@ -1717,3 +1726,31 @@ loadPersistedPlatformSessions()
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)
 })
+
+// 定时蒸馏 scheduler(D4):DISTILL_INTERVAL_MS 触发,对"近期有活动"的集群跑蒸馏 → 存待审 pending(不自动 commit)。
+const distillInterval = Number(process.env.DISTILL_INTERVAL_MS || 0)
+if (distillInterval > 0) {
+  const tickDistill = async () => {
+    try {
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return // 未配 LLM,跳过本次
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const since = Date.now() - 7 * 86400000 // 近 7 天有 audit 或有项目的集群
+      const rows = db.prepare(`SELECT DISTINCT clusterId FROM (
+        SELECT clusterId FROM audit_log WHERE clusterId IS NOT NULL AND ts > ?
+        UNION SELECT clusterId FROM workbench_projects WHERE clusterId IS NOT NULL
+      )`).all(since)
+      for (const { clusterId } of rows) {
+        try {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+          if (!cluster) continue
+          const out = await runDistill({ llmClient, db, clusterId, ledgerRepo: join(WORKBENCH_DIR, clusterId, 'cluster-context'), clusterName: cluster.name })
+          setPendingDistill(db, clusterId, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+          console.log(`[distill] ${cluster.name}: ${out.summary} → 待审`)
+        } catch (e) { console.error(`[distill] cluster ${clusterId} 失败:`, e.message) }
+      }
+    } catch (e) { console.error('[distill] scheduler tick 失败:', e.message) }
+  }
+  setInterval(tickDistill, distillInterval).unref()
+  console.log(`[distill] 定时蒸馏已启用:每 ${Math.round(distillInterval / 1000)}s 一轮(活跃集群,产待审 pending)`)
+}
