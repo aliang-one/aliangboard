@@ -130,6 +130,20 @@
     "deploy": "部署",
     "workloads": "工作负载"
   },
+  "clusters": {
+    "title": "集群管理",
+    "addCluster": "添加集群",
+    "syncing": "正在同步…",
+    "demoModeNoSync": "演示数据模式下无需同步",
+    "synced": "已同步 {cluster}",
+    "syncFailed": "同步失败：{error}",
+    "unknownError": "未知错误",
+    "totalClusters": "共 {count} 个集群，当前为",
+    "removeClusterConfirm": "移除已保存的集群「{name}」？\n（仅从列表删除，不会影响当前已连接的会话）",
+    "removed": "已移除",
+    "searchPlaceholder": "按名称、版本或发行版搜索...",
+    "noMatchingClusters": "未找到匹配的集群"
+  },
   "login": {
     "title": "AliangBoard",
     "subtitle": "Kubernetes 管理平台",
@@ -359,7 +373,7 @@
       "syncing": "Syncing…",
       "noSyncNeeded": "演示数据模式下无需同步",
       "synced": "已同步命名空间",
-      "syncFailed": "同步失败",
+      "syncFailed": "同步失败：{error}",
       "newNamespace": "New Namespace",
       "noNamespaces": "集群暂无命名空间。",
       "view": "View",

@@ -18,10 +18,10 @@ const { tableColumns } = useTableColumns()
 const syncing = ref(false)
 async function sync() {
   if (syncing.value) return
-  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  if (!store.remoteMode) { notify('info', t('ns.namespaces.noSyncNeeded')); return }
   syncing.value = true
-  try { await store.hydrateCoreResources(); notify('success', '已同步命名空间') }
-  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  try { await store.hydrateCoreResources(); notify('success', t('ns.namespaces.synced')) }
+  catch (e) { notify('error', t('ns.namespaces.syncFailed', { error: e.message || '' })) }
   finally { syncing.value = false }
 }
 
@@ -159,7 +159,7 @@ function submitDelete() {
           <button
             class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
             :class="{ 'opacity-40 cursor-not-allowed': isProtected(row.name) }"
-            :title="isProtected(row.name) ? '系统命名空间，禁止删除' : 'Delete'"
+            :title="isProtected(row.name) ? t('ns.namespaces.systemNamespace') : 'Delete'"
             :disabled="isProtected(row.name)"
             @click.stop="openDelete(row)"
           >
