@@ -14,6 +14,7 @@ import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
+import { dumpResourceYaml } from '@/composables/useYaml'
 
 const { t } = useI18n()
 	const route = useRoute()
@@ -227,10 +228,8 @@ async function loadYaml() {
   }
   yamlLoading.value = true
   try {
-    const obj = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}`)
-    const clone = JSON.parse(JSON.stringify(obj))
-    if (clone?.metadata) delete clone.metadata.managedFields   // t('podDetail.removeRedundantFields') for readability
-    podYaml.value = yamlDump(clone)
+    // pod.raw 已是完整 server 对象（mapPod 携带），无需再 api.k8s 拉取第二遍
+    podYaml.value = dumpResourceYaml(pod.value?.raw)
   } catch (e) {
     podYaml.value = `# ${t('podDetail.loadFailed')}: ${e.message || ''}`
   } finally {
