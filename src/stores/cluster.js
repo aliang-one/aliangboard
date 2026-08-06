@@ -658,9 +658,11 @@ export const useClusterStore = defineStore('cluster', () => {
   async function addSecret(sec) {
     if (remoteMode.value) {
       // 表单 data 为明文；先 base64 编码再交给 generateYAML，其内部 decodeBase64 会还原为 stringData 明文
-      return remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
+      await remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
+    } else {
+      secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
     }
-    secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
+    invalidateResource('secrets')
   }
 
   async function updateSecret(name, ns, updates) {
@@ -672,15 +674,17 @@ export const useClusterStore = defineStore('cluster', () => {
     if (next.data) next.data = encodeSecretData(next.data)
     secretList.value[idx] = { ...before, ...next }
     if (remoteMode.value) await remoteUpdate(generateYAML('secret', secretList.value[idx]), 'Secret', () => { secretList.value[idx] = before })
+    invalidateResource('secrets')
   }
 
   async function deleteSecret(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`, secretList, s => s.name === name && s.namespace === ns)
-      return
+    } else {
+      const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
+      if (idx !== -1) secretList.value.splice(idx, 1)
     }
-    const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx !== -1) secretList.value.splice(idx, 1)
+    invalidateResource('secrets')
   }
 
   // === CRUD: PVCs ===
@@ -1178,6 +1182,7 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
   async function fetchConfigMap(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`); return d ? mapConfigMap(d) : null }
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
+  async function fetchSecret(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`); return d ? mapSecret(d) : null }
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
   async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
@@ -3490,6 +3495,7 @@ status:
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
     fetchConfigMap,
+    fetchSecret,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
