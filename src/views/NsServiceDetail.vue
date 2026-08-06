@@ -6,10 +6,10 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
-import { dump as yamlDump } from 'js-yaml'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { dumpResourceYaml } from '@/composables/useYaml'
 import { api, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -215,7 +215,7 @@ function goToRelated(event) {
   else if (k === 'Endpoints') router.push({ name: 'NsEndpoints', params: { namespace: ns } })
 }
 
-// === YAML：远端拉取真实对象（去 managedFields/status），弹窗内可编辑 + apply ===
+// === YAML：从缓存对象生成（去 managedFields/status），弹窗内可编辑 + apply ===
 const svcYaml = ref('')
 const yamlLoading = ref(false)
 async function loadYaml() {
@@ -223,11 +223,10 @@ async function loadYaml() {
   if (!store.remoteMode) { svcYaml.value = store.generateYAML('service', svc.value); return }
   yamlLoading.value = true
   try {
-    const obj = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(svc.value.namespace)}/services/${encodeURIComponent(svc.value.name)}`)
-    const clone = JSON.parse(JSON.stringify(obj))
-    if (clone?.metadata) delete clone.metadata.managedFields
-    if (clone?.status) delete clone.status
-    svcYaml.value = yamlDump(clone)
+    // 从缓存的完整 server 对象生成 YAML（去 managedFields/status）；不再二次 api.k8s 拉取。
+    // 必须用完整对象而非 generateYAML 的精简 manifest：此 YAML 可编辑后经 SSA(force=true) apply，
+    // 精简 manifest 会丢失 clusterIP/labels/annotations 等服务端字段。
+    svcYaml.value = dumpResourceYaml(svc.value?.raw, { stripStatus: true })
   } catch (e) {
     svcYaml.value = `# ${t('ns.svcDetail.loadFailed')}: ${e.message || ''}`
   } finally {
