@@ -379,7 +379,7 @@ async function requestKubernetes(session, path, init = {}) {
 }
 
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
-const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: execCapture })
+const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: execCapture, applyYamlFn: applyYamlPartial })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
 const mcpHandler = createMcpServer({ db, apiKeyTools })
 

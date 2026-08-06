@@ -31,6 +31,15 @@ const K8S = [
   { name: 'exec_pod', minTier: 'admin', requiresApproval: true,
     description: '在 pod 内执行命令(一次性,捕获 stdout/stderr,非交互)。admin 档:内置 agent 需人审,外部 MCP 走 admin key。stdout 截 32KB、stderr 8KB。受绑定 SA 的 RBAC(pods/exec)约束。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '要执行的 shell 命令(字符串,非交互式)' } }, required: ['namespace', 'pod', 'command'] } },
+  { name: 'browse_files', minTier: 'admin', requiresApproval: true,
+    description: '列出 pod 内某路径下的文件(ls -la)。admin 档:内置 agent 需人审 / 外部 MCP 走 admin key。listing 截 32KB。受 SA RBAC 约束。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, path: { type: 'string', description: 'pod 内路径,如 /etc /var/log(默认 /)' } }, required: ['namespace', 'pod'] } },
+  { name: 'read_file', minTier: 'admin', requiresApproval: true,
+    description: '读 pod 内某文件(cat)。admin 档:需人审/admin key。content 截 32KB。路径只允许安全字符(防注入)。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, path: { type: 'string', description: 'pod 内文件路径,如 /etc/nginx/nginx.conf' } }, required: ['namespace', 'pod', 'path'] } },
+  { name: 'apply_yaml', minTier: 'admin', requiresApproval: true,
+    description: 'server-side apply 一段 yaml(可含多资源,--- 分隔)。逐资源 apply,部分失败返 {applied,failed,total}。admin 档:需人审/admin key。受 SA RBAC 约束。',
+    inputSchema: { type: 'object', properties: { yaml: { type: 'string', description: '要 apply 的 yaml(多资源 --- 分隔)' } }, required: ['yaml'] } },
 ].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。

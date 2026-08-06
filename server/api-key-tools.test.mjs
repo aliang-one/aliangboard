@@ -198,3 +198,25 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[rows.length - 1].result, 'ok')
 })
+
+test('browse_files/read_file/apply_yaml(deny): read 档全拒(admin 档工具)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: async () => ({ stdout: Buffer.from(''), stderr: '' }), applyYamlFn: async () => ({ applied: [], failed: [], total: 0 }) })
+  for (const t of ['browse_files', 'read_file', 'apply_yaml']) {
+    await assert.rejects(tools.callTool(k, cluster, t, { namespace: 'ns', pod: 'p1', path: '/x', yaml: 'a: b' }), (e) => e.code === 'PERMISSION_DENIED', `${t} 应被 read 档拒`)
+  }
+})
+
+test('apply_yaml(admin happy): 走全链 → applyYamlFn(saCtx, yaml) 被调,返 {applied,failed}', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let called = null
+  const applyYamlFn = async (saCtx, yaml) => { called = { yaml, authHeader: saCtx.authHeader }; return { applied: [{ kind: 'ConfigMap', name: 'cm' }], failed: [], total: 1 } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn })
+  const out = await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap' })
+  assert.ok(called.yaml.includes('ConfigMap'))
+  assert.ok(called.authHeader?.startsWith('Bearer '), 'SA-token ctx')
+  assert.equal(out.applied.length, 1)
+  assert.equal(out.total, 1)
+})
