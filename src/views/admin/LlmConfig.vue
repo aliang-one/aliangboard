@@ -57,7 +57,7 @@ async function testConn() {
   testing.value = true
   testResult.value = null
   try {
-    const r = await adminApi.llmConfig.test()
+    const r = await adminApi.llmConfig.test({ baseURL: form.value.baseURL.trim(), model: form.value.model.trim(), apiKey: form.value.apiKey })
     testResult.value = r
     if (r.ok) notify('success', '连接成功')
     else notify('error', r.message || '连接失败')
