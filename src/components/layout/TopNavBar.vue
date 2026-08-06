@@ -125,8 +125,8 @@ async function logout() {
           v-model="searchQuery"
           @keydown="onSearchKeydown"
           class="w-full bg-surface-container-low border border-outline-variant rounded-full py-1.5 pl-10 pr-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          placeholder="搜索资源（Pod / 工作负载 / Service …，回车跳首个）..."
-          aria-label="搜索资源"
+          :placeholder="$t('nav.searchPlaceholder')"
+          :aria-label="$t('common.search')"
           type="text"
         />
         <!-- 全局搜索结果 -->
@@ -163,13 +163,13 @@ async function logout() {
         >
           <!-- 头部 -->
           <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">
-            <p class="text-label-caps text-on-surface-variant">切换集群</p>
+            <p class="text-label-caps text-on-surface-variant">{{ $t('nav.switchCluster') }}</p>
             <button
               @click.stop="goClusters"
               class="flex items-center gap-1 text-body-sm text-primary hover:opacity-80 transition-opacity"
             >
               <span class="material-symbols-outlined text-base">view_module</span>
-              管理全部
+              {{ $t('nav.manageAll') }}
             </button>
           </div>
 
@@ -212,7 +212,7 @@ async function logout() {
           <span class="material-symbols-outlined text-lg">folder_open</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[160px]">
             <span class="text-xs text-on-surface-variant opacity-70">NAMESPACE</span>
-            <span class="text-body-sm font-semibold truncate">{{ currentNs || '未选择' }}</span>
+            <span class="text-body-sm font-semibold truncate">{{ currentNs || $t('nav.notSelected') }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
@@ -224,7 +224,7 @@ async function logout() {
           <div class="p-sm border-b border-outline-variant">
             <div class="relative">
               <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
-              <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="过滤命名空间..." />
+              <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" :placeholder="$t('nav.filterNamespaces')" />
             </div>
           </div>
           <div class="max-h-72 overflow-y-auto p-sm">
@@ -238,23 +238,23 @@ async function logout() {
               <span class="text-body-md font-medium truncate">{{ ns.name }}</span>
               <span class="text-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} pods</span>
             </div>
-            <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">无匹配命名空间</p>
+            <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ $t('nav.noMatchingNamespaces') }}</p>
           </div>
         </div>
       </div>
     </div>
     <div class="flex items-center gap-md">
-      <button @click="refreshPage" :disabled="refreshing" aria-label="刷新当前页" title="刷新当前页数据" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
+      <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
-      <button @click="router.push('/audit-logs')" aria-label="活动记录" title="活动记录" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+      <button @click="router.push('/audit-logs')" :aria-label="$t('nav.activityLog')" :title="$t('nav.activityLog')" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">notifications</span>
       </button>
-      <button @click="router.push('/settings')" aria-label="设置" title="设置" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+      <button @click="router.push('/settings')" :aria-label="$t('nav.settings')" :title="$t('nav.settings')" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">settings</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
-      <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" title="退出登录">
+      <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" :title="$t('nav.logout')">
         <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ (authStore.user?.displayName || authStore.user?.username || 'U').charAt(0).toUpperCase() }}</div>
         <span class="text-body-sm font-semibold">{{ authStore.user?.displayName || authStore.user?.username || 'User' }}</span>
         <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
