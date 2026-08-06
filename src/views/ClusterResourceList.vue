@@ -4,6 +4,7 @@
 // 增一种资源只需在 CONFIGS 加一项：title/icon/scope/gv/plural + summary/status。
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -14,6 +15,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import { notify } from '@/composables/useToast'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 
 const CONFIGS = {
@@ -89,7 +91,7 @@ async function load() {
       return ka.localeCompare(kb)
     })
   } catch (e) {
-    notify('error', e.message || '加载失败')
+    notify('error', e.message || t('admin.resourceList.loadFailed'))
     items.value = []
   } finally {
     loading.value = false
@@ -139,10 +141,10 @@ function yamlOf(it) {
 async function applyYaml(yaml) {
   try {
     await api.applyYaml(yaml)
-    notify('success', '已应用')
+    notify('success', t('admin.resourceList.applied'))
     await load()
   } catch (e) {
-    notify('error', e.message || '应用失败')
+    notify('error', e.message || t('admin.resourceList.applyFailed'))
   }
 }
 
@@ -155,10 +157,10 @@ async function handleDelete() {
   if (!it) return
   try {
     await api.k8s(itemPath(it), { method: 'DELETE' })
-    notify('success', `${it.metadata?.name} 已删除`)
+    notify('success', t('admin.resourceList.deleted', { name: it.metadata?.name }))
     await load()
   } catch (e) {
-    notify('error', e.message || '删除失败')
+    notify('error', e.message || t('admin.resourceList.applyFailed'))
   }
   showDelete.value = false
   delTarget.value = null
@@ -179,13 +181,13 @@ const ageOf = ts => {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">{{ cfg.title }}</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ items.length }} 项 · {{ namespaced ? '命名空间级' : '集群级' }}资源（实时读取）</p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('admin.resourceList.itemCount', { n: items.length, scope: namespaced ? t('admin.resourceList.namespaceScope') : t('admin.resourceList.clusterScope') }) }}</p>
       </div>
       <button
         @click="load"
         class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
       >
-        <span class="material-symbols-outlined text-sm">refresh</span> 刷新
+        <span class="material-symbols-outlined text-sm">refresh</span> {{ t('admin.resourceList.refresh') }}
       </button>
     </div>
 
@@ -193,12 +195,12 @@ const ageOf = ts => {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Detail</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thName') }}</th>
+            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thNamespace') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thDetail') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thStatus') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thAge') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('admin.resourceList.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -219,10 +221,10 @@ const ageOf = ts => {
               <td class="px-md py-2 text-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
               <td class="px-md py-2" @click.stop>
                 <div class="flex gap-1">
-                  <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看 / 编辑 YAML">
+                  <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('admin.resourceList.viewEditYaml')">
                     <span class="material-symbols-outlined text-base transition-transform" :class="expanded.has(rowKey(it)) ? 'rotate-180' : ''">expand_more</span>
                   </button>
-                  <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
+                  <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
                     <span class="material-symbols-outlined text-base">delete</span>
                   </button>
                 </div>
@@ -237,7 +239,7 @@ const ageOf = ts => {
           <tr v-if="!items.length && !loading">
             <td :colspan="colCount" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-              <p class="text-body-sm text-on-surface-variant mt-xs">暂无数据</p>
+              <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.resourceList.noData') }}</p>
             </td>
           </tr>
         </tbody>
@@ -248,14 +250,14 @@ const ageOf = ts => {
     </div>
 
     <!-- 删除确认 -->
-    <Modal v-model="showDelete" :title="`删除 ${cfg.title}`" width="max-w-md">
+    <Modal v-model="showDelete" :title="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })" width="max-w-md">
       <p class="text-body-md text-on-surface-variant">
-        确认删除 <span class="font-mono text-on-surface font-semibold">{{ cfg.title }}/{{ delTarget?.metadata?.name }}</span>？
+        {{ t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name }) }}
       </p>
-      <p class="text-body-sm text-error mt-sm">此操作不可撤销。</p>
+      <p class="text-body-sm text-error mt-sm">{{ t('admin.resourceList.deleteWarning') }}</p>
       <template #actions>
-        <button @click="showDelete = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+        <button @click="showDelete = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
       </template>
     </Modal>
   </section>
