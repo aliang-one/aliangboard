@@ -10,6 +10,7 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { queryClient } from '@/queryClient'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -52,6 +53,14 @@ export const formatMem = ki => {
   if (ki >= 1024 ** 2) return (ki / 1024 ** 2).toFixed(ki % 1024 ** 2 ? 1 : 0) + 'Gi'
   if (ki >= 1024) return Math.round(ki / 1024) + 'Mi'
   return Math.round(ki) + 'Ki'
+}
+
+// 失效某资源的所有 cluster query（跨 cid，匹配 key[2]），让读 query 的列表/详情页在 CRUD 后自动刷新。
+// key[2] = 资源名（如 'configmaps'）；详情页 key ['cluster',cid,'configmaps',name] 也被匹配。
+function invalidateResource(resource) {
+  queryClient.invalidateQueries({
+    predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === resource,
+  })
 }
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -621,8 +630,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: ConfigMaps ===
   async function addConfigMap(cm) {
-    if (remoteMode.value) return remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
-    configMapList.value.push({ ...cm, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
+    else configMapList.value.push({ ...cm, age: 'Just now' })
+    invalidateResource('configmaps')
   }
 
   async function updateConfigMap(name, ns, updates) {
@@ -631,15 +641,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(configMapList.value[idx]))
     configMapList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('configmap', configMapList.value[idx]), 'ConfigMap', () => { configMapList.value[idx] = before })
+    invalidateResource('configmaps')
   }
 
   async function deleteConfigMap(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`, configMapList, c => c.name === name && c.namespace === ns)
-      return
+    } else {
+      const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
+      if (idx !== -1) configMapList.value.splice(idx, 1)
     }
-    const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
-    if (idx !== -1) configMapList.value.splice(idx, 1)
+    invalidateResource('configmaps')
   }
 
   // === CRUD: Secrets ===
@@ -1164,6 +1176,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
   async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
   async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
+  async function fetchConfigMap(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`); return d ? mapConfigMap(d) : null }
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
@@ -3476,6 +3489,7 @@ status:
     refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
+    fetchConfigMap,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
