@@ -19,6 +19,8 @@ const dirty = ref(false)
 const commitMsg = ref('')
 const newFile = ref('')
 const saving = ref(false)
+const lastReconcile = ref(null)
+const reconciling = ref(false)
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -29,8 +31,19 @@ async function load() {
     project.value = res.project
     files.value = res.files || []
     commits.value = res.commits || []
+    lastReconcile.value = res.lastReconcile || null
   } catch (e) { notify('error', e.message || '加载失败') }
   finally { loading.value = false }
+}
+async function reconcile() {
+  reconciling.value = true
+  try {
+    const r = await workbenchApi.reconcile(id)
+    lastReconcile.value = { result: r, ts: r.ts }
+    if (r.skipped) notify('error', r.reason)
+    else notify('success', `reconcile:${r.applied.length} applied,${r.failed.length} failed`)
+  } catch (e) { notify('error', e.message || 'reconcile 失败') }
+  finally { reconciling.value = false }
 }
 onMounted(load)
 
@@ -89,9 +102,20 @@ function addFile() {
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
       <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined">workspaces</span>{{ project.name }}</h2>
       <span class="text-body-sm text-on-surface-variant">· {{ project.clusterName }}</span>
-      <button @click="router.push({ name: 'WorkbenchProjectChat', params: { id } })" class="ml-auto flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
+      <button @click="reconcile" :disabled="reconciling" class="ml-auto flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" title="幂等再 apply manifests,让集群对齐 repo(声明字段作用域)">
+        <span class="material-symbols-outlined text-sm">{{ reconciling ? 'progress_activity' : 'sync' }}</span> {{ reconciling ? 'reconcile 中…' : 'Reconcile' }}
+      </button>
+      <button @click="router.push({ name: 'WorkbenchProjectChat', params: { id } })" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
         <span class="material-symbols-outlined text-sm">smart_toy</span> AI 助手
       </button>
+    </div>
+
+    <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-center gap-sm px-sm">
+      <span class="material-symbols-outlined text-sm">sync</span>
+      上次 reconcile {{ fmt(lastReconcile.ts) }}:
+      <template v-if="lastReconcile.result?.skipped">跳过({{ lastReconcile.result.reason }})</template>
+      <template v-else>{{ lastReconcile.result?.applied?.length || 0 }} applied, {{ lastReconcile.result?.failed?.length || 0 }} failed</template>
+      <span v-if="lastReconcile.result?.failed?.length" class="text-error">⚠ 有失败</span>
     </div>
 
     <div class="flex-1 min-h-0 flex gap-md">
