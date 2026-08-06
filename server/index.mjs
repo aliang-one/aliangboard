@@ -9,6 +9,7 @@ import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
 import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
+import { normalizeToolOverrides } from './authorize.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1630,12 +1631,24 @@ async function handle(req, res) {
         boundSA_namespace: input.boundSA_namespace,
         boundSA_name: input.boundSA_name,
         tier: input.tier || 'read',
+        tool_overrides: input.tool_overrides ?? null,
         label: input.label || null,
         createdBy: ps.username,
       })
       // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
       return sendJson(res, 200, { apikey: k })
     } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '签发 API key 失败' }) }
+  }
+  if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/overrides$/)) {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const id = decodeURIComponent(url.pathname.split('/')[4])
+      const input = await readBody(req)
+      const json = normalizeToolOverrides(input.tool_overrides)  // strict: 坏→抛
+      const changes = db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id).changes
+      if (!changes) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
+      return sendJson(res, 200, { ok: true, id, tool_overrides: json })
+    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '更新覆盖失败' }) }
   }
   if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
     const ps = requireAdmin(req, res); if (!ps) return
