@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { pvcFileApi } from '@/api/client'
@@ -17,7 +18,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const pvc = computed(() => store.getPVCByName(route.params.name, route.params.namespace))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pvcDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'pvcs', route.params.name],
+  fetcher: () => store.fetchPVC(route.params.name, route.params.namespace),
+  mock: store.getPVCByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const pvc = computed(() => pvcDetail.data.value ?? store.getPVCByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('pvc', pvc.value),
