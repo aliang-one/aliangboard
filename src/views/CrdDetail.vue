@@ -139,7 +139,7 @@ function openCreateInst() {
   const meta = c.namespaced
     ? `metadata:\n  name: ${c.kind.toLowerCase()}-sample\n  namespace: default`
     : `metadata:\n  name: ${c.kind.toLowerCase()}-sample`
-  createYaml.value = `apiVersion: ${c.group}/${c.version}\nkind: ${c.kind}\n${meta}\nspec:\n  # 按 ${c.kind} 的 OpenAPI schema 填写\n`
+  createYaml.value = `apiVersion: ${c.group}/${c.version}\nkind: ${c.kind}\n${meta}\nspec:\n  # ${t('admin.crdDetail.fillBySchema', { kind: c.kind })}\n`
   showCreateInst.value = true
 }
 async function handleCreateInst(yaml) {

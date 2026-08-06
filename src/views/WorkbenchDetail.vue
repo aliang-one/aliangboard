@@ -43,8 +43,8 @@ async function reconcile() {
     const r = await workbenchApi.reconcile(id)
     lastReconcile.value = { result: r, ts: r.ts }
     if (r.skipped) notify('error', r.reason)
-    else notify('success', `reconcile:${r.applied.length} applied,${r.failed.length} failed`)
-  } catch (e) { notify('error', e.message || 'reconcile 失败') }
+    else notify('success', t('workbench.detail.reconcileSummary', { applied: r.applied.length, failed: r.failed.length }))
+  } catch (e) { notify('error', e.message || t('workbench.detail.reconcileFailed')) }
   finally { reconciling.value = false }
 }
 onMounted(load)
@@ -104,8 +104,8 @@ function addFile() {
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
       <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined">workspaces</span>{{ project.name }}</h2>
       <span class="text-body-sm text-on-surface-variant">· {{ project.clusterName }}</span>
-      <button @click="reconcile" :disabled="reconciling" class="ml-auto flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" title="幂等再 apply manifests,让集群对齐 repo(声明字段作用域)">
-        <span class="material-symbols-outlined text-sm">{{ reconciling ? 'progress_activity' : 'sync' }}</span> {{ reconciling ? 'reconcile…' : 'Reconcile' }}
+      <button @click="reconcile" :disabled="reconciling" class="ml-auto flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.detail.reconcileTitle')">
+        <span class="material-symbols-outlined text-sm">{{ reconciling ? 'progress_activity' : 'sync' }}</span> {{ reconciling ? t('workbench.detail.reconciling') : t('workbench.detail.reconcile') }}
       </button>
       <button @click="router.push({ name: 'WorkbenchProjectChat', params: { id } })" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
         <span class="material-symbols-outlined text-sm">smart_toy</span> {{ t('workbench.detail.aiAssistant') }}
@@ -114,10 +114,10 @@ function addFile() {
 
     <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-center gap-sm px-sm">
       <span class="material-symbols-outlined text-sm">sync</span>
-      上次 reconcile {{ fmt(lastReconcile.ts) }}:
-      <template v-if="lastReconcile.result?.skipped">跳过({{ lastReconcile.result.reason }})</template>
+      {{ t('workbench.detail.lastReconcile', { ts: fmt(lastReconcile.ts) }) }}:
+      <template v-if="lastReconcile.result?.skipped">{{ t('workbench.detail.reconcileSkipped', { reason: lastReconcile.result.reason }) }}</template>
       <template v-else>{{ lastReconcile.result?.applied?.length || 0 }} applied, {{ lastReconcile.result?.failed?.length || 0 }} failed</template>
-      <span v-if="lastReconcile.result?.failed?.length" class="text-error">⚠ 有失败</span>
+      <span v-if="lastReconcile.result?.failed?.length" class="text-error">⚠ {{ t('workbench.detail.hasFailures') }}</span>
     </div>
 
     <div class="flex-1 min-h-0 flex gap-md">

@@ -55,18 +55,18 @@ async function distill() {
     const r = await workbenchApi.distill(clusterId.value)
     distillResult.value = r
     proposedEdit.value = r.proposed
-    notify('success', `蒸馏完成:${r.summary}`)
-  } catch (e) { notify('error', e.message || '蒸馏失败') }
+    notify('success', t('workbench.ledger.distillDone', { summary: r.summary }))
+  } catch (e) { notify('error', e.message || t('workbench.ledger.distillFailed')) }
   finally { distilling.value = false }
 }
 async function applyDistill() {
   applying.value = true
   try {
     await workbenchApi.applyDistill(clusterId.value, proposedEdit.value)
-    notify('success', '已应用 learnings')
+    notify('success', t('workbench.ledger.learningsApplied'))
     distillResult.value = null
     await loadLedger()
-  } catch (e) { notify('error', e.message || '应用失败') }
+  } catch (e) { notify('error', e.message || t('workbench.ledger.applyFailed')) }
   finally { applying.value = false }
 }
 function openPending() {
@@ -77,7 +77,7 @@ function openPending() {
 }
 async function dismissPending() {
   try { await workbenchApi.dismissDistill(clusterId.value); await loadLedger() }
-  catch (e) { notify('error', e.message || '失败') }
+  catch (e) { notify('error', e.message || t('common.error')) }
 }
 
 const verifiedAt = computed(() => {
@@ -100,8 +100,8 @@ const verifiedAt = computed(() => {
         <button v-if="auth.isAdmin" @click="bootstrap" :disabled="!clusterId || bootstrapping" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">
           <span class="material-symbols-outlined text-sm">{{ bootstrapping ? 'progress_activity' : 'auto_awesome' }}</span> {{ bootstrapping ? t('workbench.ledger.bootstrapping') : t('workbench.ledger.bootstrap') }}
         </button>
-        <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" title="从近期对话+操作蒸馏知识,合并进 learnings">
-          <span class="material-symbols-outlined text-sm">{{ distilling ? 'progress_activity' : 'psychology' }}</span> {{ distilling ? '蒸馏中…' : '蒸馏台账' }}
+        <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.ledger.distillTitle')">
+          <span class="material-symbols-outlined text-sm">{{ distilling ? 'progress_activity' : 'psychology' }}</span> {{ distilling ? t('workbench.ledger.distilling') : t('workbench.ledger.distill') }}
         </button>
       </div>
     </div>
@@ -111,19 +111,19 @@ const verifiedAt = computed(() => {
     <template v-else-if="ledger">
       <div v-if="ledger.pending" class="flex items-center gap-sm bg-status-warning/10 border border-status-warning/30 rounded-lg px-md py-sm text-body-sm">
         <span class="material-symbols-outlined text-status-warning">schedule</span>
-        <span class="text-status-warning">定时蒸馏待审:{{ ledger.pending.summary }}</span>
-        <button @click="openPending" class="ml-auto px-md py-xs bg-primary text-on-primary rounded text-body-xs font-semibold">查看 diff</button>
-        <button @click="dismissPending" class="px-md py-xs border border-outline-variant rounded text-body-xs">忽略</button>
+        <span class="text-status-warning">{{ t('workbench.ledger.pendingReview', { summary: ledger.pending.summary }) }}</span>
+        <button @click="openPending" class="ml-auto px-md py-xs bg-primary text-on-primary rounded text-body-xs font-semibold">{{ t('workbench.ledger.viewDiff') }}</button>
+        <button @click="dismissPending" class="px-md py-xs border border-outline-variant rounded text-body-xs">{{ t('workbench.ledger.dismiss') }}</button>
       </div>
       <div v-if="ledger.exists" class="flex flex-col gap-sm">
         <div class="flex items-center gap-md text-body-xs text-on-surface-variant">
           <span v-if="verifiedAt" class="flex items-center gap-xs"><span class="material-symbols-outlined text-sm">schedule</span>{{ t('workbench.ledger.verifiedAt') }}: <span class="font-mono">{{ verifiedAt }}</span></span>
           <span>{{ t('workbench.ledger.filesCount', { n: (ledger.files || []).length }) }}</span>
         </div>
-        <p class="text-label-caps text-on-surface-variant">INDEX.md(能力事实)</p>
+        <p class="text-label-caps text-on-surface-variant">{{ t('workbench.ledger.indexLabel') }}</p>
         <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.index }}</pre>
         <template v-if="ledger.learnings">
-          <p class="text-label-caps text-on-surface-variant">learnings.md(团队知识/踩坑,蒸馏产出)</p>
+          <p class="text-label-caps text-on-surface-variant">{{ t('workbench.ledger.learningsLabel') }}</p>
           <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto">{{ ledger.learnings }}</pre>
         </template>
         <details class="bg-surface-container-low border border-outline-variant rounded-lg">
@@ -140,23 +140,23 @@ const verifiedAt = computed(() => {
     </template>
 
     <!-- 蒸馏 diff 审批(现有 vs 蒸馏后可编辑)-->
-    <Modal :modelValue="!!distillResult" @update:modelValue="v => { if (!v) distillResult = null }" title="蒸馏 learnings(人审)" width="max-w-4xl">
+    <Modal :modelValue="!!distillResult" @update:modelValue="v => { if (!v) distillResult = null }" :title="t('workbench.ledger.distillModalTitle')" width="max-w-4xl">
       <div v-if="distillResult" class="flex flex-col gap-md">
-        <p class="text-body-sm text-on-surface-variant">{{ distillResult.summary }} · 左=现有 learnings.md,右=蒸馏后(可改,确认后写入)。</p>
+        <p class="text-body-sm text-on-surface-variant">{{ t('workbench.ledger.distillModalDesc', { summary: distillResult.summary }) }}</p>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <p class="text-body-xs text-on-surface-variant mb-xs">现有 learnings.md</p>
-            <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs whitespace-pre-wrap break-words max-h-[50vh] overflow-y-auto">{{ distillResult.current || '(空)' }}</pre>
+            <p class="text-body-xs text-on-surface-variant mb-xs">{{ t('workbench.ledger.currentLearnings') }}</p>
+            <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs whitespace-pre-wrap break-words max-h-[50vh] overflow-y-auto">{{ distillResult.current || t('workbench.ledger.empty') }}</pre>
           </div>
           <div>
-            <p class="text-body-xs text-on-surface-variant mb-xs">蒸馏后(可编辑)</p>
+            <p class="text-body-xs text-on-surface-variant mb-xs">{{ t('workbench.ledger.distilledEdit') }}</p>
             <textarea v-model="proposedEdit" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs max-h-[50vh] min-h-[40vh] resize-none outline-none"></textarea>
           </div>
         </div>
       </div>
       <template #actions>
-        <button @click="distillResult = null" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-        <button @click="applyDistill" :disabled="applying" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ applying ? '应用中…' : '应用' }}</button>
+        <button @click="distillResult = null" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+        <button @click="applyDistill" :disabled="applying" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ applying ? t('workbench.ledger.applying') : t('common.apply') }}</button>
       </template>
     </Modal>
   </section>

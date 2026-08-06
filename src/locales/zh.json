@@ -582,7 +582,11 @@
       "deleteTitle": "删除工作负载",
       "deleteConfirm": "确定要删除工作负载 {name} 吗？",
       "deleteWarning": "此操作不可撤销，其管理的所有 Pod 将被终止。",
-      "cancel": "取消"
+      "cancel": "取消",
+      "restartSuccess": "已重启 {name}",
+      "restartFailed": "重启失败",
+      "emptyTitle": "暂无工作负载",
+      "emptyDescription": "没有匹配的工作负载，或集群中尚无工作负载。"
     },
     "refresh": "刷新",
     "refreshing": "刷新中…",
@@ -1023,7 +1027,8 @@
     "customDisplayDesc": "勾选要在各列表视图中显示的列，配置保存在浏览器本地并即时生效。",
     "resetAll": "Reset All",
     "reset": "Reset",
-    "language": "语言"
+    "language": "语言",
+    "zhName": "中文"
   },
   "storage": {
     "title": "存储",
@@ -1294,7 +1299,8 @@
       "noDescription": "暂无描述信息。",
       "notFound": "CRD 未找到",
       "notFoundDesc": "找不到名为 <span class=\"font-mono text-on-surface font-semibold\">{name}</span> 的自定义资源定义。",
-      "backToCrdList": "返回 CRD 列表"
+      "backToCrdList": "返回 CRD 列表",
+      "fillBySchema": "按 {kind} 的 OpenAPI schema 填写"
     }
   },
   "network": {
@@ -1389,6 +1395,41 @@
       "projectCreated": "项目已创建",
       "createFailed": "创建失败"
     },
+    "ledger": {
+      "title": "集群台账",
+      "subtitle": "每集群一份 cluster-context repo:INDEX.md 是平台 survey 的事实层,learnings.md 是蒸馏出的团队知识。",
+      "bootstrap": "Bootstrap",
+      "bootstrapping": "Bootstrap 中…",
+      "bootstrapSuccess": "已生成 INDEX.md",
+      "bootstrapFailed": "Bootstrap 失败",
+      "confirmBootstrap": "将以只读工具 survey 集群并生成 INDEX.md(覆盖现有),继续?",
+      "loadFailed": "加载台账失败",
+      "verifiedAt": "校验时间",
+      "filesCount": "{n} 个文件",
+      "filesTitle": "全部文件",
+      "fileItem": "· {file}",
+      "noLedger": "该集群暂无台账。",
+      "noLedgerAdmin": "点右侧 Bootstrap 生成。",
+      "noLedgerUser": "请联系管理员生成。",
+      "indexLabel": "INDEX.md(能力事实)",
+      "learningsLabel": "learnings.md(团队知识/踩坑,蒸馏产出)",
+      "distill": "蒸馏台账",
+      "distilling": "蒸馏中…",
+      "distillTitle": "从近期对话+操作蒸馏知识,合并进 learnings",
+      "distillDone": "蒸馏完成:{summary}",
+      "distillFailed": "蒸馏失败",
+      "learningsApplied": "已应用 learnings",
+      "applyFailed": "应用失败",
+      "pendingReview": "定时蒸馏待审:{summary}",
+      "viewDiff": "查看 diff",
+      "dismiss": "忽略",
+      "distillModalTitle": "蒸馏 learnings(人审)",
+      "distillModalDesc": "{summary} · 左=现有 learnings.md,右=蒸馏后(可改,确认后写入)。",
+      "currentLearnings": "现有 learnings.md",
+      "distilledEdit": "蒸馏后(可编辑)",
+      "empty": "(空)",
+      "applying": "应用中…"
+    },
     "detail": {
       "back": "返回",
       "aiAssistant": "AI 助手",
@@ -1414,7 +1455,15 @@
       "commitFailed": "提交失败",
       "noChangesToCommit": "没有新改动可提交(先保存)",
       "newFileCreated": "新建 {path},编辑后点保存写入",
-      "projectNotFound": "项目不存在或无权访问。"
+      "projectNotFound": "项目不存在或无权访问。",
+      "reconcile": "Reconcile",
+      "reconciling": "reconcile…",
+      "reconcileTitle": "幂等再 apply manifests,让集群对齐 repo(声明字段作用域)",
+      "reconcileSummary": "reconcile:{applied} applied,{failed} failed",
+      "reconcileFailed": "reconcile 失败",
+      "lastReconcile": "上次 reconcile {ts}",
+      "reconcileSkipped": "跳过({reason})",
+      "hasFailures": "有失败"
     }
   },
   "workloadDetail": {

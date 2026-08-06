@@ -99,7 +99,7 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.language') }}</span>
               <div class="flex items-center gap-xs">
-                <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">中文</button>
+                <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">{{ t('settings.zhName') }}</button>
                 <button @click="setLocale('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">EN</button>
               </div>
             </div>
