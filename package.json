@@ -18,6 +18,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@kubernetes/client-node": "^1.4.0",
+    "@tanstack/vue-query": "^5.101.4",
     "js-yaml": "^5.2.1",
     "pinia": "^2.3.1",
     "prismjs": "^1.30.0",

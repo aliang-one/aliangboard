@@ -14,6 +14,12 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 
+// 服务端状态缓存层（TanStack Vue Query）：见 CLAUDE.md「依赖政策例外」。
+// 默认 staleTime 15s + refetchOnWindowFocus：离开再回/切回标签页即后台重拉，缓解「数据迟钝」。
+import { VueQueryPlugin } from '@tanstack/vue-query'
+import { queryClient } from './queryClient'
+app.use(VueQueryPlugin, { queryClient })
+
 // 在路由守卫之前初始化 auth store（从 localStorage 恢复平台 token）
 import { useAuthStore } from './stores/auth'
 useAuthStore(pinia).init()
