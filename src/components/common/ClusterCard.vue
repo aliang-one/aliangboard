@@ -53,7 +53,7 @@ async function switchOnly() {
           <p class="text-xs text-on-surface-variant truncate">{{ c.version || '—' }}</p>
         </div>
       </div>
-      <StatusChip :status="mapStatus(c.status)" size="sm" />
+      <StatusChip v-if="c.status" :status="mapStatus(c.status)" size="sm" />
     </div>
 
     <!-- 徽章区 -->
@@ -61,16 +61,16 @@ async function switchOnly() {
       <span v-if="active" class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-primary text-on-primary text-xs font-bold">
         <span class="material-symbols-outlined text-xs">check_circle</span> CURRENT
       </span>
-      <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-xs font-medium">
-        <span class="material-symbols-outlined text-xs">dns</span>{{ c.distribution || 'unknown' }}
+      <span v-if="c.distribution" class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-xs font-medium">
+        <span class="material-symbols-outlined text-xs">dns</span>{{ c.distribution }}
       </span>
-      <span class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-surface-container text-on-surface-variant text-xs font-medium">
-        <span class="material-symbols-outlined text-xs">account_tree</span>{{ c.context || '—' }}
+      <span v-if="c.context" class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-surface-container text-on-surface-variant text-xs font-medium">
+        <span class="material-symbols-outlined text-xs">account_tree</span>{{ c.context }}
       </span>
     </div>
 
-    <!-- 指标 -->
-    <div class="grid grid-cols-2 gap-sm">
+    <!-- 指标（有数据才显示）-->
+    <div v-if="c.nodeCount != null || c.podCount != null" class="grid grid-cols-2 gap-sm">
       <div class="bg-surface-container-low rounded-lg px-sm py-xs">
         <p class="text-xs text-on-surface-variant">NODES</p>
         <p class="text-body-sm text-on-surface font-bold mt-0.5">{{ c.nodeCount ?? '—' }}</p>
