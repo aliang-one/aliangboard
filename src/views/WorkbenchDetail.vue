@@ -89,6 +89,9 @@ function addFile() {
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
       <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined">workspaces</span>{{ project.name }}</h2>
       <span class="text-body-sm text-on-surface-variant">· {{ project.clusterName }}</span>
+      <button @click="router.push({ name: 'WorkbenchProjectChat', params: { id } })" class="ml-auto flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
+        <span class="material-symbols-outlined text-sm">smart_toy</span> AI 助手
+      </button>
     </div>
 
     <div class="flex-1 min-h-0 flex gap-md">
