@@ -1,5 +1,6 @@
 // Pod 展示相关的纯函数（无 Vue 依赖）：健康度、生命周期 conditions、容器、镜像拆分、资源占用、名称拆分。
 // 单一事实源：PodCard 组件与各详情页（NsWorkloadDetail 右列、NsServiceDetail 等）共用，避免各处复制。
+import { i18n } from '@/i18n'
 
 // 镜像拆 base / tag（去掉 digest）
 export function imgBase(image) {
@@ -35,14 +36,14 @@ export function podMemPct(pod) {
 // Pod 健康度：综合 phase + Ready condition + restarts → level + 颜色 + 标签
 export function podHealth(p) {
   if (!p) return { level: 'none', text: 'text-on-surface-variant', dot: 'bg-on-surface-variant/40', label: '—' }
-  if (p.status === 'Failed') return { level: 'danger', text: 'text-error', dot: 'bg-error', label: '异常' }
-  if (p.status === 'Pending' || p.status === 'Unknown') return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: '启动中' }
+  if (p.status === 'Failed') return { level: 'danger', text: 'text-error', dot: 'bg-error', label: i18n.global.t('store.abnormal') }
+  if (p.status === 'Pending' || p.status === 'Unknown') return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: i18n.global.t('store.starting') }
   const conds = p.raw?.status?.conditions || []
   const ready = conds.find(c => c.type === 'Ready')
-  if (ready?.status === 'True' && p.restarts === 0) return { level: 'ok', text: 'text-primary', dot: 'bg-primary', label: '健康' }
-  if (p.restarts > 3) return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: '重启多' }
-  if (ready?.status !== 'True') return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: '未就绪' }
-  return { level: 'ok', text: 'text-primary', dot: 'bg-primary', label: '健康' }
+  if (ready?.status === 'True' && p.restarts === 0) return { level: 'ok', text: 'text-primary', dot: 'bg-primary', label: i18n.global.t('store.healthy') }
+  if (p.restarts > 3) return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: i18n.global.t('store.restartMany') }
+  if (ready?.status !== 'True') return { level: 'warn', text: 'text-tertiary-container', dot: 'bg-tertiary-container', label: i18n.global.t('store.notReady') }
+  return { level: 'ok', text: 'text-primary', dot: 'bg-primary', label: i18n.global.t('store.healthy') }
 }
 
 // Pod 卡片配色（边框 + hover 轻底色），按健康度

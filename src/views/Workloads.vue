@@ -73,10 +73,10 @@ function goDetail(row) {
   })
 }
 
-// 行内操作：Restart 真实落集群；Edit/Logs 复用详情页（含日志/编辑）
+// 行内操作：Restart 真实落集群；Edit/Logs 复用详情页（含日志/t('common.edit')）
 async function restartWorkload(row) {
-  try { await store.restartWorkload(row.name, row.namespace); notify('success', `已重启 ${row.name}`) }
-  catch (e) { notify('error', e.message || '重启失败') }
+  try { await store.restartWorkload(row.name, row.namespace); notify('success', t('workloads.restartSuccess', { name: row.name })) }
+  catch (e) { notify('error', e.message || t('workloads.restartFailed')) }
 }
 
 // 导出当前过滤结果为 JSON 文件下载
@@ -121,7 +121,7 @@ const nodeHealthPct = computed(() => {
     </div>
 
     <!-- Table -->
-    <EmptyState v-if="!filteredWorkloads.length" icon="workspaces" title="No workloads" description="没有匹配的工作负载，或集群暂无工作负载。" />
+    <EmptyState v-if="!filteredWorkloads.length" icon="workspaces" :title="t('workloads.emptyTitle')" :description="t('workloads.emptyDescription')" />
     <DataTable v-else :headers="headers" :rows="pagedWorkloads" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex flex-col">

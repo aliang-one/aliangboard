@@ -1,5 +1,8 @@
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   total: { type: Number, default: 0 },
@@ -31,17 +34,17 @@ const sizeOptions = [10, 20, 50, 100]
       @change="emit('size-change', parseInt($event.target.value))"
       class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-xs text-body-sm focus:ring-2 focus:ring-primary"
     >
-      <option v-for="s in sizeOptions" :key="s" :value="s">{{ s }} / 页</option>
+      <option v-for="s in sizeOptions" :key="s" :value="s">{{ t('component.pagination.perPage', { n: s }) }}</option>
     </select>
     <span class="text-body-sm text-on-surface-variant whitespace-nowrap">
-      {{ start }}-{{ end }} / 共 {{ total }}
+      {{ t('component.pagination.rangeSummary', { start, end, total: props.total }) }}
     </span>
     <div class="flex items-center gap-1">
       <button
         @click="go(currentPage - 1)"
         :disabled="currentPage <= 1"
         class="p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors"
-        title="上一页"
+        :title="t('component.pagination.prevPage')"
       >
         <span class="material-symbols-outlined">chevron_left</span>
       </button>
@@ -50,7 +53,7 @@ const sizeOptions = [10, 20, 50, 100]
         @click="go(currentPage + 1)"
         :disabled="currentPage >= totalPages"
         class="p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors"
-        title="下一页"
+        :title="t('component.pagination.nextPage')"
       >
         <span class="material-symbols-outlined">chevron_right</span>
       </button>

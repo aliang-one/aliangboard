@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -11,9 +13,18 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import PodCard from '@/components/common/PodCard.vue'
 
-const route = useRoute()
+const { t } = useI18n()
+	const route = useRoute()
 const store = useClusterStore()
-const node = computed(() => store.getNodeByName(route.params.name))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nodeDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'nodes', route.params.name],
+  fetcher: () => store.fetchNode(route.params.name),
+  mock: store.getNodeByName(route.params.name),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const node = computed(() => nodeDetail.data.value ?? store.getNodeByName(route.params.name))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/nodes/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('node', node.value),
@@ -30,19 +41,19 @@ const isCordoned = computed(() => node.value?.unschedulable === true)
 async function handleCordon() {
   try {
     await store.cordonNode(route.params.name)
-    notify('success', '已封锁节点')
+    notify('success', t('nodeDetail.cordonSuccess'))
     showCordonModal.value = false
   } catch (e) {
-    notify('error', e.message || '封锁节点失败')
+    notify('error', e.message || t('nodeDetail.cordonFailed'))
   }
 }
 
 async function handleUncordon() {
   try {
     await store.uncordonNode(route.params.name)
-    notify('success', '已恢复调度')
+    notify('success', t('nodeDetail.uncordonSuccess'))
   } catch (e) {
-    notify('error', e.message || '恢复调度失败')
+    notify('error', e.message || t('nodeDetail.uncordonFailed'))
   }
 }
 
@@ -51,9 +62,9 @@ async function handleDrain() {
     const count = await store.drainNode(route.params.name)
     drainResult.value = count
     showDrainModal.value = false
-    notify('success', `已驱逐 ${count} 个 Pod`)
+    notify('success', t('nodeDetail.drainSuccess', { count }))
   } catch (e) {
-    notify('error', e.message || '驱逐失败')
+    notify('error', e.message || t('nodeDetail.drainFailed'))
   }
 }
 </script>
@@ -135,7 +146,7 @@ async function handleDrain() {
           <div v-else class="p-md">
             <div class="flex items-center gap-sm text-on-surface-variant mb-md">
               <span class="material-symbols-outlined text-lg">sensors_off</span>
-              <span class="text-body-sm">CPU/内存指标不可用（集群未安装 metrics-server 或缺少 metrics 读取权限）</span>
+              <span class="text-body-sm">{{ t('nodeDetail.metricsUnavailableHint') }}</span>
             </div>
             <!-- Pods 指标独立于 metrics，始终展示 -->
             <div>
