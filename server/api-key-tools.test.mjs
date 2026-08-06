@@ -23,6 +23,7 @@ function mockRequestFn({ logBody = 'line1\nline2\nline3' } = {}) {
   return async (ctx, path, init = {}) => {
     if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
     if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
+    if (init.method === 'DELETE') return { body: { kind: 'Status', status: 'Success' } }
     if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
     if (path.endsWith('/token')) return { body: { status: { token: 'SA-TOKEN', expirationTimestamp: new Date(Date.now() + 600000).toISOString() } } }
     if (path.includes('/log')) return { body: logBody }
@@ -171,4 +172,62 @@ test('resolveApiKey: 有效→row;错误/空→null', () => {
   assert.ok(resolveApiKey(db, { headers: { authorization: `Bearer ${k.plaintext}` } }))
   assert.equal(resolveApiKey(db, { headers: { authorization: 'Bearer wrong' } }), null)
   assert.equal(resolveApiKey(db, { headers: {} }), null)
+})
+
+// --- exec_pod(DANGEROUS,admin 档;第一个接通的 stub,做后续 stub 的模板)---
+test('exec_pod(deny): read 档 → policy 拒(exec_pod 是 admin 档)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' }) // tier 默认 read
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: async () => { throw new Error('execFn 不应被调') } })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'ls' }),
+    (e) => e.code === 'PERMISSION_DENIED',
+  )
+})
+
+test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx,...) 被调,返 stdout + 审计 ok', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let called = null
+  const execFn = async (saCtx, ns, pod, container, command) => { called = { ns, pod, container, command, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0 } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', container: 'c1', command: 'ls -la' })
+  assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.equal(called.command, 'ls -la')
+  assert.ok(called.authHeader?.startsWith('Bearer '), 'execFn 拿到 SA-token ctx')
+  assert.equal(out.stdout, 'total 0\n')
+  assert.equal(out.exitCode, 0)
+  const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[rows.length - 1].result, 'ok')
+})
+
+test('browse_files/read_file/apply_yaml(deny): read 档全拒(admin 档工具)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: async () => ({ stdout: Buffer.from(''), stderr: '' }), applyYamlFn: async () => ({ applied: [], failed: [], total: 0 }) })
+  for (const t of ['browse_files', 'read_file', 'apply_yaml']) {
+    await assert.rejects(tools.callTool(k, cluster, t, { namespace: 'ns', pod: 'p1', path: '/x', yaml: 'a: b' }), (e) => e.code === 'PERMISSION_DENIED', `${t} 应被 read 档拒`)
+  }
+})
+
+test('apply_yaml(admin happy): 走全链 → applyYamlFn(saCtx, yaml) 被调,返 {applied,failed}', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let called = null
+  const applyYamlFn = async (saCtx, yaml) => { called = { yaml, authHeader: saCtx.authHeader }; return { applied: [{ kind: 'ConfigMap', name: 'cm' }], failed: [], total: 1 } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn })
+  const out = await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap' })
+  assert.ok(called.yaml.includes('ConfigMap'))
+  assert.ok(called.authHeader?.startsWith('Bearer '), 'SA-token ctx')
+  assert.equal(out.applied.length, 1)
+  assert.equal(out.total, 1)
+})
+
+test('delete_resource(admin happy): DELETE path → requestFn called, 返 {deleted} + 审计 ok', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/namespaces/ns/pods/p1' })
+  assert.equal(out.deleted, '/api/v1/namespaces/ns/pods/p1')
+  const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[rows.length - 1].result, 'ok')
 })
