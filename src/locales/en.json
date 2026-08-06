@@ -130,6 +130,20 @@
     "deploy": "Deploy",
     "workloads": "Workloads"
   },
+  "clusters": {
+    "title": "Cluster Management",
+    "addCluster": "Add Cluster",
+    "syncing": "Syncing…",
+    "demoModeNoSync": "No sync needed in demo data mode",
+    "synced": "Synced {cluster}",
+    "syncFailed": "Sync failed: {error}",
+    "unknownError": "Unknown error",
+    "totalClusters": "{count} clusters total, currently",
+    "removeClusterConfirm": "Remove saved cluster \"{name}\"?\n(Only removes from list, does not affect current connected session)",
+    "removed": "Removed",
+    "searchPlaceholder": "Search by name, version, or distribution...",
+    "noMatchingClusters": "No matching clusters found"
+  },
   "login": {
     "title": "AliangBoard",
     "subtitle": "Kubernetes Management Platform",
@@ -195,7 +209,7 @@
       "syncing": "Syncing…",
       "noSyncNeeded": "No sync needed in demo data mode",
       "synced": "Namespaces synced",
-      "syncFailed": "Sync failed",
+      "syncFailed": "Sync failed: {error}",
       "newNamespace": "New Namespace",
       "noNamespaces": "No namespaces in the cluster.",
       "view": "View",
