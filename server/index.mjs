@@ -862,8 +862,11 @@ async function handle(req, res) {
   if (url.pathname === '/api/admin/llm-config/test' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
     try {
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先配置 baseURL + model' })
+      const input = await readBody(req).catch(() => ({})) || {}
+      const saved = getLlmConfig()
+      // 表单值优先(支持"填完即测,不必先保存");空字段(apiKey 留空=不改)回退已保存
+      const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先填 baseURL + model(保存、或在上方填入后测试)' })
       const client = createLlmClient({ ...cfg, timeoutMs: 20000 })
       const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
       return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })

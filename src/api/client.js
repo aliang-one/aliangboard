@@ -231,7 +231,7 @@ export const adminApi = {
   llmConfig: {
     get: () => platformRequest('/api/admin/llm-config'),
     save: payload => platformRequest('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
-    test: () => platformRequest('/api/admin/llm-config/test', { method: 'POST' }),
+    test: payload => platformRequest('/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(payload || {}) }),
   },
 }
 
