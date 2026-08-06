@@ -1,12 +1,14 @@
 <script setup>
 // 集群管理（admin only）：集群 CRUD（支持 token / 账密 / kubeconfig 三种凭据）
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import ClusterCard from '@/components/common/ClusterCard.vue'
 import { useClusterStore } from '@/stores/cluster'
 
+const { t } = useI18n()
 const store = useClusterStore()
 
 const clusters = ref([])
@@ -17,7 +19,7 @@ const addForm = ref({ name: '', authMethod: 'kubeconfig', apiServer: '', token: 
 async function load() {
   loading.value = true
   try { const res = await adminApi.clusters.list(); clusters.value = res.clusters || [] }
-  catch (e) { notify('error', e.message || '加载失败') }
+  catch (e) { notify('error', e.message || t('admin.clusters.loadFailed')) }
   finally { loading.value = false }
 }
 onMounted(load)
@@ -25,25 +27,25 @@ onMounted(load)
 async function doAdd() {
   try {
     await adminApi.clusters.create(addForm.value)
-    notify('success', `已添加集群 ${addForm.value.name}`)
+    notify('success', t('admin.clusters.added', { name: addForm.value.name }))
     showAddModal.value = false
     addForm.value = { name: '', authMethod: 'kubeconfig', apiServer: '', token: '', username: '', password: '', kubeconfig: '', insecure: false }
     load()
-  } catch (e) { notify('error', e.message || '添加失败（凭据无效或无法连接）') }
+  } catch (e) { notify('error', e.message || t('admin.clusters.addFailed')) }
 }
 async function doRemove(c) {
-  if (!confirm(`删除集群 ${c.name}？所有分配给该集群的用户将失去访问。`)) return
-  try { await adminApi.clusters.remove(c.id); notify('success', '已删除'); load() }
-  catch (e) { notify('error', e.message || '删除失败') }
+  if (!confirm(t('admin.clusters.deleteConfirm', { name: c.name }))) return
+  try { await adminApi.clusters.remove(c.id); notify('success', t('admin.clusters.deleted')); load() }
+  catch (e) { notify('error', e.message || t('admin.clusters.deleteFailed')) }
 }
 </script>
 
 <template>
   <section class="animate-fade-in p-md">
     <div class="flex items-center justify-between mb-md">
-      <div><h2 class="text-headline-lg font-bold text-on-surface">集群管理</h2><p class="text-body-sm text-on-surface-variant mt-xs">添加/删除集群连接（凭据安全存储在服务端）</p></div>
+      <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('admin.clusters.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.clusters.subtitle') }}</p></div>
       <button @click="showAddModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
-        <span class="material-symbols-outlined text-sm">add</span> 添加集群
+        <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.clusters.addCluster') }}
       </button>
     </div>
 
@@ -54,21 +56,21 @@ async function doRemove(c) {
     </div>
     <div v-else class="rounded-xl border border-dashed border-outline-variant/50 py-xl text-center">
       <span class="material-symbols-outlined text-3xl text-surface-container-high">cloud_off</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">暂无集群，点击「添加集群」配置</p>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.clusters.emptyHint') }}</p>
     </div>
 
     <!-- 添加集群 Modal -->
-    <Modal v-model="showAddModal" title="添加集群" width="max-w-xl">
+    <Modal v-model="showAddModal" :title="$t('admin.clusters.addCluster')" width="max-w-xl">
       <div class="flex flex-col gap-md">
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">集群名称</label><input v-model="addForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="prod-cluster" /></div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.clusters.clusterName') }}</label><input v-model="addForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="prod-cluster" /></div>
         <!-- 凭据方式切换 -->
         <div class="flex gap-xs">
-          <button v-for="m in [{k:'kubeconfig',l:'Kubeconfig'},{k:'token',l:'Token'},{k:'basic',l:'账密'}]" :key="m.k" @click="addForm.authMethod = m.k"
+          <button v-for="m in [{k:'kubeconfig',l:$t('admin.clusters.authKubeconfig')},{k:'token',l:$t('admin.clusters.authToken')},{k:'basic',l:$t('admin.clusters.authBasic')}]" :key="m.k" @click="addForm.authMethod = m.k"
             class="px-sm py-xs rounded-lg border text-body-sm" :class="addForm.authMethod === m.k ? 'bg-primary text-on-primary border-primary font-semibold' : 'border-outline-variant text-on-surface-variant'">{{ m.l }}</button>
         </div>
         <!-- Kubeconfig -->
         <div v-if="addForm.authMethod === 'kubeconfig'">
-          <label class="text-body-xs text-on-surface-variant block mb-xs">粘贴 kubeconfig</label>
+          <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.clusters.pasteKubeconfig') }}</label>
           <textarea v-model="addForm.kubeconfig" rows="8" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="apiVersion: v1&#10;kind: Config&#10;..."></textarea>
         </div>
         <!-- Token -->
@@ -80,15 +82,15 @@ async function doRemove(c) {
         <div v-if="addForm.authMethod === 'basic'" class="flex flex-col gap-sm">
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">API Server</label><input v-model="addForm.apiServer" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="https://10.0.0.1:6443" /></div>
           <div class="grid grid-cols-2 gap-sm">
-            <div><label class="text-body-xs text-on-surface-variant block mb-xs">用户名</label><input v-model="addForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
-            <div><label class="text-body-xs text-on-surface-variant block mb-xs">密码</label><input v-model="addForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.clusters.username') }}</label><input v-model="addForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+            <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.clusters.password') }}</label><input v-model="addForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
           </div>
         </div>
-        <label class="flex items-center gap-sm text-body-sm cursor-pointer"><input type="checkbox" v-model="addForm.insecure" class="h-4 w-4 accent-primary" /> 跳过 TLS 证书验证（自签集群）</label>
+        <label class="flex items-center gap-sm text-body-sm cursor-pointer"><input type="checkbox" v-model="addForm.insecure" class="h-4 w-4 accent-primary" /> {{ $t('admin.clusters.insecureTls') }}</label>
       </div>
       <template #actions>
-        <button @click="showAddModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-        <button @click="doAdd" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">添加并验证</button>
+        <button @click="showAddModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+        <button @click="doAdd" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('admin.clusters.addAndVerify') }}</button>
       </template>
     </Modal>
   </section>
