@@ -1,12 +1,16 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
-import TerminalWindow from '@/components/terminal/TerminalWindow.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+
+// 终端窗口懒加载：xterm + addons（~400KB）仅在 allTerminals 非空（用户开了终端）时才加载，
+// 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
+
+const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/TerminalWindow.vue'))
 
 const store = useClusterStore()
 const termStore = useTerminalStore()

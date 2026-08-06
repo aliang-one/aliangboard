@@ -1,51 +1,19 @@
 import { dump as yamlDump } from 'js-yaml'
+import { createHttp, parseBody } from './http.js'
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const sessionKey = 'aliangboard.session'
+const platformKey = 'aliangboard.platform'
 
-// 导出任意资源的真实 YAML（kubectl get -o yaml）：拉取 live 对象 → 去 managedFields → dump → 下载
-export async function exportYaml(k8sPath, filename = 'resource.yaml') {
-  const obj = await request(`/api/k8s${k8sPath}`)
-  const clone = JSON.parse(JSON.stringify(obj || {}))
-  if (clone?.metadata) delete clone.metadata.managedFields   // 去掉冗长的 managedFields
-  const text = yamlDump(clone)
-  const blob = new Blob([text], { type: 'text/yaml;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-  return text
+// 跳登录页（已在 /login 则不重复跳，避免循环）
+function redirectToLogin() {
+  if (typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
+    location.href = '/login'
+  }
 }
-
 
 export function getSessionToken() {
   return sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey) || ''
-}
-
-async function request(path, options = {}) {
-  const headers = { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(options.headers || {}) }
-  const token = getSessionToken()
-  if (token) headers.authorization = `Bearer ${token}`
-  const response = await fetch(`${baseUrl}${path}`, { ...options, headers })
-  const text = await response.text()
-  let body = null
-  try { body = text ? JSON.parse(text) : null } catch { body = text }
-  if (!response.ok) {
-    // 会话过期：统一清凭据并跳登录（登录接口自身的 401 表示凭据错误，不跳转，交由调用方提示）
-    if (response.status === 401 && !path.startsWith('/api/session')) {
-      clearSession()
-      if (typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
-        location.href = '/login'
-      }
-    }
-    const error = new Error(body?.message || `请求失败：HTTP ${response.status}`)
-    error.status = response.status
-    error.details = body
-    throw error
-  }
-  return body
 }
 
 export function saveSession(token, remember = false) {
@@ -61,6 +29,60 @@ export function clearSession() {
 
 export function getSession() {
   return getSessionToken()
+}
+
+// 平台认证 token（Layer 1：用户身份）
+export function getPlatformToken() {
+  return localStorage.getItem(platformKey) || ''
+}
+export function savePlatformToken(token) {
+  if (token) localStorage.setItem(platformKey, token)
+}
+// 平台 token 过期清理（原 platformRequest 无 401 处理，本次统一补齐）
+export function clearPlatformToken() {
+  localStorage.removeItem(platformKey)
+}
+
+// === 两个 HTTP 实例：k8s 会话层 + 平台认证层 ===
+// 收敛原先 4 份重复的 fetch 实现（request / platformRequest / k8sStream 内 / podFileApi.download）。
+// 401 处理：登录接口自身（/api/session、/api/auth/login）的 401 = 凭据错误，交调用方提示，不清凭据不跳转；
+// 其余 401 = 会话过期 → 清对应凭据 + 跳登录。
+const k8sHttp = createHttp({
+  baseUrl,
+  resolveAuth: () => {
+    const t = getSessionToken()
+    return t ? { authorization: `Bearer ${t}` } : {}
+  },
+  onUnauthorized: (path) => {
+    if (!path.startsWith('/api/session')) { clearSession(); redirectToLogin() }
+  },
+})
+
+const platformHttp = createHttp({
+  baseUrl,
+  resolveAuth: () => {
+    const t = getPlatformToken()
+    return t ? { 'x-platform-token': t } : {}
+  },
+  onUnauthorized: (path) => {
+    if (!path.startsWith('/api/auth/login')) { clearPlatformToken(); redirectToLogin() }
+  },
+})
+
+// 导出任意资源的真实 YAML（kubectl get -o yaml）：拉取 live 对象 → 去 managedFields → dump → 下载
+export async function exportYaml(k8sPath, filename = 'resource.yaml') {
+  const obj = await k8sHttp.request(`/api/k8s${k8sPath}`)
+  const clone = JSON.parse(JSON.stringify(obj || {}))
+  if (clone?.metadata) delete clone.metadata.managedFields   // 去掉冗长的 managedFields
+  const text = yamlDump(clone)
+  const blob = new Blob([text], { type: 'text/yaml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return text
 }
 
 // === 多集群：已保存集群持久化（localStorage），活跃集群 = sessionKey 中的 token ===
@@ -91,133 +113,101 @@ export function activeApiServer() {
 }
 
 export const api = {
-  connect: payload => request('/api/session', { method: 'POST', body: JSON.stringify(payload) }),
-  session: () => request('/api/session'),
-  logout: () => request('/api/session', { method: 'DELETE' }),
-  health: () => request('/api/health'),
-  applyYaml: yaml => request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml }) }),
-  k8s: (path, options) => request(`/api/k8s${path}`, options),
+  connect: payload => k8sHttp.request('/api/session', { method: 'POST', body: JSON.stringify(payload) }),
+  session: () => k8sHttp.request('/api/session'),
+  logout: () => k8sHttp.request('/api/session', { method: 'DELETE' }),
+  health: () => k8sHttp.request('/api/health'),
+  applyYaml: yaml => k8sHttp.request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml }) }),
+  k8s: (path, options) => k8sHttp.request(`/api/k8s${path}`, options),
 }
 
 // 端口转发管理（REST）：在网关主机开本地 TCP 监听转发到 Pod，等同 kubectl port-forward。
 export const portForwardApi = {
-  create: payload => request('/api/portforward', { method: 'POST', body: JSON.stringify(payload) }),
-  list: () => request('/api/portforward'),
-  remove: id => request(`/api/portforward/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  create: payload => k8sHttp.request('/api/portforward', { method: 'POST', body: JSON.stringify(payload) }),
+  list: () => k8sHttp.request('/api/portforward'),
+  remove: id => k8sHttp.request(`/api/portforward/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 
 // 镜像仓库可用版本（registry v2 /tags/list）：改版本时下拉选择而非手填。
 export const registryApi = {
-  tags: payload => request('/api/registry/tags', { method: 'POST', body: JSON.stringify(payload) }),
+  tags: payload => k8sHttp.request('/api/registry/tags', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // 终端会话管理（任务栏：CRUD + 持久化）
 export const terminalApi = {
-  list: () => request('/api/terminals'),
-  create: t => request('/api/terminals', { method: 'POST', body: JSON.stringify(t) }),
-  update: (id, patch) => request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  remove: id => request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  list: () => k8sHttp.request('/api/terminals'),
+  create: t => k8sHttp.request('/api/terminals', { method: 'POST', body: JSON.stringify(t) }),
+  update: (id, patch) => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: id => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 
 // Pod 文件浏览（基于一次性 exec：ls / cat / 写入），仅远端模式可用。
 export const podFileApi = {
-  list: payload => request('/api/podfile/list', { method: 'POST', body: JSON.stringify(payload) }),
-  read: payload => request('/api/podfile/read', { method: 'POST', body: JSON.stringify(payload) }),
-  write: payload => request('/api/podfile/write', { method: 'POST', body: JSON.stringify(payload) }),
-  async download(payload) {
-    const headers = { 'content-type': 'application/json' }
-    const token = getSessionToken()
-    if (token) headers.authorization = `Bearer ${token}`
-    const res = await fetch(`${baseUrl}/api/podfile/download`, { method: 'POST', headers, body: JSON.stringify(payload) })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      let msg = text
-      try { msg = JSON.parse(text)?.message || text } catch { /* 非 JSON */ }
-      throw new Error(msg || `下载失败：HTTP ${res.status}`)
-    }
-    return res.blob()
-  },
+  list: payload => k8sHttp.request('/api/podfile/list', { method: 'POST', body: JSON.stringify(payload) }),
+  read: payload => k8sHttp.request('/api/podfile/read', { method: 'POST', body: JSON.stringify(payload) }),
+  write: payload => k8sHttp.request('/api/podfile/write', { method: 'POST', body: JSON.stringify(payload) }),
+  download: payload => k8sHttp.blob('/api/podfile/download', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
 export const podDebugApi = {
-  attach: payload => request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
+  attach: payload => k8sHttp.request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // PVC 文件浏览（只读）：网关起 helper busybox Pod 只读挂载该 PVC + exec ls/cat。仅远端模式。
 export const pvcFileApi = {
-  list: payload => request('/api/pvcfile/list', { method: 'POST', body: JSON.stringify(payload) }),
-  read: payload => request('/api/pvcfile/read', { method: 'POST', body: JSON.stringify(payload) }),
+  list: payload => k8sHttp.request('/api/pvcfile/list', { method: 'POST', body: JSON.stringify(payload) }),
+  read: payload => k8sHttp.request('/api/pvcfile/read', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // 手动触发 CronJob（kubectl create job --from）。仅远端模式。
 export const cronJobApi = {
-  trigger: payload => request('/api/cronjob/trigger', { method: 'POST', body: JSON.stringify(payload) }),
+  trigger: payload => k8sHttp.request('/api/cronjob/trigger', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // 资源归属拓扑（沿 ownerReferences 解析归属链）。仅远端模式。
 export const resourceTreeApi = {
   get: ({ namespace, kind, name, apiVersion }) =>
-    request(`/api/resource/tree?${new URLSearchParams({ namespace, kind, name, apiVersion: apiVersion || 'v1' })}`),
+    k8sHttp.request(`/api/resource/tree?${new URLSearchParams({ namespace, kind, name, apiVersion: apiVersion || 'v1' })}`),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===
-export function getPlatformToken() {
-  return localStorage.getItem('aliangboard.platform') || ''
-}
-function platformHeaders() {
-  const t = getPlatformToken()
-  return t ? { 'x-platform-token': t } : {}
-}
-async function platformRequest(path, options = {}) {
-  const headers = { ...(options.body ? { 'content-type': 'application/json' } : {}), ...platformHeaders(), ...(options.headers || {}) }
-  const response = await fetch(`${baseUrl}${path}`, { ...options, headers })
-  const text = await response.text()
-  let body = null
-  try { body = text ? JSON.parse(text) : null } catch { body = text }
-  if (!response.ok) {
-    const error = new Error(body?.message || `请求失败：HTTP ${response.status}`)
-    error.status = response.status
-    throw error
-  }
-  return body
-}
 export const authApi = {
-  login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
-  me: () => platformRequest('/api/auth/me'),
-  logout: () => platformRequest('/api/auth/logout', { method: 'POST' }),
-  myClusters: () => platformRequest('/api/my-clusters'),
-  connectCluster: id => platformRequest('/api/connect-cluster', { method: 'POST', body: JSON.stringify({ clusterId: id }) }),
+  login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
+  me: () => platformHttp.request('/api/auth/me'),
+  logout: () => platformHttp.request('/api/auth/logout', { method: 'POST' }),
+  myClusters: () => platformHttp.request('/api/my-clusters'),
+  connectCluster: id => platformHttp.request('/api/connect-cluster', { method: 'POST', body: JSON.stringify({ clusterId: id }) }),
 }
 // Admin API
 export const adminApi = {
   users: {
-    list: () => platformRequest('/api/admin/users'),
-    create: payload => platformRequest('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
-    remove: id => platformRequest(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    patch: (id, patch) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-    resetPassword: (id, newPassword) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
-    assignClusters: (id, clusterIds) => platformRequest(`/api/admin/users/${encodeURIComponent(id)}/clusters`, { method: 'PUT', body: JSON.stringify({ clusterIds }) }),
+    list: () => platformHttp.request('/api/admin/users'),
+    create: payload => platformHttp.request('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformHttp.request(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    patch: (id, patch) => platformHttp.request(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    resetPassword: (id, newPassword) => platformHttp.request(`/api/admin/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
+    assignClusters: (id, clusterIds) => platformHttp.request(`/api/admin/users/${encodeURIComponent(id)}/clusters`, { method: 'PUT', body: JSON.stringify({ clusterIds }) }),
   },
   clusters: {
-    list: () => platformRequest('/api/admin/clusters'),
-    create: payload => platformRequest('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
-    remove: id => platformRequest(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    list: () => platformHttp.request('/api/admin/clusters'),
+    create: payload => platformHttp.request('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   apikeys: {
-    list: () => platformRequest('/api/admin/apikeys'),
-    create: payload => platformRequest('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
-    remove: id => platformRequest(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    list: () => platformHttp.request('/api/admin/apikeys'),
+    create: payload => platformHttp.request('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
+    remove: id => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   // Agent 聊天(第二阶段切片 4):{ message, apiKeyId, history } → { content, steps, denied, truncated?, trace[] }
   agent: {
-    chat: payload => platformRequest('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
+    chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
   },
   // LLM 配置(baseURL/apiKey/model 存 DB;GET 不回传 key)
   llmConfig: {
-    get: () => platformRequest('/api/admin/llm-config'),
-    save: payload => platformRequest('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
-    test: () => platformRequest('/api/admin/llm-config/test', { method: 'POST' }),
+    get: () => platformHttp.request('/api/admin/llm-config'),
+    save: payload => platformHttp.request('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
+    test: () => platformHttp.request('/api/admin/llm-config/test', { method: 'POST' }),
   },
 }
 
@@ -269,20 +259,17 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
 
 // 流式读取 K8s 长连接（watch=true / log follow=true）：Gateway 已对这两类请求改为 pipe 透传。
 // 按行回调 onMessage（watch 为换行分隔 JSON，log 为换行分隔文本）；返回 { abort } 供调用方停止。
+// 认证 header 复用 k8sHttp.authHeaders()，错误体解析复用 parseBody（与 request 同源）。
 export function k8sStream(path, { onMessage, onError, onClose } = {}) {
   const controller = new AbortController()
   let reader = null
   let aborted = false
   ;(async () => {
     try {
-      const headers = {}
-      const token = getSessionToken()
-      if (token) headers.authorization = `Bearer ${token}`
-      const response = await fetch(`${baseUrl}/api/k8s${path}`, { headers, signal: controller.signal })
+      const response = await fetch(`${k8sHttp.baseUrl}/api/k8s${path}`, { headers: k8sHttp.authHeaders(), signal: controller.signal })
       if (!response.ok) {
         const text = await response.text().catch(() => '')
-        let body = text
-        try { body = JSON.parse(text) } catch { /* 非 JSON */ }
+        const body = parseBody(text)
         throw new Error(body?.message || `流式请求失败：HTTP ${response.status}`)
       }
       reader = response.body.getReader()

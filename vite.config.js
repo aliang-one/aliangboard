@@ -4,6 +4,16 @@ import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Vue 生态拆成独立 vendor chunk（长缓存友好）；xterm/Prism/js-yaml 由各处动态 import 自动分块。
+        manualChunks(id) {
+          if (id.includes('node_modules') && /[\\/](@vue|vue|vue-router|pinia)[\\/]/.test(id)) return 'vendor-vue'
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {

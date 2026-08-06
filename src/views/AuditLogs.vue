@@ -1,7 +1,7 @@
 <script setup>
 // 集群活动记录：K8s 标准 API 不暴露「审计日志」（需集群开启 audit logging 并对接日志后端），
 // 故此处如实以集群 Events 作为可用的活动记录展示，并标注数据来源。
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -46,7 +46,12 @@ function goToRelated(e) {
   else if (e.relatedKind === 'Node') router.push(`/nodes/${e.relatedName}`)
 }
 
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onMounted(async () => {
+  if (!store.remoteMode) return
+  if (!store.eventList.length && store.connectionState !== 'loading') await store.refreshEvents()
+  store.startEventWatch()
+})
+onUnmounted(() => store.stopEventWatch())
 </script>
 
 <template>
