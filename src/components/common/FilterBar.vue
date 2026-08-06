@@ -29,7 +29,7 @@ function resetFilters() {
     </div>
     <div class="ml-auto flex items-center gap-sm self-end pb-1">
       <span class="text-body-sm text-on-surface-variant">{{ resultCount }} {{ resultLabel }}</span>
-      <button @click="resetFilters" title="重置过滤" class="p-xs text-primary hover:bg-primary-container/10 rounded-md transition-colors">
+      <button @click="resetFilters" :title="$t('component.filterBar.resetFilters')" class="p-xs text-primary hover:bg-primary-container/10 rounded-md transition-colors">
         <span class="material-symbols-outlined">refresh</span>
       </button>
     </div>

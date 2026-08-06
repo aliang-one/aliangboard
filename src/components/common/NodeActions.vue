@@ -1,5 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   nodeName: { type: String, required: true },
@@ -24,13 +27,11 @@ async function execute() {
   emit('confirm', { node: props.nodeName, action: props.action })
 }
 
-const descriptions = {
-  cordon: { title: 'Cordon Node', desc: `标记节点为不可调度，新的 Pod 将不会被调度到此节点。现有 Pod 不受影响。`, warn: '现有 Pod 不会被驱逐。' },
-  uncordon: { title: 'Uncordon Node', desc: `恢复节点为可调度状态，新的 Pod 可以被调度到此节点。`, warn: '' },
-  drain: { title: 'Drain Node', desc: `安全地驱逐节点上的所有 Pod，用于维护。`, warn: '所有 Pod 将被安全驱逐（优雅终止）。' },
-}
-
-const config = descriptions[props.action]
+const config = computed(() => ({
+  cordon: { title: 'Cordon Node', desc: t('component.nodeActions.cordonDesc'), warn: t('component.nodeActions.cordonWarn') },
+  uncordon: { title: 'Uncordon Node', desc: t('component.nodeActions.uncordonDesc'), warn: '' },
+  drain: { title: 'Drain Node', desc: t('component.nodeActions.drainDesc'), warn: t('component.nodeActions.drainWarn') },
+}[props.action]))
 </script>
 
 <template>
@@ -53,7 +54,7 @@ const config = descriptions[props.action]
       </p>
 
       <div class="mb-lg">
-        <label class="text-body-sm text-on-surface-variant block mb-xs">输入节点名称以确认：</label>
+        <label class="text-body-sm text-on-surface-variant block mb-xs">{{ t('component.nodeActions.confirmInputLabel') }}</label>
         <input v-model="confirmInput" @input="checkConfirm" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="nodeName" />
       </div>
 
@@ -62,7 +63,7 @@ const config = descriptions[props.action]
         <button @click="execute" :disabled="!isConfirmed || loading" class="px-md py-sm rounded-lg text-body-md font-semibold transition-all flex items-center gap-sm disabled:opacity-40" :class="action === 'uncordon' ? 'bg-primary text-on-primary' : 'bg-tertiary-container text-on-tertiary'">
           <span v-if="loading" class="material-symbols-outlined animate-spin text-lg">progress_activity</span>
           <span v-else class="material-symbols-outlined text-lg">{{ action === 'drain' ? 'output' : action === 'cordon' ? 'lock' : 'lock_open' }}</span>
-          {{ loading ? '执行中...' : config.title }}
+          {{ loading ? t('component.nodeActions.executing') : config.title }}
         </button>
       </div>
     </div>

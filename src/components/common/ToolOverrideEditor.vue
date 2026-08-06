@@ -1,6 +1,8 @@
 <script setup>
 // 每工具覆盖编辑器:tier 默认工具(deny=关掉)+ 越过 tier 追加(allow=打开)。v-model 一个 {allow,deny} 对象。
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 const props = defineProps({
   tier: { type: String, default: 'read' },
   modelValue: { type: Object, default: () => ({ allow: [], deny: [] }) },
@@ -26,17 +28,17 @@ function toggle(field, t) {
 <template>
   <div class="bg-surface-container-low border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
     <div class="flex flex-wrap gap-1">
-      <span class="text-body-xs text-on-surface-variant w-full">{{ tier }} 档默认(关掉=deny):</span>
+      <span class="text-body-xs text-on-surface-variant w-full">{{ t('component.toolOverride.tierDefault', { tier }) }}</span>
       <button v-for="t in defaults" :key="t" type="button" @click="toggle('deny', t)"
         class="px-1.5 py-0.5 rounded text-body-xs font-mono"
         :class="inDeny(t) ? 'bg-error/15 text-error line-through' : 'bg-primary/10 text-primary'">{{ t }}</button>
     </div>
     <div class="flex flex-wrap gap-1">
-      <span class="text-body-xs text-on-surface-variant w-full">越过 tier 追加(打开=allow):</span>
+      <span class="text-body-xs text-on-surface-variant w-full">{{ t('component.toolOverride.beyondTier') }}</span>
       <button v-for="t in beyond" :key="t" type="button" @click="toggle('allow', t)"
         class="px-1.5 py-0.5 rounded text-body-xs font-mono"
         :class="inAllow(t) ? 'bg-status-running/20 text-status-running font-semibold' : 'bg-surface-container-high text-on-surface-variant'">{{ t }}</button>
     </div>
-    <p class="text-body-xs text-on-surface-variant">⚠️ allow 可越过 tier,但 SA 的真实 RBAC 才决定能否执行(策略放行、RBAC 拒→审计 error)。</p>
+    <p class="text-body-xs text-on-surface-variant">{{ t('component.toolOverride.rbacHint') }}</p>
   </div>
 </template>

@@ -1,8 +1,11 @@
 <script setup>
 // 资源归属拓扑：沿 ownerReferences 向上解析（Pod→ReplicaSet→Deployment…），根在上、叶在下。
 import { ref, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { resourceTreeApi } from '@/api/client'
+
+const { t } = useI18n()
 
 const props = defineProps({
   namespace: { type: String, default: '' },
@@ -27,7 +30,7 @@ async function load() {
     while (cur) { arr.push(cur); cur = cur.owner }
     chain.value = arr.reverse()
   } catch (e) {
-    error.value = e.message || '解析归属链失败'
+    error.value = e.message || t('component.resourceTopology.parseFailed')
   } finally {
     loading.value = false
   }
@@ -45,7 +48,7 @@ function go(node) {
 
 <template>
   <div>
-    <p v-if="loading" class="text-body-sm text-on-surface-variant">解析归属链…</p>
+    <p v-if="loading" class="text-body-sm text-on-surface-variant">{{ t('component.resourceTopology.parsing') }}</p>
     <p v-else-if="error" class="text-body-sm text-error">{{ error }}</p>
     <ol v-else class="relative border-l border-outline-variant/40 ml-xs pl-md space-y-sm">
       <li v-for="(node, i) in chain" :key="i" class="relative">

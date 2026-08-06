@@ -2,8 +2,11 @@
 // 业务标签输入组件：chip 可删 + 回车/逗号提交 + 上限 max 个 + 输入即过滤建议（来自同 ns 历史）。
 // modelValue 为逗号分隔字符串（与 aliangboard.io/tags annotation 落点一致）。
 import { ref, computed, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { syncTagHistory, getTagSuggestions } from '@/composables/useTagHistory'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -82,14 +85,14 @@ watch(input, refresh)
           class="inline-flex items-center gap-0.5 bg-primary-container text-on-primary-container text-xs font-medium pl-2 pr-1 py-0.5 rounded-md"
         >
           {{ tag }}
-          <button type="button" @click="remove(tag)" class="hover:text-error rounded p-0.5" :title="`移除 ${tag}`">
+          <button type="button" @click="remove(tag)" class="hover:text-error rounded p-0.5" :title="t('component.tagInput.removeTag', { tag })">
             <span class="material-symbols-outlined text-sm leading-none">close</span>
           </button>
         </span>
         <input
           v-model="input"
           :disabled="atMax"
-          :placeholder="atMax ? `已达上限 ${max} 个` : (tags.length ? '' : '输入标签后回车，或点击下方建议')"
+          :placeholder="atMax ? t('component.tagInput.atMax', { max }) : (tags.length ? '' : t('component.tagInput.inputPlaceholder'))"
           @keydown="onKeydown"
           @focus="onFocus"
           @blur="onBlur"
@@ -113,13 +116,13 @@ watch(input, refresh)
           class="w-full flex items-center justify-between gap-sm px-md py-sm text-body-sm hover:bg-primary-container/20 transition-colors text-left"
         >
           <span class="font-medium">{{ s.tag }}</span>
-          <span v-if="s.count > 0" class="text-[10px] text-on-surface-variant shrink-0">{{ s.count }} 次使用</span>
+          <span v-if="s.count > 0" class="text-[10px] text-on-surface-variant shrink-0">{{ t('component.tagInput.usageCount', { count: s.count }) }}</span>
         </button>
       </div>
     </div>
     <p class="mt-1 text-[10px] text-on-surface-variant/70 flex items-center gap-1">
       <span class="material-symbols-outlined text-xs">label</span>
-      逗号或回车提交，最多 {{ max }} 个；输入时自动提示同 Namespace 已用标签。
+      {{ t('component.tagInput.hint', { max }) }}
     </p>
   </div>
 </template>
