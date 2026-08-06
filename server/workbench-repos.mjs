@@ -131,3 +131,11 @@ export async function recentCommits(repoPath, n = 10) {
     })
   })
 }
+
+// 读 manifests/ 下所有 yaml 拼成 --- 分隔的串(apply/reconcile 用)。空则返空串。
+export async function readManifests(repoPath) {
+  const files = await listFiles(repoPath)
+  const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f))
+  const contents = await Promise.all(yamls.map(f => readFile(repoPath, f).catch(() => '')))
+  return contents.join('\n---\n')
+}

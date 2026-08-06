@@ -15,10 +15,11 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
-import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile } from './workbench-projects.mjs'
+import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
+import { reconcileProject } from './reconcile.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -446,20 +447,21 @@ async function applyYamlPartial(session, yaml) {
 async function bootstrapLedgerForCluster(cluster) {
   const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
   const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
-  const [namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses] = await Promise.all([
+  const [namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses] = await Promise.all([
     safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
     safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
+    safe('/apis/apiextensions.k8s.io/v1/customresourcedefinitions'),
     safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
   ])
   const vat = verifiedAt()
-  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses })
+  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses })
   const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
   if (!(await hasRepo(repo))) await initRepo(repo)
   await wbWriteFile(repo, 'INDEX.md', index)
   await wbCommit(repo, `台账 bootstrap · ${vat}`)
   const list = (items) => (items || []).map(i => i.metadata?.name).filter(Boolean)
   const depNs = new Set((deployments || []).map(d => d.metadata?.namespace).filter(Boolean))
-  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} namespaces${nodes ? `, ${nodes.length} 节点` : ''};IngressClasses=[${list(ingressClasses).join(',') || '无'}];StorageClasses=[${list(storageClasses).join(',') || '无'}];有 Deployment 的 namespace ${depNs.size} 个。INDEX.md 已写入,read_ledger 可看详情。`
+  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} namespaces${nodes ? `, ${nodes.length} 节点` : ''};IngressClasses=[${list(ingressClasses).join(',') || '无'}];StorageClasses=[${list(storageClasses).join(',') || '无'}];扩展/CRD ${(crds || []).length} 个;有 Deployment 的 namespace ${depNs.size} 个。INDEX.md 已写入(含已安装扩展),read_ledger 可看详情。`
   return { index, files: await wbListFiles(repo), summary, verifiedAt: vat }
 }
 
@@ -940,7 +942,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && seg.length === 1) {
       let files = [], commits = []
       try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
-      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits })
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id) })
     }
 
     // 文件读写 :id/files/<path>
@@ -965,6 +967,17 @@ async function handle(req, res) {
         const r = await wbCommit(repo, input.message || 'update')
         return sendJson(res, 200, r)
       } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '提交失败' }) }
+    }
+
+    // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
+    if (seg[1] === 'reconcile' && req.method === 'POST') {
+      try {
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+        if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
+        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+        const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+        return sendJson(res, 200, r)
+      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'reconcile 失败' }) }
     }
 
     return sendJson(res, 404, { message: '未知的工作台路由' })
@@ -1752,4 +1765,24 @@ if (distillInterval > 0) {
   }
   setInterval(tickDistill, distillInterval).unref()
   console.log(`[distill] 定时蒸馏已启用:每 ${Math.round(distillInterval / 1000)}s 一轮(活跃集群,产待审 pending)`)
+}
+
+// 定时 reconcile scheduler(第 4 阶段 R3):RECONCILE_INTERVAL_MS 触发,对所有有集群的项目幂等再 apply → 存 last_reconcile。
+const reconcileInterval = Number(process.env.RECONCILE_INTERVAL_MS || 0)
+if (reconcileInterval > 0) {
+  const tickReconcile = async () => {
+    try {
+      for (const p of listProjects(db, { userId: '', role: 'admin' })) {
+        try {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+          if (!cluster) continue
+          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+          if (r.failed?.length) console.error(`[reconcile] ${p.name}: ${r.failed.length} 失败`)
+        } catch (e) { console.error(`[reconcile] project ${p.id} 失败:`, e.message) }
+      }
+    } catch (e) { console.error('[reconcile] scheduler tick 失败:', e.message) }
+  }
+  setInterval(tickReconcile, reconcileInterval).unref()
+  console.log(`[reconcile] 定时 reconcile 已启用:每 ${Math.round(reconcileInterval / 1000)}s 一轮(所有项目)`)
 }
