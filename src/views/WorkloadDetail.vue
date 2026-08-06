@@ -6,6 +6,8 @@ import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import LabelChips from '@/components/common/LabelChips.vue'
+import EventList from '@/components/common/EventList.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -127,23 +129,13 @@ async function handleRestart() {
         <!-- Labels -->
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
           <h3 class="text-headline-sm mb-md">{{ t('workloadDetail.labels') }}</h3>
-          <div class="flex flex-wrap gap-2">
-            <span v-for="(val, key) in (displayData.labels || {})" :key="key" class="px-2 py-1 bg-surface-container rounded text-body-sm border border-outline-variant">
-              {{ key }}: {{ val }}
-            </span>
-          </div>
+          <LabelChips :labels="displayData.labels || {}" />
         </div>
         <!-- Events -->
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
           <h3 class="text-headline-sm mb-md">{{ t('workloadDetail.events') }}</h3>
           <div class="flex flex-col gap-md">
-            <div v-for="(e, i) in store.eventList.slice(0, 4)" :key="i" class="flex gap-sm">
-              <span class="material-symbols-outlined text-base mt-0.5" :class="e.color === 'primary' ? 'text-primary' : 'text-tertiary-container'">{{ e.icon }}</span>
-              <div>
-                <p class="text-body-sm font-medium">{{ e.reason }}</p>
-                <p class="text-body-sm text-on-surface-variant">{{ e.time }}</p>
-              </div>
-            </div>
+            <EventList :events="store.eventList" :max="4" compact />
           </div>
         </div>
       </div>

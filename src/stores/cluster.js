@@ -10,6 +10,7 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
 import { i18n } from '@/i18n'
 import {
@@ -21,40 +22,7 @@ import {
   podDisruptionBudgets, priorityClasses
 } from '@/mock/cluster'
 
-// === K8s 资源量解析（CPU→毫核 millicores，内存→Ki）===
-// metrics.k8s.io 返回的用量与节点 allocatable / 容器 requests 都是 K8s quantity 字符串，
-// 这里统一解析为可计算的数值，再格式化回 mock 既有的展示格式（"124m/500m"、"182Mi/512Mi"）。
-function cpuToMilli(q) {
-  if (q == null || q === '') return 0
-  const s = String(q).trim()
-  if (s.endsWith('n')) return Math.round(Number(s.slice(0, -1)) / 1e6)   // nanocores → m
-  if (s.endsWith('u')) return Math.round(Number(s.slice(0, -1)) / 1e3)   // microcores → m
-  if (s.endsWith('m')) return Number(s.slice(0, -1)) || 0                // millicores
-  const n = Number(s)
-  return isNaN(n) ? 0 : n * 1000                                         // cores → m
-}
-function memToKi(q) {
-  if (q == null || q === '') return 0
-  const s = String(q).trim()
-  const m = s.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$/)
-  if (!m) return 0
-  const num = Number(m[1])
-  const suf = m[2] || ''
-  const mult = {
-    Ki: 1, Mi: 1024, Gi: 1024 ** 2, Ti: 1024 ** 3, Pi: 1024 ** 4, Ei: 1024 ** 5,
-    k: 1000 / 1024, M: 1e6 / 1024, G: 1e9 / 1024, T: 1e12 / 1024, P: 1e15 / 1024, E: 1e18 / 1024,
-  }
-  return Math.round(num * (suf ? (mult[suf] ?? 1) : 1 / 1024))           // 无后缀视为裸字节
-}
-// 用量/容量格式化（供视图展示）
-export const formatCpu = milli => (milli == null ? '—' : Math.round(milli) + 'm')
-export const formatMem = ki => {
-  if (ki == null) return '—'
-  if (ki >= 1024 ** 3) return (ki / 1024 ** 3).toFixed(ki % 1024 ** 3 ? 1 : 0) + 'Ti'
-  if (ki >= 1024 ** 2) return (ki / 1024 ** 2).toFixed(ki % 1024 ** 2 ? 1 : 0) + 'Gi'
-  if (ki >= 1024) return Math.round(ki / 1024) + 'Mi'
-  return Math.round(ki) + 'Ki'
-}
+export { formatCpu, formatMem } from '@/composables/useResourceFormat'
 
 // 失效某资源的所有 cluster query（跨 cid，匹配 key[2]），让读 query 的列表/详情页在 CRUD 后自动刷新。
 // key[2] = 资源名（如 'configmaps'）；详情页 key ['cluster',cid,'configmaps',name] 也被匹配。
@@ -2116,6 +2084,8 @@ export const useClusterStore = defineStore('cluster', () => {
       age: ageOf(item.metadata?.creationTimestamp),
       labels: item.metadata?.labels || {},
       annotations: item.metadata?.annotations || {},
+      // 保留原始对象：详情页 YAML 需完整 server 对象（clusterIP/labels 等），避免 SSA force apply 丢字段
+      raw: item,
     }
   }
   const mapIngress = item => {

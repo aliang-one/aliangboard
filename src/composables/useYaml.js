@@ -1,3 +1,5 @@
+import { dump } from 'js-yaml'
+
 // YAML 标量序列化：把任意字符串值安全地编进 YAML（用于 metadata.annotations / labels 等键值）。
 // 含换行走 block scalar(|-)，含特殊字符走双引号转义，否则裸值。
 //
@@ -11,4 +13,15 @@ export function yamlScalar(v) {
     return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
   }
   return s
+}
+
+// 把 K8s 原始对象转成「干净 YAML」：深拷贝后剔除 metadata.managedFields（冗长），
+// 默认保留 status；stripStatus:true 时一并剔除 status（只读/派生）。
+// 供详情页「查看 YAML」复用——避免每个详情页各自 api.k8s 再拉一遍同一对象。
+export function dumpResourceYaml(raw, { stripStatus = false } = {}) {
+  if (!raw) return ''
+  const clone = JSON.parse(JSON.stringify(raw))
+  if (clone?.metadata) delete clone.metadata.managedFields
+  if (stripStatus && clone?.status) delete clone.status
+  return dump(clone)
 }
