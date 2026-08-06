@@ -1147,6 +1147,20 @@ export const useClusterStore = defineStore('cluster', () => {
     } catch { /* 静默：保留上次 eventList，watch 继续推增量 */ }
   }
 
+  // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
+  async function fetchNodes() {
+    const [nodeData, metricsData] = await Promise.all([
+      api.k8s('/api/v1/nodes'),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/nodes').catch(() => null),
+    ])
+    const metricMap = new Map()
+    for (const it of (metricsData?.items || [])) {
+      metricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
+    }
+    const metricFor = name => (metricMap.has(name) ? metricMap.get(name) : null)
+    return (nodeData?.items || []).map(item => mapNode(item, metricFor(item.metadata?.name)))
+  }
+
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
   async function refreshMetrics() {
@@ -3434,6 +3448,7 @@ status:
     // Pod 列表轻量刷新（删 Pod 后看重建）
     refreshPods,
     refreshEvents,
+    fetchNodes,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,

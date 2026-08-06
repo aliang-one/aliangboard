@@ -44,6 +44,7 @@ export function useResourceList({ key, fetcher, mock = null, mockMode = false, s
     gcTime: mockMode ? Infinity : (options.gcTime ?? 5 * 60_000),
     refetchOnWindowFocus: mockMode ? false : (options.refetchOnWindowFocus ?? true),
     retry: mockMode ? false : (options.retry ?? 1),
+    refetchInterval: mockMode ? false : (options.refetchInterval ?? false),
     enabled: options.enabled ?? true,
     select,
   })
