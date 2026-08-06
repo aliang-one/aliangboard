@@ -698,8 +698,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: PVCs ===
   async function addPVC(pvc) {
-    if (remoteMode.value) return remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
-    pvcList.value.push({ ...pvc, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
+    else pvcList.value.push({ ...pvc, age: 'Just now' })
+    invalidateResource('pvcs')
   }
 
   async function updatePVC(name, ns, updates) {
@@ -708,15 +709,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(pvcList.value[idx]))
     pvcList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('pvc', pvcList.value[idx]), 'PVC', () => { pvcList.value[idx] = before })
+    invalidateResource('pvcs')
   }
 
   async function deletePVC(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`, pvcList, p => p.name === name && p.namespace === ns)
-      return
+    } else {
+      const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
+      if (idx !== -1) pvcList.value.splice(idx, 1)
     }
-    const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx !== -1) pvcList.value.splice(idx, 1)
+    invalidateResource('pvcs')
   }
 
   // === CRUD: PersistentVolumes（集群级）===
@@ -1196,6 +1199,7 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
   async function fetchIngress(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`); return d ? mapIngress(d) : null }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
+  async function fetchNetworkPolicy(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`); return d ? mapNetworkPolicy(d) : null }
   async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
   async function fetchLimitRanges() { const d = await api.k8s('/api/v1/limitranges?limit=5000'); return (d?.items || []).map(mapLimitRange) }
   async function fetchResourceQuotas() { const d = await api.k8s('/api/v1/resourcequotas?limit=5000'); return (d?.items || []).map(mapResourceQuota) }
@@ -1215,6 +1219,7 @@ export const useClusterStore = defineStore('cluster', () => {
     ]
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
+  async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -1255,8 +1260,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: NetworkPolicies ===
   async function addNetworkPolicy(np) {
-    if (remoteMode.value) return remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
-    networkPolicyList.value.push({ ...np, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
+    else networkPolicyList.value.push({ ...np, age: 'Just now' })
+    invalidateResource('networkpolicies')
   }
 
   async function updateNetworkPolicy(name, ns, updates) {
@@ -1265,15 +1271,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(networkPolicyList.value[idx]))
     networkPolicyList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('networkpolicy', networkPolicyList.value[idx]), 'NetworkPolicy', () => { networkPolicyList.value[idx] = before })
+    invalidateResource('networkpolicies')
   }
 
   async function deleteNetworkPolicy(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`, networkPolicyList, n => n.name === name && n.namespace === ns)
-      return
+    } else {
+      const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
+      if (idx !== -1) networkPolicyList.value.splice(idx, 1)
     }
-    const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
-    if (idx !== -1) networkPolicyList.value.splice(idx, 1)
+    invalidateResource('networkpolicies')
   }
 
   // === CRUD: HPAs ===
@@ -3509,6 +3517,7 @@ status:
     fetchSecret,
     fetchService,
     fetchIngress,
+    fetchNetworkPolicy, fetchPVC,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
