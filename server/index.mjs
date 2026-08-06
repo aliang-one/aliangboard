@@ -15,7 +15,7 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -741,15 +741,45 @@ async function handle(req, res) {
     try {
       const input = await readBody(req)
       const resuming = !!input.resume
-      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId' })
       if (!resuming && !input.message) return sendJson(res, 400, { message: '缺 message' })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+
+      // 项目模式(W4b):workbench-only agent,历史走服务端 workbench_history(不进 git repo)。
+      if (input.projectId) {
+        const proj = getProject(db, input.projectId)
+        if (!proj) return sendJson(res, 404, { message: '项目不存在' })
+        if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
+        const repo = join(WORKBENCH_DIR, proj.clusterId, 'projects', proj.id)
+        const ledgerRepo = join(WORKBENCH_DIR, proj.clusterId, 'cluster-context')
+        const workbench = {
+          readLedger: async () => { try { return await wbReadFile(ledgerRepo, 'INDEX.md') } catch { return '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)' } },
+          readFile: (p) => wbReadFile(repo, p),
+          writeFile: (p, c) => wbWriteFile(repo, p, c),
+        }
+        const { run } = createAgentRunner({ llmClient, workbench })
+        const trace = []
+        let out
+        if (resuming) {
+          const r = input.resume || {}
+          out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
+        } else {
+          const history = recentHistory(db, proj.id)
+          const system = '你是 aliangboard 工作台助手。先 read_ledger 读集群台账(复用已知能力、避免从零摸集群);用 read_project_file 看已有 manifests;用 write_project_file 写 manifests/(yaml,要可直接 server-side apply)。写文件需用户审批,被拒会告知你。'
+          out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
+          if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
+        }
+        if (out.status === 'pending_approval') return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
+        return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
+      }
+
+      // K8s 模式(原):apiKeyId 必填,agent 用所选 key 的 SA + tier
+      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId(K8s 模式)或 projectId(项目模式)' })
       const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
       if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
       if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
       const trace = []
       let out
