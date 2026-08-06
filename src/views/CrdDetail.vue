@@ -236,7 +236,7 @@ async function handleCreateInst(yaml) {
                 {{ crd.namespaced ? 'check_circle' : 'cancel' }}
               </span>
               <span class="ml-1 text-body-sm" :class="crd.namespaced ? 'text-on-surface' : 'text-on-surface-variant'">
-                {{ crd.namespaced ? '是' : '否' }}
+                {{ crd.namespaced ? 'Yes' : 'No' }}
               </span>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">

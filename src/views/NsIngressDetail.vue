@@ -394,7 +394,7 @@ function saveEditLabel() {
           <div class="p-sm flex flex-wrap gap-xs">
             <span v-for="([k, v]) in allLabels" :key="k" class="group inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-surface-container text-[11px] border border-outline-variant font-mono">
               <span class="text-secondary font-semibold">{{ k }}</span><span class="text-on-surface-variant">:{{ v }}</span>
-              <button @click="deleteLabel(k)" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error transition-opacity" title="删除"><span class="material-symbols-outlined text-xs">close</span></button>
+              <button @click="deleteLabel(k)" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error transition-opacity" title="Delete"><span class="material-symbols-outlined text-xs">close</span></button>
             </span>
             <span v-if="!allLabels.length" class="text-xs text-on-surface-variant/50 py-xs">{{ $t('ns.ingressDetail.noLabels') }}</span>
           </div>

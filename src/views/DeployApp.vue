@@ -639,7 +639,7 @@ async function handleDeploy() {
     const result = await store.applyResourceYaml(previewYAML.value)
     deployLoading.value = false
     if (!result.ok) {
-      deployError.value = result.error || '部署失败'
+      deployError.value = result.error || 'Deployment failed'
       return
     }
     showDeploySuccess.value = true
