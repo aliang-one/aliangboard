@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -13,7 +14,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const pdb = computed(() => store.getPDBByName(route.params.name, route.params.namespace))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pdbDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'pdbs', route.params.name],
+  fetcher: () => store.fetchPDB(route.params.name, route.params.namespace),
+  mock: store.getPDBByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const pdb = computed(() => pdbDetail.data.value ?? store.getPDBByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateExtraYAML('pdb', pdb.value))
 
 const activeTab = ref('overview')

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -15,7 +16,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const rq = computed(() => store.getResourceQuotaByName(route.params.name, route.params.namespace))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const rqDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'resourcequotas', route.params.name],
+  fetcher: () => store.fetchResourceQuota(route.params.name, route.params.namespace),
+  mock: store.getResourceQuotaByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const rq = computed(() => rqDetail.data.value ?? store.getResourceQuotaByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/resourcequotas/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('resourcequota', rq.value),
