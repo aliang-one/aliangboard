@@ -12,6 +12,7 @@ import { ref, watch } from 'vue'
 import { dump as yamlDump } from 'js-yaml'
 import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
+import { i18n } from '@/i18n'
 
 export function useLiveYaml({ pathFn, mockFn, timeoutMs = 20000 }) {
   const store = useClusterStore()
@@ -35,7 +36,7 @@ export function useLiveYaml({ pathFn, mockFn, timeoutMs = 20000 }) {
       yaml.value = yamlDump(clone)
     } catch (e) {
       const aborted = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
-      error.value = aborted ? `加载超时（${Math.round(timeoutMs / 1000)}s，可重试）` : (e?.message || '加载失败')
+      error.value = aborted ? i18n.global.t('store.loadTimeout', { timeout: Math.round(timeoutMs / 1000) }) : (e?.message || i18n.global.t('store.loadFailed'))
       yaml.value = `# ${error.value}`                            // 兜底：未接 error UI 的页面也在编辑器里显示原因
     } finally {
       clearTimeout(timer)

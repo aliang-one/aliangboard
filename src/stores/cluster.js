@@ -10,6 +10,7 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { i18n } from '@/i18n'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -89,9 +90,9 @@ export const useClusterStore = defineStore('cluster', () => {
   workloadList.value.forEach(wl => {
     if (wl.revisions && wl.revisions.length) return
     wl.revisions = [
-      { rev: 3, image: wl.image, sha: wl.sha || randSha(), age: wl.age || 'Just now', current: true, reason: '初始部署' },
-      { rev: 2, image: bumpImageTag(wl.image, -1), sha: randSha(), age: '2h ago', reason: '镜像更新' },
-      { rev: 1, image: bumpImageTag(wl.image, -2), sha: randSha(), age: '1d ago', reason: '镜像更新' },
+      { rev: 3, image: wl.image, sha: wl.sha || randSha(), age: wl.age || 'Just now', current: true, reason: i18n.global.t('store.initialDeployment') },
+      { rev: 2, image: bumpImageTag(wl.image, -1), sha: randSha(), age: '2h ago', reason: i18n.global.t('store.imageUpdate') },
+      { rev: 1, image: bumpImageTag(wl.image, -2), sha: randSha(), age: '1d ago', reason: i18n.global.t('store.imageUpdate') },
     ]
   })
   const podList = ref(pods)
@@ -141,13 +142,13 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === 微服务分层定义（对标 Kuboard tier）===
   const TIER_META = {
-    web: { label: '表现层', en: 'Web', icon: 'web', color: 'primary', order: 0 },
-    gateway: { label: '网关层', en: 'Gateway', icon: 'dns', color: 'secondary', order: 1 },
-    svc: { label: '服务层', en: 'Service', icon: 'apps', color: 'tertiary', order: 2 },
-    cloud: { label: '中间件层', en: 'Middleware', icon: 'cloud', color: 'tertiary', order: 3 },
-    db: { label: '持久层', en: 'Database', icon: 'database', color: 'error', order: 4 },
-    monitor: { label: '监控层', en: 'Monitor', icon: 'monitoring', color: 'secondary', order: 5 },
-    default: { label: '默认层', en: 'Default', icon: 'workspaces', color: 'surface', order: 6 },
+    web: { label: i18n.global.t('store.presentationLayer'), en: 'Web', icon: 'web', color: 'primary', order: 0 },
+    gateway: { label: i18n.global.t('store.gatewayLayer'), en: 'Gateway', icon: 'dns', color: 'secondary', order: 1 },
+    svc: { label: i18n.global.t('store.serviceLayer'), en: 'Service', icon: 'apps', color: 'tertiary', order: 2 },
+    cloud: { label: i18n.global.t('store.middlewareLayer'), en: 'Middleware', icon: 'cloud', color: 'tertiary', order: 3 },
+    db: { label: i18n.global.t('store.persistenceLayer'), en: 'Database', icon: 'database', color: 'error', order: 4 },
+    monitor: { label: i18n.global.t('store.monitorLayer'), en: 'Monitor', icon: 'monitoring', color: 'secondary', order: 5 },
+    default: { label: i18n.global.t('store.defaultLayer'), en: 'Default', icon: 'workspaces', color: 'surface', order: 6 },
   }
 
   // === 全局计算属性 ===
@@ -487,7 +488,7 @@ export const useClusterStore = defineStore('cluster', () => {
       await api.k8s(path, { method: 'DELETE' })
     } catch (e) {
       if (backup) list.value.splice(idx, 0, backup)
-      notify('error', `${label}删除失败：${e.message || '权限不足或资源不存在'}`)
+      notify('error', `${label}${i18n.global.t('store.deleteFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrNotFound')}`)
     }
   }
 
@@ -517,9 +518,9 @@ export const useClusterStore = defineStore('cluster', () => {
   async function remoteUpdate(yamlStr, label, rollbackFn) {
     try {
       await api.applyYaml(yamlStr)
-      notify('success', `${label}已保存`)
+      notify('success', `${label}${i18n.global.t('common.save')}`)
     } catch (e) {
-      notify('error', `${label}保存失败：${e.message || '权限不足或字段冲突'}`)
+      notify('error', `${label}${i18n.global.t('store.saveFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrConflict')}`)
       if (rollbackFn) rollbackFn()
     }
   }
@@ -527,9 +528,9 @@ export const useClusterStore = defineStore('cluster', () => {
   async function remotePatch(path, patch, label, rollbackFn) {
     try {
       await api.k8s(path, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
-      notify('success', `${label}已保存`)
+      notify('success', `${label}${i18n.global.t('common.save')}`)
     } catch (e) {
-      notify('error', `${label}保存失败：${e.message || '权限不足或资源不存在'}`)
+      notify('error', `${label}${i18n.global.t('store.saveFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrNotExist')}`)
       if (rollbackFn) rollbackFn()
     }
   }
@@ -825,9 +826,9 @@ export const useClusterStore = defineStore('cluster', () => {
     if (remoteMode.value) {
       const workload = workloadList.value.find(matchFn)
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[workload?.type]
-      if (!plural) { notify('error', `暂不支持删除 ${workload?.type || '该工作负载'}`); return }
+      if (!plural) { notify('error', i18n.global.t('store.deleteNotSupported', { type: workload?.type || i18n.global.t('store.thisWorkload') })); return }
       // 与其它资源一致：乐观删除 + 失败回滚 + 全局提示
-      await remoteDelete(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, workloadList, matchFn, '工作负载')
+      await remoteDelete(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, workloadList, matchFn, i18n.global.t('store.workload'))
       return
     }
     const idx = workloadList.value.findIndex(matchFn)
@@ -911,7 +912,7 @@ export const useClusterStore = defineStore('cluster', () => {
     Ingress: ['/apis/networking.k8s.io/v1', 'ingresses', 'ingress'],
   }
   async function reassignLayer(kind, name, ns, layerKey) {
-    if (!remoteMode.value) throw new Error('仅连接集群后可用')
+    if (!remoteMode.value) throw new Error(i18n.global.t('store.onlyAvailableAfterConnect'))
     const res = LABEL_RES[kind]
     if (!res) throw new Error(`暂不支持修改 ${kind} 的分层`)
     const [gv, plural] = res
@@ -932,9 +933,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   async function applyWorkloadTemplate(name, ns, template) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    if (!wl) throw new Error('工作负载不存在')
+    if (!wl) throw new Error(i18n.global.t('store.workloadNotFound'))
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    if (!plural) throw new Error(`暂不支持深度编辑 ${wl.type || '该工作负载'}，请使用 YAML 编辑`)
+    if (!plural) throw new Error(`${i18n.global.t('store.deepEditNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
     if (remoteMode.value) {
       const tag = aliangTag()
       await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
@@ -955,10 +956,10 @@ export const useClusterStore = defineStore('cluster', () => {
   // 乐观更新本地状态，远端失败回滚。仅 Deployment/StatefulSet/DaemonSet。
   async function updateWorkloadMeta(name, ns, payload) {
     const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
-    if (idx === -1) throw new Error('工作负载不存在')
+    if (idx === -1) throw new Error(i18n.global.t('store.workloadNotFound'))
     const wl = workloadList.value[idx]
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    if (!plural) throw new Error(`暂不支持编辑 ${wl.type || '该工作负载'} 的元数据，请使用 YAML 编辑`)
+    if (!plural) throw new Error(`${i18n.global.t('store.editMetadataNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
     const { labels = {}, annotations = {}, removedLabels = [], removedAnnotations = [], templateLabels = null } = payload || {}
     const tag = aliangTag() // managed-by + last-edited 自动 tag
     const outLabels = { ...labels, ...tag.labels }
@@ -990,9 +991,9 @@ export const useClusterStore = defineStore('cluster', () => {
       }
     }
     if (remoteMode.value) {
-      await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, '元数据', () => { workloadList.value[idx] = before })
+      await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.metadata'), () => { workloadList.value[idx] = before })
     } else {
-      notify('success', '元数据已保存')
+      notify('success', i18n.global.t('store.metadataSaved'))
     }
   }
 
@@ -1000,7 +1001,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
     if (remoteMode.value) {
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets' }[wl?.type]
-      if (!plural) throw new Error(`${wl?.type || '该工作负载'} 不支持副本扩缩容`)
+      if (!plural) throw new Error(`${i18n.global.t('store.scaleNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })}`)
       await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}/scale`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/merge-patch+json' },
@@ -1017,7 +1018,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
     if (remoteMode.value) {
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
-      if (!plural) throw new Error(`暂不支持重启 ${wl?.type || '该工作负载'}`)
+      if (!plural) throw new Error(`${i18n.global.t('store.restartNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })}`)
       await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/merge-patch+json' },
@@ -1033,7 +1034,7 @@ export const useClusterStore = defineStore('cluster', () => {
       if (Array.isArray(wl.revisions)) {
         wl.revisions.forEach(r => r.current = false)
         const nextRev = (wl.revisions[0]?.rev || 0) + 1
-        wl.revisions = [{ rev: nextRev, image: wl.image, sha: wl.sha, age: 'Just now', current: true, reason: '滚动重启' }, ...wl.revisions]
+        wl.revisions = [{ rev: nextRev, image: wl.image, sha: wl.sha, age: 'Just now', current: true, reason: i18n.global.t('store.rollingRestart') }, ...wl.revisions]
       }
     }
   }
@@ -1041,7 +1042,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 一键回滚到指定 revision（kubectl rollout undo --to-revision=N 语义）
   async function rollbackWorkload(name, ns, revNumber) {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    if (!wl) throw new Error('工作负载不存在')
+    if (!wl) throw new Error(i18n.global.t('store.workloadNotFound'))
     const target = (wl.revisions || []).find(r => r.rev === revNumber)
     if (!target) throw new Error(`未找到版本 rev-${revNumber}`)
     if (remoteMode.value) {
@@ -1064,7 +1065,7 @@ export const useClusterStore = defineStore('cluster', () => {
     wl.image = target.image
     wl.sha = target.sha
     wl.age = 'Just now'
-    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: `回滚到 rev-${revNumber}`, _template: target._template }, ...wl.revisions]
+    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: i18n.global.t('store.rollbackTo', { rev: revNumber }), _template: target._template }, ...wl.revisions]
   }
 
   // === CRUD: Pods ===
@@ -1720,7 +1721,7 @@ export const useClusterStore = defineStore('cluster', () => {
     for (const wl of workloads) {
       if (wl.type !== 'Deployment') {
         // StatefulSet/DaemonSet 历史走 ControllerRevision（暂未接入），仅展示当前版本
-        wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: '当前版本' }]
+        wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
         continue
       }
       const deploy = findDeploy(wl.name, wl.namespace)
@@ -1745,7 +1746,7 @@ export const useClusterStore = defineStore('cluster', () => {
       }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
       wl.revisions = revs.length
         ? revs
-        : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: '当前版本' }]
+        : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
     }
   }
 
