@@ -250,8 +250,8 @@ spec:
                     :class="secretForm.templateId === tpl.id ? 'border-primary bg-primary-container/10 text-primary' : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
                     <span class="material-symbols-outlined text-base">{{ tpl.icon }}</span>
                     <div class="min-w-0">
-                      <p class="text-body-sm font-medium truncate">{{ tpl.label }}</p>
-                      <p class="text-[10px] text-on-surface-variant truncate">{{ tpl.description }}</p>
+                      <p class="text-body-sm font-medium truncate">{{ t(tpl.labelKey) }}</p>
+                      <p class="text-[10px] text-on-surface-variant truncate">{{ t(tpl.descriptionKey) }}</p>
                     </div>
                   </button>
                 </div>
@@ -274,10 +274,10 @@ spec:
               <!-- 非 Opaque: 按模板 fields 动态渲染 -->
               <div v-else class="mt-md">
                 <div v-for="f in SECRET_TEMPLATES.find(t => t.id === secretForm.templateId)?.fields" :key="f.key" class="mb-sm">
-                  <label class="text-label-caps text-on-surface-variant block mb-xs">{{ f.label }}{{ f.optional ? t('component.createDialog.optionalSuffix') : '' }}</label>
+                  <label class="text-label-caps text-on-surface-variant block mb-xs">{{ f.labelKey !== undefined ? t(f.labelKey) : f.label }}{{ f.optional ? t('component.createDialog.optionalSuffix') : '' }}</label>
                   <!-- select -->
                   <select v-if="f.type === 'select'" v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-                    <option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    <option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.labelKey ? t(opt.labelKey) : opt.label }}</option>
                   </select>
                   <!-- password -->
                   <input v-else-if="f.type === 'password'" v-model="secretForm.fields[f.key]" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" :placeholder="f.placeholder || ''" />
@@ -286,7 +286,7 @@ spec:
                   <!-- text -->
                   <input v-else v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="f.placeholder || ''" />
                   <!-- hint -->
-                  <p v-if="f.hint || (f.type === 'select' && f.options?.find(o => o.value === secretForm.fields[f.key])?.hint)" class="text-[10px] text-on-surface-variant mt-xs">{{ f.options?.find(o => o.value === secretForm.fields[f.key])?.hint || f.hint }}</p>
+                  <p v-if="f.hintKey || (f.type === 'select' && f.options?.find(o => o.value === secretForm.fields[f.key])?.hintKey)" class="text-[10px] text-on-surface-variant mt-xs">{{ t(f.options?.find(o => o.value === secretForm.fields[f.key])?.hintKey || f.hintKey) }}</p>
                 </div>
                 <!-- Docker 快捷 registry -->
                 <div v-if="secretForm.templateId === 'docker'" class="flex gap-xs flex-wrap mt-xs">

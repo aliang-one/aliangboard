@@ -230,6 +230,7 @@ const containerPortOptions = computed(() => {
 })
 
 const tierOptions = TIER_OPTIONS
+function tierLabel(o) { return o.parentLabelKey ? `${t(o.parentLabelKey)} / ${t(o.labelKey)}` : t(o.labelKey) }
 
 const resourcePresets = [
   { label: t('deploy.resourcePresetSmall'), cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi' },
@@ -866,9 +867,9 @@ async function handleDeploy() {
                 class="flex flex-col items-start gap-xs px-sm py-xs rounded-lg border text-left transition-all"
                 :class="form.tier === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
                 <span class="flex items-center gap-xs text-xs font-medium">
-                  <span class="material-symbols-outlined text-xs">{{ t.icon }}</span>{{ t.label }}
+                  <span class="material-symbols-outlined text-xs">{{ t.icon }}</span>{{ tierLabel(t) }}
                 </span>
-                <span class="text-xs opacity-70">{{ t.desc }}</span>
+                <span class="text-xs opacity-70">{{ $t(t.descKey) }}</span>
               </button>
             </div>
           </div>
@@ -1408,14 +1409,14 @@ async function handleDeploy() {
               </summary>
               <p class="text-xs text-on-surface-variant mt-sm mb-xs">{{ $t('deploy.gatewayPerfHint') }}</p>
               <div class="flex flex-col gap-sm">
-                <div v-for="g in PERF_GROUPS" :key="g.title" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
+                <div v-for="g in PERF_GROUPS" :key="g.titleKey" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
                   <div class="flex items-center gap-sm mb-sm">
                     <span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span>
-                    <h4 class="text-xs font-semibold text-on-surface">{{ g.title }}</h4>
+                    <h4 class="text-xs font-semibold text-on-surface">{{ $t(g.titleKey) }}</h4>
                   </div>
                   <div class="grid grid-cols-2 gap-xs">
                     <div v-for="fld in g.fields" :key="fld.key">
-                      <label class="text-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
+                      <label class="text-xs text-on-surface-variant block mb-xs">{{ $t(fld.labelKey) }}</label>
                       <textarea v-if="fld.area" v-model="form.ingressAdv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
                       <select v-else-if="fld.options" v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
                         <option v-for="o in fld.options" :key="o" :value="o">{{ o || $t('deploy.default') }}</option>

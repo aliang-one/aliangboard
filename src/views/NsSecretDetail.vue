@@ -226,7 +226,7 @@ const refCount = computed(() =>
         <div v-if="secretTemplateId !== 'opaque'" class="bg-primary-container/5 border border-primary/20 rounded-xl p-md mb-md flex items-center gap-md">
           <span class="material-symbols-outlined text-primary text-2xl">{{ secretTemplate?.icon }}</span>
           <div class="flex-1 min-w-0">
-            <p class="text-body-sm font-semibold text-primary">{{ secretTemplate?.label }}</p>
+            <p class="text-body-sm font-semibold text-primary">{{ secretTemplate?.labelKey ? t(secretTemplate.labelKey) : '' }}</p>
             <!-- Docker: registry + username -->
             <div v-if="secretTemplateId === 'docker'" class="mt-xs flex flex-wrap gap-md text-body-sm text-on-surface-variant">
               <span v-for="reg in dockerRegistries" :key="reg.server"><span class="font-mono text-primary">{{ reg.server }}</span> · {{ reg.username }}</span>

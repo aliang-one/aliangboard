@@ -183,7 +183,7 @@ async function logout() {
               :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
             >
               <div class="flex items-center gap-sm min-w-0">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.join('；') || 'Healthy') : c.status"></span>
+                <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.map(r => $t(r)).join('；') || $t('clusterHealth.healthy')) : c.status"></span>
                 <div class="min-w-0">
                   <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
                   <p class="text-xs text-on-surface-variant">{{ c.version }} · {{ c.distribution }}</p>

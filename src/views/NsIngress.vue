@@ -297,14 +297,14 @@ function handleDelete() {
     <!-- 性能调优 / 安全与其它：参数分组 -->
     <div v-else class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm">
       <p class="text-xs text-on-surface-variant">{{ t('ns.ingress.perfHint') }}</p>
-      <div v-for="g in PERF_GROUPS.filter(x => x.tab === createTab)" :key="g.title" class="border border-outline-variant rounded-lg p-md">
+      <div v-for="g in PERF_GROUPS.filter(x => x.tab === createTab)" :key="g.titleKey" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center gap-sm mb-sm">
           <span class="material-symbols-outlined text-primary text-lg">{{ g.icon }}</span>
-          <h4 class="text-body-sm font-semibold text-on-surface">{{ g.title }}</h4>
+          <h4 class="text-body-sm font-semibold text-on-surface">{{ t(g.titleKey) }}</h4>
         </div>
         <div class="grid grid-cols-2 gap-sm">
           <div v-for="fld in g.fields" :key="fld.key">
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ t(fld.labelKey) }}</label>
             <textarea v-if="fld.area" v-model="adv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
             <select v-else-if="fld.options" v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option v-for="o in fld.options" :key="o" :value="o">{{ o || t('ns.ingress.defaultOpt') }}</option>

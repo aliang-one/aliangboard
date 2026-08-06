@@ -328,7 +328,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // Job/CronJob 不在 hydrateCoreResources 的批量拉取里；从 Pod 详情跳转或直接链接进入时用此补齐。
   async function fetchWorkload(type, name, ns) {
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
-    if (!plural) throw new Error(`不支持的工作负载类型 ${type}`)
+    if (!plural) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
     const gv = type === 'Job' || type === 'CronJob' ? '/apis/batch/v1' : '/apis/apps/v1'
     const data = await api.k8s(`${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
     const wl = mapWorkload(data, type)
@@ -492,7 +492,7 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // 远端删除 + 本地列表同步：乐观先移除，API 失败则回滚并全局提示，保证 UI 与集群一致
-  async function remoteDelete(path, list, matchFn, label = '资源') {
+  async function remoteDelete(path, list, matchFn, label) {
     const idx = list.value.findIndex(matchFn)
     const backup = idx !== -1 ? list.value[idx] : null
     if (idx !== -1) list.value.splice(idx, 1)
@@ -500,7 +500,7 @@ export const useClusterStore = defineStore('cluster', () => {
       await api.k8s(path, { method: 'DELETE' })
     } catch (e) {
       if (backup) list.value.splice(idx, 0, backup)
-      notify('error', `${label}${i18n.global.t('store.deleteFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrNotFound')}`)
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: label || i18n.global.t('store.resource'), msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
     }
   }
 
@@ -509,10 +509,10 @@ export const useClusterStore = defineStore('cluster', () => {
     try {
       await api.applyYaml(yamlStr)
       if (refreshFn) await refreshFn()
-      notify('success', `${label} 已创建`)
+      notify('success', i18n.global.t('store.created', { label }))
       return { ok: true }
     } catch (e) {
-      notify('error', `${label}创建失败：${e.message || '请检查 YAML 与权限'}`)
+      notify('error', i18n.global.t('store.createFailed', { label, msg: e.message || i18n.global.t('store.checkYamlPerm') }))
       return { ok: false }
     }
   }
@@ -919,7 +919,7 @@ export const useClusterStore = defineStore('cluster', () => {
         if (updates.revisionHistoryLimit != null && updates.revisionHistoryLimit !== '') spec.revisionHistoryLimit = Number(updates.revisionHistoryLimit)
         if (Object.keys(spec).length) patch.spec = spec
         if (Object.keys(patch).length) {
-          await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, '工作负载', () => { workloadList.value[idx] = before })
+          await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.workload'), () => { workloadList.value[idx] = before })
           // 本地镜像远端 spec（策略/历史上限）以便 UI 立即反映
           if (spec.strategy) wl.raw.spec.strategy = spec.strategy
           if (spec.revisionHistoryLimit != null) wl.raw.spec.revisionHistoryLimit = spec.revisionHistoryLimit
@@ -945,7 +945,7 @@ export const useClusterStore = defineStore('cluster', () => {
   async function reassignLayer(kind, name, ns, layerKey) {
     if (!remoteMode.value) throw new Error(i18n.global.t('store.onlyAvailableAfterConnect'))
     const res = LABEL_RES[kind]
-    if (!res) throw new Error(`暂不支持修改 ${kind} 的分层`)
+    if (!res) throw new Error(i18n.global.t('store.unsupportedLayerKind', { kind }))
     const [gv, plural] = res
     const path = `${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`
     let labels = {}
@@ -1075,7 +1075,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
     if (!wl) throw new Error(i18n.global.t('store.workloadNotFound'))
     const target = (wl.revisions || []).find(r => r.rev === revNumber)
-    if (!target) throw new Error(`未找到版本 rev-${revNumber}`)
+    if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev: revNumber }))
     if (remoteMode.value) {
       const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
       if (plural) {
@@ -2297,7 +2297,7 @@ export const useClusterStore = defineStore('cluster', () => {
     ])
     const valueAt = index => requests[index].status === 'fulfilled' ? requests[index].value : null
     const nodeData = valueAt(0)
-    if (!nodeData && remoteMode.value) notify('error', '节点列表拉取失败：集群可能不可达或 RBAC 缺乏 nodes 读权限')
+    if (!nodeData && remoteMode.value) notify('error', i18n.global.t('store.nodeFetchFailed'))
     const podData = valueAt(1)
     const namespaceData = valueAt(2)
     const deploymentData = valueAt(3)
@@ -2328,7 +2328,7 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!namespaceData) {
       if (!opts.silent) connectionState.value = 'error'
       const failure = requests[2].status === 'rejected' ? requests[2].reason : null
-      throw new Error(failure?.message || '无法读取 Namespace，请检查 Kubernetes RBAC 权限')
+      throw new Error(failure?.message || i18n.global.t('store.namespaceReadFailed'))
     }
     if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, nodeMetric(item.metadata?.name)))
     if (podData?.items) {
@@ -3096,7 +3096,7 @@ status:
 
   // 通用 CR apply（server-side apply，适用于任意 CRD kind）+ 局部刷新
   async function applyCRYaml(crdName, yamlStr) {
-    if (!remoteMode.value) return { ok: false, error: '仅连接集群后可用' }
+    if (!remoteMode.value) return { ok: false, error: i18n.global.t('store.onlyAvailableAfterConnect') }
     try {
       let object = null
       yamlLoadAll(yamlStr, d => { if (!object && d) object = d })
@@ -3105,7 +3105,7 @@ status:
       await refreshCRDInstances(crdName)
       return { ok: true, kind: resource?.kind || object?.kind, name: resource?.metadata?.name || object?.metadata?.name }
     } catch (error) {
-      return { ok: false, error: error.message || '应用 YAML 失败' }
+      return { ok: false, error: error.message || i18n.global.t('store.applyYamlFailed') }
     }
   }
 
@@ -3128,7 +3128,7 @@ status:
     jobs: 'batch', cronjobs: 'batch',
   }
   async function checkAccessServer({ verb, resource, namespace }) {
-    if (!remoteMode.value) return { ok: false, error: '仅连接集群后可用' }
+    if (!remoteMode.value) return { ok: false, error: i18n.global.t('store.onlyAvailableAfterConnect') }
     // pods/log → resource=pods + subresource=log
     let name = String(resource || ''), subresource = ''
     if (name.includes('/')) { const [n, s] = name.split('/'); name = n; subresource = s }
@@ -3151,7 +3151,7 @@ status:
         evaluationError: r?.status?.evaluationError || '',
       }
     } catch (e) {
-      return { ok: false, error: e.message || 'SelfSubjectAccessReview 失败（当前用户可能缺少 create selfsubjectaccessreviews 权限）' }
+      return { ok: false, error: e.message || i18n.global.t('store.ssarFailed') }
     }
   }
 
@@ -3170,17 +3170,17 @@ status:
           namespace: resource?.metadata?.namespace || object?.metadata?.namespace || '',
         }
       } catch (error) {
-        return { ok: false, error: error.message || '应用 YAML 失败' }
+        return { ok: false, error: error.message || i18n.global.t('store.applyYamlFailed') }
       }
     }
     let obj
     try {
       obj = yamlLoad(yamlStr)
     } catch (e) {
-      return { ok: false, error: 'YAML 解析失败：' + (e.message || String(e)) }
+      return { ok: false, error: i18n.global.t('store.yamlParseFailed', { msg: e.message || String(e) }) }
     }
     if (!obj || !obj.kind || !obj.metadata?.name) {
-      return { ok: false, error: '无效的 Kubernetes 资源 YAML（缺少 kind 或 metadata.name）' }
+      return { ok: false, error: i18n.global.t('store.invalidYaml') }
     }
     const kind = obj.kind
     const name = obj.metadata.name
@@ -3394,9 +3394,9 @@ status:
             if (annotations) inst.annotations = annotations
             return { ok: true, kind, name, namespace: ns }
           }
-          return { ok: false, error: `未找到 ${kind}/${name}` }
+          return { ok: false, error: i18n.global.t('store.resourceNotFound', { kind, name }) }
         }
-        return { ok: false, error: `暂不支持通过 YAML 编辑 ${kind}` }
+        return { ok: false, error: i18n.global.t('store.unsupportedYamlEdit', { kind }) }
       }
     }
     return { ok: true, kind, name, namespace: ns }

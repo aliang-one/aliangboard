@@ -1,5 +1,6 @@
 import { dump as yamlDump } from 'js-yaml'
 import { createHttp, parseBody } from './http.js'
+import { i18n } from '@/i18n'
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const sessionKey = 'aliangboard.session'
@@ -260,7 +261,7 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
     else if (type === 3) { try { onExit?.(JSON.parse(utf8.decode(payload) || '{}')) } catch { onExit?.({}) } }
     else if (type === 4) onError?.(utf8.decode(payload))
   }
-  ws.onerror = () => onError?.('exec 连接异常（请确认已连接集群、容器已就绪且镜像内存在 shell）')
+  ws.onerror = () => onError?.(i18n.global.t('terminal.execConnectError'))
   ws.onclose = () => onClose?.()
   const encoder = new TextEncoder()
   function frame(type, data) {
@@ -292,7 +293,7 @@ export function k8sStream(path, { onMessage, onError, onClose } = {}) {
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         const body = parseBody(text)
-        throw new Error(body?.message || `流式请求失败：HTTP ${response.status}`)
+        throw new Error(body?.message || i18n.global.t('store.streamFailed', { status: response.status }))
       }
       reader = response.body.getReader()
       const decoder = new TextDecoder()

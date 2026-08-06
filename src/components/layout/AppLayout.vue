@@ -40,8 +40,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
         class="px-lg py-sm flex items-center gap-sm text-on-error bg-error/10 border-b border-error/30 text-body-sm">
         <span class="material-symbols-outlined text-base">crisis_alert</span>
-        <span v-if="store.clusterHealth.status === 'Critical'">{{ $t('layout.controlPlaneAbnormal', { ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, reasons: store.clusterHealth.reasons.join('；') }) }}</span>
-        <span v-else>{{ $t('layout.clusterUnreachable', { reasons: store.clusterHealth.reasons.join('；') }) }}</span>
+        <span v-if="store.clusterHealth.status === 'Critical'">{{ $t('layout.controlPlaneAbnormal', { ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
+        <span v-else>{{ $t('layout.clusterUnreachable', { reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
       </div>
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
         <router-view v-slot="{ Component, route }">
