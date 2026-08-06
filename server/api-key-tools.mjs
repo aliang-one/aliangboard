@@ -63,7 +63,7 @@ function safePodPath(p) {
   return p
 }
 
-export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn }) {
+export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
   async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, fn }) {
@@ -197,6 +197,12 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn }) {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
         await requestFn(saCtx, a.path, { method: 'DELETE' })
         return { deleted: a.path }
+      } }),
+    kubectl_debug: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'kubectl_debug', namespace: a.namespace, verb: 'patch', resource: `Pod/${a.pod}/ephemeral`, summary: `pod=${a.pod} image=${a.image || 'busybox'}`,
+      fn: async (saCtx) => {
+        if (!ephemeralFn) throw new Error('kubectl_debug 未启用')
+        return ephemeralFn(saCtx, a.namespace, a.pod, { name: a.name || 'debugger', image: a.image || 'busybox:latest', command: a.command, targetContainerName: a.targetContainerName })
       } }),
   }
 

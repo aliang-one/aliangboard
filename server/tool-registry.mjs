@@ -43,6 +43,9 @@ const K8S = [
   { name: 'delete_resource', minTier: 'admin', requiresApproval: true,
     description: '删除一个 K8s 资源(DELETE)。path 从 get_resource/list_resources 结果取(如 /apis/apps/v1/namespaces/default/deployments/nginx)。admin 档:需人审/admin key。受 SA RBAC 约束。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, path: { type: 'string', description: 'K8s 资源路径(从 get/list 结果取)' } }, required: ['namespace', 'path'] } },
+  { name: 'kubectl_debug', minTier: 'admin', requiresApproval: true,
+    description: '向 pod 注入 Ephemeral Container(kubectl debug 语义,调试 distroless/无 shell 镜像)。admin 档:需人审/admin key。需集群 1.25+(默认开 EphemeralContainers)。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, image: { type: 'string', description: '调试镜像,如 busybox:latest' }, name: { type: 'string', description: '临时容器名(默认 debugger)' }, command: { type: 'array', items: { type: 'string' } }, targetContainerName: { type: 'string' } }, required: ['namespace', 'pod'] } },
 ].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。
