@@ -6,7 +6,6 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
-import { dump as yamlDump } from 'js-yaml'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -223,11 +222,8 @@ async function loadYaml() {
   if (!store.remoteMode) { svcYaml.value = store.generateYAML('service', svc.value); return }
   yamlLoading.value = true
   try {
-    const obj = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(svc.value.namespace)}/services/${encodeURIComponent(svc.value.name)}`)
-    const clone = JSON.parse(JSON.stringify(obj))
-    if (clone?.metadata) delete clone.metadata.managedFields
-    if (clone?.status) delete clone.status
-    svcYaml.value = yamlDump(clone)
+    // 与 ConfigMap/Secret 详情页同链路：从已缓存对象生成 YAML，单源不重取
+    svcYaml.value = store.generateYAML('service', svc.value)
   } catch (e) {
     svcYaml.value = `# ${t('ns.svcDetail.loadFailed')}: ${e.message || ''}`
   } finally {
