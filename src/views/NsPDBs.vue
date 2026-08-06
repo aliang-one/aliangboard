@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -11,13 +13,25 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pdbsKey = ['cluster', cid.value, 'pdbs']
+const pdbsQuery = useResourceList({
+  key: pdbsKey,
+  fetcher: () => store.fetchPDBs(),
+  mock: store.pdbList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsPDBs = computed(() => (pdbsQuery.data.value || []).filter(p => p.namespace === route.params.namespace))
 
 const search = ref('')
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return store.nsPDBs
-  return store.nsPDBs.filter(p => p.name.toLowerCase().includes(q))
+  if (!q) return nsPDBs
+  return nsPDBs.filter(p => p.name.toLowerCase().includes(q))
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })
@@ -60,6 +74,7 @@ function handleCreate() {
     desiredHealthy,
     age: 'Just now',
   })
+  queryClient.invalidateQueries({ queryKey: pdbsKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -74,6 +89,7 @@ function confirmDelete(pdb) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deletePDB(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: pdbsKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -100,7 +116,7 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">中断预算 (PDBs)</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
-          {{ store.nsPDBs.length }} 个 PodDisruptionBudget · 保证自愿驱逐时最小可用副本数
+          {{ nsPDBs.length }} 个 PodDisruptionBudget · 保证自愿驱逐时最小可用副本数
         </p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
@@ -117,7 +133,7 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsPDBs.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsPDBs.length }}</span>
     </div>
 
     <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
