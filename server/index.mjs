@@ -15,7 +15,7 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
@@ -808,7 +808,6 @@ async function handle(req, res) {
           writeFile: (p, c) => wbWriteFile(repo, p, c),
           readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
           applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
-          writeLedger: (p, c) => wbWriteFile(ledgerRepo, p, c),
           appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
           bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
         }
@@ -820,7 +819,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
           out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
           if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }
@@ -983,7 +982,7 @@ async function handle(req, res) {
       try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
       try { learnings = await wbReadFile(repo, 'learnings.md') } catch { learnings = null }
     }
-    return sendJson(res, 200, { exists: !!index, files, index, learnings })
+    return sendJson(res, 200, { exists: !!index, files, index, learnings, pending: getPendingDistill(db, clusterId) })
   }
   if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
@@ -1021,8 +1020,17 @@ async function handle(req, res) {
       if (!(await hasRepo(repo))) await initRepo(repo)
       await wbWriteFile(repo, 'learnings.md', input.learnings || '')
       await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
+      clearPendingDistill(db, input.clusterId)
       return sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '应用失败' }) }
+  }
+  if (url.pathname === '/api/workbench/distill/dismiss' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      clearPendingDistill(db, input.clusterId)
+      return sendJson(res, 200, { ok: true })
+    } catch (e) { return sendJson(res, 500, { message: e?.message || '失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
@@ -1717,3 +1725,31 @@ loadPersistedPlatformSessions()
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)
 })
+
+// 定时蒸馏 scheduler(D4):DISTILL_INTERVAL_MS 触发,对"近期有活动"的集群跑蒸馏 → 存待审 pending(不自动 commit)。
+const distillInterval = Number(process.env.DISTILL_INTERVAL_MS || 0)
+if (distillInterval > 0) {
+  const tickDistill = async () => {
+    try {
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return // 未配 LLM,跳过本次
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const since = Date.now() - 7 * 86400000 // 近 7 天有 audit 或有项目的集群
+      const rows = db.prepare(`SELECT DISTINCT clusterId FROM (
+        SELECT clusterId FROM audit_log WHERE clusterId IS NOT NULL AND ts > ?
+        UNION SELECT clusterId FROM workbench_projects WHERE clusterId IS NOT NULL
+      )`).all(since)
+      for (const { clusterId } of rows) {
+        try {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+          if (!cluster) continue
+          const out = await runDistill({ llmClient, db, clusterId, ledgerRepo: join(WORKBENCH_DIR, clusterId, 'cluster-context'), clusterName: cluster.name })
+          setPendingDistill(db, clusterId, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+          console.log(`[distill] ${cluster.name}: ${out.summary} → 待审`)
+        } catch (e) { console.error(`[distill] cluster ${clusterId} 失败:`, e.message) }
+      }
+    } catch (e) { console.error('[distill] scheduler tick 失败:', e.message) }
+  }
+  setInterval(tickDistill, distillInterval).unref()
+  console.log(`[distill] 定时蒸馏已启用:每 ${Math.round(distillInterval / 1000)}s 一轮(活跃集群,产待审 pending)`)
+}

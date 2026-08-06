@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -60,4 +60,25 @@ test('appendHistory + recentHistory:跨会话历史,最旧在前,按项目隔离
   const last1 = recentHistory(db, 'p1', 1)
   assert.equal(last1.length, 1)
   assert.equal(last1[0].content, '再做一件事')
+})
+
+test('pending_distills:set/get/clear(每集群一条,最新覆盖,stats JSON)', () => {
+  const db = makeDb()
+  assert.equal(getPendingDistill(db, 'c1'), null)
+  setPendingDistill(db, 'c1', { proposed: '# v1', current: '', summary: '1 条', stats: { audit: 3 } })
+  let p = getPendingDistill(db, 'c1')
+  assert.equal(p.proposed, '# v1')
+  assert.equal(p.stats.audit, 3, 'stats 反序列化')
+  assert.ok(p.ts > 0)
+  // 覆盖
+  setPendingDistill(db, 'c1', { proposed: '# v2', summary: '2 条', stats: { audit: 5 } })
+  assert.equal(getPendingDistill(db, 'c1').proposed, '# v2')
+  // 隔离
+  setPendingDistill(db, 'c2', { proposed: '别的' })
+  assert.equal(getPendingDistill(db, 'c2').proposed, '别的')
+  assert.equal(getPendingDistill(db, 'c1').proposed, '# v2')
+  // 清
+  clearPendingDistill(db, 'c1')
+  assert.equal(getPendingDistill(db, 'c1'), null)
+  assert.equal(getPendingDistill(db, 'c2').proposed, '别的', '清 c1 不影响 c2')
 })
