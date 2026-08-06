@@ -428,6 +428,30 @@ const routes = [
         component: () => import('@/views/NsEvents.vue'),
         meta: { title: 'Events', icon: 'notifications_active', scope: 'namespace' }
       },
+      {
+        path: 'workbench',
+        name: 'Workbench',
+        component: () => import('@/views/WorkbenchList.vue'),
+        meta: { title: '工作台', icon: 'workspaces', scope: 'global' }
+      },
+      {
+        path: 'workbench/ledger',
+        name: 'WorkbenchLedger',
+        component: () => import('@/views/WorkbenchLedger.vue'),
+        meta: { title: '集群台账', scope: 'global' }
+      },
+      {
+        path: 'workbench/:id',
+        name: 'WorkbenchProject',
+        component: () => import('@/views/WorkbenchDetail.vue'),
+        meta: { title: '项目', scope: 'global' }
+      },
+      {
+        path: 'workbench/:id/chat',
+        name: 'WorkbenchProjectChat',
+        component: () => import('@/views/WorkbenchProjectChat.vue'),
+        meta: { title: '项目 AI 助手', scope: 'global' }
+      },
       // === 平台管理（admin only）===
       {
         path: 'admin/users',

@@ -15,6 +15,9 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory } from './workbench-projects.mjs'
+import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
+import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -31,6 +34,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.ALIANG_DB || join(__dirname, '..', 'data', 'aliangboard.db')
 mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
 const db = new DatabaseSync(dbPath)
+// 工作台 repo 根目录(per-project repo + cluster ledger 的 git repo 落在这下面)
+const WORKBENCH_DIR = process.env.ALIANG_WORKBENCH_DIR || join(__dirname, '..', 'data', 'workbench')
+mkdirSync(WORKBENCH_DIR, { recursive: true })
+ensureGitAvailable().then(() => {}, e => console.error('[workbench] git 二进制不可用,工作台端点将失败:', e.message))
 try { chmodSync(dbPath, 0o600) } catch { /* 部分文件系统不支持，忽略 */ } // 含 K8s 凭据，收紧为仅属主可读写
 db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -104,6 +111,7 @@ createApiKeysSchema(db)
 // result=denied + reason 也写(含拒绝)。requestSummary 是截断摘要——codex #12:不放原始日志/输出(防注入+泄露)。
 // prevHash/hash:链式哈希;node:sqlite DatabaseSync 单进程同步 → 插入天然串行,prevHash 不会读到并发分叉(MVP 单进程)。
 createAuditSchema(db)
+createWorkbenchSchema(db)
 // === 平台设置(LLM 配置等,key/value 通用)===
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
@@ -411,6 +419,47 @@ async function applyYaml(session, yaml) {
     results.push(result.body)
   }
   return results
+}
+
+// 工作台用(W5):逐资源 try/catch,部分失败上报。applyYaml(throw-on-first)不动,保留给 /api/apply。
+async function applyYamlPartial(session, yaml) {
+  const objects = []
+  yamlLoadAll(yaml, o => { if (o) objects.push(o) })
+  const applied = [], failed = []
+  for (const object of objects) {
+    const label = { kind: object?.kind, name: object?.metadata?.name, namespace: object?.metadata?.namespace }
+    try {
+      if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
+      const { group, version, resource } = await discoverResource(session, object)
+      const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
+      const namespacePart = resource.namespaced ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}` : ''
+      const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
+      await requestKubernetes(session, path, { method: 'PATCH', headers: { 'content-type': 'application/apply-patch+yaml' }, body: JSON.stringify(object) })
+      applied.push(label)
+    } catch (e) { failed.push({ ...label, error: e.message }) }
+  }
+  return { applied, failed, total: objects.length }
+}
+
+// 工作台:台账 bootstrap(survey 集群 → 事实型 INDEX.md)。/ledger/bootstrap 端点 + agent bootstrap_ledger 工具共用。
+async function bootstrapLedgerForCluster(cluster) {
+  const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+  const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
+  const [namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses] = await Promise.all([
+    safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
+    safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
+    safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
+  ])
+  const vat = verifiedAt()
+  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses })
+  const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+  if (!(await hasRepo(repo))) await initRepo(repo)
+  await wbWriteFile(repo, 'INDEX.md', index)
+  await wbCommit(repo, `台账 bootstrap · ${vat}`)
+  const list = (items) => (items || []).map(i => i.metadata?.name).filter(Boolean)
+  const depNs = new Set((deployments || []).map(d => d.metadata?.namespace).filter(Boolean))
+  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} namespaces${nodes ? `, ${nodes.length} 节点` : ''};IngressClasses=[${list(ingressClasses).join(',') || '无'}];StorageClasses=[${list(storageClasses).join(',') || '无'}];有 Deployment 的 namespace ${depNs.size} 个。INDEX.md 已写入,read_ledger 可看详情。`
+  return { index, files: await wbListFiles(repo), summary, verifiedAt: vat }
 }
 
 // === 实时交互通道：Pod exec 终端 / 端口转发 ===
@@ -733,15 +782,52 @@ async function handle(req, res) {
     try {
       const input = await readBody(req)
       const resuming = !!input.resume
-      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId' })
       if (!resuming && !input.message) return sendJson(res, 400, { message: '缺 message' })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+
+      // 项目模式(W4b):workbench-only agent,历史走服务端 workbench_history(不进 git repo)。
+      if (input.projectId) {
+        const proj = getProject(db, input.projectId)
+        if (!proj) return sendJson(res, 404, { message: '项目不存在' })
+        if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
+        const repo = join(WORKBENCH_DIR, proj.clusterId, 'projects', proj.id)
+        const ledgerRepo = join(WORKBENCH_DIR, proj.clusterId, 'cluster-context')
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(proj.clusterId)
+        const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
+        const workbench = {
+          readLedger: async () => { try { return await wbReadFile(ledgerRepo, 'INDEX.md') } catch { return '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)' } },
+          readFile: (p) => wbReadFile(repo, p),
+          writeFile: (p, c) => wbWriteFile(repo, p, c),
+          readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
+          applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
+          writeLedger: (p, c) => wbWriteFile(ledgerRepo, p, c),
+          appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
+          bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
+        }
+        const { run } = createAgentRunner({ llmClient, workbench })
+        const trace = []
+        let out
+        if (resuming) {
+          const r = input.resume || {}
+          out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
+        } else {
+          const history = recentHistory(db, proj.id)
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(复用已知能力)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+          out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
+          if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
+        }
+        if (out.status === 'pending_approval') return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
+        return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
+      }
+
+      // K8s 模式(原):apiKeyId 必填,agent 用所选 key 的 SA + tier
+      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId(K8s 模式)或 projectId(项目模式)' })
       const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
       if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
       if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
       const trace = []
       let out
@@ -798,12 +884,109 @@ async function handle(req, res) {
   if (url.pathname === '/api/admin/llm-config/test' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
     try {
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先配置 baseURL + model' })
+      const input = await readBody(req).catch(() => ({})) || {}
+      const saved = getLlmConfig()
+      // 表单值优先(支持"填完即测,不必先保存");空字段(apiKey 留空=不改)回退已保存
+      const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先填 baseURL + model(保存、或在上方填入后测试)' })
       const client = createLlmClient({ ...cfg, timeoutMs: 20000 })
       const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
       return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
     } catch (e) { return sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }) }
+  }
+
+  // ====== 工作台:项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
+  if (url.pathname.startsWith('/api/workbench/projects')) {
+    const ps = requirePlatform(req, res); if (!ps) return
+    const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
+    // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
+    const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
+    const id = seg[0]
+
+    if (!id) {
+      // 列表 / 创建
+      if (req.method === 'GET') {
+        const projects = listProjects(db, { userId: ps.userId, role: ps.role }).map(p => ({ ...p, clusterName: clusterNameOf(p.clusterId) }))
+        return sendJson(res, 200, { projects })
+      }
+      if (req.method === 'POST') {
+        try {
+          const input = await readBody(req)
+          if (!input.name || !input.clusterId) return sendJson(res, 400, { message: '缺 name / clusterId' })
+          if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) return sendJson(res, 404, { message: '集群不存在' })
+          const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
+          const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+          await initRepo(repo)
+          await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
+          await wbCommit(repo, `初始化项目 ${p.name}`)
+          return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) } })
+        } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建失败' }) }
+      }
+      return sendJson(res, 405, { message: 'method not allowed' })
+    }
+
+    // 以下均需项目 + ownership
+    const p = getProject(db, id)
+    if (!p) return sendJson(res, 404, { message: '项目不存在' })
+    if (p.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
+    const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+
+    // 详情:文件树 + 最近提交
+    if (req.method === 'GET' && seg.length === 1) {
+      let files = [], commits = []
+      try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits })
+    }
+
+    // 文件读写 :id/files/<path>
+    if (seg[1] === 'files') {
+      const relPath = decodeURIComponent(seg.slice(2).join('/'))
+      if (!relPath) return sendJson(res, 400, { message: '缺文件路径' })
+      try {
+        if (req.method === 'GET') return sendJson(res, 200, { path: relPath, content: await wbReadFile(repo, relPath) })
+        if (req.method === 'PUT') {
+          const input = await readBody(req)
+          await wbWriteFile(repo, relPath, input.content ?? '') // wbWriteFile 内置路径禁闭
+          return sendJson(res, 200, { ok: true })
+        }
+      } catch (e) { return sendJson(res, 400, { message: e?.message || '文件操作失败' }) }
+      return sendJson(res, 405, { message: 'method not allowed' })
+    }
+
+    // 提交 :id/commit
+    if (seg[1] === 'commit' && req.method === 'POST') {
+      try {
+        const input = await readBody(req)
+        const r = await wbCommit(repo, input.message || 'update')
+        return sendJson(res, 200, r)
+      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '提交失败' }) }
+    }
+
+    return sendJson(res, 404, { message: '未知的工作台路由' })
+  }
+
+  // ====== 工作台:集群台账(W3)。cluster-context repo,每集群一份。======
+  if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    const clusterId = url.searchParams.get('clusterId')
+    if (!clusterId) return sendJson(res, 400, { message: '缺 clusterId' })
+    const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
+    let files = [], index = null
+    if (await hasRepo(repo)) {
+      files = await wbListFiles(repo)
+      try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
+    }
+    return sendJson(res, 200, { exists: !!index, files, index })
+  }
+  if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      const r = await bootstrapLedgerForCluster(cluster)
+      return sendJson(res, 200, { index: r.index, files: r.files })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
@@ -1466,6 +1649,10 @@ async function handle(req, res) {
     }
     return sendJson(res, 200, { clusterIds: clusterIds || [] })
   }
+
+  // 兜底:未匹配的路由返 404。否则 handle() 直接 return、响应永不结束 → 前端 fetch 挂起
+  // (如旧 gateway 缺新端点时,LLM 配置页一直转圈)。所有路由块都显式 return,此处只在无匹配时触发。
+  return sendJson(res, 404, { message: `not found: ${req.method} ${url.pathname}` })
 }
 
 const httpServer = createServer((req, res) => {

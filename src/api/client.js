@@ -171,6 +171,21 @@ export const resourceTreeApi = {
     k8sHttp.request(`/api/resource/tree?${new URLSearchParams({ namespace, kind, name, apiVersion: apiVersion || 'v1' })}`),
 }
 
+// 工作台 API（W2，第三阶段）：任意平台用户，项目按 userId 归属
+export const workbenchApi = {
+  listProjects: () => platformHttp.request('/api/workbench/projects'),
+  createProject: payload => platformHttp.request('/api/workbench/projects', { method: 'POST', body: JSON.stringify(payload) }),
+  getProject: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`),
+  readFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
+  writeFile: (id, path, content) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  commit: (id, message) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
+  // 集群台账（cluster-context repo，每集群一份）
+  getLedger: clusterId => platformHttp.request(`/api/workbench/ledger?clusterId=${encodeURIComponent(clusterId)}`),
+  bootstrapLedger: clusterId => platformHttp.request('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
+  // 项目 agent 聊天（W4b）：{ projectId, message?, resume? } → { status:'done'|'pending_approval', content, trace, ... }
+  chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // === 平台认证 API（Layer 1: 用户身份）===
 export const authApi = {
   login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
@@ -207,7 +222,7 @@ export const adminApi = {
   llmConfig: {
     get: () => platformHttp.request('/api/admin/llm-config'),
     save: payload => platformHttp.request('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
-    test: () => platformHttp.request('/api/admin/llm-config/test', { method: 'POST' }),
+    test: payload => platformHttp.request('/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(payload || {}) }),
   },
 }
 

@@ -20,6 +20,7 @@ const clusterPrimaryNav = [
   { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
   { icon: 'storage', label: '存储', route: '/storage' },
   { icon: 'monitoring', label: '监控中心', route: '/monitoring' },
+  { icon: 'workspaces', label: '工作台', route: '/workbench' },
 ]
 const clusterResourcesNav = [
   { icon: 'extension', label: 'CRDs', route: '/crds' },
