@@ -798,7 +798,11 @@
       "deleteTitle": "删除工作负载",
       "deleteConfirm": "确定要删除工作负载 {name} 吗？",
       "deleteWarning": "此操作不可撤销，其管理的所有 Pod 将被终止。",
-      "cancel": "取消"
+      "cancel": "取消",
+      "restartSuccess": "已重启 {name}",
+      "restartFailed": "重启失败",
+      "emptyTitle": "无工作负载",
+      "emptyDescription": "没有匹配的工作负载，或集群暂无工作负载。"
     },
     "namespaceOverview": {
       "deployCount": "{n} 个 Deployment · {layers} 个分层有实例",
@@ -1622,6 +1626,8 @@
     "title": "选择集群",
     "subtitle": "{user}，选择要连接的 Kubernetes 集群",
     "loadingError": "加载集群列表失败",
+    "loadFailed": "加载集群列表失败",
+    "connectFailed": "连接集群失败",
     "connecting": "正在连接",
     "versionUnknown": "版本未知",
     "noClusters": "没有可用的集群",
@@ -1883,7 +1889,10 @@
       "serverResultSubtitle": "SelfSubjectAccessReview",
       "serverResultHint": "点击「服务端 can-i」查询当前登录用户的服务端判定（kubectl auth can-i 的服务端语义）。",
       "reasonLabel": "原因：",
-      "evaluationError": "评估错误："
+      "evaluationError": "评估错误：",
+      "for": "对",
+      "execute": "执行",
+      "currentUser": "当前用户"
     },
     "deleteResource": "删除资源",
     "deleteConfirm": "确定删除 <span class=\"font-mono text-on-surface font-semibold\">{name}</span><span v-if=\"namespace\" class=\"text-on-surface-variant\">（{namespace}）</span>？",
@@ -1911,11 +1920,13 @@
       "configMap": "ConfigMap",
       "files": "Files ({n})",
       "selectFile": "选择左侧文件查看内容",
+      "selectFileHint": "选择左侧文件查看内容",
       "noFiles": "无文件",
       "newFile": "新建文件",
+      "lineCount": "{n} 行",
+      "delete": "删除",
       "lines": "{n} 行",
       "edit": "编辑",
-      "delete": "删除",
       "save": "保存",
       "cancel": "取消",
       "deleteConfirm": "确定删除 ConfigMap <span class=\"text-on-surface font-semibold\">{name}</span>？",
@@ -2521,6 +2532,7 @@
       "path": "路径:",
       "approve": "批准",
       "reject": "拒绝",
+      "defaultProjectName": "项目",
       "loadProjectFailed": "加载项目失败",
       "serviceUnavailable": "服务暂时不可用"
     },
@@ -2821,5 +2833,23 @@
     "title": "{name} · 终端",
     "expired": "会话已过期，请关闭此窗口并在原页面重新打开终端。",
     "closeWindow": "关闭窗口"
+  },
+  "storageclass": {
+    "editModalTitle": "编辑 StorageClass（仅可变字段）",
+    "setDefaultLabel": "设为默认 StorageClass",
+    "annotationHint": "系统注解 <code>storageclass.kubernetes.io/is-default-class</code> 由「默认开关」控制，不在此列。",
+    "deleteModalTitle": "删除 StorageClass",
+    "deleteConfirm": "确定删除 StorageClass <span class=\"text-on-surface font-semibold\">{name}</span>？此操作不可撤销。"
+  },
+  "secret": {
+    "templateTls": "包含 tls.crt (证书) + tls.key (私钥)",
+    "templateSsh": "包含 ssh-privatekey{known_hosts ? ' + known_hosts' : ''}",
+    "templateBasicAuth": "用户: <span class=\"font-mono\">{username}</span>",
+    "templateAws": "AWS 凭证 (3 keys)",
+    "templateDb": "数据库连接 ({count} keys)"
+  },
+  "pv": {
+    "editModalTitle": "编辑 PersistentVolume（仅可变字段）",
+    "deleteConfirm": "确定删除 PV <span class=\"text-on-surface font-semibold\">{name}</span>？此操作不可撤销。"
   }
 }

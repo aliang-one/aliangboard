@@ -101,7 +101,7 @@ async function applyLayer(key) {
                 <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                 <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
               </button>
-              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+              <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
             </div>
           </div>
         </div>
@@ -140,7 +140,7 @@ async function applyLayer(key) {
                     <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
                     <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   </button>
-                  <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+                  <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
                 </div>
               </div>
             </div>
@@ -155,7 +155,7 @@ async function applyLayer(key) {
                   <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   <StatusChip v-if="it.status" :status="it.status" size="sm" />
                 </button>
-                <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+                <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
               </div>
             </div>
           </div>
@@ -176,7 +176,7 @@ async function applyLayer(key) {
                 <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                 <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
               </button>
-              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+              <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
             </div>
           </div>
         </div>

@@ -17,7 +17,7 @@ const tabs = computed(() => [
   { key: 'customcols', label: t('settings.tabs.customcols'), icon: 'view_column' },
 ])
 
-// 演示数据模式下的静态组件（无后端连接时展示，避免空白）
+// Static components for demo data mode (shown when no backend connection, to avoid blank display)
 const demoComponents = [
   { name: 'etcd', status: 'Healthy', message: '' },
   { name: 'kube-apiserver', status: 'Healthy', message: '' },
@@ -25,19 +25,19 @@ const demoComponents = [
   { name: 'kube-scheduler', status: 'Healthy', message: '' },
 ]
 
-// === Components：真实集群组件健康 ===
+// === Components: real cluster component health ===
 const components = ref([])
-const apiReady = ref(null)        // null=未知, true=就绪, false=未就绪
+const apiReady = ref(null)        // null=unknown, true=ready, false=not ready
 const csState = ref('idle')       // 'idle' | 'loading' | 'loaded' | 'error'
 const csError = ref('')
 
 async function loadComponents() {
-  if (!store.remoteMode) { csState.value = 'loaded'; return }   // 演示模式：用 demoComponents
+  if (!store.remoteMode) { csState.value = 'loaded'; return }   // demo mode: use demoComponents
   csState.value = 'loading'
   csError.value = ''
-  // API Server 就绪探针（/readyz 返回 200 'ok' 即健康；componentstatuses 自 K8s 1.19 起已弃用）
+  // API Server readiness probe (/readyz returns 200 'ok' means healthy; componentstatuses deprecated since K8s 1.19)
   try { await api.k8s('/readyz'); apiReady.value = true } catch { apiReady.value = false }
-  // 控制面组件健康（componentstatuses；多数现代集群返回空或 Unhealthy，故 readyz 才是主信号）
+  // Control plane component health (componentstatuses; most modern clusters return empty or Unhealthy, so readyz is the primary signal)
   try {
     const data = await api.k8s('/api/v1/componentstatuses')
     components.value = (data.items || []).map(it => {
@@ -51,14 +51,14 @@ async function loadComponents() {
     csState.value = 'loaded'
   } catch (e) {
     csState.value = 'error'
-    csError.value = e.message || '读取组件状态失败'
+    csError.value = e.message || 'Failed to read component status'
   }
 }
 
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
 onMounted(() => { if (activeTab.value === 'components') loadComponents() })
 
-// === Custom Columns：可勾选列 + localStorage 持久化（即时生效）===
+// === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
 const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
 </script>
 

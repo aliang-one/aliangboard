@@ -27,7 +27,7 @@ const paramMap = computed(() => Object.fromEntries(
 ))
 const boundPVCs = computed(() => store.pvcList.filter(p => p.storageClass === sc.value?.name))
 
-// 结构化t('common.edit')（仅可变：default + labels/annotations）+ t('common.delete')
+// Structured edit (only mutable fields: default + labels/annotations) + delete
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
 const editForm = ref({ isDefault: false, labels: [], annotations: [] })
@@ -40,7 +40,7 @@ const rowsToMap = rows => {
 }
 function openEdit() {
   const annExcl = { ...(sc.value?.annotations || {}) }
-  for (const k of SC_DEFAULT_KEYS) delete annExcl[k]   // 过滤 is-default，由开关控制
+  for (const k of SC_DEFAULT_KEYS) delete annExcl[k]   // Filter is-default, controlled by switch
   editForm.value = {
     isDefault: !!sc.value?.default,
     labels: labelsToRows(sc.value?.labels),
@@ -90,9 +90,9 @@ async function handleDelete() {
       </div>
       <div class="flex items-center gap-xs">
         <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-sm">edit</span> t('common.edit')
+          <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">t('common.delete')</button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">{{ t('common.delete') }}</button>
       </div>
     </div>
 
@@ -142,50 +142,50 @@ async function handleDelete() {
     </div>
 
     <!-- Edit Modal -->
-    <Modal v-model="showEditModal" title="t('common.edit') StorageClass（仅可变字段）" width="max-w-lg">
+    <Modal v-model="showEditModal" :title="t('storageclass.editModalTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <label class="flex items-center gap-sm cursor-pointer">
           <input v-model="editForm.isDefault" type="checkbox" class="h-4 w-4 accent-primary" />
-          <span class="text-body-md text-on-surface">设为默认 StorageClass</span>
+          <span class="text-body-md text-on-surface">{{ t('storageclass.setDefaultLabel') }}</span>
         </label>
         <div>
           <div class="flex items-center justify-between mb-xs">
             <label class="text-label-caps text-on-surface-variant">Labels</label>
-            <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ t('common.add')</button>
+            <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
             <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">无</p>
+          <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
             <label class="text-label-caps text-on-surface-variant">Annotations</label>
-            <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ t('common.add')</button>
+            <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
             <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">无</p>
-          <p class="text-[10px] text-on-surface-variant/60 mt-xs">系统注解 <code>storageclass.kubernetes.io/is-default-class</code> 由「默认开关」控制，不在此列。</p>
+          <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
+          <p class="text-[10px] text-on-surface-variant/60 mt-xs" v-html="t('storageclass.annotationHint')"></p>
         </div>
       </div>
       <template #actions>
-        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">t('common.cancel')</button>
-        <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">t('common.save')</button>
+        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.save') }}</button>
       </template>
     </Modal>
 
     <!-- Delete Modal -->
-    <Modal v-model="showDeleteModal" title="t('common.delete') StorageClass" width="max-w-md">
-      <p class="text-body-md text-on-surface-variant">确认t('common.delete') StorageClass <span class="text-on-surface font-semibold">{{ sc.name }}</span>？此操作不可撤销。</p>
+    <Modal v-model="showDeleteModal" :title="t('storageclass.deleteModalTitle')" width="max-w-md">
+      <p class="text-body-md text-on-surface-variant" v-html="t('storageclass.deleteConfirm', { name: sc.name })"></p>
       <template #actions>
-        <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">t('common.cancel')</button>
-        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">t('common.delete')</button>
+        <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
       </template>
     </Modal>
   </section>

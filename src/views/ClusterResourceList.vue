@@ -1,7 +1,7 @@
 <script setup>
-// 通用集群资源浏览器：一份组件驱动多种 cluster-scoped / namespaced 资源。
-// 对象路径取 metadata.selfLink（K8s 1.20+ 列表响应已不返回，按 gv/plural/scope 回退构造）。
-// 增一种资源只需在 CONFIGS 加一项：title/icon/scope/gv/plural + summary/status。
+// Universal cluster resource browser: one component drives multiple cluster-scoped / namespaced resources.
+// Object path uses metadata.selfLink (K8s 1.20+ list response no longer returns it, fallback construct by gv/plural/scope).
+// Adding a resource type only requires adding an entry to CONFIGS: title/icon/scope/gv/plural + summary/status.
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -24,7 +24,7 @@ const CONFIGS = {
     gv: '/apis/apiregistration.k8s.io/v1', plural: 'apiservices',
     summary: it => {
       const gv = it.spec?.group ? `${it.spec.group}/${it.spec.version}` : 'core/v1'
-      const svc = it.spec?.service?.name ? `${it.spec.service.namespace}/${it.spec.service.name}` : '本地（Local）'
+      const svc = it.spec?.service?.name ? `${it.spec.service.namespace}/${it.spec.service.name}` : 'Local'
       return `${gv}  →  ${svc}`
     },
     status: it => {
@@ -35,13 +35,13 @@ const CONFIGS = {
   mutatingwebhooks: {
     title: 'MutatingWebhookConfigurations', icon: 'webhook', scope: 'cluster',
     gv: '/apis/admissionregistration.k8s.io/v1', plural: 'mutatingwebhookconfigurations',
-    summary: it => `${(it.webhooks || []).length} 个 webhook`,
+    summary: it => `${(it.webhooks || []).length} webhooks`,
     status: () => 'Active',
   },
   validatingwebhooks: {
     title: 'ValidatingWebhookConfigurations', icon: 'rule', scope: 'cluster',
     gv: '/apis/admissionregistration.k8s.io/v1', plural: 'validatingwebhookconfigurations',
-    summary: it => `${(it.webhooks || []).length} 个 webhook`,
+    summary: it => `${(it.webhooks || []).length} webhooks`,
     status: () => 'Active',
   },
   replicasets: {
@@ -65,7 +65,7 @@ const CONFIGS = {
     gv: '/apis/storage.k8s.io/v1', plural: 'csinodes',
     summary: it => {
       const drivers = it.spec?.drivers || []
-      return drivers.length ? `${drivers.length} driver(s): ${drivers.map(d => d.name).join(', ')}` : '无 CSI 驱动（in-tree / NFS）'
+      return drivers.length ? `${drivers.length} driver(s): ${drivers.map(d => d.name).join(', ')}` : 'No CSI drivers (in-tree / NFS)'
     },
     status: () => 'Active',
   },
@@ -73,13 +73,13 @@ const CONFIGS = {
 
 const cfg = computed(() => CONFIGS[route.meta.resource])
 const namespaced = computed(() => cfg.value?.scope === 'namespace')
-// 展开行 colspan：namespaced 多一列 Namespace
+// Expanded row colspan: namespaced resources have an extra Namespace column
 const colCount = computed(() => namespaced.value ? 6 : 5)
 const items = ref([])
 const loading = ref(false)
 const { currentPage, pageSize, paginated, total } = usePagination(items)
 const expanded = ref(new Set())
-const yamlCache = ref({})        // key -> 实时 YAML（GET selfLink/回退路径 后 dump）
+const yamlCache = ref({})        // key -> realtime YAML (after GET selfLink/fallback path then dump)
 
 async function load() {
   if (!cfg.value) return
@@ -99,10 +99,10 @@ async function load() {
 }
 onMounted(load)
 
-// 行唯一键：namespaced 含 namespace
+// Row unique key: namespaced resources include namespace
 function rowKey(it) { return (it.metadata?.namespace || '') + '/' + (it.metadata?.name || '') }
 
-// 对象路径：优先 selfLink，否则按 gv/plural/scope 构造
+// Object path: prefer selfLink, otherwise construct by gv/plural/scope
 function itemPath(it) {
   if (it.metadata?.selfLink) return it.metadata.selfLink
   const name = encodeURIComponent(it.metadata?.name || '')
@@ -120,7 +120,7 @@ async function ensureYaml(it) {
     if (obj?.metadata) delete obj.metadata.managedFields
     yamlCache.value = { ...yamlCache.value, [k]: yamlDump(obj) }
   } catch {
-    // 无权限读取：t('common.edit')器回退到列表项自身的 dump
+    // No permission to read: editor fallback to list item's own dump
   }
 }
 function toggleExpand(it) {

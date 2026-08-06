@@ -57,7 +57,7 @@ async function runServerCheck() {
   <div class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: 'RBAC', route: '/rbac' },
-      { label: '权限模拟 (can-i)' }
+      { label: t('rbac.canI.title') }
     ]" />
 
     <div class="flex items-center justify-between mt-sm mb-md">
@@ -146,7 +146,7 @@ async function runServerCheck() {
               <span class="material-symbols-outlined text-2xl">{{ result.allowed ? 'check_circle' : 'cancel' }}</span>
               <div>
                 <p class="text-body-sm font-bold">{{ result.allowed ? $t('rbac.canI.allowed') : $t('rbac.canI.denied') }}</p>
-                <p class="text-xs font-mono">{{ subjectKind }} <span class="text-on-surface">{{ subjectName || '*' }}</span> 对 <span class="text-on-surface font-mono">{{ resource }}</span> 执行 <span class="text-on-surface font-mono">{{ verb }}</span></p>
+                <p class="text-xs font-mono">{{ subjectKind }} <span class="text-on-surface">{{ subjectName || '*' }}</span> {{ t('rbac.canI.for') }} <span class="text-on-surface font-mono">{{ resource }}</span> {{ t('rbac.canI.execute') }} <span class="text-on-surface font-mono">{{ verb }}</span></p>
               </div>
             </div>
             <div v-if="result.matchedBy" class="text-body-sm">
@@ -185,7 +185,7 @@ async function runServerCheck() {
               <span class="material-symbols-outlined text-2xl">{{ serverResult.allowed ? 'check_circle' : 'cancel' }}</span>
               <div>
                 <p class="text-body-sm font-bold">{{ serverResult.allowed ? $t('rbac.canI.allowed') : $t('rbac.canI.denied') }}</p>
-                <p class="text-xs font-mono">当前用户 对 <span class="text-on-surface font-mono">{{ resource }}</span> 执行 <span class="text-on-surface font-mono">{{ verb }}</span></p>
+                <p class="text-xs font-mono">{{ t('rbac.canI.currentUser') }} {{ t('rbac.canI.for') }} <span class="text-on-surface font-mono">{{ resource }}</span> {{ t('rbac.canI.execute') }} <span class="text-on-surface font-mono">{{ verb }}</span></p>
               </div>
             </div>
             <p v-if="serverResult.reason" class="text-xs text-on-surface-variant">{{ $t('rbac.canI.reasonLabel') }}<span class="font-mono text-xs">{{ serverResult.reason }}</span></p>
