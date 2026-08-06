@@ -596,7 +596,7 @@ Expected: PASS(2 新用例 + 全回归)。
 
 ```bash
 git add server/api-key-tools.mjs server/api-key-tools.test.mjs server/tool-registry.mjs
-git commit -m "feat(mcp): 接通 update_image(底座补全:11 个 admin/read stub 全接通)
+git commit -m "feat(mcp): 接通 update_image(底座补全 8/11;attach/port_forward/upload_file 延后)
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -759,14 +759,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-### Task 8: UI——mint 覆盖编辑 + 列表展示/编辑覆盖
+### Task 8: UI——ToolOverrideEditor 组件 + mint/列表/编辑覆盖
 
 **Files:**
+- Create: `src/components/common/ToolOverrideEditor.vue`(chip 编辑器,mint 与 edit 两处复用,避免重复)
 - Modify: `src/views/admin/ApiKeyManagement.vue`、`src/api/client.js`
 
 **Interfaces:**
 - Consumes: `POST /api/admin/apikeys`(带 `tool_overrides`)、`PATCH .../overrides`(Task 7)。
-- Produces: mint modal 内「高级:工具覆盖」编辑器(deny=tier 内关掉的;allow=tier 外打开的);列表多一列展示覆盖摘要 + 「编辑」入口(modal 调 PATCH)。
+- Produces: `ToolOverrideEditor`——props `tier`(string)+ `modelValue`({allow:[],deny:[]}),emits `update:modelValue`;mint/edit 复用同一组件。列表多一列展示覆盖摘要 + 「编辑」入口(modal 调 PATCH)。
 
 - [ ] **Step 1: client 加方法** — `src/api/client.js` 的 `apikeys` 对象(`remove` 之后)加:
 
@@ -774,28 +775,63 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     updateOverrides: (id, tool_overrides) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/overrides`, { method: 'PATCH', body: JSON.stringify({ tool_overrides }) }),
 ```
 
-- [ ] **Step 2: 给 ApiKeyManagement.vue `<script setup>` 加状态与目录** — 在 `mintForm` 定义后追加:
+- [ ] **Step 2: 创建 ToolOverrideEditor.vue 组件** — 新建 `src/components/common/ToolOverrideEditor.vue`(自包含:工具目录内聚、chip 切换、v-model 一个 `{allow,deny}` 对象;mint 与 edit 复用,消除重复):
 
-```js
-// 工具目录(镜像 server tierTools;仅 K8s 工具,覆盖管辖范围)
-const TOOL_CATALOG = {
+```vue
+<script setup>
+// 每工具覆盖编辑器:tier 默认工具(deny=关掉)+ 越过 tier 追加(allow=打开)。v-model 一个 {allow,deny} 对象。
+import { computed } from 'vue'
+const props = defineProps({
+  tier: { type: String, default: 'read' },
+  modelValue: { type: Object, default: () => ({ allow: [], deny: [] }) },
+})
+const emit = defineEmits(['update:modelValue'])
+const CATALOG = {
   read: ['get_pod_logs', 'list_resources', 'get_resource', 'get_events', 'rollout_history'],
   operator: ['get_pod_logs', 'list_resources', 'get_resource', 'get_events', 'rollout_history', 'scale', 'restart'],
   admin: ['get_pod_logs', 'list_resources', 'get_resource', 'get_events', 'rollout_history', 'scale', 'restart', 'exec_pod', 'browse_files', 'read_file', 'apply_yaml', 'delete_resource', 'kubectl_debug', 'rollout_undo', 'update_image'],
 }
-const ALL_TOOLS = TOOL_CATALOG.admin
-const tierDefault = tier => TOOL_CATALOG[tier] || []
-// mint 覆盖状态:denySet(tier 内被关掉的)/allowSet(tier 外打开的)
-const denySet = ref(new Set())
-const allowSet = ref(new Set())
-function resetOverrideEditor(tier) {
-  denySet.value = new Set(); allowSet.value = new Set()
+const ALL = CATALOG.admin
+const defaults = computed(() => CATALOG[props.tier] || [])
+const beyond = computed(() => ALL.filter(t => !defaults.value.includes(t)))
+const inDeny = t => (props.modelValue?.deny || []).includes(t)
+const inAllow = t => (props.modelValue?.allow || []).includes(t)
+function toggle(field, t) {
+  const next = { allow: [...(props.modelValue?.allow || [])], deny: [...(props.modelValue?.deny || [])] }
+  const arr = next[field]; const i = arr.indexOf(t)
+  if (i >= 0) arr.splice(i, 1); else arr.push(t)
+  emit('update:modelValue', next)
 }
-function buildOverridesPayload() {
-  const allow = [...allowSet.value]; const deny = [...denySet.value]
-  const ov = {}; if (allow.length) ov.allow = allow; if (deny.length) ov.deny = deny
-  return Object.keys(ov).length ? ov : null
-}
+</script>
+<template>
+  <div class="bg-surface-container-low border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
+    <div class="flex flex-wrap gap-1">
+      <span class="text-body-xs text-on-surface-variant w-full">{{ tier }} 档默认(关掉=deny):</span>
+      <button v-for="t in defaults" :key="t" type="button" @click="toggle('deny', t)"
+        class="px-1.5 py-0.5 rounded text-body-xs font-mono"
+        :class="inDeny(t) ? 'bg-error/15 text-error line-through' : 'bg-primary/10 text-primary'">{{ t }}</button>
+    </div>
+    <div class="flex flex-wrap gap-1">
+      <span class="text-body-xs text-on-surface-variant w-full">越过 tier 追加(打开=allow):</span>
+      <button v-for="t in beyond" :key="t" type="button" @click="toggle('allow', t)"
+        class="px-1.5 py-0.5 rounded text-body-xs font-mono"
+        :class="inAllow(t) ? 'bg-status-running/20 text-status-running font-semibold' : 'bg-surface-container-high text-on-surface-variant'">{{ t }}</button>
+    </div>
+    <p class="text-body-xs text-on-surface-variant">⚠️ allow 可越过 tier,但 SA 的真实 RBAC 才决定能否执行(策略放行、RBAC 拒→审计 error)。</p>
+  </div>
+</template>
+```
+
+- [ ] **Step 3: ApiKeyManagement.vue `<script setup>` 加状态/方法** — 顶部 import 组件,`mintForm` 定义后加(mint/edit 各一个 `{allow,deny}` 对象 + 辅助函数):
+
+```js
+import ToolOverrideEditor from '@/components/common/ToolOverrideEditor.vue'
+
+const mintOverrides = ref({ allow: [], deny: [] })        // mint 用
+const editOverrides = ref({ allow: [], deny: [] })        // edit 用
+const showOverrideModal = ref(false)
+const editingKey = ref(null)
+
 // 列表展示:把 DB 的 tool_overrides 串解析成摘要
 const overrideSummary = k => {
   if (!k.tool_overrides) return ''
@@ -803,59 +839,42 @@ const overrideSummary = k => {
   const parts = []; (ov.allow || []).forEach(t => parts.push(`+${t}`)); (ov.deny || []).forEach(t => parts.push(`−${t}`))
   return parts.join(' ') || ''
 }
+// {allow,deny} 对象 → PATCH 载荷(空→null)
+const overridesPayload = ov => (ov && ((ov.allow || []).length || (ov.deny || []).length)) ? { allow: ov.allow || [], deny: ov.deny || [] } : null
 
-// 编辑既有 key 覆盖
-const showOverrideModal = ref(false)
-const editingKey = ref(null)
-const editDeny = ref(new Set()); const editAllow = ref(new Set())
 function openOverrideEditor(k) {
-  editingKey.value = k; editDeny.value = new Set(); editAllow.value = new Set()
-  if (k.tool_overrides) { try { const ov = JSON.parse(k.tool_overrides); (ov.allow || []).forEach(t => editAllow.value.add(t)); (ov.deny || []).forEach(t => editDeny.value.add(t)) } catch { /* 损坏→空 */ } }
+  editingKey.value = k
+  let ov = { allow: [], deny: [] }
+  if (k.tool_overrides) { try { const p = JSON.parse(k.tool_overrides); ov = { allow: p.allow || [], deny: p.deny || [] } } catch { /* 损坏→空 */ } }
+  editOverrides.value = ov
   showOverrideModal.value = true
 }
 async function saveOverrides() {
-  const allow = [...editAllow.value]; const deny = [...editDeny.value]
-  const ov = {}; if (allow.length) ov.allow = allow; if (deny.length) ov.deny = deny
-  try { await adminApi.apikeys.updateOverrides(editingKey.value.id, Object.keys(ov).length ? ov : null); notify('success', '覆盖已更新'); showOverrideModal.value = false; load() }
-  catch (e) { notify('error', e.message || '更新失败') }
+  try {
+    await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
+    notify('success', '覆盖已更新'); showOverrideModal.value = false; load()
+  } catch (e) { notify('error', e.message || '更新失败') }
 }
 ```
 
-- [ ] **Step 3: doMint 发送 + reset** — 改 `doMint` 与打开 mint modal 处带上覆盖:
+- [ ] **Step 4: doMint 发送覆盖 + 打开 mint 时重置** — `doMint` 的 create 调用改为:
 
-`doMint` 内 `adminApi.apikeys.create(mintForm.value)` 改为:
 ```js
-    const payload = { ...mintForm.value, tool_overrides: buildOverridesPayload() }
+    const payload = { ...mintForm.value, tool_overrides: overridesPayload(mintOverrides.value) }
     const res = await adminApi.apikeys.create(payload)
 ```
-打开 mint modal 的按钮 `@click="showMintModal = true"` 改 `@click="showMintModal = true; resetOverrideEditor(mintForm.tier)"`。
+mint 按钮 `@click="showMintModal = true"` 改 `@click="mintOverrides = { allow: [], deny: [] }; showMintModal = true"`(打开即重置)。
 
-- [ ] **Step 4: mint modal 模板加覆盖编辑器** — 在 mint Modal 内 tier `<select>` 块之后插入(`onchange` 同步重置 editor 时保留已选需另写,这里切换 tier 重置——简单可靠):
+- [ ] **Step 5: mint modal 加编辑器** — mint Modal 内 tier `<select>` 块之后插入(一行组件,无重复):
 
 ```html
         <div>
           <label class="text-body-xs text-on-surface-variant block mb-xs">高级:工具覆盖(tier 之上 ± 每工具)</label>
-          <div class="bg-surface-container-low border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
-            <div class="flex flex-wrap gap-1">
-              <span class="text-body-xs text-on-surface-variant w-full">{{ mintForm.tier }} 档默认(关掉=deny):</span>
-              <button v-for="t in tierDefault(mintForm.tier)" :key="t" type="button"
-                @click="denySet.has(t) ? denySet.delete(t) : denySet.add(t); denySet = new Set(denySet)"
-                class="px-1.5 py-0.5 rounded text-body-xs font-mono"
-                :class="denySet.has(t) ? 'bg-error/15 text-error line-through' : 'bg-primary/10 text-primary'">{{ t }}</button>
-            </div>
-            <div class="flex flex-wrap gap-1">
-              <span class="text-body-xs text-on-surface-variant w-full">越过 tier 追加(打开=allow):</span>
-              <button v-for="t in ALL_TOOLS.filter(x => !tierDefault(mintForm.tier).includes(x))" :key="t" type="button"
-                @click="allowSet.has(t) ? allowSet.delete(t) : allowSet.add(t); allowSet = new Set(allowSet)"
-                class="px-1.5 py-0.5 rounded text-body-xs font-mono"
-                :class="allowSet.has(t) ? 'bg-status-running/20 text-status-running font-semibold' : 'bg-surface-container-high text-on-surface-variant'">{{ t }}</button>
-            </div>
-            <p class="text-body-xs text-on-surface-variant">⚠️ allow 可越过 tier,但 SA 的真实 RBAC 才决定能否执行(策略放行、RBAC 拒→审计 error)。</p>
-          </div>
+          <ToolOverrideEditor :tier="mintForm.tier" v-model="mintOverrides" />
         </div>
 ```
 
-- [ ] **Step 5: 列表加覆盖列 + 编辑入口** — `headers` 数组在 `tier` 后加 `{ key: 'overrides', label: '覆盖' }`;DataTable 内加具名插槽:
+- [ ] **Step 6: 列表加覆盖列 + 编辑入口** — `headers` 数组在 `tier` 后加 `{ key: 'overrides', label: '覆盖' }`;DataTable 内加具名插槽:
 
 ```html
       <template #overrides="{ row }">
@@ -868,26 +887,13 @@ async function saveOverrides() {
         <button v-if="!row.revokedAt" @click.stop="openOverrideEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" title="编辑工具覆盖"><span class="material-symbols-outlined text-base">tune</span></button>
 ```
 
-- [ ] **Step 6: 编辑覆盖 Modal** — 在明文展示 Modal 之后追加(复用 tierDefault/editDeny/editAllow):
+- [ ] **Step 7: 编辑覆盖 Modal** — 明文展示 Modal 之后追加(复用同一组件):
 
 ```html
     <Modal v-model="showOverrideModal" :title="`编辑工具覆盖 · ${editingKey?.prefix}…`" width="max-w-xl">
       <div v-if="editingKey" class="flex flex-col gap-md">
         <p class="text-body-xs text-on-surface-variant">tier=<b>{{ editingKey.tier }}</b>;SA={{ editingKey.boundSA_namespace }}/{{ editingKey.boundSA_name }}。改完无需重签 key。</p>
-        <div class="flex flex-wrap gap-1">
-          <span class="text-body-xs text-on-surface-variant w-full">{{ editingKey.tier }} 档默认(关掉=deny):</span>
-          <button v-for="t in tierDefault(editingKey.tier)" :key="t" type="button"
-            @click="editDeny.has(t) ? editDeny.delete(t) : editDeny.add(t); editDeny = new Set(editDeny)"
-            class="px-1.5 py-0.5 rounded text-body-xs font-mono"
-            :class="editDeny.has(t) ? 'bg-error/15 text-error line-through' : 'bg-primary/10 text-primary'">{{ t }}</button>
-        </div>
-        <div class="flex flex-wrap gap-1">
-          <span class="text-body-xs text-on-surface-variant w-full">越过 tier 追加(打开=allow):</span>
-          <button v-for="t in ALL_TOOLS.filter(x => !tierDefault(editingKey.tier).includes(x))" :key="t" type="button"
-            @click="editAllow.has(t) ? editAllow.delete(t) : editAllow.add(t); editAllow = new Set(editAllow)"
-            class="px-1.5 py-0.5 rounded text-body-xs font-mono"
-            :class="editAllow.has(t) ? 'bg-status-running/20 text-status-running font-semibold' : 'bg-surface-container-high text-on-surface-variant'">{{ t }}</button>
-        </div>
+        <ToolOverrideEditor :tier="editingKey.tier" v-model="editOverrides" />
       </div>
       <template #actions>
         <button @click="showOverrideModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
@@ -896,16 +902,16 @@ async function saveOverrides() {
     </Modal>
 ```
 
-- [ ] **Step 7: 前端校验 — typecheck + build + unit**
+- [ ] **Step 8: 前端校验 — typecheck + build**
 
 Run: `npm run typecheck && npm run build`
-Expected: `node --check` 全过;`npm run build` 成功(覆盖 `.vue` 编译)。
+Expected: `node --check` 全过;`npm run build` 成功(含新组件 + ApiKeyManagement 编译)。
 
-- [ ] **Step 8: commit**
+- [ ] **Step 9: commit**
 
 ```bash
-git add src/api/client.js src/views/admin/ApiKeyManagement.vue
-git commit -m "feat(ui): API key 管理加每工具覆盖编辑(mint + 列表展示/编辑,调 PATCH)
+git add src/api/client.js src/components/common/ToolOverrideEditor.vue src/views/admin/ApiKeyManagement.vue
+git commit -m "feat(ui): API key 管理加每工具覆盖编辑(ToolOverrideEditor 组件,mint + 列表编辑复用)
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -947,7 +953,7 @@ git commit -m "docs(mcp): 登记 attach/port_forward/upload_file 延后理由(st
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: 更新项目记忆** — 更新 `~/.claude/projects/.../memory/apikey-mcp-agent-base.md` 第 35 行「6/11」→「11/11 已接通(rollout_history/rollout_undo/update_image 本轮)+ 每工具覆盖(tool_overrides)已上线;延后 attach/port_forward/upload_file」。
+- [ ] **Step 5: 更新项目记忆** — 更新 `~/.claude/projects/.../memory/apikey-mcp-agent-base.md` 第 35 行「6/11」→「8/11 已接通(本轮 +rollout_undo/update_image;新增 read 档 rollout_history)+ 每工具覆盖(tool_overrides)已上线;延后 attach/port_forward/upload_file」。
 
 ---
 
