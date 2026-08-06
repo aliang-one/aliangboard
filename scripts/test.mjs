@@ -429,6 +429,11 @@ test('dumpResourceYaml 不修改原对象', () => {
   assert.ok(Array.isArray(raw.metadata.managedFields), '原对象 managedFields 不被破坏')
   assert.ok(raw.status, '原对象 status 不被破坏')
 })
+test('dumpResourceYaml 缺 metadata 的对象不报错', () => {
+  const y = dumpResourceYaml({ apiVersion: 'v1', kind: 'Service', spec: { type: 'ClusterIP' } })
+  assert.ok(y.includes('kind: Service'))
+  assert.ok(!y.includes('managedFields'))
+})
 
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
