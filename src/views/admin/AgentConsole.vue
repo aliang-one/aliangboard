@@ -5,10 +5,12 @@
 //   status:'pending_approval' → 弹审批 Modal,用户批准/拒绝后带 resume 回传续跑(状态在浏览器↔网关往返,服务端无会话)。
 // agent 用调用者选的 API key(绑 SA + tier);写操作实际执行仍走底座 callTool 全链(RBAC 兜底)。
 import { ref, computed, onMounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 
+const { t } = useI18n()
 const keys = ref([])
 const clusters = ref([])
 const loadingKeys = ref(true)
@@ -22,10 +24,10 @@ const scrollEl = ref(null)
 const pendingApproval = ref(null)   // { turnId, toolCallId, name, args, runContext, queue, denied, steps }
 let turnSeq = 0
 
-const HINTS = [
-  'default 命名空间有哪些 pod?挑出非 Running 的',
-  'kube-system 最近有什么 Warning 事件?',
-  'nginx 副本数不够,帮我把 deployments/nginx 扩到 3',
+const HINT_KEYS = [
+  'admin.agent.hint1',
+  'admin.agent.hint2',
+  'admin.agent.hint3',
 ]
 
 const activeKeys = computed(() => keys.value.filter(k => !k.revokedAt))
@@ -42,7 +44,7 @@ async function loadKeys() {
     const first = keys.value.find(k => !k.revokedAt)
     if (first) selectedKeyId.value = first.id
   } catch (e) {
-    notify('error', e.message || '加载 API keys 失败')
+    notify('error', e.message || t('admin.agent.loadKeysFailed'))
   } finally {
     loadingKeys.value = false
   }
@@ -91,7 +93,7 @@ function applyResponse(agentId, res) {
   } else { // done
     updateTurn(agentId, {
       status: 'done',
-      content: res.content || '(无回答)',
+      content: res.content || t('admin.agent.noAnswer'),
       steps: res.steps ?? 0,
       denied: res.denied || [],
       truncated: !!res.truncated,
@@ -103,7 +105,7 @@ async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
   if (!msg || sending.value) return
-  if (!selectedKey.value) { errorBanner.value = '请先选择一个 API key'; return }
+  if (!selectedKey.value) { errorBanner.value = t('admin.agent.selectKeyFirst'); return }
   const history = buildHistory()
   const userId = ++turnSeq, agentId = ++turnSeq
   turns.value.push({ _id: userId, role: 'user', content: msg })
@@ -115,7 +117,7 @@ async function send() {
     const res = await adminApi.agent.chat({ message: msg, apiKeyId: selectedKey.value.id, history })
     applyResponse(agentId, res)
   } catch (e) {
-    updateTurn(agentId, { status: 'error', error: e.message || 'agent 调用失败' })
+    updateTurn(agentId, { status: 'error', error: e.message || t('admin.agent.callFailed') })
     if (e.status === 503) errorBanner.value = e.message
   } finally {
     sending.value = false
@@ -137,7 +139,7 @@ async function decideApproval(approved) {
     })
     applyResponse(pa.turnId, res)
   } catch (e) {
-    updateTurn(pa.turnId, { status: 'error', error: e.message || 'resume 失败' })
+    updateTurn(pa.turnId, { status: 'error', error: e.message || t('admin.agent.resumeFailed') })
   } finally {
     sending.value = false
     await scrollToBottom()
@@ -147,7 +149,7 @@ async function decideApproval(approved) {
 function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
 }
-function useHint(h) { input.value = h }
+function useHint(h) { input.value = t(h) }
 function clearChat() { turns.value = []; pendingApproval.value = null; errorBanner.value = '' }
 </script>
 
@@ -158,13 +160,13 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
       <div class="flex items-start justify-between gap-md">
         <div>
           <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-sm">
-            <span class="material-symbols-outlined">smart_toy</span> AI 控制台
-            <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold bg-status-warning/10 text-status-warning">写操作需人审</span>
+            <span class="material-symbols-outlined">smart_toy</span> {{ $t('admin.agent.title') }}
+            <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold bg-status-warning/10 text-status-warning">{{ $t('admin.agent.writeNeedsApproval') }}</span>
           </h2>
-          <p class="text-body-sm text-on-surface-variant mt-xs">集群 debug/运维助手:选 API key,描述问题。只读工具自动跑;扩缩容/滚动重启会弹审批,你批准后才执行。</p>
+          <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.agent.subtitle') }}</p>
         </div>
         <button v-if="turns.length" @click="clearChat" class="shrink-0 flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">
-          <span class="material-symbols-outlined text-base">delete_sweep</span> 清空
+          <span class="material-symbols-outlined text-base">delete_sweep</span> {{ $t('admin.agent.clear') }}
         </button>
       </div>
 
@@ -172,7 +174,7 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
       <div class="flex flex-wrap items-center gap-md bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm">
         <span class="material-symbols-outlined text-on-surface-variant">vpn_key</span>
         <select v-model="selectedKeyId" :disabled="loadingKeys" class="bg-transparent text-body-sm font-medium outline-none min-w-[220px]">
-          <option value="" disabled>{{ loadingKeys ? '加载中…' : '选择 API key' }}</option>
+          <option value="" disabled>{{ loadingKeys ? $t('common.loading') : $t('admin.agent.selectKey') }}</option>
           <option v-for="k in activeKeys" :key="k.id" :value="k.id">{{ k.prefix }}… · {{ k.tier }} · {{ clusterName(k.clusterId) }}</option>
         </select>
         <template v-if="selectedKey">
@@ -180,7 +182,7 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
           <span class="font-mono text-body-xs text-on-surface-variant">{{ selectedKey.boundSA_namespace }}/{{ selectedKey.boundSA_name }}</span>
           <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="TIER_STYLE[selectedKey.tier]">{{ selectedKey.tier }}</span>
         </template>
-        <span v-if="!activeKeys.length && !loadingKeys" class="text-body-xs text-status-warning">没有可用 API key,请先到「API Keys」签发一把(operator/admin 档才能写)。</span>
+        <span v-if="!activeKeys.length && !loadingKeys" class="text-body-xs text-status-warning">{{ $t('admin.agent.noKeysWarning') }}</span>
       </div>
 
       <div v-if="errorBanner" class="flex items-center gap-sm text-body-sm text-error bg-error/5 border border-error/20 rounded-lg px-md py-sm">
@@ -194,9 +196,9 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
       <div v-if="!turns.length" class="flex-1 flex items-center justify-center">
         <div class="text-center max-w-md">
           <span class="material-symbols-outlined text-5xl text-on-surface-variant/40">forum</span>
-          <p class="text-body-md text-on-surface-variant mt-md">描述要排查/处理的问题,或试试:</p>
+          <p class="text-body-md text-on-surface-variant mt-md">{{ $t('admin.agent.emptyHint') }}</p>
           <div class="flex flex-col gap-xs mt-sm text-left">
-            <button v-for="h in HINTS" :key="h" @click="useHint(h)" class="text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm hover:border-primary/50 hover:text-primary transition-colors">{{ h }}</button>
+            <button v-for="h in HINT_KEYS" :key="h" @click="useHint(h)" class="text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm hover:border-primary/50 hover:text-primary transition-colors">{{ $t(h) }}</button>
           </div>
         </div>
       </div>
@@ -213,13 +215,13 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
           <!-- 工具调用 trace(折叠;静态 open 避免与浏览器 toggle 打架) -->
           <details v-if="t.trace && t.trace.length" open class="bg-surface-container-low border border-outline-variant rounded-lg">
             <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant select-none flex items-center gap-xs">
-              <span class="material-symbols-outlined text-base">account_tree</span> 工具调用 trace · {{ toolCount(t.trace) }} 步
+              <span class="material-symbols-outlined text-base">account_tree</span> {{ $t('admin.agent.toolTrace', { n: toolCount(t.trace) }) }}
             </summary>
             <div class="px-md pb-md flex flex-col gap-sm">
               <div v-for="(ev, j) in t.trace" :key="j" class="text-body-xs">
                 <div v-if="ev.type === 'assistant' && ev.message?.tool_calls?.length" class="flex items-center gap-xs text-on-surface-variant py-xs">
                   <span class="material-symbols-outlined text-sm">psychology</span>
-                  <span>决定调用:{{ ev.message.tool_calls.map(c => c.function?.name).filter(Boolean).join(', ') }}</span>
+                  <span>{{ $t('admin.agent.decideCall', { tools: ev.message.tool_calls.map(c => c.function?.name).filter(Boolean).join(', ') }) }}</span>
                 </div>
                 <div v-else-if="ev.type === 'tool'" class="border border-outline-variant rounded-lg overflow-hidden">
                   <div class="flex items-center gap-xs px-sm py-xs bg-surface-container">
@@ -232,7 +234,7 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
                 <div v-else-if="ev.type === 'denied'" class="flex items-center gap-xs px-sm py-xs bg-status-warning/10 text-status-warning rounded-lg">
                   <span class="material-symbols-outlined text-sm">block</span>
                   <span class="font-mono font-semibold">{{ ev.name }}</span>
-                  <span>用户拒绝执行</span>
+                  <span>{{ $t('admin.agent.userDenied') }}</span>
                 </div>
               </div>
             </div>
@@ -240,10 +242,10 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
 
           <!-- 状态体 -->
           <div v-if="t.status === 'thinking' && !(t.trace && t.trace.length)" class="flex items-center gap-sm text-body-sm text-on-surface-variant bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-sm px-md py-sm">
-            <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> 思考中…
+            <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> {{ $t('admin.agent.thinking') }}
           </div>
           <div v-else-if="t.status === 'pending_approval'" class="flex items-center gap-xs text-body-sm text-status-warning bg-status-warning/10 border border-status-warning/30 rounded-2xl rounded-tl-sm px-md py-sm">
-            <span class="material-symbols-outlined text-base">pending_actions</span> agent 提议执行写操作,请在弹窗审批
+            <span class="material-symbols-outlined text-base">pending_actions</span> {{ $t('admin.agent.pendingApprovalHint') }}
           </div>
           <div v-else-if="t.status === 'error'" class="flex items-start gap-xs text-body-sm text-error bg-error/5 border border-error/20 rounded-2xl rounded-tl-sm px-md py-sm">
             <span class="material-symbols-outlined text-base mt-0.5">error</span>
@@ -252,9 +254,9 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
           <template v-else-if="t.status === 'done'">
             <div class="text-body-md text-on-surface whitespace-pre-wrap break-words bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-sm px-md py-sm">{{ t.content }}</div>
             <div class="flex flex-wrap items-center gap-md text-body-xs text-on-surface-variant px-xs">
-              <span>耗时 {{ t.steps }} 步</span>
-              <span v-if="t.truncated" class="text-status-warning">⚠ 达到最大步数,未给出完整答案</span>
-              <span v-if="t.denied && t.denied.length" class="text-status-warning">⛔ {{ t.denied.length }} 个写操作被拒</span>
+              <span>{{ $t('admin.agent.stepsTaken', { n: t.steps }) }}</span>
+              <span v-if="t.truncated" class="text-status-warning">{{ $t('admin.agent.truncated') }}</span>
+              <span v-if="t.denied && t.denied.length" class="text-status-warning">{{ $t('admin.agent.writeOpsDenied', { n: t.denied.length }) }}</span>
             </div>
           </template>
         </div>
@@ -268,29 +270,29 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
         @keydown="onKeydown"
         :disabled="sending || !selectedKey || !!pendingApproval"
         rows="2"
-        :placeholder="selectedKey ? '描述要排查/处理的问题…(Enter 发送,Shift+Enter 换行)' : '请先选择 API key'"
+        :placeholder="selectedKey ? $t('admin.agent.inputPlaceholder') : $t('admin.agent.selectKeyFirst')"
         class="flex-1 bg-transparent resize-none outline-none text-body-sm px-sm py-sm max-h-40"
       ></textarea>
       <button @click="send" :disabled="sending || !input.trim() || !selectedKey || !!pendingApproval" class="shrink-0 flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-        <span class="material-symbols-outlined text-base">send</span> 发送
+        <span class="material-symbols-outlined text-base">send</span> {{ $t('admin.agent.send') }}
       </button>
     </div>
 
     <!-- 写操作审批 Modal(只能经按钮关闭;backdrop 点击被忽略) -->
-    <Modal :modelValue="!!pendingApproval" title="写操作审批" width="max-w-lg">
+    <Modal :modelValue="!!pendingApproval" :title="$t('admin.agent.approvalTitle')" width="max-w-lg">
       <div v-if="pendingApproval" class="flex flex-col gap-md">
-        <p class="text-body-sm text-on-surface-variant">agent 想执行一个写操作。批准后才会真正调用(仍受所选 API key 绑定 SA 的 RBAC 约束)。</p>
+        <p class="text-body-sm text-on-surface-variant">{{ $t('admin.agent.approvalDesc') }}</p>
         <div class="bg-surface-container-low border border-outline-variant rounded-lg p-md flex flex-col gap-xs">
           <div class="flex items-center gap-sm">
             <span class="material-symbols-outlined text-status-warning">build_circle</span>
             <span class="font-mono font-semibold text-body-md">{{ pendingApproval.name }}</span>
           </div>
           <template v-if="pendingApproval.name === 'scale'">
-            <p class="text-body-sm">扩缩容 <span class="font-mono">{{ pendingApproval.args.kind }}/{{ pendingApproval.args.name }}</span>(ns=<span class="font-mono">{{ pendingApproval.args.namespace }}</span>)</p>
-            <p class="text-body-md">目标副本数:<span class="font-bold text-status-warning text-headline-sm">{{ pendingApproval.args.replicas }}</span><span class="text-body-xs text-on-surface-variant ml-xs">(底座钳到 1..20,禁 0)</span></p>
+            <p class="text-body-sm">{{ $t('admin.agent.scaleDesc', { kind: pendingApproval.args.kind, name: pendingApproval.args.name, ns: pendingApproval.args.namespace }) }}</p>
+            <p class="text-body-md">{{ $t('admin.agent.targetReplicas') }}<span class="font-bold text-status-warning text-headline-sm">{{ pendingApproval.args.replicas }}</span><span class="text-body-xs text-on-surface-variant ml-xs">{{ $t('admin.agent.replicasClamp') }}</span></p>
           </template>
           <template v-else-if="pendingApproval.name === 'restart'">
-            <p class="text-body-sm">滚动重启 <span class="font-mono">{{ pendingApproval.args.kind }}/{{ pendingApproval.args.name }}</span>(ns=<span class="font-mono">{{ pendingApproval.args.namespace }}</span>)</p>
+            <p class="text-body-sm">{{ $t('admin.agent.restartDesc', { kind: pendingApproval.args.kind, name: pendingApproval.args.name, ns: pendingApproval.args.namespace }) }}</p>
           </template>
           <template v-else>
             <pre class="font-mono text-code-sm whitespace-pre-wrap break-all">{{ fmtResult(pendingApproval.args) }}</pre>
@@ -298,8 +300,8 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
         </div>
       </div>
       <template #actions>
-        <button @click="decideApproval(false)" :disabled="sending" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">拒绝</button>
-        <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">批准</button>
+        <button @click="decideApproval(false)" :disabled="sending" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ $t('admin.agent.reject') }}</button>
+        <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ $t('admin.agent.approve') }}</button>
       </template>
     </Modal>
   </section>
