@@ -25,4 +25,4 @@ data/
 *.njsproj
 *.sln
 *.sw?
-.playwright-mcp
+.playwright-mcp.claude/
