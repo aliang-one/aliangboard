@@ -1825,10 +1825,10 @@ function podStatusBorder(s) {
       <div v-if="isRolloutType" class="flex flex-col gap-md">
         <!-- 容器（主 + Init + Sidecar）统一区 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">容器</h4></div>
-          <div class="text-xs font-semibold text-on-surface-variant">主容器</div>
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.containers') }}</h4></div>
+          <div class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.mainContainer') }}</div>
           <div class="grid grid-cols-3 gap-xs">
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">拉取策略</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.pullPolicy') }}</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Command</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app/server (空格分隔)" /></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Args</label><input v-model="editForm.args" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="--port 8080 (空格分隔)" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
@@ -1839,7 +1839,7 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><input v-model="editForm.memReq" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="256Mi" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><input v-model="editForm.memLim" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="512Mi" /></div>
           </div>
-          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">Init 容器</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
           <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
             <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
             <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
@@ -1848,7 +1848,7 @@ function podStatusBorder(s) {
             <input v-model="c.cpuLim" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="cpuLim" />
             <div class="flex gap-xs"><input v-model="c.memReq" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="memReq" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
-          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Sidecar 容器</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.sidecarContainers') }}</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addSidecar') }}</button></div>
           <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
             <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="名称" />
             <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="镜像" />
@@ -1863,8 +1863,8 @@ function podStatusBorder(s) {
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
           <div class="flex items-center gap-xs mb-md">
             <span class="material-symbols-outlined text-primary text-lg">lan</span>
-            <h4 class="text-body-sm font-semibold text-on-surface">端口</h4>
-            <button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+            <h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.ports') }}</h4>
+            <button @click="editForm.ports.push({ containerPort: '', protocol: 'TCP' })" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addPort') }}</button>
           </div>
           <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs">
             <input v-model.number="p.containerPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" />
@@ -1875,9 +1875,9 @@ function podStatusBorder(s) {
 
         <!-- 环境变量 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-md">
-          <div class="flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-lg">key</span><h4 class="text-body-sm font-semibold text-on-surface">环境变量</h4></div>
+          <div class="flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-lg">key</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.envVars') }}</h4></div>
           <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">普通</span><button @click="editForm.env.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envNormal') }}</span><button @click="editForm.env.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
             <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
               <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="KEY" />
               <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="val" />
@@ -1885,7 +1885,7 @@ function podStatusBorder(s) {
             </div>
           </div>
           <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">ConfigMap 键引用</span><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envCmRef') }}</span><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
             <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
               <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
@@ -1893,7 +1893,7 @@ function podStatusBorder(s) {
             </div>
           </div>
           <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">Secret 键引用</span><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button></div>
+            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envSecretRef') }}</span><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
             <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ENV 名" />
               <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
@@ -1908,7 +1908,7 @@ function podStatusBorder(s) {
 
         <!-- 探针（三种 × 全时序） -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">monitor_heart</span><h4 class="text-body-sm font-semibold text-on-surface">健康探针</h4></div>
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">monitor_heart</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.healthProbes') }}</h4></div>
           <div v-for="probe in [{ k: 'liveness', label: 'Liveness' }, { k: 'readiness', label: 'Readiness' }, { k: 'startup', label: 'Startup' }]" :key="probe.k" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30">
             <div class="flex items-center gap-sm mb-xs">
               <label class="flex items-center gap-xs text-body-sm font-medium"><input type="checkbox" v-model="editForm[probe.k].enabled" class="h-4 w-4 accent-primary" /> {{ probe.label }}</label>
@@ -1931,8 +1931,8 @@ function podStatusBorder(s) {
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest">
           <div class="flex items-center gap-xs mb-md">
             <span class="material-symbols-outlined text-primary text-lg">storage</span>
-            <h4 class="text-body-sm font-semibold text-on-surface">卷与挂载</h4>
-            <button @click="addVolumeMount" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+            <h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.volumes') }}</h4>
+            <button @click="addVolumeMount" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addVolume') }}</button>
           </div>
           <div class="flex flex-col gap-sm">
             <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="route.params.namespace" @remove="editForm.volumeMounts.splice(i, 1)" />
@@ -1941,12 +1941,12 @@ function podStatusBorder(s) {
 
         <!-- 安全上下文 + 生命周期 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">shield</span><h4 class="text-body-sm font-semibold text-on-surface">安全上下文 & 生命周期</h4></div>
-          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.securityContext.enabled" class="h-4 w-4 accent-primary" /> 启用 securityContext</label>
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">shield</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.securityLifecycle') }}</h4></div>
+          <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.securityContext.enabled" class="h-4 w-4 accent-primary" /> {{ $t('workload.edit.enableSc') }}</label>
           <div v-if="editForm.securityContext.enabled" class="grid grid-cols-3 gap-xs">
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.privileged" class="h-4 w-4 accent-primary" /> privileged</label>
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.runAsNonRoot" class="h-4 w-4 accent-primary" /> runAsNonRoot</label>
-            <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.readOnlyRootFilesystem" class="h-4 w-4 accent-primary" /> 只读根文件系统</label>
+            <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.readOnlyRootFilesystem" class="h-4 w-4 accent-primary" /> {{ $t('workload.edit.readOnlyFs') }}</label>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">runAsUser</label><input v-model="editForm.securityContext.runAsUser" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="1000" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">runAsGroup</label><input v-model="editForm.securityContext.runAsGroup" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="1000" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">capabilities add</label><input v-model="editForm.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="NET_BIND_SERVICE (逗号)" /></div>
@@ -1960,7 +1960,7 @@ function podStatusBorder(s) {
 
         <!-- 调度 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">device_hub</span><h4 class="text-body-sm font-semibold text-on-surface">调度（Pod 级）</h4></div>
+          <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">device_hub</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.scheduling') }}</h4></div>
           <div class="grid grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ServiceAccount</label><input v-model="editForm.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="default" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">PriorityClass</label><input v-model="editForm.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="高优先级类名" /></div>
@@ -1985,7 +1985,7 @@ function podStatusBorder(s) {
 
       <!-- 更新策略（Deployment 级） -->
       <section v-if="workload?.type === 'Deployment'" class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
-        <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">autorenew</span><h4 class="text-body-sm font-semibold text-on-surface">更新策略</h4></div>
+        <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">autorenew</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.updateStrategy') }}</h4></div>
         <div class="grid grid-cols-4 gap-xs">
           <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">类型</label><select v-model="editForm.strategy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>RollingUpdate</option><option>Recreate</option></select></div>
           <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">maxSurge</label><input v-model="editForm.maxSurge" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="25%" /></div>
@@ -1995,24 +1995,24 @@ function podStatusBorder(s) {
       </section>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.edit.cancel') }}</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.edit.save') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showMetaModal" title="业务元数据" width="max-w-2xl">
+  <Modal v-model="showMetaModal" :title="$t('workload.modals.metaTitle')" width="max-w-2xl">
     <div class="flex flex-col gap-md">
       <!-- 业务元数据（canonical aliangboard.io/* 键） -->
       <div class="flex flex-col gap-sm">
-        <p class="text-xs font-semibold text-on-surface-variant">业务元数据 <span class="text-on-surface-variant/50 font-normal">写入 aliangboard.io/* 标签，用于卡片标题 / 负责人 / 版本展示</span></p>
+        <p class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.meta.businessMeta') }} <span class="text-on-surface-variant/50 font-normal">{{ $t('workload.meta.businessMetaHint') }}</span></p>
         <div class="grid grid-cols-2 gap-sm">
-          <div><label class="text-xs text-on-surface-variant block mb-xs">标题 title</label><input v-model="metaForm.title" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="展示用名称" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">负责人 owner</label><input v-model="metaForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="团队 / 负责人" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">版本 version</label><input v-model="metaForm.version" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="v1.0.0" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">标签 tags</label><TagInput v-model="metaForm.tags" :namespace="route.params.namespace" :max="3" /></div>
-          <div class="col-span-2"><label class="text-xs text-on-surface-variant block mb-xs">描述 description <span class="text-on-surface-variant/50">→ annotation</span></label><textarea v-model="metaForm.description" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm resize-none" placeholder="一句话描述（写入注解，免 label 长度限制）" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.titleLabel') }}</label><input v-model="metaForm.title" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('workload.meta.titlePh')" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.ownerLabel') }}</label><input v-model="metaForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('workload.meta.ownerPh')" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.versionLabel') }}</label><input v-model="metaForm.version" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="v1.0.0" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.tagsLabel') }}</label><TagInput v-model="metaForm.tags" :namespace="route.params.namespace" :max="3" /></div>
+          <div class="col-span-2"><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.descLabel') }} <span class="text-on-surface-variant/50">{{ $t('workload.meta.descHint') }}</span></label><textarea v-model="metaForm.description" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm resize-none" :placeholder="$t('workload.meta.descPh')" /></div>
           <div class="col-span-2">
-            <label class="text-xs text-on-surface-variant block mb-xs">分层 layer</label>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.layerLabel') }}</label>
             <div class="flex flex-wrap gap-xs">
               <button v-for="t in tierOptions" :key="t.value" @click="metaForm.layer = metaForm.layer === t.value ? '' : t.value" :title="t.desc" class="flex items-center gap-xs px-sm py-xs rounded-lg border text-body-sm" :class="metaForm.layer === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">
                 <span class="material-symbols-outlined text-sm">{{ t.icon }}</span>{{ t.label }}
@@ -2024,47 +2024,47 @@ function podStatusBorder(s) {
 
       <!-- 自定义 Labels -->
       <div class="pt-md border-t border-outline-variant/40 flex flex-col gap-sm">
-        <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">自定义 Labels</p><button @click="addMetaLabel" class="text-xs text-primary hover:underline">+ 添加</button></div>
+        <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.meta.customLabels') }}</p><button @click="addMetaLabel" class="text-xs text-primary hover:underline">{{ $t('workload.meta.addLabel') }}</button></div>
         <div v-for="(l, i) in metaForm.labels" :key="i" class="flex items-center gap-xs">
           <input v-model="l.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
           <input v-model="l.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="value" />
           <button @click="metaForm.labels.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
-        <p v-if="!metaForm.labels.length" class="text-xs text-on-surface-variant/50">无自定义标签</p>
+        <p v-if="!metaForm.labels.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.meta.noLabels') }}</p>
       </div>
 
       <!-- Annotations（注解） -->
       <div class="pt-md border-t border-outline-variant/40 flex flex-col gap-sm">
-        <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">Annotations（注解）</p><button @click="addMetaAnnotation" class="text-xs text-primary hover:underline">+ 添加</button></div>
+        <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.meta.annotations') }}</p><button @click="addMetaAnnotation" class="text-xs text-primary hover:underline">{{ $t('workload.meta.addLabel') }}</button></div>
         <div v-for="(a, i) in metaForm.annotations" :key="i" class="flex items-start gap-xs">
           <input v-model="a.key" class="w-2/5 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
           <input v-model="a.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="value" />
           <button @click="metaForm.annotations.splice(i, 1)" class="mt-1 text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
-        <p v-if="!metaForm.annotations.length" class="text-xs text-on-surface-variant/50">无注解</p>
+        <p v-if="!metaForm.annotations.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.meta.noAnnotations') }}</p>
       </div>
 
-      <p class="text-xs text-on-surface-variant/50 flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>业务标签会同步写入 Pod 模板；若与当前不一致将触发一次滚动更新（annotation 仅写工作负载，不触发滚动）。</p>
+      <p class="text-xs text-on-surface-variant/50 flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ $t('workload.meta.syncHint') }}</p>
     </div>
     <template #actions>
-      <button @click="showMetaModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="saveMeta" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">保存</button>
+      <button @click="showMetaModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.meta.cancel') }}</button>
+      <button @click="saveMeta" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.meta.save') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showTemplateModal" title="Edit Pod Template" width="max-w-3xl">
+  <Modal v-model="showTemplateModal" :title="$t('workload.modals.templateTitle')" width="max-w-3xl">
     <YamlEditor v-model="templateYaml" :readonly="false" height="400px" @save="saveTemplate" />
     <template #actions>
-      <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg">Cancel</button>
-      <button @click="saveTemplate(templateYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">Apply</button>
+      <button @click="showTemplateModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="saveTemplate(templateYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.diff.apply') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showExposeModal" title="暴露为 Service" width="max-w-lg">
+  <Modal v-model="showExposeModal" :title="$t('workload.modals.exposeTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
-        <div><label class="text-xs text-on-surface-variant">名称</label><input v-model="exposeForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
-        <div><label class="text-xs text-on-surface-variant">类型</label><select v-model="exposeForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option>ClusterIP</option><option>NodePort</option><option>LoadBalancer</option></select></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.expose.name') }}</label><input v-model="exposeForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.expose.type') }}</label><select v-model="exposeForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option>ClusterIP</option><option>NodePort</option><option>LoadBalancer</option></select></div>
       </div>
       <div v-for="(p, i) in exposeForm.ports" :key="i" class="flex items-center gap-xs">
         <input v-model.number="p.port" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="port" />
@@ -2072,62 +2072,62 @@ function podStatusBorder(s) {
         <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="target" />
         <button @click="exposeForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
       </div>
-      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-xs text-primary">+ 端口</button>
+      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-xs text-primary">+ {{ $t('workload.expose.port') }}</button>
     </div>
     <template #actions>
-      <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="saveExpose" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">创建</button>
+      <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.expose.cancel') }}</button>
+      <button @click="saveExpose" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.expose.create') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showIngressMapModal" title="加 Ingress 映射" width="max-w-lg">
+  <Modal v-model="showIngressMapModal" :title="$t('workload.modals.ingressMapTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
-      <div><label class="text-xs text-on-surface-variant">Host</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" /></div>
+      <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.host') }}</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" /></div>
       <div class="grid grid-cols-2 gap-md">
-        <div><label class="text-xs text-on-surface-variant">Path</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/" /></div>
-        <div><label class="text-xs text-on-surface-variant">Service</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.path') }}</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/" /></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.service') }}</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
       </div>
-      <div><label class="text-xs text-on-surface-variant">Port</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="80" /></div>
+      <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.port') }}</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="80" /></div>
     </div>
     <template #actions>
-      <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">创建</button>
+      <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.ingressMap.cancel') }}</button>
+      <button @click="saveIngressMap" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.ingressMap.create') }}</button>
     </template>
   </Modal>
 
   <Modal v-model="showRevYamlModal" :title="revYamlTitle" width="max-w-2xl">
     <YamlEditor :model-value="revYamlContent" :readonly="true" height="400px" />
-    <template #actions><button @click="showRevYamlModal = false" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">关闭</button></template>
+    <template #actions><button @click="showRevYamlModal = false" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.imageTag.cancel') }}</button></template>
   </Modal>
 
-  <Modal v-model="showDeleteRevModal" title="删除旧版本" width="max-w-md">
-    <p class="text-body-md">删除 <b>Rev {{ deleteRevTarget?.rev }}</b>（{{ deleteRevTarget?.rsName }}）？</p>
-    <p class="text-body-sm text-error mt-sm">删除后无法回滚到该版本。</p>
+  <Modal v-model="showDeleteRevModal" :title="$t('workload.modals.deleteRevTitle')" width="max-w-md">
+    <p class="text-body-md">{{ $t('workload.modals.deleteRevConfirm', { rev: deleteRevTarget?.rev, rsName: deleteRevTarget?.rsName }) }}？</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('workload.modals.deleteRevWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteRevModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="handleDeleteRev" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">删除</button>
+      <button @click="showDeleteRevModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleDeleteRev" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- 快速改镜像版本（支持从 registry 拉取可用 tag） -->
-  <Modal v-model="showImageTagModal" title="修改镜像版本" width="max-w-lg">
+  <Modal v-model="showImageTagModal" :title="$t('workload.modals.imageTagTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-xs text-on-surface-variant block mb-xs">镜像仓库（不可改）</label>
+        <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.imageTag.repoReadonly') }}</label>
         <input :value="imageTagForm.repo" readonly class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono opacity-60" />
       </div>
       <details class="rounded-lg border border-outline-variant/60">
-        <summary class="cursor-pointer px-md py-sm text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">lock</span>Registry 认证（私有仓库可选）</summary>
+        <summary class="cursor-pointer px-md py-sm text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">lock</span>{{ $t('workload.imageTag.registryAuth') }}</summary>
         <div class="grid grid-cols-2 gap-sm px-md pb-md">
-          <input v-model="registryAuth.username" placeholder="用户名" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
-          <input v-model="registryAuth.password" type="password" placeholder="密码" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
+          <input v-model="registryAuth.username" :placeholder="$t('workload.imageTag.usernamePh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
+          <input v-model="registryAuth.password" type="password" :placeholder="$t('workload.imageTag.passwordPh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
         </div>
       </details>
       <div>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-xs text-on-surface-variant">版本 Tag</label>
+          <label class="text-xs text-on-surface-variant">{{ $t('workload.imageTag.tagLabel') }}</label>
           <button @click="fetchTags" :disabled="tagLoading" class="text-xs text-primary hover:underline flex items-center gap-0.5 disabled:opacity-50">
-            <span class="material-symbols-outlined text-sm" :class="tagLoading ? 'animate-spin' : ''">{{ tagLoading ? 'progress_activity' : 'cloud_download' }}</span>{{ tagLoading ? '拉取中' : '拉取可用版本' }}
+            <span class="material-symbols-outlined text-sm" :class="tagLoading ? 'animate-spin' : ''">{{ tagLoading ? 'progress_activity' : 'cloud_download' }}</span>{{ tagLoading ? $t('workload.imageTag.fetching') : $t('workload.imageTag.fetchTags') }}
           </button>
         </div>
         <input v-model="imageTagForm.newTag" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="v3.5.1" @keydown.enter="saveImageTag" />
@@ -2136,11 +2136,11 @@ function podStatusBorder(s) {
         </div>
         <p v-if="tagError" class="text-xs text-error mt-xs flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">error</span>{{ tagError }}</p>
       </div>
-      <p class="text-xs text-on-surface-variant">新镜像：<span class="font-mono text-primary break-all">{{ imageTagForm.repo }}:{{ imageTagForm.newTag || '?' }}</span></p>
+      <p class="text-xs text-on-surface-variant">{{ $t('workload.imageTag.newImage') }}<span class="font-mono text-primary break-all">{{ imageTagForm.repo }}:{{ imageTagForm.newTag || '?' }}</span></p>
     </div>
     <template #actions>
-      <button @click="showImageTagModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="saveImageTag" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">更新</button>
+      <button @click="showImageTagModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.imageTag.cancel') }}</button>
+      <button @click="saveImageTag" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.imageTag.update') }}</button>
     </template>
   </Modal>
 
@@ -2151,13 +2151,13 @@ function podStatusBorder(s) {
   <FileBrowser v-model="showFileBrowser" :namespace="route.params.namespace" :pod="selectedPod?.name || ''" :container="fileBrowserContainer" />
 
   <!-- YAML 变更 diff 预览 -->
-  <Modal v-model="showDiffModal" title="变更预览 · Diff" width="max-w-3xl">
-    <p v-if="!diffStat.add && !diffStat.del" class="text-body-sm text-on-surface-variant py-md text-center">无变更</p>
+  <Modal v-model="showDiffModal" :title="$t('workload.modals.diffTitle')" width="max-w-3xl">
+    <p v-if="!diffStat.add && !diffStat.del" class="text-body-sm text-on-surface-variant py-md text-center">{{ $t('workload.modals.diffNoChange') }}</p>
     <template v-else>
       <div class="flex items-center gap-md mb-sm text-xs">
         <span class="text-status-running font-mono">+{{ diffStat.add }}</span>
         <span class="text-error font-mono">-{{ diffStat.del }}</span>
-        <span class="text-on-surface-variant">行变更，确认后 Apply 到集群</span>
+        <span class="text-on-surface-variant">{{ $t('workload.modals.diffLineHint') }}</span>
       </div>
       <div class="rounded-lg overflow-hidden border border-outline-variant max-h-[55vh] overflow-y-auto bg-[#0b1c30] font-mono text-code-sm">
         <div v-for="(l, i) in diffLines" :key="i" class="flex items-start" :class="l.t === 'add' ? 'bg-status-running/15' : l.t === 'del' ? 'bg-error/15' : ''">
@@ -2167,8 +2167,8 @@ function podStatusBorder(s) {
       </div>
     </template>
     <template #actions>
-      <button @click="showDiffModal = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-      <button @click="confirmApplyYaml" :disabled="!diffStat.add && !diffStat.del" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">Apply</button>
+      <button @click="showDiffModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.diff.cancel') }}</button>
+      <button @click="confirmApplyYaml" :disabled="!diffStat.add && !diffStat.del" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ $t('workload.diff.apply') }}</button>
     </template>
   </Modal>
 </template>
