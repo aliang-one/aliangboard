@@ -154,11 +154,11 @@ async function confirmAddBackend() {
   if (!canAddBackend.value) return
   try {
     await store.updateService(route.params.name, route.params.namespace, { selector: mergedSelector.value })
-    notify('success', '已添加后端工作负载（selector 已更新）')
+    notify('success', t('ns.svcDetail.backendAddedSuccess'))
     showAddBackendModal.value = false
     pickedBackend.value = ''
   } catch (e) {
-    notify('error', e.message || '添加失败')
+    notify('error', e.message || t('ns.svcDetail.backendAddedFailed'))
   }
 }
 
@@ -237,8 +237,8 @@ async function exportSvc() {
   if (!svc.value) return
   try {
     await exportYaml(`/api/v1/namespaces/${encodeURIComponent(svc.value.namespace)}/services/${encodeURIComponent(svc.value.name)}`, `${svc.value.name}.yaml`)
-    notify('success', '已导出 YAML')
-  } catch (e) { notify('error', e.message || '导出失败') }
+    notify('success', t('ns.svcDetail.exportSuccess'))
+  } catch (e) { notify('error', e.message || t('ns.svcDetail.exportFailed')) }
 }
 
 // === 统一 Edit：Type · Ports · Selector · Session Affinity · Traffic Policy · ExternalName ===
@@ -290,7 +290,7 @@ function saveEdit() {
   if (editForm.value.externalTrafficPolicy) updates.externalTrafficPolicy = editForm.value.externalTrafficPolicy
   store.updateService(route.params.name, route.params.namespace, updates)
   showEditModal.value = false
-  notify('success', 'Service 已更新')
+  notify('success', t('ns.svcDetail.serviceUpdated'))
 }
 
 // === 快速添加端口：为当前 Service 追加一个「同类型」端口（类型由 svc.type 决定，不可混类型）===
@@ -339,9 +339,9 @@ async function saveAddPort() {
     }
     await store.updateService(route.params.name, route.params.namespace, updates)
     showAddPortModal.value = false
-    notify('success', merged ? `端口已添加，并把 ${sourceWorkload.value} 并入后端（selector 已更新）` : '端口已添加')
+    notify('success', merged ? t('ns.svcDetail.addPortWithMerge', { workload: sourceWorkload.value }) : t('ns.svcDetail.addPortSuccess'))
   } catch (e) {
-    notify('error', e.message || '添加端口失败')
+    notify('error', e.message || t('ns.svcDetail.addPortFailed'))
   } finally {
     addingPort.value = false
   }
@@ -367,9 +367,9 @@ async function confirmDeletePort() {
   const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
   try {
     await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
-    notify('success', '端口已删除')
+    notify('success', t('ns.svcDetail.deletePortSuccess'))
   } catch (e) {
-    notify('error', e.message || '删除端口失败')
+    notify('error', e.message || t('ns.svcDetail.deletePortFailed'))
   }
   showDeletePortModal.value = false
   deletePortIdx.value = -1
@@ -411,7 +411,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div class="min-w-0">
           <div class="flex items-baseline gap-xs flex-wrap">
             <h1 class="text-headline-md text-on-surface font-bold truncate">{{ svc.name }}</h1>
-            <span v-if="isExternalName" class="font-mono text-xs text-on-surface-variant truncate">→ {{ svc.externalName || '(未设置)' }}</span>
+            <span v-if="isExternalName" class="font-mono text-xs text-on-surface-variant truncate">→ {{ svc.externalName || $t('ns.svcDetail.externalNamePlaceholder') }}</span>
           </div>
           <div class="flex items-center gap-xs mt-0.5 flex-wrap">
             <span class="px-1.5 py-0.5 bg-primary/10 text-primary text-xs rounded font-medium">{{ svc.type }}</span>
@@ -488,10 +488,10 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
             <div class="flex items-center gap-xs min-w-0">
               <span class="material-symbols-outlined text-primary text-base">swap_horiz</span>
               <span class="text-body-sm font-semibold">Service Ports</span>
-              <span class="text-[11px] text-on-surface-variant/60 truncate" title="客户端访问的 port → 转发到后端 Pod 的 targetPort">客户端访问 port → Pod 的 targetPort<span v-if="hasNodePort"> · nodePort 为节点对外端口</span></span>
+              <span class="text-[11px] text-on-surface-variant/60 truncate" :title="$t('ns.svcDetail.backendPodsTitle', { ports: epPorts.map(p => p.port).join(' / ') || '—' })">{{ $t('ns.svcDetail.clientPort') }}<span v-if="hasNodePort"> · {{ $t('ns.svcDetail.nodePortExternal') }}</span></span>
             </div>
             <div class="flex items-center gap-xs shrink-0">
-              <span class="text-xs text-on-surface-variant">{{ portRows.length }} 个</span>
+              <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.portsCountSuffix', { n: portRows.length }) }}</span>
               <button v-if="canMutate" @click="openAddPort" class="flex items-center gap-0.5 px-1.5 py-0.5 text-xs font-semibold text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors" title="快速添加一个同类型端口">
                 <span class="material-symbols-outlined text-sm">add</span>添加端口
               </button>
@@ -505,7 +505,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Target</th>
                 <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Node Port</th>
                 <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Protocol</th>
-                <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">操作</th>
+                <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">{{ $t('ns.svcDetail.operations') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
@@ -516,7 +516,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 <td v-if="hasNodePort" class="px-sm py-1.5 font-mono text-xs" :class="p.nodePort ? 'text-tertiary-container font-semibold' : 'text-on-surface-variant'">{{ p.nodePort || '—' }}</td>
                 <td class="px-sm py-1.5"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant">{{ p.protocol }}</span></td>
                 <td v-if="canMutate && portRows.length" class="px-sm py-1.5 text-center">
-                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors" title="删除该端口"><span class="material-symbols-outlined text-base">delete</span></button>
+                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors" :title="$t('ns.svcDetail.deletePortHint')"><span class="material-symbols-outlined text-base">delete</span></button>
                 </td>
               </tr>
             </tbody>
@@ -908,24 +908,24 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <label class="flex items-start gap-xs cursor-pointer" :class="{ 'cursor-not-allowed opacity-70': !canAutoMerge }">
         <input type="checkbox" v-model="autoMergeEnabled" :disabled="!canAutoMerge" class="mt-0.5 accent-primary" />
         <span class="text-body-sm">
-          该端口来自 <strong class="text-on-surface">{{ sourceWorkload }}</strong>（当前未在后端）——
-          <span v-if="canAutoMerge">保存时<strong class="text-primary">同时把它加入后端</strong></span>
-          <span v-else>无法自动加入</span>
+          {{ $t('ns.svcDetail.sourceWorkloadNotBound', { workload: sourceWorkload }) }}
+          <span v-if="canAutoMerge">{{ $t('ns.svcDetail.saveWillAddToBackend') }}</span>
+          <span v-else>{{ $t('ns.svcDetail.cannotAutoMerge') }}</span>
         </span>
       </label>
       <div v-if="canAutoMerge" class="mt-xs">
-        <p class="text-[10px] text-on-surface-variant/60 mb-0.5">selector 将合并为共有 label：</p>
+        <p class="text-[10px] text-on-surface-variant/60 mb-0.5">{{ $t('ns.svcDetail.selectorWillMerge') }}</p>
         <div class="flex flex-wrap gap-xs">
           <span v-for="(v, k) in portMergeSelector" :key="k" class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary text-xs font-mono border border-primary/30"><span class="font-semibold">{{ k }}</span>={{ v }}</span>
         </div>
-        <p v-if="portMergeAlsoMatch.length" class="text-[11px] text-tertiary-container mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">warning</span>还会顺带命中：{{ portMergeAlsoMatch.join('、') }}</p>
+        <p v-if="portMergeAlsoMatch.length" class="text-[11px] text-tertiary-container mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">warning</span>{{ $t('ns.svcDetail.willAlsoMatch', { workloads: portMergeAlsoMatch.join('、') }) }}</p>
       </div>
-      <p v-else class="text-[11px] text-error mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>{{ sourceWorkload }} 与当前后端无共享 label，无法用单个 selector 同时选中。需先给它和后端打上共同 label。</p>
+      <p v-else class="text-[11px] text-error mt-xs flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>{{ $t('ns.svcDetail.noSharedLabelMerge', { workload: sourceWorkload }) }}</p>
     </div>
     <template #actions>
-      <button @click="showAddPortModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+      <button @click="showAddPortModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
       <button @click="saveAddPort" :disabled="!canAddPort || addingPort" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
-        <span v-if="addingPort" class="material-symbols-outlined text-base align-middle animate-spin mr-xs">progress_activity</span>添加
+        <span v-if="addingPort" class="material-symbols-outlined text-base align-middle animate-spin mr-xs">progress_activity</span>{{ $t('ns.svcDetail.add') }}
       </button>
     </template>
   </Modal>
