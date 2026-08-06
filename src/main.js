@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './i18n'
 import './styles/main.css'
 
 // 终端弹窗（新标签页）从 URL 接收 session token 并写入 sessionStorage（同源但 sessionStorage 不跨标签页）
@@ -19,4 +20,5 @@ import { useAuthStore } from './stores/auth'
 useAuthStore(pinia).init()
 
 app.use(router)
+app.use(i18n)
 app.mount('#app')
