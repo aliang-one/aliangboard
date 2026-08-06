@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
@@ -22,6 +23,15 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const priorityClassesQuery = useResourceList({
+  key: ['cluster', cid.value, 'priorityclasses'],
+  fetcher: () => store.fetchPriorityClasses(),
+  mock: store.priorityClassList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 
 const ns = computed(() => route.params.namespace)
 
@@ -217,7 +227,7 @@ const containerTargets = computed(() => {
 })
 const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
 const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
-const availablePriorityClasses = computed(() => store.priorityClassList.map(p => p.name))
+const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
 const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
 
 // 部署向导：targetPort 候选 = 本步骤已填的容器端口（去重），引导用户选对后端端口
