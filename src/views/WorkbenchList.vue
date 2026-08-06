@@ -53,9 +53,14 @@ async function doCreate() {
         </h2>
         <p class="text-body-sm text-on-surface-variant mt-xs">目标驱动的工程 repo:每个项目一个 git 仓库,存 manifests / notes;后续接 AI authoring + 人审 apply(越用越懂集群)。</p>
       </div>
-      <button @click="showCreate = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
-        <span class="material-symbols-outlined text-sm">add</span> 新建项目
-      </button>
+      <div class="flex items-center gap-sm">
+        <button @click="router.push({ name: 'WorkbenchLedger' })" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">
+          <span class="material-symbols-outlined text-sm">menu_book</span> 集群台账
+        </button>
+        <button @click="showCreate = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+          <span class="material-symbols-outlined text-sm">add</span> 新建项目
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
