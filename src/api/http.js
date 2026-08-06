@@ -5,6 +5,7 @@
 //   - resolveAuth(): () => header 对象（如 { authorization: 'Bearer …' } / { 'x-platform-token': … }）
 //   - onUnauthorized(path, response): 401 时的处理（清凭据 + 跳登录），由调用方按层（k8s/平台）决定
 // 这样 http.js 纯净可单测，client.js 造两个实例（k8sHttp / platformHttp）即可。
+import { i18n } from '@/i18n'
 
 // 响应体解析：空 → null；JSON → 对象；非 JSON → 原文本。与原 request/platformRequest 行为一致。
 export function parseBody(text) {
@@ -30,7 +31,7 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
     const body = parseBody(text)
     if (!response.ok) {
       if (response.status === 401) onUnauthorized?.(path, response)
-      const error = new Error(body?.message || `请求失败：HTTP ${response.status}`)
+      const error = new Error(body?.message || i18n.global.t('api.requestFailed', { status: response.status }))
       error.status = response.status
       error.details = body
       throw error
@@ -50,7 +51,7 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
       const text = await response.text().catch(() => '')
       if (response.status === 401) onUnauthorized?.(path, response)
       const body = parseBody(text)
-      const msg = body?.message || (typeof body === 'string' ? body : '') || `下载失败：HTTP ${response.status}`
+      const msg = body?.message || (typeof body === 'string' ? body : '') || i18n.global.t('api.downloadFailed', { status: response.status })
       const error = new Error(msg)
       error.status = response.status
       error.details = body
