@@ -127,7 +127,7 @@ const steps = [
   { title: 'Basic Information', icon: 'info' },
   { title: 'Container Config', icon: 'layers' },
   { title: 'Volumes', icon: 'storage' },
-  { title: '高级设置', icon: 'settings' },
+  { title: 'Advanced Settings', icon: 'settings' },
   { title: 'Service & Ingress', icon: 'hub' },
   { title: 'Review & Deploy', icon: 'rocket_launch' },
 ]
