@@ -12,6 +12,15 @@ function names(items) {
   return (items || []).map(i => i.metadata?.name).filter(Boolean)
 }
 
+// 常见 operator/扩展的 group → 产品名推断(bootstrap CRD 列表时标注,帮 agent 识别"装了啥")
+const OPERATOR_MAP = {
+  'argoproj.io': 'ArgoCD', 'cert-manager.io': 'cert-manager', 'monitoring.coreos.com': 'Prometheus Operator',
+  'networking.istio.io': 'Istio', 'tekton.dev': 'Tekton', 'source.toolkit.fluxcd.io': 'Flux',
+  'helm.toolkit.fluxcd.io': 'Flux Helm', 'kustomize.toolkit.fluxcd.io': 'Flux Kustomize',
+  'traefik.io': 'Traefik', 'traefik.containo.us': 'Traefik', 'gateway.networking.k8s.io': 'Gateway API',
+  'external-secrets.io': 'External Secrets', 'keda.sh': 'KEDA', 'operator.knative.dev': 'Knative',
+}
+
 // 把 cluster-wide 的 deployments/services/ingresses 按 namespace 分组(纯)
 export function groupWorkloads(deployments = [], services = [], ingresses = []) {
   const byNs = {}
@@ -27,7 +36,7 @@ export function groupWorkloads(deployments = [], services = [], ingresses = []) 
 }
 
 // 生成 INDEX.md(markdown 字符串)。任一 survey 项可为 null(该集群无此资源/survey 失败)。
-export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses } = {}) {
+export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses } = {}) {
   const L = []
   L.push(`# ${clusterName || '集群'} 能力地图`)
   L.push('')
@@ -55,6 +64,18 @@ export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespa
   if (storageClasses) {
     L.push('## 存储 StorageClasses')
     L.push(names(storageClasses).map(n => `- ${n}`).join('\n') || '_(无)_')
+    L.push('')
+  }
+  if (crds) {
+    L.push('## 已安装扩展（CRD / Operator）')
+    const lines = [...new Set((crds || []).map(c => {
+      const group = c.spec?.group || ''
+      const kind = c.spec?.names?.kind || ''
+      if (!group || !kind) return ''
+      const product = OPERATOR_MAP[group]
+      return `- ${group}/${kind}${product ? `  (${product})` : ''}`
+    }).filter(Boolean))].sort()
+    L.push(lines.length ? lines.join('\n') : '_(无)_')
     L.push('')
   }
 
