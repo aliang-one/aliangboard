@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -8,6 +9,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -87,7 +89,7 @@ function saveEdit() {
   <div class="animate-fade-in" v-if="np">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'NetworkPolicies', route: `/ns/${route.params.namespace}/networkpolicies` },
+      { label: t('ns.netpolDetail.networkPolicies'), route: `/ns/${route.params.namespace}/networkpolicies` },
       { label: route.params.name }
     ]" />
 
@@ -100,18 +102,18 @@ function saveEdit() {
         <div>
           <h1 class="text-display-lg text-on-surface">{{ np.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
-            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">NetworkPolicy</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ np.age }}</span>
-            <span class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ np.namespace }}</span></span>
+            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ t('ns.netpolDetail.networkPolicy') }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ np.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium">{{ np.namespace }}</span></span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -121,7 +123,7 @@ function saveEdit() {
       <button v-for="tab in ['overview', 'ingress rules', 'egress rules', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
+        {{ tab === 'overview' ? t('common.status') : tab === 'ingress rules' ? t('ns.netpolDetail.ingressRulesTab') : tab === 'egress rules' ? t('ns.netpolDetail.egressRulesTab') : 'YAML' }}
       </button>
     </div>
 
@@ -130,7 +132,7 @@ function saveEdit() {
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <!-- Pod Selector -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Pod Selector</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.netpolDetail.podSelector') }}</h3>
           <div v-if="Object.keys(np.podSelector || {}).length > 0" class="flex flex-wrap gap-sm">
             <span v-for="(val, key) in np.podSelector" :key="key"
               class="px-md py-xs bg-primary-container/10 text-primary text-body-sm rounded-full border border-primary/20">
@@ -139,13 +141,13 @@ function saveEdit() {
           </div>
           <div v-else class="flex items-center gap-sm">
             <span class="material-symbols-outlined text-on-surface-variant">select_all</span>
-            <span class="text-body-md text-on-surface-variant">Applies to <span class="font-semibold text-on-surface">all pods</span> in this namespace</span>
+            <span class="text-body-md text-on-surface-variant" v-html="t('ns.netpolDetail.appliesToAllPods')"></span>
           </div>
         </div>
 
         <!-- Policy Types -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Policy Types</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.netpolDetail.policyTypes') }}</h3>
           <div class="flex gap-md">
             <div v-for="pt in np.policyTypes" :key="pt" class="flex-1 p-md rounded-lg border"
               :class="pt === 'Ingress' ? 'bg-primary-container/5 border-primary/20' : 'bg-tertiary-container/5 border-tertiary/20'">
@@ -156,8 +158,8 @@ function saveEdit() {
                 <span class="text-body-md font-semibold" :class="pt === 'Ingress' ? 'text-primary' : 'text-tertiary'">{{ pt }}</span>
               </div>
               <p class="text-body-sm text-on-surface-variant">
-                <span v-if="pt === 'Ingress'">{{ (np.ingressRules || []).length }} ingress rule(s) defined</span>
-                <span v-else>{{ (np.egressRules || []).length }} egress rule(s) defined</span>
+                <span v-if="pt === 'Ingress'">{{ t('ns.netpolDetail.ingressRules', { n: (np.ingressRules || []).length }) }}</span>
+                <span v-else>{{ t('ns.netpolDetail.egressRules', { n: (np.egressRules || []).length }) }}</span>
               </p>
             </div>
           </div>
@@ -167,26 +169,26 @@ function saveEdit() {
       <!-- Right Sidebar -->
       <div class="lg:col-span-4 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.netpolDetail.summary') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Policy Types</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.policyTypes') }}</span>
               <span class="text-body-md font-semibold text-primary">{{ (np.policyTypes || []).join(', ') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Ingress Rules</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.ingressRulesTab') }}</span>
               <span class="text-body-md font-semibold" :class="(np.ingressRules || []).length > 0 ? 'text-primary' : 'text-on-surface'">{{ (np.ingressRules || []).length }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Egress Rules</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.egressRulesTab') }}</span>
               <span class="text-body-md font-semibold" :class="(np.egressRules || []).length > 0 ? 'text-tertiary' : 'text-on-surface'">{{ (np.egressRules || []).length }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Pod Selector</span>
-              <span class="text-body-md text-on-surface">{{ Object.keys(np.podSelector || {}).length === 0 ? 'All Pods' : Object.keys(np.podSelector).length + ' label(s)' }}</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.podSelector') }}</span>
+              <span class="text-body-md text-on-surface">{{ Object.keys(np.podSelector || {}).length === 0 ? t('ns.netpolDetail.allPods') : t('ns.netpolDetail.labelsCount', { n: Object.keys(np.podSelector).length }) }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}</span>
               <span class="text-body-md text-on-surface">{{ np.age }}</span>
             </div>
           </div>
@@ -198,14 +200,14 @@ function saveEdit() {
     <div v-if="activeTab === 'ingress rules'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Ingress Rules ({{ (np.ingressRules || []).length }})</h3>
+          <h3 class="text-headline-sm">{{ t('ns.netpolDetail.ingressRulesTab') }} {{ t('ns.netpolDetail.ruleCount', { n: (np.ingressRules || []).length }) }}</h3>
         </div>
         <table v-if="(np.ingressRules || []).length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
               <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">From</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Ports</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.from') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -221,7 +223,7 @@ function saveEdit() {
                     </span>
                     <span class="text-body-sm text-on-surface">{{ describePeer(peer) }}</span>
                   </div>
-                  <span v-if="!rule.from || rule.from.length === 0" class="text-body-sm text-on-surface-variant">No from rules (blocks all ingress)</span>
+                  <span v-if="!rule.from || rule.from.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noFromRules') }}</span>
                 </div>
               </td>
               <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ describePorts(rule.ports) }}</td>
@@ -230,7 +232,7 @@ function saveEdit() {
         </table>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">block</span>
-          <p class="mt-sm">No ingress rules defined. All ingress traffic is {{ np.policyTypes.includes('Ingress') ? 'blocked' : 'allowed' }}.</p>
+          <p class="mt-sm" v-html="t('ns.netpolDetail.noIngressRules', { status: np.policyTypes.includes('Ingress') ? t('ns.netpolDetail.blocked') : t('ns.netpolDetail.allowed') })"></p>
         </div>
       </div>
     </div>
@@ -239,14 +241,14 @@ function saveEdit() {
     <div v-if="activeTab === 'egress rules'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Egress Rules ({{ (np.egressRules || []).length }})</h3>
+          <h3 class="text-headline-sm">{{ t('ns.netpolDetail.egressRulesTab') }} {{ t('ns.netpolDetail.ruleCount', { n: (np.egressRules || []).length }) }}</h3>
         </div>
         <table v-if="(np.egressRules || []).length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
               <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">To</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Ports</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.to') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -262,7 +264,7 @@ function saveEdit() {
                     </span>
                     <span class="text-body-sm text-on-surface">{{ describePeer(peer) }}</span>
                   </div>
-                  <span v-if="!rule.to || rule.to.length === 0" class="text-body-sm text-on-surface-variant">No to rules (blocks all egress)</span>
+                  <span v-if="!rule.to || rule.to.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noToRules') }}</span>
                 </div>
               </td>
               <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ describePorts(rule.ports) }}</td>
@@ -271,7 +273,7 @@ function saveEdit() {
         </table>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">block</span>
-          <p class="mt-sm">No egress rules defined. All egress traffic is {{ np.policyTypes.includes('Egress') ? 'blocked' : 'allowed' }}.</p>
+          <p class="mt-sm" v-html="t('ns.netpolDetail.noEgressRules', { status: np.policyTypes.includes('Egress') ? t('ns.netpolDetail.blocked') : t('ns.netpolDetail.allowed') })"></p>
         </div>
       </div>
     </div>
@@ -286,36 +288,36 @@ function saveEdit() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">NetworkPolicy Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">NetworkPolicy "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsNetworkPolicies', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to NetworkPolicies</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('ns.netpolDetail.notFound') }}</h2>
+    <p class="text-body-md text-on-surface-variant mt-sm">{{ t('ns.netpolDetail.notFoundDetail', { name: route.params.name, ns: route.params.namespace }) }}</p>
+    <button @click="router.push({ name: 'NsNetworkPolicies', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('ns.netpolDetail.backToNetworkPolicies') }}</button>
   </div>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete NetworkPolicy" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete NetworkPolicy <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing this policy may expose pods to unintended network traffic. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.netpolDetail.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="t('ns.netpolDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.netpolDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit NetworkPolicy" width="max-w-xl">
+  <Modal v-model="showEditModal" :title="t('ns.netpolDetail.editModalTitle')" width="max-w-xl">
     <div class="flex flex-col gap-lg">
       <!-- Pod Selector -->
       <div>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Pod Selector</label>
-          <span class="text-xs text-on-surface-variant">空表示所有 Pod</span>
+          <label class="text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.podSelectorLabel') }}</label>
+          <span class="text-xs text-on-surface-variant">{{ t('ns.netpolDetail.emptyAllPods') }}</span>
         </div>
         <div class="flex flex-col gap-sm">
           <div v-for="(entry, idx) in editPodSelector" :key="idx" class="flex items-center gap-sm">
-            <input v-model="entry.key" placeholder="label-key"
+            <input v-model="entry.key" :placeholder="t('common.name')"
               class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
             <span class="text-on-surface-variant">=</span>
-            <input v-model="entry.value" placeholder="label-value"
+            <input v-model="entry.value" :placeholder="t('common.name')"
               class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
             <button @click="removePodSelectorRow(idx)"
               class="flex items-center justify-center w-9 h-9 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-error-container/10 hover:text-error hover:border-error/30 transition-colors">
@@ -323,38 +325,38 @@ function saveEdit() {
             </button>
           </div>
           <div v-if="editPodSelector.length === 0" class="text-body-sm text-on-surface-variant italic py-sm">
-            无标签 — 策略将应用于该命名空间下的所有 Pod
+            {{ t('ns.netpolDetail.noLabels') }}
           </div>
         </div>
         <button @click="addPodSelectorRow"
           class="mt-sm flex items-center gap-xs px-md py-xs border border-outline-variant rounded-lg text-body-sm text-primary hover:bg-primary-container/10 transition-colors">
-          <span class="material-symbols-outlined text-base">add</span> Add Label
+          <span class="material-symbols-outlined text-base">add</span> {{ t('ns.netpolDetail.addLabel') }}
         </button>
       </div>
 
       <!-- Policy Types -->
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Policy Types</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.netpolDetail.policyTypesLabel') }}</label>
         <div class="flex gap-md">
           <label class="flex-1 flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg cursor-pointer">
             <input type="checkbox" v-model="editIngress" class="w-4 h-4 accent-primary" />
-            <span class="text-body-md text-on-surface">Ingress</span>
+            <span class="text-body-md text-on-surface">{{ t('ns.netpolDetail.ingress') }}</span>
           </label>
           <label class="flex-1 flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg cursor-pointer">
             <input type="checkbox" v-model="editEgress" class="w-4 h-4 accent-primary" />
-            <span class="text-body-md text-on-surface">Egress</span>
+            <span class="text-body-md text-on-surface">{{ t('ns.netpolDetail.egress') }}</span>
           </label>
         </div>
       </div>
 
       <p class="text-body-sm text-on-surface-variant">
         <span class="material-symbols-outlined text-sm align-middle mr-xs">info</span>
-        Ingress/Egress 规则请在 YAML 标签页编辑
+        {{ t('ns.netpolDetail.editYamlHint') }}
       </p>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.save') }}</button>
     </template>
   </Modal>
 </template>
