@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -15,9 +17,10 @@ import { usePagination } from '@/composables/usePagination'
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
+const { t } = useI18n()
 
 // Nodes 走 Vue Query：远端 30s 轮询 + 聚焦窗口后台重拉（新鲜度）；mock 模式返回种子（staleTime:Infinity 不重拉）。
-// hydrate 仍为 ClusterOverview 等供数（过渡期双源，后续域迁移后收敛）。
+const queryClient = useQueryClient()
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const nodesQuery = useResourceList({
   key: ['cluster', cid.value, 'nodes'],
@@ -33,9 +36,9 @@ const loading = computed(() => nodesQuery.isLoading.value && store.remoteMode)
 const searchQuery = ref('')
 const syncing = computed(() => nodesQuery.isFetching.value)
 async function sync() {
-  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
-  try { await nodesQuery.refetch(); notify('success', '已同步节点') }
-  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  if (!store.remoteMode) { notify('info', t('nodes.noSyncNeeded')); return }
+  try { await nodesQuery.refetch(); notify('success', t('nodes.synced')) }
+  catch (e) { notify('error', `${t('nodes.syncFailed')}：${e.message || ''}`) }
 }
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -52,12 +55,12 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">Nodes</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">Monitor and manage cluster nodes. {{ healthyCount }} of {{ nodes.length }} healthy.</p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ $t('nodes.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('nodes.subtitle') }} {{ $t('nodes.subtitleDetail', { healthy: healthyCount, total: nodes.length }) }}</p>
       </div>
       <div class="flex gap-sm">
         <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? $t('nodes.syncing') : $t('common.sync') }}
         </button>
       </div>
     </div>
@@ -66,17 +69,16 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
     <div class="flex items-center gap-md mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称、角色或 IP 搜索..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="$t('nodes.searchPlaceholder')" />
         <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
       </div>
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ nodes.length }}</span>
     </div>
 
-    <div v-if="loading" class="flex items-center justify-center gap-sm py-xl text-on-surface-variant">
-      <span class="material-symbols-outlined text-2xl animate-spin">progress_activity</span>
-      <span class="text-body-sm">加载节点中…</span>
+    <div v-if="loading" class="flex items-center justify-center py-xl">
+      <span class="material-symbols-outlined text-2xl animate-spin text-on-surface-variant">progress_activity</span>
     </div>
-    <EmptyState v-else-if="!filtered.length" icon="dns" title="No nodes found" description="集群暂无节点，或被搜索条件过滤。" />
+    <EmptyState v-else-if="!filtered.length" icon="dns" :title="$t('nodes.noNodesTitle')" :description="$t('nodes.noNodesDesc')" />
     <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/nodes/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
@@ -128,13 +130,13 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button v-if="!row.unschedulable" @click.stop="store.cordonNode(row.name)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Cordon">
+          <button v-if="!row.unschedulable" @click.stop="store.cordonNode(row.name)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="$t('nodes.cordonTitle')">
             <span class="material-symbols-outlined text-lg">lock</span>
           </button>
-          <button v-else @click.stop="store.uncordonNode(row.name)" class="p-sm text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Uncordon">
+          <button v-else @click.stop="store.uncordonNode(row.name)" class="p-sm text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="$t('nodes.uncordonTitle')">
             <span class="material-symbols-outlined text-lg">lock_open</span>
           </button>
-          <button @click.stop="router.push(`/nodes/${row.name}`)" class="p-sm text-on-surface-variant hover:text-tertiary-container hover:bg-tertiary-container/10 rounded-lg transition-all" title="Drain">
+          <button @click.stop="router.push(`/nodes/${row.name}`)" class="p-sm text-on-surface-variant hover:text-tertiary-container hover:bg-tertiary-container/10 rounded-lg transition-all" :title="$t('nodes.drainTitle')">
             <span class="material-symbols-outlined text-lg">output</span>
           </button>
         </div>
