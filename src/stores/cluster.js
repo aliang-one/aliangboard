@@ -2116,6 +2116,8 @@ export const useClusterStore = defineStore('cluster', () => {
       age: ageOf(item.metadata?.creationTimestamp),
       labels: item.metadata?.labels || {},
       annotations: item.metadata?.annotations || {},
+      // 保留原始对象：详情页 YAML 需完整 server 对象（clusterIP/labels 等），避免 SSA force apply 丢字段
+      raw: item,
     }
   }
   const mapIngress = item => {
