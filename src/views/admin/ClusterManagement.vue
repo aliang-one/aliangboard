@@ -4,16 +4,10 @@ import { ref, onMounted } from 'vue'
 import { adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
-import { useRouter } from 'vue-router'
+import ClusterCard from '@/components/common/ClusterCard.vue'
 import { useClusterStore } from '@/stores/cluster'
 
-const router = useRouter()
 const store = useClusterStore()
-// 点击集群卡片：切换到该集群并进入集群管理界面（/cluster）
-async function openCluster(c) {
-  if (c.apiServer && c.apiServer !== store.cluster?.apiServer) await store.switchCluster(c.apiServer)
-  router.push('/cluster')
-}
 
 const clusters = ref([])
 const loading = ref(true)
@@ -56,19 +50,7 @@ async function doRemove(c) {
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
     <div v-else-if="clusters.length" class="grid grid-cols-1 md:grid-cols-2 gap-md">
-      <div v-for="c in clusters" :key="c.id" @click="openCluster(c)" class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md flex items-center gap-md cursor-pointer hover:border-primary/40 transition-colors">
-        <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-primary text-2xl">dns</span></div>
-        <div class="min-w-0 flex-1">
-          <p class="text-body-md font-semibold text-on-surface truncate">{{ c.name }}</p>
-          <p class="font-mono text-xs text-on-surface-variant truncate">{{ c.apiServer }}</p>
-          <div class="flex items-center gap-xs mt-xs">
-            <span class="px-1.5 py-0.5 rounded bg-surface-container text-body-xs text-on-surface-variant">{{ c.authMethod }}</span>
-            <span class="text-body-xs text-status-running flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-status-running"></span>{{ c.version || '未知' }}</span>
-            <span class="text-body-xs text-on-surface-variant/50">by {{ c.createdBy }}</span>
-          </div>
-        </div>
-        <button @click.stop="doRemove(c)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error shrink-0" title="删除"><span class="material-symbols-outlined text-base">delete</span></button>
-      </div>
+      <ClusterCard v-for="c in clusters" :key="c.id" :cluster="c" :active="c.name === store.currentCluster" @remove="doRemove(c)" />
     </div>
     <div v-else class="rounded-xl border border-dashed border-outline-variant/50 py-xl text-center">
       <span class="material-symbols-outlined text-3xl text-surface-container-high">cloud_off</span>
