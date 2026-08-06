@@ -1,5 +1,8 @@
 <script setup>
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   workloadName: { type: String, required: true },
@@ -51,7 +54,7 @@ function decrement() { if (replicas.value > 0) replicas.value-- }
 
       <div v-if="replicas !== currentReplicas" class="text-center mb-lg">
         <p class="text-body-md">
-          从 <span class="font-bold">{{ currentReplicas }}</span> 调整为
+          {{ t('component.scaleDialog.adjustFrom', { current: currentReplicas }) }}
           <span class="font-bold text-primary">{{ replicas }}</span>
         </p>
       </div>

@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import PortSelect from '@/components/common/PortSelect.vue'
 import { SECRET_TEMPLATES, buildSecretData } from '@/composables/useSecretTemplates'
 
+const { t } = useI18n()
 const store = useClusterStore()
 
 const props = defineProps({
@@ -221,7 +223,7 @@ spec:
                     </div>
                   </div>
                   <div><label class="text-label-caps text-on-surface-variant block mb-xs">Port</label><input v-model.number="serviceForm.port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="store.nsContainerPorts" placeholder="8080" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="store.nsContainerPorts" placeholder="8080" :empty-hint="t('component.createDialog.serviceEmptyHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
                 </div>
               </template>
 
@@ -241,7 +243,7 @@ spec:
               <template v-if="resourceType === 'secret'">
               <!-- Secret 模板选择器 -->
               <div>
-                <label class="text-label-caps text-on-surface-variant block mb-xs">模板</label>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createDialog.secretTemplateLabel') }}</label>
                 <div class="grid grid-cols-2 gap-xs">
                   <button v-for="tpl in SECRET_TEMPLATES" :key="tpl.id" type="button" @click="secretForm.templateId = tpl.id"
                     class="flex items-center gap-sm px-md py-sm rounded-lg border text-left transition-all"
@@ -267,12 +269,12 @@ spec:
                   <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" placeholder="value" />
                   <button @click="() => { if (secretForm.fields.data.length > 1) secretForm.fields.data.splice(i, 1) }" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">close</span></button>
                 </div>
-                <button @click="secretForm.fields.data.push({ key: '', value: '' })" class="text-body-sm text-primary font-medium hover:underline">+ 添加</button>
+                <button @click="secretForm.fields.data.push({ key: '', value: '' })" class="text-body-sm text-primary font-medium hover:underline">{{ t('component.createDialog.addData') }}</button>
               </div>
               <!-- 非 Opaque: 按模板 fields 动态渲染 -->
               <div v-else class="mt-md">
                 <div v-for="f in SECRET_TEMPLATES.find(t => t.id === secretForm.templateId)?.fields" :key="f.key" class="mb-sm">
-                  <label class="text-label-caps text-on-surface-variant block mb-xs">{{ f.label }}{{ f.optional ? '（可选）' : '' }}</label>
+                  <label class="text-label-caps text-on-surface-variant block mb-xs">{{ f.label }}{{ f.optional ? t('component.createDialog.optionalSuffix') : '' }}</label>
                   <!-- select -->
                   <select v-if="f.type === 'select'" v-model="secretForm.fields[f.key]" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
                     <option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>

@@ -4,12 +4,15 @@
 // 所选 shell 不可用（无输出即退出）时自动降级尝试下一个，全失败则提示用「调试容器」。
 // 仅 remoteMode 建立真实 exec。
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useClusterStore } from '@/stores/cluster'
 import { execStream } from '@/api/client'
+
+const { t } = useI18n()
 
 const props = defineProps({
   podName: { type: String, default: '' },
@@ -86,15 +89,18 @@ function handleEnd(statusVal, code, errMsg) {
   if (!props.attach && !gotOutput && !customShell.value && shellIdx.value < SHELLS.length - 1) {
     const prev = SHELLS[shellIdx.value]
     shellIdx.value++
-    term.writeln(`\x1b[33m${prev} 不可用，尝试 ${cmd.value}…\x1b[0m`)
+    term.writeln(`\x1b[33m${t('terminal.shellUnavailable', { prev, cmd: cmd.value })}\x1b[0m`)
     closeStream()
     openStream()
     return
   }
   if (errMsg) term.writeln(`\x1b[31m${errMsg}\x1b[0m`)
-  else term.writeln(`\x1b[33m[会话结束${statusVal ? ` status=${statusVal}` : ''}${code != null ? ` code=${code}` : ''}]\x1b[0m`)
+  else {
+    const detail = `${statusVal ? ` status=${statusVal}` : ''}${code != null ? ` code=${code}` : ''}`
+    term.writeln(`\x1b[33m${t('terminal.sessionEnded', { detail })}\x1b[0m`)
+  }
   if (!props.attach && !gotOutput && !customShell.value && shellIdx.value >= SHELLS.length - 1) {
-    term.writeln('\x1b[31m所有 shell 均不可用——可能是 distroless 镜像（无 shell）。可在下方手动指定命令，或用「调试容器」注入一个含 shell 的 sidecar。\x1b[0m')
+    term.writeln(`\x1b[31m${t('terminal.allShellsFailed')}\x1b[0m`)
     manualNeeded.value = true   // 自动检测全失败：交给用户手动选/填
   }
   setStatus(errMsg ? 'error' : 'closed', errMsg || '')
@@ -102,7 +108,7 @@ function handleEnd(statusVal, code, errMsg) {
 
 async function connect(opts = {}) {
   if (!store.remoteMode) return
-  if (!props.podName || !props.namespace) { setStatus('error', '缺少 Pod / namespace 上下文'); return }
+  if (!props.podName || !props.namespace) { setStatus('error', t('terminal.missingContext')); return }
   teardown()
   // 自动连接（非手动）：清掉自定义命令，从首选 shell 起步并允许自动降级
   if (!opts.manual) { customShell.value = ''; shellIdx.value = 0 }
@@ -110,7 +116,7 @@ async function connect(opts = {}) {
   setStatus('connecting')
   await nextTick()          // 等待 <div ref="root"> 挂载，xterm 才能 open
   ensureTerm()
-  term.writeln(`\x1b[36m${props.attach ? 'attach' : `exec ${cmd.value}`} → ${props.namespace}/${props.podName}（${props.container || '默认容器'}）…\x1b[0m`)
+  term.writeln(`\x1b[36m${t('terminal.connectingHint', { action: props.attach ? 'attach' : `exec ${cmd.value}`, namespace: props.namespace, pod: props.podName, container: props.container || t('terminal.defaultContainer') })}\x1b[0m`)
   openStream()
   setStatus('open')
   if (root.value && typeof ResizeObserver !== 'undefined') {
@@ -142,13 +148,13 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
     <div v-if="status === 'idle'" class="flex-1 flex flex-col items-center justify-center gap-md p-xl">
       <span class="material-symbols-outlined text-4xl text-on-surface-variant">terminal</span>
       <p v-if="!store.remoteMode" class="text-body-sm text-on-surface-variant text-center max-w-md">
-        终端（kubectl exec）需要连接真实集群；当前为演示数据模式，无法进入容器。
+        {{ t('terminal.demoModeHint') }}
       </p>
       <template v-else>
         <p class="text-body-sm text-on-surface-variant">
-          exec 进入 <span class="font-mono text-on-surface">{{ container || '默认容器' }}</span>
+          exec {{ t('terminal.execInto') }} <span class="font-mono text-on-surface">{{ container || t('terminal.defaultContainer') }}</span>
         </p>
-        <p class="text-body-xs text-on-surface-variant/60">点击连接即自动检测可用 shell（sh / bash / ash …）</p>
+        <p class="text-body-xs text-on-surface-variant/60">{{ t('terminal.autoDetectHint') }}</p>
       </template>
       <button v-if="store.remoteMode" @click="connect" :disabled="status === 'connecting'"
         class="px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 flex items-center gap-sm disabled:opacity-50">
@@ -173,8 +179,8 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
             <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
             <span class="text-body-sm text-primary">Live</span>
           </span>
-          <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? '连接中…' : status === 'error' ? 'Error' : 'Disconnected' }}</span>
-          <button @click="connect" title="重新连接" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+          <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
+          <button @click="connect" :title="t('terminal.reconnectTitle')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-lg">refresh</span>
           </button>
         </div>
@@ -183,13 +189,13 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
       <p v-if="statusMsg" class="px-md py-xs text-xs text-error bg-error-container/10">{{ statusMsg }}</p>
       <!-- 自动检测全失败：手动选/填 shell -->
       <div v-if="manualNeeded" class="px-md py-sm bg-surface-container-low border-t border-outline-variant shrink-0">
-        <p class="text-body-xs text-on-surface-variant mb-xs">未自动检测到可用 shell，请手动选择或输入启动命令：</p>
+        <p class="text-body-xs text-on-surface-variant mb-xs">{{ t('terminal.manualNeededHint') }}</p>
         <div class="flex items-center gap-xs">
           <select v-model.number="shellIdx" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary">
             <option v-for="(s, i) in SHELLS" :key="s" :value="i">{{ s }}</option>
           </select>
-          <input v-model="manualCmd" placeholder="自定义命令（如 /bin/bash、python）" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary" @keydown.enter="connectManual" />
-          <button @click="connectManual" class="px-sm py-1 bg-primary text-on-primary rounded-lg text-body-xs font-semibold hover:opacity-90 shrink-0">用此连接</button>
+          <input v-model="manualCmd" :placeholder="t('terminal.manualCmdPlaceholder')" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary" @keydown.enter="connectManual" />
+          <button @click="connectManual" class="px-sm py-1 bg-primary text-on-primary rounded-lg text-body-xs font-semibold hover:opacity-90 shrink-0">{{ t('terminal.connectWithCmd') }}</button>
         </div>
       </div>
     </template>

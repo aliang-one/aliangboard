@@ -2,9 +2,11 @@
 // 浮动终端窗口：可拖拽、重命名、最小化、全屏、新标签页打开、关闭。
 // 内嵌 InteractiveTerminal（exec 连接随窗口生命周期）。
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
+const { t } = useI18n()
 const props = defineProps({
   terminal: { type: Object, required: true },
 })
@@ -83,21 +85,21 @@ const winStyle = computed(() => isMax.value
       <!-- 可编辑名称 -->
       <input v-if="editing" v-model="nameInput" @blur="saveName" @keydown.enter="saveName" @keydown.esc="editing = false"
              class="flex-1 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
-      <span v-else @dblclick="editing = true; nameInput = terminal.name" class="flex-1 text-body-sm font-medium text-on-surface truncate" :title="terminal.name + '（双击重命名）'">
+      <span v-else @dblclick="editing = true; nameInput = terminal.name" class="flex-1 text-body-sm font-medium text-on-surface truncate" :title="t('terminal.dblClickRename', { name: terminal.name })">
         {{ shortName }}
         <span class="text-on-surface-variant/50 text-body-xs ml-xs">{{ terminal.namespace }}</span>
       </span>
       <!-- 窗口操作 -->
-      <button @click="openInNewTab" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" title="在新标签页打开">
+      <button @click="openInNewTab" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="t('terminal.openInNewTabTitle')">
         <span class="material-symbols-outlined text-base">open_in_new</span>
       </button>
-      <button @click="toggleMax" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="isMax ? '还原' : '全屏'">
+      <button @click="toggleMax" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="isMax ? t('terminal.restoreTitle') : t('terminal.maximizeTitle')">
         <span class="material-symbols-outlined text-base">{{ isMax ? 'fullscreen_exit' : 'fullscreen' }}</span>
       </button>
-      <button @click="minimize" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface" title="最小化">
+      <button @click="minimize" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface" :title="t('terminal.minimizeTitle')">
         <span class="material-symbols-outlined text-base">remove</span>
       </button>
-      <button @click="close" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error" title="关闭终端">
+      <button @click="close" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error" :title="t('terminal.closeTerminalTitle')">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>

@@ -45,7 +45,7 @@ defineEmits(['row-click'])
           <tr v-if="!rows.length">
             <td :colspan="headers.length" class="px-lg py-xl text-center">
               <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant">暂无数据</p>
+              <p class="text-on-surface-variant">{{ $t('common.noData') }}</p>
             </td>
           </tr>
         </tbody>

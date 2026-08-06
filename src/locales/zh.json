@@ -109,7 +109,91 @@
       "close": "关闭"
     },
     "fileBrowser": {
-      "title": "文件管理 · {pod}{separator}{container}"
+      "title": "文件管理 · {pod}{separator}{container}",
+      "readDirFailed": "读取目录失败",
+      "readFailed": "读取失败",
+      "downloadFailed": "下载失败",
+      "uploaded": "已上传 {name}（{size} 字节）",
+      "uploadFailed": "上传失败",
+      "saved": "已保存",
+      "saveFailed": "保存失败",
+      "goUp": "上一级",
+      "uploadToDir": "上传到当前目录",
+      "upload": "上传",
+      "backToList": "返回列表",
+      "binary": "二进制",
+      "truncated": "已截断",
+      "download": "下载",
+      "emptyDir": "空目录",
+      "contentTruncated": "…（内容过长已截断，完整内容请下载）"
+    },
+    "asyncState": {
+      "loadFailed": "加载失败，请稍后重试",
+      "retry": "重试"
+    },
+    "filterBar": {
+      "resetFilters": "重置过滤"
+    },
+    "nodeActions": {
+      "cordonDesc": "标记节点为不可调度，新的 Pod 将不会被调度到此节点。现有 Pod 不受影响。",
+      "cordonWarn": "现有 Pod 不会被驱逐。",
+      "uncordonDesc": "恢复节点为可调度状态，新的 Pod 可以被调度到此节点。",
+      "drainDesc": "安全地驱逐节点上的所有 Pod，用于维护。",
+      "drainWarn": "所有 Pod 将被安全驱逐（优雅终止）。",
+      "confirmInputLabel": "输入节点名称以确认：",
+      "executing": "执行中..."
+    },
+    "portSelect": {
+      "emptyHint": "无可选端口，可直接输入",
+      "noMatchHint": "无匹配端口，可直接输入",
+      "noPortsHint": "该工作负载无暴露端口"
+    },
+    "resourceRef": {
+      "refTypeEnvFromDesc": "整体注入为环境变量",
+      "refTypeEnvDesc": "单个 Key 作为环境变量",
+      "refTypeVolumeDesc": "作为数据卷挂载",
+      "refTypeImagePullDesc": "镜像拉取凭证",
+      "refsTitle": "引用此 {kind} 的 Workload ({count})",
+      "refsHint": "修改 {kind} 将影响这些服务",
+      "thRefType": "引用方式",
+      "thDetail": "详情",
+      "envFromDetail": "所有 Key → 环境变量",
+      "imagePullDetail": "拉取镜像时认证",
+      "distTitle": "引用方式分布",
+      "impactTitle": "修改影响提示",
+      "impactDesc": "此 {kind} 被 {count} 个 Workload 引用。修改内容后，引用它的 Pod 需要 重启 才能生效（envFrom/env）或会自动反映（volume 挂载的配置文件，取决于应用是否热加载）。",
+      "restart": "重启",
+      "noRefsTitle": "暂无引用",
+      "noRefsHint": "当前命名空间内没有 Workload 引用此 {kind}",
+      "noRefsHint2": "这意味着此资源可能是孤立的，或仅被外部工具/Pod 直接引用"
+    },
+    "resourceTopology": {
+      "parseFailed": "解析归属链失败",
+      "parsing": "解析归属链…"
+    },
+    "scaleDialog": {
+      "adjustFrom": "从 {current} 调整为"
+    },
+    "tagInput": {
+      "removeTag": "移除 {tag}",
+      "atMax": "已达上限 {max} 个",
+      "inputPlaceholder": "输入标签后回车，或点击下方建议",
+      "usageCount": "{count} 次使用",
+      "hint": "逗号或回车提交，最多 {max} 个；输入时自动提示同 Namespace 已用标签。"
+    },
+    "toolOverride": {
+      "tierDefault": "{tier} 档默认(关掉=deny):",
+      "beyondTier": "越过 tier 追加(打开=allow):",
+      "rbacHint": "⚠️ allow 可越过 tier,但 SA 的真实 RBAC 才决定能否执行(策略放行、RBAC 拒→审计 error)。"
+    },
+    "volumeMountCard": {
+      "mainContainer": "主容器"
+    },
+    "createDialog": {
+      "secretTemplateLabel": "模板",
+      "addData": "+ 添加",
+      "optionalSuffix": "（可选）",
+      "serviceEmptyHint": "当前命名空间暂无工作负载暴露容器端口，可直接输入"
     }
   },
   "nav": {
@@ -1436,7 +1520,35 @@
   "terminal": {
     "title": "{name} · 终端",
     "expired": "会话已过期，请关闭此窗口并在原页面重新打开终端。",
-    "closeWindow": "关闭窗口"
+    "closeWindow": "关闭窗口",
+    "closeAllConfirm": "确定关闭全部 {count} 个终端会话？",
+    "closeAllTitle": "关闭所有终端",
+    "closeAll": "全部关闭",
+    "statusFloating": "浮动窗口",
+    "statusExternal": "在新标签页中打开",
+    "statusMinimized": "已最小化",
+    "closeThisTitle": "关闭此终端",
+    "countLabel": "{count} 个终端",
+    "dblClickRename": "{name}（双击重命名）",
+    "openInNewTabTitle": "在新标签页打开",
+    "restoreTitle": "还原",
+    "maximizeTitle": "全屏",
+    "minimizeTitle": "最小化",
+    "closeTerminalTitle": "关闭终端",
+    "shellUnavailable": "{prev} 不可用，尝试 {cmd}…",
+    "sessionEnded": "[会话结束{detail}]",
+    "allShellsFailed": "所有 shell 均不可用——可能是 distroless 镜像（无 shell）。可在下方手动指定命令，或用「调试容器」注入一个含 shell 的 sidecar。",
+    "missingContext": "缺少 Pod / namespace 上下文",
+    "connectingHint": "{action} → {namespace}/{pod}（{container}）…",
+    "defaultContainer": "默认容器",
+    "demoModeHint": "终端（kubectl exec）需要连接真实集群；当前为演示数据模式，无法进入容器。",
+    "execInto": "进入",
+    "autoDetectHint": "点击连接即自动检测可用 shell（sh / bash / ash …）",
+    "statusConnecting": "连接中…",
+    "reconnectTitle": "重新连接",
+    "manualNeededHint": "未自动检测到可用 shell，请手动选择或输入启动命令：",
+    "manualCmdPlaceholder": "自定义命令（如 /bin/bash、python）",
+    "connectWithCmd": "用此连接"
   },
   "storageclass": {
     "editModalTitle": "编辑 StorageClass（仅可变字段）",

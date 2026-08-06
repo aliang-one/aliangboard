@@ -9,7 +9,7 @@ const { t } = useI18n()
 // items 与 subPath 可共存（K8s 合法）：subPath 挂载 items 投影出的某个文件。
 // v-model 整个 entry；emit('remove') 由父删行。
 const props = defineProps({
-  containers: { type: Array, default: () => [{ value: 'main', label: '主容器' }] },
+  containers: { type: Array, default: () => [{ value: 'main', label: null }] },
   pvcs: { type: Array, default: () => [] },
   availableConfigMaps: { type: Array, default: () => [] },
   availableSecrets: { type: Array, default: () => [] },
@@ -71,7 +71,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountToContainer') }}</label>
         <select v-model="entry.target" :class="fld">
-          <option v-for="c in containers" :key="c.value" :value="c.value">{{ c.label }}</option>
+          <option v-for="c in containers" :key="c.value" :value="c.value">{{ c.label ?? t('component.volumeMountCard.mainContainer') }}</option>
         </select>
       </div>
       <div>

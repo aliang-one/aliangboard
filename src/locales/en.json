@@ -109,7 +109,91 @@
       "close": "Close"
     },
     "fileBrowser": {
-      "title": "File Manager · {pod}{separator}{container}"
+      "title": "File Manager · {pod}{separator}{container}",
+      "readDirFailed": "Failed to read directory",
+      "readFailed": "Read failed",
+      "downloadFailed": "Download failed",
+      "uploaded": "Uploaded {name} ({size} bytes)",
+      "uploadFailed": "Upload failed",
+      "saved": "Saved",
+      "saveFailed": "Save failed",
+      "goUp": "Up one level",
+      "uploadToDir": "Upload to current directory",
+      "upload": "Upload",
+      "backToList": "Back to list",
+      "binary": "Binary",
+      "truncated": "Truncated",
+      "download": "Download",
+      "emptyDir": "Empty directory",
+      "contentTruncated": "…(content too long and truncated, download for full content)"
+    },
+    "asyncState": {
+      "loadFailed": "Load failed, please retry later",
+      "retry": "Retry"
+    },
+    "filterBar": {
+      "resetFilters": "Reset filters"
+    },
+    "nodeActions": {
+      "cordonDesc": "Mark the node as unschedulable. New pods will not be scheduled to this node. Existing pods are not affected.",
+      "cordonWarn": "Existing pods will not be evicted.",
+      "uncordonDesc": "Restore the node to schedulable state. New pods can be scheduled to this node.",
+      "drainDesc": "Safely evict all pods on the node for maintenance.",
+      "drainWarn": "All pods will be safely evicted (gracefully terminated).",
+      "confirmInputLabel": "Type the node name to confirm:",
+      "executing": "Executing..."
+    },
+    "portSelect": {
+      "emptyHint": "No ports available, type directly",
+      "noMatchHint": "No matching port, type directly",
+      "noPortsHint": "This workload has no exposed ports"
+    },
+    "resourceRef": {
+      "refTypeEnvFromDesc": "Injected as environment variables",
+      "refTypeEnvDesc": "Single key as environment variable",
+      "refTypeVolumeDesc": "Mounted as volume",
+      "refTypeImagePullDesc": "Image pull credential",
+      "refsTitle": "Workloads referencing this {kind} ({count})",
+      "refsHint": "Modifying {kind} will affect these services",
+      "thRefType": "Reference Type",
+      "thDetail": "Detail",
+      "envFromDetail": "All keys → environment variables",
+      "imagePullDetail": "Authenticates image pulls",
+      "distTitle": "Reference type distribution",
+      "impactTitle": "Modification impact",
+      "impactDesc": "This {kind} is referenced by {count} Workload(s). After modification, pods referencing it need a restart to take effect (envFrom/env) or will automatically reflect changes (volume-mounted config files, depending on whether the app hot-reloads).",
+      "restart": "restart",
+      "noRefsTitle": "No references",
+      "noRefsHint": "No Workload in this namespace references this {kind}",
+      "noRefsHint2": "This may mean the resource is orphaned, or only referenced directly by external tools/pods"
+    },
+    "resourceTopology": {
+      "parseFailed": "Failed to parse ownership chain",
+      "parsing": "Parsing ownership chain…"
+    },
+    "scaleDialog": {
+      "adjustFrom": "Adjust from {current} to"
+    },
+    "tagInput": {
+      "removeTag": "Remove {tag}",
+      "atMax": "Maximum {max} reached",
+      "inputPlaceholder": "Type a tag and press Enter, or click suggestions below",
+      "usageCount": "{count} uses",
+      "hint": "Commit with comma or Enter, up to {max} tags; typing auto-suggests tags used in the same Namespace."
+    },
+    "toolOverride": {
+      "tierDefault": "{tier} tier default (off = deny):",
+      "beyondTier": "Beyond tier (on = allow):",
+      "rbacHint": "⚠️ allow can override tier, but the SA's actual RBAC determines whether execution succeeds (policy allows, RBAC denies → audit error)."
+    },
+    "volumeMountCard": {
+      "mainContainer": "Main container"
+    },
+    "createDialog": {
+      "secretTemplateLabel": "Template",
+      "addData": "+ Add",
+      "optionalSuffix": " (optional)",
+      "serviceEmptyHint": "No workload in this namespace exposes container ports; you can type directly"
     }
   },
   "nav": {
@@ -1440,7 +1524,35 @@
   "terminal": {
     "title": "{name} · Terminal",
     "expired": "Session expired, please close this window and reopen the terminal from the original page.",
-    "closeWindow": "Close Window"
+    "closeWindow": "Close Window",
+    "closeAllConfirm": "Close all {count} terminal sessions?",
+    "closeAllTitle": "Close all terminals",
+    "closeAll": "Close all",
+    "statusFloating": "Floating window",
+    "statusExternal": "Open in new tab",
+    "statusMinimized": "Minimized",
+    "closeThisTitle": "Close this terminal",
+    "countLabel": "{count} terminals",
+    "dblClickRename": "{name} (double-click to rename)",
+    "openInNewTabTitle": "Open in new tab",
+    "restoreTitle": "Restore",
+    "maximizeTitle": "Fullscreen",
+    "minimizeTitle": "Minimize",
+    "closeTerminalTitle": "Close terminal",
+    "shellUnavailable": "{prev} unavailable, trying {cmd}…",
+    "sessionEnded": "[Session ended{detail}]",
+    "allShellsFailed": "All shells unavailable — likely a distroless image (no shell). You can manually specify a command below, or use \"Debug Container\" to inject a sidecar with a shell.",
+    "missingContext": "Missing Pod / namespace context",
+    "connectingHint": "{action} → {namespace}/{pod} ({container})…",
+    "defaultContainer": "default container",
+    "demoModeHint": "Terminal (kubectl exec) requires a real cluster connection; currently in demo data mode, cannot enter container.",
+    "execInto": "into",
+    "autoDetectHint": "Click connect to auto-detect available shells (sh / bash / ash …)",
+    "statusConnecting": "Connecting…",
+    "reconnectTitle": "Reconnect",
+    "manualNeededHint": "No available shell auto-detected. Please manually select or enter a startup command:",
+    "manualCmdPlaceholder": "Custom command (e.g. /bin/bash, python)",
+    "connectWithCmd": "Connect"
   },
   "storageclass": {
     "editModalTitle": "Edit StorageClass (mutable fields only)",

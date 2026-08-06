@@ -1,8 +1,11 @@
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import StatusChip from '@/components/common/StatusChip.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   // 被引用的资源类型：'ConfigMap' | 'Secret'
@@ -27,14 +30,14 @@ const refTypeStats = computed(() => {
 })
 
 const refTypeMeta = {
-  envFrom: { label: 'EnvFrom', icon: 'code', desc: '整体注入为环境变量', color: 'bg-primary-container/10 text-primary border-primary/20' },
-  env: { label: 'Env', icon: 'terminal', desc: '单个 Key 作为环境变量', color: 'bg-tertiary-container/10 text-tertiary border-tertiary/20' },
-  volume: { label: 'Volume', icon: 'folder', desc: '作为数据卷挂载', color: 'bg-secondary-container/10 text-secondary border-secondary/20' },
-  imagePullSecrets: { label: 'Image Pull', icon: 'key', desc: '镜像拉取凭证', color: 'bg-surface-container text-on-surface-variant border-outline-variant' },
+  envFrom: { label: 'EnvFrom', icon: 'code', descKey: 'component.resourceRef.refTypeEnvFromDesc', color: 'bg-primary-container/10 text-primary border-primary/20' },
+  env: { label: 'Env', icon: 'terminal', descKey: 'component.resourceRef.refTypeEnvDesc', color: 'bg-tertiary-container/10 text-tertiary border-tertiary/20' },
+  volume: { label: 'Volume', icon: 'folder', descKey: 'component.resourceRef.refTypeVolumeDesc', color: 'bg-secondary-container/10 text-secondary border-secondary/20' },
+  imagePullSecrets: { label: 'Image Pull', icon: 'key', descKey: 'component.resourceRef.refTypeImagePullDesc', color: 'bg-surface-container text-on-surface-variant border-outline-variant' },
 }
 
 function typeMeta(type) {
-  return refTypeMeta[type] || { label: type, icon: 'link', desc: '', color: 'bg-surface-container text-on-surface-variant border-outline-variant' }
+  return refTypeMeta[type] || { label: type, icon: 'link', descKey: '', color: 'bg-surface-container text-on-surface-variant border-outline-variant' }
 }
 
 function goToWorkload(wl) {
@@ -53,17 +56,17 @@ function goToWorkload(wl) {
       <div class="lg:col-span-8">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
           <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-            <h3 class="text-headline-sm">引用此 {{ kind }} 的 Workload ({{ references.length }})</h3>
-            <span class="text-body-sm text-on-surface-variant">修改 {{ kind }} 将影响这些服务</span>
+            <h3 class="text-headline-sm">{{ t('component.resourceRef.refsTitle', { kind, count: references.length }) }}</h3>
+            <span class="text-body-sm text-on-surface-variant">{{ t('component.resourceRef.refsHint', { kind }) }}</span>
           </div>
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="bg-surface-container-low border-b border-outline-variant">
                 <th class="px-lg py-md text-label-caps text-on-surface-variant">Workload</th>
                 <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">引用方式</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">详情</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">状态</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('component.resourceRef.thRefType') }}</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('component.resourceRef.thDetail') }}</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.status') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/30">
@@ -89,8 +92,8 @@ function goToWorkload(wl) {
                     <span class="text-primary">{{ ref.reference.envName }}</span>
                     <span class="text-on-surface-variant"> ← {{ kind }}.{{ ref.reference.key }}</span>
                   </span>
-                  <span v-else-if="ref.reference.type === 'envFrom'">所有 Key → 环境变量</span>
-                  <span v-else-if="ref.reference.type === 'imagePullSecrets'">拉取镜像时认证</span>
+                  <span v-else-if="ref.reference.type === 'envFrom'">{{ t('component.resourceRef.envFromDetail') }}</span>
+                  <span v-else-if="ref.reference.type === 'imagePullSecrets'">{{ t('component.resourceRef.imagePullDetail') }}</span>
                   <span v-else>-</span>
                 </td>
                 <td class="px-lg py-md"><StatusChip :status="ref.workload.status" size="sm" /></td>
@@ -103,14 +106,14 @@ function goToWorkload(wl) {
       <!-- 右侧：引用方式统计 -->
       <div class="lg:col-span-4 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">引用方式分布</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('component.resourceRef.distTitle') }}</h3>
           <div class="flex flex-col gap-md">
             <div v-for="(meta, type) in refTypeMeta" :key="type" class="flex items-center justify-between p-sm rounded-lg" :class="refTypeStats[type] ? meta.color : 'opacity-40'">
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-lg">{{ meta.icon }}</span>
                 <div>
                   <p class="text-body-sm font-semibold">{{ meta.label }}</p>
-                  <p class="text-xs opacity-70">{{ meta.desc }}</p>
+                  <p class="text-xs opacity-70">{{ meta.descKey ? t(meta.descKey) : '' }}</p>
                 </div>
               </div>
               <span class="text-body-lg font-bold">{{ refTypeStats[type] || 0 }}</span>
@@ -123,8 +126,8 @@ function goToWorkload(wl) {
           <div class="flex gap-sm">
             <span class="material-symbols-outlined text-tertiary-container">info</span>
             <div>
-              <p class="text-body-sm font-semibold text-on-surface mb-xs">修改影响提示</p>
-              <p class="text-body-sm text-on-surface-variant">此 {{ kind }} 被 <span class="font-semibold text-tertiary-container">{{ references.length }}</span> 个 Workload 引用。修改内容后，引用它的 Pod 需要 <span class="font-semibold">重启</span> 才能生效（envFrom/env）或会自动反映（volume 挂载的配置文件，取决于应用是否热加载）。</p>
+              <p class="text-body-sm font-semibold text-on-surface mb-xs">{{ t('component.resourceRef.impactTitle') }}</p>
+              <p class="text-body-sm text-on-surface-variant">{{ t('component.resourceRef.impactDesc', { kind, count: references.length }) }}</p>
             </div>
           </div>
         </div>
@@ -134,9 +137,9 @@ function goToWorkload(wl) {
     <!-- 无引用 -->
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">link_off</span>
-      <h3 class="text-headline-sm text-on-surface mt-md">暂无引用</h3>
-      <p class="text-body-md text-on-surface-variant mt-sm">当前命名空间内没有 Workload 引用此 {{ kind }}</p>
-      <p class="text-body-sm text-on-surface-variant mt-xs opacity-70">这意味着此资源可能是孤立的，或仅被外部工具/Pod 直接引用</p>
+      <h3 class="text-headline-sm text-on-surface mt-md">{{ t('component.resourceRef.noRefsTitle') }}</h3>
+      <p class="text-body-md text-on-surface-variant mt-sm">{{ t('component.resourceRef.noRefsHint', { kind }) }}</p>
+      <p class="text-body-sm text-on-surface-variant mt-xs opacity-70">{{ t('component.resourceRef.noRefsHint2') }}</p>
     </div>
   </div>
 </template>

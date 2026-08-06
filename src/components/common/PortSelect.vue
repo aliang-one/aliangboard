@@ -6,6 +6,9 @@
 //   priorityGroup 指定的工作负载置顶并默认选中——用于「Service 优先展示其绑定 Deployment 的端口」。
 // inputClass 透传输入框样式以贴合各表单原有视觉。
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: [String, Number], default: '' },
@@ -18,7 +21,7 @@ const props = defineProps({
   priorityGroups: { type: Array, default: () => [] },
   placeholder: { type: String, default: '' },
   inputClass: { type: String, default: '' },
-  emptyHint: { type: String, default: '无可选端口，可直接输入' },
+  emptyHint: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue', 'pick'])
 
@@ -133,7 +136,7 @@ function onBlur() {
         v-else-if="focused && !normalized.length"
         class="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg px-md py-sm text-body-sm text-on-surface-variant"
       >
-        {{ emptyHint }}
+        {{ emptyHint || t('component.portSelect.emptyHint') }}
       </div>
     </template>
 
@@ -150,7 +153,7 @@ function onBlur() {
           class="w-full flex items-center justify-between gap-xs px-sm py-1.5 text-left text-body-sm transition-colors"
           :class="selectedGroup === '' ? 'bg-primary-container/20 text-primary font-semibold' : 'text-on-surface hover:bg-surface-container-low'"
         >
-          <span class="flex items-center gap-xs truncate"><span class="material-symbols-outlined text-base">apps</span>全部</span>
+          <span class="flex items-center gap-xs truncate"><span class="material-symbols-outlined text-base">apps</span>{{ t('common.all') }}</span>
           <span class="text-[10px] text-on-surface-variant shrink-0">{{ allPortCount }}</span>
         </button>
         <button
@@ -181,7 +184,7 @@ function onBlur() {
           <span class="text-[10px] text-on-surface-variant truncate">{{ p.container || '—' }}<span v-if="p.name"> · {{ p.name }}</span></span>
           <span v-if="!selectedGroup" class="ml-auto text-[10px] text-on-surface-variant/60 shrink-0 truncate max-w-[90px]" :title="p.workload">{{ p.workload }}</span>
         </button>
-        <p v-if="!shownPorts.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ text ? '无匹配端口，可直接输入' : '该工作负载无暴露端口' }}</p>
+        <p v-if="!shownPorts.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ text ? t('component.portSelect.noMatchHint') : t('component.portSelect.noPortsHint') }}</p>
       </div>
     </div>
   </div>
