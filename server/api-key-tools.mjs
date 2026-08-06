@@ -138,6 +138,25 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { count: all.length, returned: items.length, items }
         } })
     },
+    rollout_history: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'rollout_history', namespace: a.namespace, verb: 'get', resource: `Deployment/${a.name}/rollout`, summary: `deploy=${a.name}`,
+      fn: async (saCtx) => {
+        const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
+        if (!dp) throw new Error(`Deployment ${a.name} 不存在`)
+        const uid = dp.metadata?.uid
+        const curRev = dp.metadata?.annotations?.['deployment.kubernetes.io/revision'] || null
+        const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/replicasets`)
+        const revisions = (body?.items || [])
+          .filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.uid === uid && o.kind === 'Deployment'))
+          .map(rs => ({
+            revision: rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] || null,
+            image: rs.spec?.template?.spec?.containers?.[0]?.image || null,
+            current: rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === curRev,
+            createdAt: rs.metadata?.creationTimestamp || null,
+          }))
+          .sort((x, y) => (Number(y.revision) || 0) - (Number(x.revision) || 0))
+        return { namespace: a.namespace, deployment: a.name, currentRevision: curRev, revisions }
+      } }),
     scale: async (keyRow, cluster, a) => {
       const kind = String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'scale', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,

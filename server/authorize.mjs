@@ -4,7 +4,7 @@
 // 真 RBAC = 用 SA token 实发请求时由 apiserver 判。can_i = 策略 AND rbac 的合取(仅 UX,给 AI 自检)。
 
 // 风险分级(eng-review):有界/可逆类 vs 无界/破坏/交互类。MCP 只挂第一类;第二类仅 agent(+人审)。
-export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'get_pod_logs', 'get_events', 'can_i', 'get_resource_yaml', 'scale', 'restart']
+export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'get_pod_logs', 'get_events', 'can_i', 'get_resource_yaml', 'scale', 'restart', 'rollout_history']
 export const DANGEROUS_TOOLS = ['exec_pod', 'attach', 'browse_files', 'read_file', 'upload_file', 'port_forward', 'kubectl_debug', 'rollout_undo', 'apply_yaml', 'delete_resource', 'update_image']
 const OPERATOR_EXTRA = ['scale', 'restart']            // operator 在 read 基础上加这两个有界写
 const READ_TOOLS = BOUNDED_TOOLS.filter(t => !OPERATOR_EXTRA.includes(t))  // read = 有界只读

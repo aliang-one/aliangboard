@@ -46,6 +46,9 @@ const K8S = [
   { name: 'kubectl_debug', minTier: 'admin', requiresApproval: true,
     description: '向 pod 注入 Ephemeral Container(kubectl debug 语义,调试 distroless/无 shell 镜像)。admin 档:需人审/admin key。需集群 1.25+(默认开 EphemeralContainers)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, image: { type: 'string', description: '调试镜像,如 busybox:latest' }, name: { type: 'string', description: '临时容器名(默认 debugger)' }, command: { type: 'array', items: { type: 'string' } }, targetContainerName: { type: 'string' } }, required: ['namespace', 'pod'] } },
+  { name: 'rollout_history', minTier: 'read', requiresApproval: false,
+    description: '列出 Deployment 的滚动发布历史(ReplicaSet revisions:image / 当前 revision 标记 / 创建时间),按 revision 降序。先调它看可回滚的 revision,再 rollout_undo。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string', description: 'Deployment 名' } }, required: ['namespace', 'name'] } },
 ].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。
