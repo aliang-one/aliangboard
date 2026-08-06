@@ -23,8 +23,12 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery, typeFilter] })
 
-// 远端模式进入页面即开启 Events 实时监听，离开时停止
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+// 远端模式：无初始快照（且非水合中）时先拉一次 events 避免空表闪，再叠 watch；离开停止
+onMounted(async () => {
+  if (!store.remoteMode) return
+  if (!store.eventList.length && store.connectionState !== 'loading') await store.refreshEvents()
+  store.startEventWatch()
+})
 onUnmounted(() => store.stopEventWatch())
 </script>
 

@@ -136,8 +136,8 @@ export const useClusterStore = defineStore('cluster', () => {
   let podWatchHandle = null
   const podWatchLive = ref(false)
 
-  // === 当前选中的 Namespace ===
-  const currentNamespace = ref('')
+  // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
+  const currentNamespace = ref(localStorage.getItem('aliangboard.namespace') || '')
 
   // === 微服务分层定义（对标 Kuboard tier）===
   const TIER_META = {
@@ -304,6 +304,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   function setNamespace(ns) {
     currentNamespace.value = ns
+    // 持久化选中 namespace；清空时移除键
+    if (ns) localStorage.setItem('aliangboard.namespace', ns)
+    else localStorage.removeItem('aliangboard.namespace')
   }
 
   function getWorkloadByName(name, ns) {
@@ -1131,6 +1134,38 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!remoteMode.value) return
     await refetch('/api/v1/pods', podList, item => mapPod(item))
   }
+
+  // 拉取 events 快照（供实时页挂载时补初始数据，避免空表闪；同时刷新 eventWatchRv 供 watch 续接）
+  async function refreshEvents() {
+    if (!remoteMode.value) return
+    try {
+      const data = await api.k8s('/api/v1/events?limit=1000')
+      if (data?.items) {
+        eventList.value = data.items.map(mapEvent).sort((a, b) => (b._ts || 0) - (a._ts || 0))
+        if (data.metadata?.resourceVersion) eventWatchRv = data.metadata.resourceVersion
+      }
+    } catch { /* 静默：保留上次 eventList，watch 继续推增量 */ }
+  }
+
+  // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
+  async function fetchNodes() {
+    const [nodeData, metricsData] = await Promise.all([
+      api.k8s('/api/v1/nodes'),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/nodes').catch(() => null),
+    ])
+    const metricMap = new Map()
+    for (const it of (metricsData?.items || [])) {
+      metricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
+    }
+    const metricFor = name => (metricMap.has(name) ? metricMap.get(name) : null)
+    return (nodeData?.items || []).map(item => mapNode(item, metricFor(item.metadata?.name)))
+  }
+
+  // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
+  async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
+  async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
+  async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
+  async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -2222,6 +2257,11 @@ export const useClusterStore = defineStore('cluster', () => {
       age: ageOf(item.metadata?.creationTimestamp),
       labels: item.metadata?.labels || {},
     }))
+    // 校验持久化的 currentNamespace：集群侧已删则回退到第一个存在的，避免空列表无提示
+    if (currentNamespace.value && namespaceList.value.length
+        && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
+      setNamespace(namespaceList.value[0].name)
+    }
     if (deploymentData || statefulSetData || daemonSetData) {
       workloadList.value = [
         ...(deploymentData?.items || []).map(item => mapWorkload(item, 'Deployment')),
@@ -3413,6 +3453,9 @@ status:
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
     // Pod 列表轻量刷新（删 Pod 后看重建）
     refreshPods,
+    refreshEvents,
+    fetchNodes,
+    fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,

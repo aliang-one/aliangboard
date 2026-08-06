@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -14,6 +16,19 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// Ingress 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const ingressesKey = ['cluster', cid.value, 'ingresses']
+const ingressesQuery = useResourceList({
+  key: ingressesKey,
+  fetcher: () => store.fetchIngresses(),
+  mock: store.ingressList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 
 // 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索
 function flattenRules(row) {
@@ -36,8 +51,8 @@ function flattenRules(row) {
 const searchQuery = ref('')
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return store.nsIngress
-  return store.nsIngress.filter(i => {
+  if (!q) return nsIngress
+  return nsIngress.filter(i => {
     if (i.name.toLowerCase().includes(q) || (i.hosts || '').toLowerCase().includes(q)) return true
     return flattenRules(i).some(r => (r.host + ' ' + r.backend).toLowerCase().includes(q))
   })
@@ -100,6 +115,7 @@ async function handleCreate() {
     }],
   })
   if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+  queryClient.invalidateQueries({ queryKey: ingressesKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -114,6 +130,7 @@ function confirmDelete(ing) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteIngress(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: ingressesKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -129,7 +146,7 @@ function handleDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md font-bold text-on-surface">Ingress</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> New Ingress
@@ -143,7 +160,7 @@ function handleDelete() {
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或域名搜索..." />
         <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
       </div>
-      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsIngress.length }}</span>
+      <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ nsIngress.length }}</span>
     </div>
 
     <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
