@@ -446,6 +446,12 @@ const routes = [
         component: () => import('@/views/WorkbenchDetail.vue'),
         meta: { title: '项目', scope: 'global' }
       },
+      {
+        path: 'workbench/:id/chat',
+        name: 'WorkbenchProjectChat',
+        component: () => import('@/views/WorkbenchProjectChat.vue'),
+        meta: { title: '项目 AI 助手', scope: 'global' }
+      },
       // === 平台管理（admin only）===
       {
         path: 'admin/users',

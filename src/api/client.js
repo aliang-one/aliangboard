@@ -193,6 +193,8 @@ export const workbenchApi = {
   // 集群台账(cluster-context repo,每集群一份)
   getLedger: clusterId => platformRequest(`/api/workbench/ledger?clusterId=${encodeURIComponent(clusterId)}`),
   bootstrapLedger: clusterId => platformRequest('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
+  // 项目 agent 聊天(W4b):{ projectId, message?, resume? } → { status:'done'|'pending_approval', content, trace, ... }
+  chat: payload => platformRequest('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
 }
 export const authApi = {
   login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
