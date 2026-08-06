@@ -28,7 +28,89 @@
     "version": "Version",
     "role": "Role",
     "cpu": "CPU",
-    "memory": "Memory"
+    "memory": "Memory",
+    "noData": "No data found"
+  },
+  "component": {
+    "modal": {
+      "cancel": "Cancel",
+      "confirm": "Confirm"
+    },
+    "pagination": {
+      "perPage": "{n} / page",
+      "rangeSummary": "{start}-{end} of {total}",
+      "prevPage": "Previous page",
+      "nextPage": "Next page"
+    },
+    "clusterCard": {
+      "current": "CURRENT",
+      "switchTo": "Switch to this cluster",
+      "activeCluster": "Current active cluster",
+      "removeCluster": "Remove cluster",
+      "switchedTo": "Switched to {name}",
+      "nodes": "NODES",
+      "pods": "PODS"
+    },
+    "volumeMount": {
+      "mountToContainer": "Mount to container",
+      "source": "Source",
+      "selectPvc": "Select PVC",
+      "selectConfigMap": "Select ConfigMap",
+      "selectSecret": "Select Secret",
+      "emptyDirHint": "Temporary empty directory, removed when Pod is deleted",
+      "keyMapping": "Key mapping items (optional: project specific keys as filenames)",
+      "keyMappingHint": "Tip: items mount all selected keys into the mount path above (multiple files at once); subPath mounts only one file — they are rarely used together. To mount one volume to multiple paths, add separate volume entries or edit YAML directly.",
+      "selectKey": "Select key",
+      "noKeysHint": "No keys available for this resource (may not be loaded yet); leave items empty to mount all keys as files.",
+      "mountPath": "Mount path",
+      "subPathLabel": "subPath",
+      "subPathPlaceholder": "(optional) single file mount",
+      "readOnly": "Read-only",
+      "serverPlaceholder": "server IP/hostname",
+      "exportPathPlaceholder": "export path /export",
+      "fileNamePlaceholder": "filename path"
+    },
+    "annotationKey": {
+      "selectPlaceholder": "— Select annotation —",
+      "custom": "✍️ Custom key…",
+      "customPlaceholder": "Custom annotation key",
+      "otherGroup": "Other"
+    },
+    "podCard": {
+      "containers": "{n} containers",
+      "namespaceTitle": "Namespace {ns}",
+      "ready": "Ready",
+      "notReady": "Not Ready",
+      "terminalTitle": "Terminal (floating window · minimizable/new tab)",
+      "terminalDisabled": "Pod not running, cannot open terminal",
+      "filesTitle": "File browser",
+      "filesDisabled": "Pod not running, cannot browse files",
+      "deleteTitle": "Delete Pod (controller will recreate and re-pull image)",
+      "restartsTitle": "Restarted {n} times",
+      "lifecycleScheduled": "Scheduled",
+      "lifecycleInitialized": "Initialized",
+      "lifecycleContainers": "Containers",
+      "lifecycleReady": "Ready"
+    },
+    "portForward": {
+      "title": "Port Forward",
+      "description": "Equivalent to kubectl port-forward: maps a port of {resource} to a gateway-local port (Service/Deployment is automatically resolved to backend Pods via endpoints).",
+      "remoteHint": "Listens on 127.0.0.1 by default (gateway must run locally, otherwise the browser cannot reach it).",
+      "targetPort": "Target port",
+      "localPort": "Local port (optional)",
+      "localPortPlaceholder": "Auto-assign",
+      "forward": "Forward",
+      "activeForwards": "Active forwards ({n})",
+      "openInBrowser": "Open in browser",
+      "stopForward": "Stop forward",
+      "noForwards": "No active forwards",
+      "forwardSuccess": "Forwarded {resource} :{port}",
+      "forwardFailed": "Failed to establish port forward",
+      "close": "Close"
+    },
+    "fileBrowser": {
+      "title": "File Manager · {pod}{separator}{container}"
+    }
   },
   "nav": {
     "clusterManagement": "Cluster Management",

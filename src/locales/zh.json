@@ -28,7 +28,89 @@
     "version": "版本",
     "role": "角色",
     "cpu": "CPU",
-    "memory": "内存"
+    "memory": "内存",
+    "noData": "暂无数据"
+  },
+  "component": {
+    "modal": {
+      "cancel": "取消",
+      "confirm": "确认"
+    },
+    "pagination": {
+      "perPage": "{n} / 页",
+      "rangeSummary": "{start}-{end} / 共 {total}",
+      "prevPage": "上一页",
+      "nextPage": "下一页"
+    },
+    "clusterCard": {
+      "current": "CURRENT",
+      "switchTo": "切换到此集群",
+      "activeCluster": "当前活动集群",
+      "removeCluster": "移除集群",
+      "switchedTo": "已切换到 {name}",
+      "nodes": "NODES",
+      "pods": "PODS"
+    },
+    "volumeMount": {
+      "mountToContainer": "挂到容器",
+      "source": "来源",
+      "selectPvc": "选择 PVC",
+      "selectConfigMap": "选择 ConfigMap",
+      "selectSecret": "选择 Secret",
+      "emptyDirHint": "临时空目录，Pod 删除即失效",
+      "keyMapping": "键映射 items（可选：把指定 key 投影成文件名）",
+      "keyMappingHint": "提示：items 会把所选 key 都挂到上方「挂载到」目录下（多个文件一次挂齐）；subPath 只挂其中一个文件，二者通常不必同时用。要把一个卷挂到多个不同路径，请新增多条卷或直接编 YAML。",
+      "selectKey": "选择 key",
+      "noKeysHint": "该资源暂无可列 key（可能未加载）；items 留空则整挂（全部 key 作文件）。",
+      "mountPath": "挂载到",
+      "subPathLabel": "subPath",
+      "subPathPlaceholder": "(可选) 单文件挂载",
+      "readOnly": "只读",
+      "serverPlaceholder": "server IP/主机",
+      "exportPathPlaceholder": "导出路径 /export",
+      "fileNamePlaceholder": "文件名 path"
+    },
+    "annotationKey": {
+      "selectPlaceholder": "— 选择注解 —",
+      "custom": "✍️ 自定义 key…",
+      "customPlaceholder": "自定义 annotation key",
+      "otherGroup": "其它"
+    },
+    "podCard": {
+      "containers": "{n} 个容器",
+      "namespaceTitle": "命名空间 {ns}",
+      "ready": "Ready",
+      "notReady": "Not Ready",
+      "terminalTitle": "终端（浮动窗口 · 可最小化/新标签页打开）",
+      "terminalDisabled": "Pod 未运行，无法打开终端",
+      "filesTitle": "文件浏览",
+      "filesDisabled": "Pod 未运行，无法浏览文件",
+      "deleteTitle": "删除 Pod（控制器会重建并重新拉镜像）",
+      "restartsTitle": "重启 {n} 次",
+      "lifecycleScheduled": "调度",
+      "lifecycleInitialized": "初始化",
+      "lifecycleContainers": "容器",
+      "lifecycleReady": "就绪"
+    },
+    "portForward": {
+      "title": "端口转发 / Port Forward",
+      "description": "等同 kubectl port-forward：将 {resource} 的端口映射到网关本机端口（Service/Deployment 会自动经 endpoints 解析到后端 Pod）。",
+      "remoteHint": "默认监听 127.0.0.1（网关须运行在本机，否则浏览器无法直达）。",
+      "targetPort": "目标端口",
+      "localPort": "本地端口（可选）",
+      "localPortPlaceholder": "自动分配",
+      "forward": "Forward",
+      "activeForwards": "活动转发 ({n})",
+      "openInBrowser": "在浏览器打开",
+      "stopForward": "停止转发",
+      "noForwards": "暂无活动转发",
+      "forwardSuccess": "已转发 {resource} :{port}",
+      "forwardFailed": "端口转发建立失败",
+      "close": "关闭"
+    },
+    "fileBrowser": {
+      "title": "文件管理 · {pod}{separator}{container}"
+    }
   },
   "nav": {
     "clusterManagement": "集群管理",
