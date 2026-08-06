@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -11,6 +12,7 @@ import { notify } from '@/composables/useToast'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
@@ -29,13 +31,13 @@ const headers = computed(() => tableColumns('namespaces'))
 
 const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.namespaceList))
 
-// 受保护的系统命名空间，禁止删除
+// 受保护的系统命名空间，禁止t('common.delete')
 const PROTECTED_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease', 'default']
 function isProtected(name) {
   return PROTECTED_NAMESPACES.includes(name)
 }
 
-/* ---------------- 创建 Namespace ---------------- */
+/* ---------------- t('ns.namespaces.createTitle') ---------------- */
 const showCreate = ref(false)
 const createName = ref('')
 const createLabelsText = ref('')
@@ -70,11 +72,11 @@ async function submitCreate() {
   createError.value = ''
   const name = createName.value.trim()
   if (!name) {
-    createError.value = 'Namespace 名称不能为空'
+    createError.value = t('ns.namespaces.nameRequired')
     return
   }
   if (store.getNamespaceByName(name)) {
-    createError.value = `Namespace "${name}" 已存在`
+    createError.value = t('ns.namespaces.nameExists', { name })
     return
   }
   const labels = parseLabels(createLabelsText.value)
@@ -85,7 +87,7 @@ async function submitCreate() {
   createLabelsText.value = ''
 }
 
-/* ---------------- 删除 Namespace ---------------- */
+/* ---------------- t('common.delete') Namespace ---------------- */
 const showDelete = ref(false)
 const deleteTarget = ref(null)
 
@@ -172,7 +174,7 @@ function submitDelete() {
       </template>
     </DataTable>
 
-    <!-- 创建 Namespace Modal -->
+    <!-- t('ns.namespaces.createTitle') Modal -->
     <Modal v-model="showCreate" :title="t('ns.namespaces.createTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div class="flex flex-col gap-sm">
@@ -216,7 +218,7 @@ function submitDelete() {
       </template>
     </Modal>
 
-    <!-- 删除确认 Modal -->
+    <!-- t('common.delete')确认 Modal -->
     <Modal v-model="showDelete" :title="t('ns.namespaces.deleteTitle')" width="max-w-md">
       <div v-if="deleteTarget" class="flex flex-col gap-md">
         <div class="flex items-start gap-md">

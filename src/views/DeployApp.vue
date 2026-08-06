@@ -1322,7 +1322,7 @@ async function handleDeploy() {
             <p class="text-xs text-on-surface-variant mt-xs flex items-center gap-xs"><span class="material-symbols-outlined text-xs">info</span>{{ $t('deploy.externalNameHint') }}</p>
           </div>
 
-          <!-- 多端口编辑器 -->
+          <!-- 多端口t('common.edit')器 -->
           <div v-else>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.servicePorts') }}</label>
             <div class="flex flex-col gap-sm">
@@ -1364,7 +1364,7 @@ async function handleDeploy() {
               </select>
             </div>
 
-            <!-- 多 Rule 编辑器 -->
+            <!-- 多 Rule t('common.edit')器 -->
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressRules') }}</label>
             <div class="flex flex-col gap-sm">
               <div v-for="(rule, rIdx) in form.ingressRules" :key="rIdx" class="border border-outline-variant rounded-lg p-md bg-surface-container-low">

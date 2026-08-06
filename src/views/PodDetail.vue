@@ -67,18 +67,18 @@ function downloadLogs() {
 async function copyLogs() {
   try {
     await navigator.clipboard.writeText(formatLogs())
-  } catch (e) { /* clipboard 不可用时静默 */ }
+  } catch (e) { /* clipboard unavailable silently */ }
 }
 
 // === 日志实时流（Follow）===
 const followLog = ref(true)
 const liveLogs = ref([])
 let logTimer = null
-let logStream = null    // 真流式（log follow）的句柄，stopFollow 时 abort
+let logStream = null    // t('podDetail.realLogStream') handle, abort on stopFollow
 // 日志查询选项（kubectl logs 语义：--tail / --since / --previous）
 const logLines = ref(500)
-const logSince = ref('')            // 空字符串 = 不限时间；否则为 sinceSeconds
-const logPrevious = ref(false)      // --previous：上一容器（崩溃前）日志
+const logSince = ref('')            // t('podDetail.emptyString') = no time limit; otherwise sinceSeconds
+const logPrevious = ref(false)      // t('podDetail.previousFlag'): --previous shows logs from previous (crashed) container
 const lineOptions = [100, 500, 1000, 5000]
 const sinceOptions = [
   { label: t('podDetail.sinceAll'), value: '' },
@@ -229,7 +229,7 @@ async function loadYaml() {
   try {
     const obj = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}`)
     const clone = JSON.parse(JSON.stringify(obj))
-    if (clone?.metadata) delete clone.metadata.managedFields   // 去掉冗长的 managedFields，便于阅读
+    if (clone?.metadata) delete clone.metadata.managedFields   // t('podDetail.removeRedundantFields') for readability
     podYaml.value = yamlDump(clone)
   } catch (e) {
     podYaml.value = `# ${t('podDetail.loadFailed')}: ${e.message || ''}`
@@ -259,7 +259,7 @@ async function doAttachDebug() {
       command: debugForm.value.command, targetContainer: debugForm.value.targetContainer || '',
     })
     if (!debugContainers.value.includes(debugForm.value.name)) debugContainers.value.push(debugForm.value.name)
-    selectedContainer.value = debugForm.value.name   // 终端容器选择切到调试容器
+    selectedContainer.value = debugForm.value.name   // t('podDetail.terminalContainerSwitchToDebug')
     showDebug.value = false
     activeTab.value = 'terminal'
     notify('success', t('podDetail.debugSuccess', { name: debugForm.value.name }))
@@ -269,7 +269,7 @@ async function doAttachDebug() {
     debugAttaching.value = false
   }
 }
-watch(() => pod.value?.name, () => { debugContainers.value = [] })   // 切换 Pod 时清空本会话调试容器
+watch(() => pod.value?.name, () => { debugContainers.value = [] })   // t('podDetail.clearSessionDebugContainers') when switching Pod
 
 // === 事件：远端按 involvedObject 过滤该 Pod 的事件；演示模式回退全量 nsEvents ===
 const podEvents = computed(() => store.remoteMode ? store.eventsFor('Pod', pod.value?.name, pod.value?.namespace) : store.nsEvents)
@@ -458,7 +458,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         <div v-if="activeTab === 'files'" class="flex-1 min-h-0 flex flex-col">
           <!-- 容器选择（多容器时可切换浏览哪个容器的文件系统） -->
           <div v-if="store.remoteMode && containers.length > 1" class="flex items-center gap-sm pb-sm shrink-0">
-            <span class="text-body-xs text-on-surface-variant">容器</span>
+            <span class="text-body-xs text-on-surface-variant">{{ $t('podDetail.container') }}</span>
             <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-xs font-mono focus:ring-2 focus:ring-primary">
               <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
             </select>
@@ -558,52 +558,52 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
     <!-- Delete / Restart 确认 -->
     <Modal v-model="confirmOpen" :title="confirmAction?.mode === 'restart' ? $t('podDetail.restartPod') : $t('podDetail.deletePod')" width="max-w-lg">
       <p v-if="confirmAction?.mode === 'restart'" class="text-body-md text-on-surface">
-        重启将<strong>删除该 Pod 并由所属控制器重新拉起</strong>（独立 Pod 将直接消失、不会重建）。等同 <code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl delete pod</code>。
+        {{ $t('podDetail.restartConfirm') }}
       </p>
       <p v-else class="text-body-md text-on-surface">
-        确定删除 Pod <span class="font-mono text-primary">{{ pod?.name }}</span>？此操作不可撤销。
+        {{ $t('podDetail.deleteConfirm', { name: pod?.name }) }}
       </p>
       <template #actions>
-        <button @click="confirmOpen = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="confirmOpen = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
         <button @click="doConfirmed" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">
-          {{ confirmAction?.mode === 'restart' ? '重启' : '删除' }}
+          {{ confirmAction?.mode === 'restart' ? $t('podDetail.restartButton') : $t('podDetail.deleteButton') }}
         </button>
       </template>
     </Modal>
 
     <!-- 注入调试容器（kubectl debug） -->
-    <Modal v-model="showDebug" title="注入调试容器 (kubectl debug)" width="max-w-xl">
+    <Modal v-model="showDebug" :title="$t('podDetail.injectDebugContainer')" width="max-w-xl">
       <p class="text-body-sm text-on-surface-variant mb-md">
-        向该 Pod 注入一个临时容器（Ephemeral Container），用于调试 <strong>无 shell / distroless</strong> 镜像或排查网络问题。注入后可在终端选择该容器进入。需集群 K8s 1.25+。
+        {{ $t('podDetail.injectDebugDesc') }}
       </p>
       <div class="grid grid-cols-2 gap-md">
         <div class="col-span-2">
-          <label class="text-label-caps text-on-surface-variant block mb-xs">镜像</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('podDetail.imageLabel') }}</label>
           <input v-model="debugForm.image" list="debug-images" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="nicolaka/netshoot:latest" />
           <datalist id="debug-images">
             <option v-for="img in debugImages" :key="img" :value="img" />
           </datalist>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">容器名</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('podDetail.containerNameLabel') }}</label>
           <input v-model="debugForm.name" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="debugger" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">启动命令</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('podDetail.commandLabel') }}</label>
           <input v-model="debugForm.command" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="sh" />
         </div>
         <div class="col-span-2">
-          <label class="text-label-caps text-on-surface-variant block mb-xs">目标容器（可选 · targetContainerName）</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('podDetail.targetContainerLabel') }}</label>
           <select v-model="debugForm.targetContainer" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary">
-            <option value="">（无）</option>
+            <option value="">{{ $t('podDetail.targetContainerEmpty') }}</option>
             <option v-for="c in (pod?.containers || [])" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
       </div>
       <template #actions>
-        <button @click="showDebug = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
+        <button @click="showDebug = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
         <button @click="doAttachDebug" :disabled="debugAttaching" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-50">
-          {{ debugAttaching ? '注入中…' : '注入并调试' }}
+          {{ debugAttaching ? $t('podDetail.injecting') : $t('podDetail.injectAndDebug') }}
         </button>
       </template>
     </Modal>

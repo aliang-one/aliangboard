@@ -73,7 +73,7 @@ function goDetail(row) {
   })
 }
 
-// 行内操作：Restart 真实落集群；Edit/Logs 复用详情页（含日志/编辑）
+// 行内操作：Restart 真实落集群；Edit/Logs 复用详情页（含日志/t('common.edit')）
 async function restartWorkload(row) {
   try { await store.restartWorkload(row.name, row.namespace); notify('success', `已重启 ${row.name}`) }
   catch (e) { notify('error', e.message || '重启失败') }
