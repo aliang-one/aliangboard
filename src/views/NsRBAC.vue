@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -8,6 +9,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -122,28 +124,28 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'RBAC' }
+      { label: $t('ns.rbac.title') }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
-      <h2 class="text-headline-md text-on-surface font-bold">RBAC</h2>
+      <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.rbac.title') }}</h2>
       <div class="flex gap-sm">
         <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-          <span class="material-symbols-outlined text-sm">add</span> Create Role
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createRoleBtn') }}
         </button>
         <button @click="showCreateSAModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant font-semibold rounded-lg text-body-sm hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-sm">add</span> Create SA
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createSaBtn') }}
         </button>
       </div>
     </div>
     <div class="flex flex-wrap border-b border-outline-variant mb-md">
-      <button @click="activeTab = 'roles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">Roles</button>
-      <button @click="activeTab = 'serviceaccounts'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'serviceaccounts' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">ServiceAccounts</button>
-      <button @click="activeTab = 'rolebindings'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'rolebindings' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">RoleBindings</button>
+      <button @click="activeTab = 'roles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">{{ $t('ns.rbac.rolesTab') }}</button>
+      <button @click="activeTab = 'serviceaccounts'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'serviceaccounts' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">{{ $t('ns.rbac.serviceAccountsTab') }}</button>
+      <button @click="activeTab = 'rolebindings'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'rolebindings' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">{{ $t('ns.rbac.roleBindingsTab') }}</button>
       <button @click="activeTab = 'clusterroles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterroles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        <span class="material-symbols-outlined text-sm">public</span>ClusterRoles
+        <span class="material-symbols-outlined text-sm">public</span>{{ $t('ns.rbac.clusterRolesTab') }}
       </button>
       <button @click="activeTab = 'clusterrolebindings'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors flex items-center gap-xs" :class="activeTab === 'clusterrolebindings' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        <span class="material-symbols-outlined text-sm">public</span>ClusterRoleBindings
+        <span class="material-symbols-outlined text-sm">public</span>{{ $t('ns.rbac.clusterRoleBindingsTab') }}
       </button>
     </div>
 
@@ -218,10 +220,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       <div class="flex items-center justify-between bg-primary-container/5 border border-primary/20 rounded-lg px-md py-sm">
         <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary">public</span>
-          <p class="text-body-sm text-on-surface">集群级角色（ClusterRole）对所有命名空间生效</p>
+          <p class="text-body-sm text-on-surface">{{ $t('ns.rbac.clusterWideHint') }}</p>
         </div>
         <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
-          <span class="material-symbols-outlined text-sm">add</span> Create ClusterRole
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBtn') }}
         </button>
       </div>
       <DataTable :headers="roleHeaders" :rows="paginated">
@@ -248,10 +250,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       <div class="flex items-center justify-between bg-primary-container/5 border border-primary/20 rounded-lg px-md py-sm">
         <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary">public</span>
-          <p class="text-body-sm text-on-surface">集群级角色绑定（ClusterRoleBinding）跨命名空间授权</p>
+          <p class="text-body-sm text-on-surface">{{ $t('ns.rbac.clusterRoleBindingHint') }}</p>
         </div>
         <button @click="showCreateCRBModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
-          <span class="material-symbols-outlined text-sm">add</span> Create ClusterRoleBinding
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBindingBtn') }}
         </button>
       </div>
       <DataTable :headers="bindingHeaders" :rows="paginated">
@@ -275,7 +277,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           </div>
         </template>
         <template #actions="{ row }">
-          <button @click.stop="confirmDelete(row, 'clusterrolebinding')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
+          <button @click.stop="confirmDelete(row, 'clusterrolebinding')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('ns.rbac.deleteBtn')">
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </template>
@@ -287,78 +289,78 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   </section>
 
   <!-- Create Role Modal -->
-  <Modal v-model="showCreateRoleModal" title="Create Role" width="max-w-lg">
+  <Modal v-model="showCreateRoleModal" :title="$t('ns.rbac.createRoleBtnModal')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Role Name</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.roleNameLabel') }}</label>
         <input v-model="newRole.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., developer" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Scope</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.scopeLabel') }}</label>
         <select v-model="newRole.scope" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="Namespace">Namespace</option>
-          <option value="Cluster">Cluster</option>
+          <option value="Namespace">{{ $t('ns.rbac.namespaceScope') }}</option>
+          <option value="Cluster">{{ $t('ns.rbac.clusterScope') }}</option>
         </select>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateRoleModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="createRole" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Create</button>
+      <button @click="showCreateRoleModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="createRole" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Create ServiceAccount Modal -->
-  <Modal v-model="showCreateSAModal" title="Create ServiceAccount" width="max-w-md">
+  <Modal v-model="showCreateSAModal" :title="$t('ns.rbac.createSaBtnModal')" width="max-w-md">
     <div>
-      <label class="text-label-caps text-on-surface-variant block mb-xs">ServiceAccount Name</label>
+      <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.serviceAccountNameLabel') }}</label>
       <input v-model="newSA.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., my-service-account" />
     </div>
     <template #actions>
-      <button @click="showCreateSAModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="createSA" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Create</button>
+      <button @click="showCreateSAModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="createSA" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Create ClusterRoleBinding Modal -->
-  <Modal v-model="showCreateCRBModal" title="Create ClusterRoleBinding" width="max-w-lg">
+  <Modal v-model="showCreateCRBModal" :title="$t('ns.rbac.createClusterRoleBindingBtn')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Binding Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.bindingNameLabel') }}</label>
         <input v-model="newCRB.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., my-cluster-binding" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">ClusterRole *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.clusterRoleLabel') }}</label>
         <select v-model="newCRB.roleName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="" disabled>选择 ClusterRole</option>
+          <option value="" disabled>{{ $t('ns.rbac.clusterRolePlaceholder') }}</option>
           <option v-for="r in clusterRoleOptions" :key="r" :value="r">{{ r }}</option>
         </select>
       </div>
       <div class="grid grid-cols-3 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Subject Kind</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.subjectKindLabel') }}</label>
           <select v-model="newCRB.subjectKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option>User</option><option>Group</option><option>ServiceAccount</option>
           </select>
         </div>
         <div class="col-span-2">
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Subject Name</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.subjectNameLabel') }}</label>
           <input v-model="newCRB.subjectName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., admin@kubezen.io" />
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateCRBModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="createCRB" :disabled="!newCRB.name || !newCRB.roleName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateCRBModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="createCRB" :disabled="!newCRB.name || !newCRB.roleName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="删除确认" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定要删除 <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span> 吗？</p>
-    <p class="text-body-sm text-error mt-sm">此操作不可撤销。删除集群级绑定将影响所有命名空间的授权。</p>
+  <Modal v-model="showDeleteModal" :title="$t('ns.rbac.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ $t('ns.rbac.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.rbac.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.rbac.cancelBtn') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('ns.rbac.deleteBtn') }}</button>
     </template>
   </Modal>
 </template>

@@ -1,9 +1,10 @@
 <script setup>
-// 通用集群资源浏览器：一份组件驱动多种 cluster-scoped / namespaced 资源。
-// 对象路径取 metadata.selfLink（K8s 1.20+ 列表响应已不返回，按 gv/plural/scope 回退构造）。
-// 增一种资源只需在 CONFIGS 加一项：title/icon/scope/gv/plural + summary/status。
+// Universal cluster resource browser: one component drives multiple cluster-scoped / namespaced resources.
+// Object path uses metadata.selfLink (K8s 1.20+ list response no longer returns it, fallback construct by gv/plural/scope).
+// Adding a resource type only requires adding an entry to CONFIGS: title/icon/scope/gv/plural + summary/status.
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -14,6 +15,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import { notify } from '@/composables/useToast'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 
 const CONFIGS = {
@@ -22,7 +24,7 @@ const CONFIGS = {
     gv: '/apis/apiregistration.k8s.io/v1', plural: 'apiservices',
     summary: it => {
       const gv = it.spec?.group ? `${it.spec.group}/${it.spec.version}` : 'core/v1'
-      const svc = it.spec?.service?.name ? `${it.spec.service.namespace}/${it.spec.service.name}` : '本地（Local）'
+      const svc = it.spec?.service?.name ? `${it.spec.service.namespace}/${it.spec.service.name}` : 'Local'
       return `${gv}  →  ${svc}`
     },
     status: it => {
@@ -33,13 +35,13 @@ const CONFIGS = {
   mutatingwebhooks: {
     title: 'MutatingWebhookConfigurations', icon: 'webhook', scope: 'cluster',
     gv: '/apis/admissionregistration.k8s.io/v1', plural: 'mutatingwebhookconfigurations',
-    summary: it => `${(it.webhooks || []).length} 个 webhook`,
+    summary: it => `${(it.webhooks || []).length} webhooks`,
     status: () => 'Active',
   },
   validatingwebhooks: {
     title: 'ValidatingWebhookConfigurations', icon: 'rule', scope: 'cluster',
     gv: '/apis/admissionregistration.k8s.io/v1', plural: 'validatingwebhookconfigurations',
-    summary: it => `${(it.webhooks || []).length} 个 webhook`,
+    summary: it => `${(it.webhooks || []).length} webhooks`,
     status: () => 'Active',
   },
   replicasets: {
@@ -63,7 +65,7 @@ const CONFIGS = {
     gv: '/apis/storage.k8s.io/v1', plural: 'csinodes',
     summary: it => {
       const drivers = it.spec?.drivers || []
-      return drivers.length ? `${drivers.length} driver(s): ${drivers.map(d => d.name).join(', ')}` : '无 CSI 驱动（in-tree / NFS）'
+      return drivers.length ? `${drivers.length} driver(s): ${drivers.map(d => d.name).join(', ')}` : 'No CSI drivers (in-tree / NFS)'
     },
     status: () => 'Active',
   },
@@ -71,13 +73,13 @@ const CONFIGS = {
 
 const cfg = computed(() => CONFIGS[route.meta.resource])
 const namespaced = computed(() => cfg.value?.scope === 'namespace')
-// 展开行 colspan：namespaced 多一列 Namespace
+// Expanded row colspan: namespaced resources have an extra Namespace column
 const colCount = computed(() => namespaced.value ? 6 : 5)
 const items = ref([])
 const loading = ref(false)
 const { currentPage, pageSize, paginated, total } = usePagination(items)
 const expanded = ref(new Set())
-const yamlCache = ref({})        // key -> 实时 YAML（GET selfLink/回退路径 后 dump）
+const yamlCache = ref({})        // key -> realtime YAML (after GET selfLink/fallback path then dump)
 
 async function load() {
   if (!cfg.value) return
@@ -89,7 +91,7 @@ async function load() {
       return ka.localeCompare(kb)
     })
   } catch (e) {
-    notify('error', e.message || '加载失败')
+    notify('error', e.message || t('admin.resourceList.loadFailed'))
     items.value = []
   } finally {
     loading.value = false
@@ -97,10 +99,10 @@ async function load() {
 }
 onMounted(load)
 
-// 行唯一键：namespaced 含 namespace
+// Row unique key: namespaced resources include namespace
 function rowKey(it) { return (it.metadata?.namespace || '') + '/' + (it.metadata?.name || '') }
 
-// 对象路径：优先 selfLink，否则按 gv/plural/scope 构造
+// Object path: prefer selfLink, otherwise construct by gv/plural/scope
 function itemPath(it) {
   if (it.metadata?.selfLink) return it.metadata.selfLink
   const name = encodeURIComponent(it.metadata?.name || '')
@@ -118,7 +120,7 @@ async function ensureYaml(it) {
     if (obj?.metadata) delete obj.metadata.managedFields
     yamlCache.value = { ...yamlCache.value, [k]: yamlDump(obj) }
   } catch {
-    // 无权限读取：编辑器回退到列表项自身的 dump
+    // No permission to read: editor fallback to list item's own dump
   }
 }
 function toggleExpand(it) {
@@ -139,14 +141,14 @@ function yamlOf(it) {
 async function applyYaml(yaml) {
   try {
     await api.applyYaml(yaml)
-    notify('success', '已应用')
+    notify('success', t('admin.resourceList.applied'))
     await load()
   } catch (e) {
-    notify('error', e.message || '应用失败')
+    notify('error', e.message || t('admin.resourceList.applyFailed'))
   }
 }
 
-// 删除
+// t('common.delete')
 const showDelete = ref(false)
 const delTarget = ref(null)
 function confirmDelete(it) { delTarget.value = it; showDelete.value = true }
@@ -155,10 +157,10 @@ async function handleDelete() {
   if (!it) return
   try {
     await api.k8s(itemPath(it), { method: 'DELETE' })
-    notify('success', `${it.metadata?.name} 已删除`)
+    notify('success', t('admin.resourceList.deleted', { name: it.metadata?.name }))
     await load()
   } catch (e) {
-    notify('error', e.message || '删除失败')
+    notify('error', e.message || t('admin.resourceList.applyFailed'))
   }
   showDelete.value = false
   delTarget.value = null
@@ -179,13 +181,13 @@ const ageOf = ts => {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">{{ cfg.title }}</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ items.length }} 项 · {{ namespaced ? '命名空间级' : '集群级' }}资源（实时读取）</p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('admin.resourceList.itemCount', { n: items.length, scope: namespaced ? t('admin.resourceList.namespaceScope') : t('admin.resourceList.clusterScope') }) }}</p>
       </div>
       <button
         @click="load"
         class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
       >
-        <span class="material-symbols-outlined text-sm">refresh</span> 刷新
+        <span class="material-symbols-outlined text-sm">refresh</span> {{ t('admin.resourceList.refresh') }}
       </button>
     </div>
 
@@ -193,12 +195,12 @@ const ageOf = ts => {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Detail</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thName') }}</th>
+            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thNamespace') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thDetail') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thStatus') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thAge') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('admin.resourceList.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -219,10 +221,10 @@ const ageOf = ts => {
               <td class="px-md py-2 text-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
               <td class="px-md py-2" @click.stop>
                 <div class="flex gap-1">
-                  <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看 / 编辑 YAML">
+                  <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('admin.resourceList.viewEditYaml')">
                     <span class="material-symbols-outlined text-base transition-transform" :class="expanded.has(rowKey(it)) ? 'rotate-180' : ''">expand_more</span>
                   </button>
-                  <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
+                  <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
                     <span class="material-symbols-outlined text-base">delete</span>
                   </button>
                 </div>
@@ -237,7 +239,7 @@ const ageOf = ts => {
           <tr v-if="!items.length && !loading">
             <td :colspan="colCount" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-              <p class="text-body-sm text-on-surface-variant mt-xs">暂无数据</p>
+              <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.resourceList.noData') }}</p>
             </td>
           </tr>
         </tbody>
@@ -247,15 +249,15 @@ const ageOf = ts => {
       </div>
     </div>
 
-    <!-- 删除确认 -->
-    <Modal v-model="showDelete" :title="`删除 ${cfg.title}`" width="max-w-md">
+    <!-- t('common.delete')确认 -->
+    <Modal v-model="showDelete" :title="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })" width="max-w-md">
       <p class="text-body-md text-on-surface-variant">
-        确认删除 <span class="font-mono text-on-surface font-semibold">{{ cfg.title }}/{{ delTarget?.metadata?.name }}</span>？
+        {{ t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name }) }}
       </p>
-      <p class="text-body-sm text-error mt-sm">此操作不可撤销。</p>
+      <p class="text-body-sm text-error mt-sm">{{ t('admin.resourceList.deleteWarning') }}</p>
       <template #actions>
-        <button @click="showDelete = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+        <button @click="showDelete = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
       </template>
     </Modal>
   </section>

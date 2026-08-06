@@ -4,9 +4,12 @@
 // 通过 props 控制差异：选中态、删除键、生命周期、端点 ready 标记。
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import StatusChip from './StatusChip.vue'
 import { useTerminalStore } from '@/stores/terminals'
 import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers, podReason } from '@/composables/usePod'
+
+const { t } = useI18n()
 
 const props = defineProps({
   pod: { type: Object, required: true },
@@ -67,21 +70,21 @@ function openTerm() {
       <span class="w-2 h-2 rounded-full shrink-0" :class="[health.dot, pod.status === 'Running' ? 'animate-pulse-status' : '']"></span>
       <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0" :title="pod.name">{{ nameDisp.base }}<span class="text-on-surface-variant/40 font-normal">{{ nameDisp.suffix }}</span></span>
       <StatusChip :status="pod.status" size="sm" />
-      <span v-if="containers.length > 1" class="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5 shrink-0" :title="`${containers.length} 个容器`"><span class="material-symbols-outlined" style="font-size:11px">inventory_2</span>{{ containers.length }}</span>
-      <span v-if="showNamespace && pod.namespace" class="text-[10px] px-1 rounded font-medium shrink-0 bg-secondary/10 text-secondary" :title="`命名空间 ${pod.namespace}`">{{ pod.namespace }}</span>
-      <span v-if="ready !== null" class="text-[10px] px-1 rounded font-medium shrink-0" :class="ready ? 'bg-primary-container/15 text-primary' : 'bg-tertiary-container/15 text-tertiary-container'">{{ ready ? 'Ready' : 'Not Ready' }}</span>
+      <span v-if="containers.length > 1" class="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5 shrink-0" :title="t('component.podCard.containers', { n: containers.length })"><span class="material-symbols-outlined" style="font-size:11px">inventory_2</span>{{ containers.length }}</span>
+      <span v-if="showNamespace && pod.namespace" class="text-[10px] px-1 rounded font-medium shrink-0 bg-secondary/10 text-secondary" :title="t('component.podCard.namespaceTitle', { ns: pod.namespace })">{{ pod.namespace }}</span>
+      <span v-if="ready !== null" class="text-[10px] px-1 rounded font-medium shrink-0" :class="ready ? 'bg-primary-container/15 text-primary' : 'bg-tertiary-container/15 text-tertiary-container'">{{ ready ? t('component.podCard.ready') : t('component.podCard.notReady') }}</span>
       <span class="text-xs shrink-0" :class="health.text">{{ health.label }}</span>
       <span class="text-[11px] text-on-surface-variant ml-auto shrink-0">{{ pod.age }}</span>
       <slot name="actions" />
-      <button v-if="showTerminal" @click.stop="openTerm" :disabled="!canExec" :title="canExec ? '终端（浮动窗口 · 可最小化/新标签页打开）' : 'Pod 未运行，无法打开终端'" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">terminal</span></button>
-      <button v-if="showFiles" @click.stop="goPodTab('#files')" :disabled="!canExec" :title="canExec ? '文件浏览' : 'Pod 未运行，无法浏览文件'" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
-      <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" title="删除 Pod（控制器会重建并重新拉镜像）"><span class="material-symbols-outlined text-sm">delete</span></button>
+      <button v-if="showTerminal" @click.stop="openTerm" :disabled="!canExec" :title="canExec ? t('component.podCard.terminalTitle') : t('component.podCard.terminalDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">terminal</span></button>
+      <button v-if="showFiles" @click.stop="goPodTab('#files')" :disabled="!canExec" :title="canExec ? t('component.podCard.filesTitle') : t('component.podCard.filesDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
+      <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" :title="t('component.podCard.deleteTitle')"><span class="material-symbols-outlined text-sm">delete</span></button>
     </div>
 
     <!-- 行2：状态 + 重启 + IP + 节点 + 镜像 -->
     <div class="flex items-center gap-1.5 mt-1 text-[11px] text-on-surface-variant/70 flex-wrap">
       <span class="flex items-center gap-0.5" :class="health.text"><span class="w-1 h-1 rounded-full" :class="health.dot"></span>{{ pod.status }}</span>
-      <span v-if="pod.restarts > 0" class="flex items-center gap-0.5" :class="pod.restarts > 3 ? 'text-error' : 'text-tertiary-container'" :title="`重启 ${pod.restarts} 次`"><span class="material-symbols-outlined" style="font-size:12px">restart_alt</span>{{ pod.restarts }}</span>
+      <span v-if="pod.restarts > 0" class="flex items-center gap-0.5" :class="pod.restarts > 3 ? 'text-error' : 'text-tertiary-container'" :title="t('component.podCard.restartsTitle', { n: pod.restarts })"><span class="material-symbols-outlined" style="font-size:12px">restart_alt</span>{{ pod.restarts }}</span>
       <span v-if="pod.ip" class="font-mono text-primary">{{ pod.ip }}</span>
       <span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined" style="font-size:12px">dns</span><span class="font-mono truncate max-w-[110px]" :title="pod.node">{{ pod.node || '—' }}</span></span>
       <template v-if="pod.image">
@@ -113,7 +116,7 @@ function openTerm() {
 
     <!-- 行4：生命周期 conditions（调度/初始化/容器/就绪）-->
     <div v-if="showLifecycle && conds" class="flex items-center gap-1 mt-1">
-      <template v-for="ck in [{ k: 'scheduled', l: '调度' }, { k: 'initialized', l: '初始化' }, { k: 'containersReady', l: '容器' }, { k: 'podReady', l: '就绪' }]" :key="ck.k">
+      <template v-for="ck in [{ k: 'scheduled', l: t('component.podCard.lifecycleScheduled') }, { k: 'initialized', l: t('component.podCard.lifecycleInitialized') }, { k: 'containersReady', l: t('component.podCard.lifecycleContainers') }, { k: 'podReady', l: t('component.podCard.lifecycleReady') }]" :key="ck.k">
         <span class="flex items-center gap-0.5 text-[10px]" :class="condChip(conds[ck.k]).ok ? 'text-primary' : 'text-on-surface-variant/35'">
           <span class="material-symbols-outlined" style="font-size:11px">{{ condChip(conds[ck.k]).ok ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ ck.l }}
         </span>

@@ -3,7 +3,6 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
-import { i18n, setLocale } from '@/i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -336,11 +335,6 @@ function nsStatusColor(status) {
         <span class="material-symbols-outlined text-lg">tune</span>
         <span class="text-body-sm">{{ $t('nav.settings') }}</span>
       </a>
-      <div class="flex items-center gap-xs px-md py-sm">
-        <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'text-primary font-semibold' : 'text-on-surface-variant'" class="text-xs px-sm py-xs rounded hover:bg-surface-container transition-colors">中文</button>
-        <span class="text-on-surface-variant/30 text-xs">|</span>
-        <button @click="setLocale('en')" :class="i18n.global.locale.value === 'en' ? 'text-primary font-semibold' : 'text-on-surface-variant'" class="text-xs px-sm py-xs rounded hover:bg-surface-container transition-colors">EN</button>
-      </div>
     </div>
   </aside>
   <!-- Click-outside overlay -->

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -8,6 +9,7 @@ import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 const searchQuery = ref('')
@@ -39,8 +41,8 @@ onUnmounted(() => store.stopEventWatch())
       { label: 'Events' }
     ]" />
     <div class="mt-sm mb-md">
-      <h2 class="text-headline-md text-on-surface font-bold">Events</h2>
-      <p class="text-on-surface-variant text-body-sm mt-xs">Recent events in namespace <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+      <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.events.title') }}</h2>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.events.subtitle', { ns: route.params.namespace }) }}</p>
     </div>
 
     <!-- 搜索 + 类型过滤 -->
@@ -49,16 +51,16 @@ onUnmounted(() => store.stopEventWatch())
         <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
           class="px-md py-xs rounded-full text-xs font-medium border transition-all capitalize"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
-          {{ opt === 'All' ? '全部' : opt }}
+          {{ opt === 'All' ? t('ns.events.filterAll') : opt }}
         </button>
       </div>
       <div class="relative flex-1 min-w-[200px] max-w-md ml-auto">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索原因或消息..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.events.searchPlaceholder')" />
       </div>
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsEvents.length }}</span>
-      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" title="events?watch=true 实时推送（Gateway 流式 pipe）">
-        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE · 流式
+      <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="t('ns.events.liveTitle')">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ t('ns.events.liveStream') }}
       </span>
     </div>
 
@@ -66,10 +68,10 @@ onUnmounted(() => store.stopEventWatch())
       <table class="w-full text-left">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">Type</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reason</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Time</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">{{ t('ns.events.thType') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thReason') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thMessage') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thTime') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -100,7 +102,7 @@ onUnmounted(() => store.stopEventWatch())
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">event_available</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">No recent events in this namespace</p>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.events.empty') }}</p>
     </div>
   </section>
 </template>

@@ -3,9 +3,11 @@
 // URL: /terminal-popup?ns=xxx&pod=xxx&container=xxx&name=xxx
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { useClusterStore } from '@/stores/cluster'
 
+const { t } = useI18n()
 const route = useRoute()
 const store = useClusterStore()
 // 从 URL query 读取终端上下文
@@ -15,11 +17,11 @@ const container = computed(() => route.query.container || '')
 const name = computed(() => route.query.name || 'terminal')
 
 // 设置页面标题
-document.title = `${name.value} · Terminal`
+document.title = t('terminal.title', { name: name.value })
 // session token 已由 main.js 从 URL 写入 sessionStorage；验证存在
 const hasToken = sessionStorage.getItem('aliangboard.session')
 if (!hasToken) {
-  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b1c30;color:#cfe3ff;font-family:monospace;font-size:14px">会话已过期，请关闭此窗口并在原页面重新打开终端。</div>'
+  document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b1c30;color:#cfe3ff;font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
 } else {
   store.remoteMode = true
   if (ns.value) store.setNamespace(ns.value)
@@ -34,7 +36,7 @@ if (!hasToken) {
       <span class="text-body-sm font-medium text-on-surface truncate flex-1">{{ name }}</span>
       <span class="text-body-xs text-on-surface-variant/60 font-mono">{{ ns }}/{{ pod }}{{ container ? ':' + container : '' }}</span>
       <button @click="window.close()" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
-        <span class="material-symbols-outlined text-sm">close</span>关闭窗口
+        <span class="material-symbols-outlined text-sm">close</span>{{ t('terminal.closeWindow') }}
       </button>
     </div>
     <!-- 全屏终端 -->

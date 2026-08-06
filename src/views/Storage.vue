@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -8,45 +9,47 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
+
 const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('pvc')
 
-const tabs = [
-  { key: 'pvc', label: 'PersistentVolumeClaims' },
-  { key: 'pv', label: 'PersistentVolumes' },
-  { key: 'sc', label: 'StorageClasses' },
-]
+const tabs = computed(() => [
+  { key: 'pvc', label: t('storage.tabs.pvc') },
+  { key: 'pv', label: t('storage.tabs.pv') },
+  { key: 'sc', label: t('storage.tabs.sc') },
+])
 
-const pvcHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'status', label: 'Status' },
-  { key: 'capacity', label: 'Capacity' },
-  { key: 'accessModes', label: 'Access' },
-  { key: 'storageClass', label: 'StorageClass' },
-  { key: 'age', label: 'Age' },
-]
+const pvcHeaders = computed(() => [
+  { key: 'name', label: t('storage.thName') },
+  { key: 'namespace', label: t('storage.thNamespace') },
+  { key: 'status', label: t('storage.thStatus') },
+  { key: 'capacity', label: t('storage.thCapacity') },
+  { key: 'accessModes', label: t('storage.thAccess') },
+  { key: 'storageClass', label: t('storage.thStorageClass') },
+  { key: 'age', label: t('storage.thAge') },
+])
 
-const pvHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'capacity', label: 'Capacity' },
-  { key: 'accessModes', label: 'Access' },
-  { key: 'reclaimPolicy', label: 'Reclaim' },
-  { key: 'status', label: 'Status' },
-  { key: 'claim', label: 'Claim' },
-  { key: 'storageClass', label: 'StorageClass' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const pvHeaders = computed(() => [
+  { key: 'name', label: t('storage.thName') },
+  { key: 'capacity', label: t('storage.thCapacity') },
+  { key: 'accessModes', label: t('storage.thAccess') },
+  { key: 'reclaimPolicy', label: t('storage.thReclaim') },
+  { key: 'status', label: t('storage.thStatus') },
+  { key: 'claim', label: t('storage.thClaim') },
+  { key: 'storageClass', label: t('storage.thStorageClass') },
+  { key: 'actions', label: t('storage.thActions'), align: 'right' },
+])
 
-const scHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'provisioner', label: 'Provisioner' },
-  { key: 'reclaimPolicy', label: 'Reclaim Policy' },
-  { key: 'default', label: 'Default' },
-  { key: 'age', label: 'Age' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const scHeaders = computed(() => [
+  { key: 'name', label: t('storage.thName') },
+  { key: 'provisioner', label: t('storage.thProvisioner') },
+  { key: 'reclaimPolicy', label: t('storage.thReclaim') },
+  { key: 'default', label: t('storage.thDefault') },
+  { key: 'age', label: t('storage.thAge') },
+  { key: 'actions', label: t('storage.thActions'), align: 'right' },
+])
 
 // Create PVC（集群页跨 namespace，需选择目标 namespace）
 const showCreatePVC = ref(false)
@@ -135,17 +138,17 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">Storage</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">Manage persistent storage, volumes, and storage classes.</p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('storage.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('storage.subtitle') }}</p>
       </div>
       <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-base">add</span> New PVC
+        <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newPVC') }}
       </button>
       <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-base">add</span> New PV
+        <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newPV') }}
       </button>
       <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-base">add</span> New StorageClass
+        <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newSC') }}
       </button>
     </div>
 
@@ -190,7 +193,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <span class="font-mono text-code-sm text-primary">{{ row.claim || '-' }}</span>
       </template>
       <template #actions="{ row }">
-        <button @click.stop="store.deletePV(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
+        <button @click.stop="store.deletePV(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
@@ -211,7 +214,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <span class="material-symbols-outlined" :class="row.default ? 'text-primary' : 'text-outline-variant'">{{ row.default ? 'check_circle' : 'radio_button_unchecked' }}</span>
       </template>
       <template #actions="{ row }">
-        <button @click.stop="store.deleteStorageClass(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete">
+        <button @click.stop="store.deleteStorageClass(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
@@ -221,15 +224,15 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- Create PVC Modal -->
-    <Modal v-model="showCreatePVC" title="Create PVC" width="max-w-lg">
+    <Modal v-model="showCreatePVC" :title="t('storage.createPVCTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">PVC Name *</label>
-            <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-pvc" />
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.pvcName') }} *</label>
+            <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.pvcPlaceholder')" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Namespace *</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.namespaceRequired') }} *</label>
             <select v-model="createForm.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
               <option v-for="ns in store.namespaceList" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
             </select>
@@ -237,107 +240,107 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         </div>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity *</label>
-            <input v-model="createForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="10Gi" />
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.capacityRequired') }} *</label>
+            <input v-model="createForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('storage.capacityPlaceholder')" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.accessMode') }}</label>
             <select v-model="createForm.accessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option value="RWO">ReadWriteOnce</option>
-              <option value="RWM">ReadWriteMany</option>
-              <option value="ROM">ReadOnlyMany</option>
+              <option value="RWO">{{ t('storage.readWriteOnce') }}</option>
+              <option value="RWM">{{ t('storage.readWriteMany') }}</option>
+              <option value="ROM">{{ t('storage.readOnlyMany') }}</option>
             </select>
           </div>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.storageClassLabel') }}</label>
           <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-            <option value="">Default</option>
-            <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
+            <option value="">{{ t('storage.defaultOption') }}</option>
+            <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ` (${t('storage.default')})` : '' }}</option>
           </select>
         </div>
       </div>
       <template #actions>
-        <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-        <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+        <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
+        <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
 
     <!-- Create PersistentVolume Modal -->
-    <Modal v-model="showCreatePV" title="Create PersistentVolume" width="max-w-lg">
+    <Modal v-model="showCreatePV" :title="t('storage.createPVTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">PV Name *</label>
-          <input v-model="createPVForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="pv-ssd-001" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.pvName') }} *</label>
+          <input v-model="createPVForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.pvPlaceholder')" />
         </div>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity *</label>
-            <input v-model="createPVForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="50Gi" />
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.capacityRequired') }} *</label>
+            <input v-model="createPVForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.capacityPlaceholder')" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.accessMode') }}</label>
             <select v-model="createPVForm.accessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
-              <option value="RWO">ReadWriteOnce</option>
-              <option value="RWM">ReadWriteMany</option>
-              <option value="ROM">ReadOnlyMany</option>
-              <option value="RWOP">ReadWriteOncePod</option>
+              <option value="RWO">{{ t('storage.readWriteOnce') }}</option>
+              <option value="RWM">{{ t('storage.readWriteMany') }}</option>
+              <option value="ROM">{{ t('storage.readOnlyMany') }}</option>
+              <option value="RWOP">{{ t('storage.readWriteOncePod') }}</option>
             </select>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.reclaimPolicy') }}</label>
             <select v-model="createPVForm.reclaimPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
-              <option value="Retain">Retain</option>
-              <option value="Delete">Delete</option>
-              <option value="Recycle">Recycle</option>
+              <option value="Retain">{{ t('storage.retain') }}</option>
+              <option value="Delete">{{ t('storage.delete') }}</option>
+              <option value="Recycle">{{ t('storage.recycle') }}</option>
             </select>
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
-            <input v-model="createPVForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="ssd-premium" />
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.storageClassLabel') }}</label>
+            <input v-model="createPVForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.scPlaceholder')" />
           </div>
         </div>
       </div>
       <template #actions>
-        <button @click="showCreatePV = false; resetCreatePV()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-        <button @click="handleCreatePV" :disabled="!createPVForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+        <button @click="showCreatePV = false; resetCreatePV()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
+        <button @click="handleCreatePV" :disabled="!createPVForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
 
     <!-- Create StorageClass Modal -->
-    <Modal v-model="showCreateSC" title="Create StorageClass" width="max-w-lg">
+    <Modal v-model="showCreateSC" :title="t('storage.createSCTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass Name *</label>
-          <input v-model="createSCForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="fast-ssd" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.scName') }} *</label>
+          <input v-model="createSCForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.scPlaceholder')" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Provisioner</label>
-          <input v-model="createSCForm.provisioner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="pd.csi.storage.gke.io" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.provisionerLabel') }}</label>
+          <input v-model="createSCForm.provisioner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.provisionerPlaceholder')" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Parameters</label>
-          <input v-model="createSCForm.parameters" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="type=pd-ssd" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.parametersLabel') }}</label>
+          <input v-model="createSCForm.parameters" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.parametersPlaceholder')" />
         </div>
         <div class="grid grid-cols-2 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.reclaimPolicy') }}</label>
             <select v-model="createSCForm.reclaimPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
-              <option value="Retain">Retain</option>
-              <option value="Delete">Delete</option>
+              <option value="Retain">{{ t('storage.retain') }}</option>
+              <option value="Delete">{{ t('storage.delete') }}</option>
             </select>
           </div>
           <div class="flex items-center gap-sm pt-lg">
             <input type="checkbox" id="sc-default" v-model="createSCForm.default" class="w-4 h-4 accent-primary" />
-            <label for="sc-default" class="text-body-md text-on-surface cursor-pointer">Set as default StorageClass</label>
+            <label for="sc-default" class="text-body-md text-on-surface cursor-pointer">{{ t('storage.setDefaultStorageClass') }}</label>
           </div>
         </div>
       </div>
       <template #actions>
-        <button @click="showCreateSC = false; resetCreateSC()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-        <button @click="handleCreateSC" :disabled="!createSCForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+        <button @click="showCreateSC = false; resetCreateSC()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
+        <button @click="handleCreateSC" :disabled="!createSCForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
   </section>

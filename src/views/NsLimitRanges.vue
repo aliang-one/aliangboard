@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -9,6 +10,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -96,15 +98,20 @@ function handleDelete() {
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'LimitRanges' }
+      { label: $t('ns.limitRanges.title') }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
+<<<<<<< HEAD
         <h2 class="text-headline-md text-on-surface font-bold">LimitRanges</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsLimitRanges.length }} LimitRanges in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+=======
+        <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.limitRanges.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.subtitle', { n: store.nsLimitRanges.length, ns: route.params.namespace }) }}</p>
+>>>>>>> feat/i18n-phase2
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> New LimitRange
+        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.limitRanges.newBtn') }}
       </button>
     </div>
 
@@ -112,13 +119,13 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default CPU</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default Memory</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Max CPU</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Max Memory</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thDefaultCpu') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thDefaultMemory') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thMaxCpu') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thMaxMemory') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thAge') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.limitRanges.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -160,7 +167,7 @@ function handleDelete() {
           <tr v-if="!nsLimitRanges.length">
             <td :colspan="7" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
+              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.limitRanges.emptyState') }}</p>
             </td>
           </tr>
         </tbody>
@@ -171,41 +178,41 @@ function handleDelete() {
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">tune</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">No LimitRanges in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create LimitRange</button>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.noLimitRangesInNs') }}</p>
+      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.limitRanges.createBtn') }}</button>
     </div>
   </section>
 
   <!-- Create LimitRange Modal -->
-  <Modal v-model="showCreateModal" title="Create LimitRange" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="$t('ns.limitRanges.createModalTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">LimitRange Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.limitRanges.limitRangeNameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-limits" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Default Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.limitRanges.defaultLimitsLabel') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <input v-model="createForm.defaultCPU" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="500m" />
           <input v-model="createForm.defaultMemory" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="512Mi" />
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Default Requests</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.limitRanges.defaultRequestsLabel') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <input v-model="createForm.defaultRequestCPU" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="250m" />
           <input v-model="createForm.defaultRequestMemory" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="256Mi" />
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Max Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.limitRanges.maxLimitsLabel') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <input v-model="createForm.maxCPU" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="2" />
           <input v-model="createForm.maxMemory" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="4Gi" />
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Min Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.limitRanges.minLimitsLabel') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <input v-model="createForm.minCPU" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="50m" />
           <input v-model="createForm.minMemory" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="64Mi" />
@@ -213,18 +220,18 @@ function handleDelete() {
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete LimitRange" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete LimitRange <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing a LimitRange removes default resource constraints for containers. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('ns.limitRanges.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ $t('ns.limitRanges.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.limitRanges.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

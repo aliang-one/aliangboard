@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -9,6 +10,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
@@ -22,10 +24,10 @@ function newNetworkPolicy() {
 }
 
 const tabs = [
-  { key: 'services', label: 'Services' },
-  { key: 'ingress', label: 'Ingress' },
-  { key: 'endpoints', label: 'Endpoints' },
-  { key: 'networkpolicies', label: 'NetworkPolicies' },
+  { key: 'services', label: t('network.tabServices') },
+  { key: 'ingress', label: t('network.tabIngress') },
+  { key: 'endpoints', label: t('network.tabEndpoints') },
+  { key: 'networkpolicies', label: t('network.tabNetworkPolicies') },
 ]
 
 const svcHeaders = computed(() => tableColumns('services'))
@@ -43,15 +45,15 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">Network</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">Manage Services, Ingress, Endpoints, and NetworkPolicies.</p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ $t('network.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('network.subtitle') }}</p>
       </div>
       <div class="flex gap-sm">
         <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-base">add</span> New Service
+          <span class="material-symbols-outlined text-base">add</span> {{ $t('network.newService') }}
         </button>
         <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-          <span class="material-symbols-outlined text-base">add</span> New Ingress
+          <span class="material-symbols-outlined text-base">add</span> {{ $t('network.newIngress') }}
         </button>
       </div>
     </div>
@@ -65,7 +67,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </button>
     </div>
 
-    <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" title="No services" />
+    <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" :title="$t('network.noServices')" />
     <DataTable v-if="activeTab === 'services' && store.serviceList.length" :headers="svcHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
@@ -87,7 +89,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </template>
     </DataTable>
 
-    <EmptyState v-if="activeTab === 'ingress' && !store.ingressList.length" icon="router" title="No ingress rules" />
+    <EmptyState v-if="activeTab === 'ingress' && !store.ingressList.length" icon="router" :title="$t('network.noIngressRules')" />
     <DataTable v-if="activeTab === 'ingress' && store.ingressList.length" :headers="ingressHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
@@ -108,13 +110,13 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
     <div v-if="activeTab === 'endpoints'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">lan</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">Endpoints are auto-discovered from Services.</p>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('network.endpointsHint') }}</p>
     </div>
 
     <div v-if="activeTab === 'networkpolicies'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">security</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">No NetworkPolicies defined.</p>
-      <button @click="newNetworkPolicy" class="mt-md px-3 py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">Create NetworkPolicy</button>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('network.noNetworkPolicies') }}</p>
+      <button @click="newNetworkPolicy" class="mt-md px-3 py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">{{ $t('network.createNetworkPolicy') }}</button>
     </div>
   </section>
 </template>
