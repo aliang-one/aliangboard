@@ -16,7 +16,8 @@ import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { createWorkbenchSchema, createProject, listProjects, getProject } from './workbench-projects.mjs'
-import { ensureGitAvailable, initRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
+import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
+import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -881,6 +882,43 @@ async function handle(req, res) {
     }
 
     return sendJson(res, 404, { message: '未知的工作台路由' })
+  }
+
+  // ====== 工作台:集群台账(W3)。cluster-context repo,每集群一份。======
+  if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
+    const ps = requirePlatform(req, res); if (!ps) return
+    const clusterId = url.searchParams.get('clusterId')
+    if (!clusterId) return sendJson(res, 400, { message: '缺 clusterId' })
+    const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
+    let files = [], index = null
+    if (await hasRepo(repo)) {
+      files = await wbListFiles(repo)
+      try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
+    }
+    return sendJson(res, 200, { exists: !!index, files, index })
+  }
+  if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      const clusterId = input.clusterId
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      // 平台直连集群凭据 survey(只读 list);每项 try/catch,不可用返 null
+      const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+      const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
+      const [namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses] = await Promise.all([
+        safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
+        safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
+        safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
+      ])
+      const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: verifiedAt(), namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses })
+      const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
+      if (!(await hasRepo(repo))) await initRepo(repo)
+      await wbWriteFile(repo, 'INDEX.md', index)
+      await wbCommit(repo, `台账 bootstrap · ${verifiedAt()}`)
+      return sendJson(res, 200, { index, files: await wbListFiles(repo) })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===

@@ -435,6 +435,12 @@ const routes = [
         meta: { title: '工作台', icon: 'workspaces', scope: 'global' }
       },
       {
+        path: 'workbench/ledger',
+        name: 'WorkbenchLedger',
+        component: () => import('@/views/WorkbenchLedger.vue'),
+        meta: { title: '集群台账', scope: 'global' }
+      },
+      {
         path: 'workbench/:id',
         name: 'WorkbenchProject',
         component: () => import('@/views/WorkbenchDetail.vue'),

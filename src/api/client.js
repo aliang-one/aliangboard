@@ -190,6 +190,9 @@ export const workbenchApi = {
   readFile: (id, path) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
   writeFile: (id, path, content) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   commit: (id, message) => platformRequest(`/api/workbench/projects/${encodeURIComponent(id)}/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
+  // 集群台账(cluster-context repo,每集群一份)
+  getLedger: clusterId => platformRequest(`/api/workbench/ledger?clusterId=${encodeURIComponent(clusterId)}`),
+  bootstrapLedger: clusterId => platformRequest('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
 }
 export const authApi = {
   login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
