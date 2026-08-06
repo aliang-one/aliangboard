@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -16,7 +17,16 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const ing = computed(() => store.getIngressByName(route.params.name, route.params.namespace))
+// 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('ingresses')，编辑后自动刷新。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const ingDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'ingresses', route.params.name],
+  fetcher: () => store.fetchIngress(route.params.name, route.params.namespace),
+  mock: store.getIngressByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const ing = computed(() => ingDetail.data.value ?? store.getIngressByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
 
 const showDeleteModal = ref(false)

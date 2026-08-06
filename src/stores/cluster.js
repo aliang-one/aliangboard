@@ -596,8 +596,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: Ingress ===
   async function addIngress(ing) {
-    if (remoteMode.value) return remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
-    ingressList.value.push({ ...ing, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
+    else ingressList.value.push({ ...ing, age: 'Just now' })
+    invalidateResource('ingresses')
   }
 
   async function updateIngress(name, ns, updates) {
@@ -606,6 +607,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(ingressList.value[idx]))
     ingressList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('ingress', ingressList.value[idx]), 'Ingress', () => { ingressList.value[idx] = before })
+    invalidateResource('ingresses')
   }
 
   // 结构化编辑 Ingress 路由规则：入参 flatRules + defaultBackend，
@@ -628,10 +630,11 @@ export const useClusterStore = defineStore('cluster', () => {
   async function deleteIngress(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, ingressList, i => i.name === name && i.namespace === ns)
-      return
+    } else {
+      const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
+      if (idx !== -1) ingressList.value.splice(idx, 1)
     }
-    const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
-    if (idx !== -1) ingressList.value.splice(idx, 1)
+    invalidateResource('ingresses')
   }
 
   // === CRUD: ConfigMaps ===
@@ -1191,6 +1194,7 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
   async function fetchSecret(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`); return d ? mapSecret(d) : null }
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
+  async function fetchIngress(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`); return d ? mapIngress(d) : null }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
   async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
   async function fetchLimitRanges() { const d = await api.k8s('/api/v1/limitranges?limit=5000'); return (d?.items || []).map(mapLimitRange) }
@@ -3504,6 +3508,7 @@ status:
     fetchConfigMap,
     fetchSecret,
     fetchService,
+    fetchIngress,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
