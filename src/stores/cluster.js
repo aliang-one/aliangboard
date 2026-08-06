@@ -10,11 +10,8 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
-<<<<<<< HEAD
 import { queryClient } from '@/queryClient'
-=======
 import { i18n } from '@/i18n'
->>>>>>> feat/i18n-phase2
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,

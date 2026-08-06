@@ -2,12 +2,9 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
-<<<<<<< HEAD
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
-=======
 import { useI18n } from 'vue-i18n'
->>>>>>> feat/i18n-phase2
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -150,13 +147,8 @@ function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-<<<<<<< HEAD
-        <h2 class="text-headline-md font-bold text-on-surface">Ingress</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.ingress.title') }}</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.ingress.subtitle', { count: store.nsIngress.length, ns: route.params.namespace }) }}</p>
->>>>>>> feat/i18n-phase2
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.ingress.subtitle', { count: nsIngress.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">add</span> {{ t('ns.ingress.new') }}

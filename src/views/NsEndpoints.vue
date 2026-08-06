@@ -55,13 +55,8 @@ const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-<<<<<<< HEAD
-        <h2 class="text-headline-md font-bold text-on-surface">Endpoints</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsEndpoints.length }} endpoints in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
         <h2 class="text-headline-md font-bold text-on-surface">{{ $t('ns.endpoints.title') }}</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ $t('ns.endpoints.subtitle', { n: store.nsEndpoints.length, ns: route.params.namespace }) }}</p>
->>>>>>> feat/i18n-phase2
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ $t('ns.endpoints.subtitle', { n: nsEndpoints.length, ns: route.params.namespace }) }}</p>
       </div>
     </div>
 

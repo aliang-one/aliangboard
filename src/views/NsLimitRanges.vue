@@ -102,13 +102,8 @@ function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-<<<<<<< HEAD
-        <h2 class="text-headline-md text-on-surface font-bold">LimitRanges</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsLimitRanges.length }} LimitRanges in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.limitRanges.title') }}</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.subtitle', { n: store.nsLimitRanges.length, ns: route.params.namespace }) }}</p>
->>>>>>> feat/i18n-phase2
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.subtitle', { n: nsLimitRanges.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.limitRanges.newBtn') }}
