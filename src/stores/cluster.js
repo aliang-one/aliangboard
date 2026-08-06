@@ -2379,6 +2379,22 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // 拉取所有非核心资源（集群范围 list，容忍 RBAC 403）。对应列表会被真实数据覆盖。
+  // hydrate 后把已拉取的 store 列表预填进 Vue Query 缓存（canonical 列表 key），
+  // 让迁移页挂载时命中缓存、不重复请求 hydrate 已拉过的数据（消除「hydrate 一遍 + query 一遍」双取）。
+  function prefillQueryCache() {
+    const cid = remoteMode.value ? (currentCluster.value || 'cluster') : 'demo'
+    const map = {
+      nodes: nodeList, workloads: workloadList, services: serviceList, ingresses: ingressList,
+      configmaps: configMapList, secrets: secretList, networkpolicies: networkPolicyList,
+      pvcs: pvcList, hpas: hpaList, pdbs: pdbList, limitranges: limitRangeList,
+      resourcequotas: resourceQuotaList, endpoints: endpointsList,
+    }
+    for (const [res, listRef] of Object.entries(map)) {
+      const list = listRef.value
+      if (list && list.length) queryClient.setQueryData(['cluster', cid, res], list)
+    }
+  }
+
   async function hydrateExtendedResources() {
     if (!remoteMode.value) return
     const reqs = await Promise.allSettled([
@@ -3549,6 +3565,7 @@ status:
     fetchNetworkPolicy, fetchPVC,
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
+    prefillQueryCache,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
