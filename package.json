@@ -11,8 +11,9 @@
     "preview": "vite preview",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "npm run test:server && npm run test:unit",
-    "test:server": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/call-context.test.mjs && node --test server/auth-keys.test.mjs && node --test server/authorize.test.mjs && node --test server/sa-binding.test.mjs && node --test server/audit.test.mjs && node --test server/api-key-tools.test.mjs && node --test server/mcp.test.mjs && node --test server/rate-limit.test.mjs && node --test server/llm.test.mjs && node --test server/agent.test.mjs && node --test server/agent-runner.test.mjs && node --test server/workbench-repos.test.mjs && node --test server/workbench-projects.test.mjs && node --test server/workbench-ledger.test.mjs && node --test server/workbench-agent.test.mjs && node --test server/distill.test.mjs && node --test server/reconcile.test.mjs",
-    "test:unit": "vitest run"
+    "test:server": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/call-context.test.mjs && node --test server/auth-keys.test.mjs && node --test server/authorize.test.mjs && node --test server/sa-binding.test.mjs && node --test server/audit.test.mjs && node --test server/api-key-tools.test.mjs && node --test server/mcp.test.mjs && node --test server/rate-limit.test.mjs && node --test server/llm.test.mjs && node --test server/agent.test.mjs && node --test server/agent-runner.test.mjs && node --test server/workbench-repos.test.mjs && node --test server/workbench-projects.test.mjs && node --test server/workbench-ledger.test.mjs && node --test server/workbench-agent.test.mjs && node --test server/distill.test.mjs && node --test server/reconcile.test.mjs && node --test scripts/i18n-check.test.mjs",
+    "test:unit": "vitest run",
+    "i18n:check": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

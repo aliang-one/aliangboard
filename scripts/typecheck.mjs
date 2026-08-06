@@ -28,7 +28,7 @@ function collectJsFiles(dir, acc = []) {
   return acc
 }
 
-const targets = [...collectJsFiles(join(ROOT, 'src')), ...collectJsFiles(join(ROOT, 'server'))]
+const targets = [...collectJsFiles(join(ROOT, 'src')), ...collectJsFiles(join(ROOT, 'server')), ...collectJsFiles(join(ROOT, 'scripts'))]
 const failures = []
 
 for (const file of targets) {
