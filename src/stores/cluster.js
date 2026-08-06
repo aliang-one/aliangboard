@@ -1172,6 +1172,19 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchResourceQuotas() { const d = await api.k8s('/api/v1/resourcequotas?limit=5000'); return (d?.items || []).map(mapResourceQuota) }
   async function fetchHPAs() { const d = await api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'); return (d?.items || []).map(mapHPA) }
   async function fetchEndpoints() { const d = await api.k8s('/api/v1/endpoints?limit=5000'); return (d?.items || []).map(mapEndpoints) }
+  // 工作负载列表（deploy+sts+ds 三类合一；remote 模式与 hydrate 一致不含 job/cronjob，那些按需在详情页补）
+  async function fetchWorkloads() {
+    const [dep, sts, ds] = await Promise.all([
+      api.k8s('/apis/apps/v1/deployments?limit=1000'),
+      api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
+      api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
+    ])
+    return [
+      ...((dep?.items || []).map(i => mapWorkload(i, 'Deployment'))),
+      ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
+      ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
+    ]
+  }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -3462,7 +3475,7 @@ status:
     refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
-    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints,
+    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
