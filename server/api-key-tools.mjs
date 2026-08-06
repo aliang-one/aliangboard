@@ -157,6 +157,23 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           .sort((x, y) => (Number(y.revision) || 0) - (Number(x.revision) || 0))
         return { namespace: a.namespace, deployment: a.name, currentRevision: curRev, revisions }
       } }),
+    rollout_undo: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'rollout_undo', namespace: a.namespace, verb: 'patch', resource: `Deployment/${a.name}/rollback`, summary: `deploy=${a.name} →rev=${a.toRevision}`,
+      fn: async (saCtx) => {
+        if (a.toRevision == null || a.toRevision === '') throw new Error('rollout_undo 缺 toRevision(先 rollout_history 看 revisions)')
+        const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
+        if (!dp) throw new Error(`Deployment ${a.name} 不存在`)
+        const prevImage = dp.spec?.template?.spec?.containers?.[0]?.image || null
+        const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/replicasets`)
+        const target = (body?.items || []).find(rs => rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === String(a.toRevision))
+        if (!target) throw new Error(`revision ${a.toRevision} 不存在`)
+        const newImage = target.spec?.template?.spec?.containers?.[0]?.image || null
+        await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' },
+          body: JSON.stringify({ spec: { template: target.spec.template } }),
+        })
+        return { undone: a.name, toRevision: Number(a.toRevision), previousImage: prevImage, newImage }
+      } }),
     scale: async (keyRow, cluster, a) => {
       const kind = String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'scale', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,
