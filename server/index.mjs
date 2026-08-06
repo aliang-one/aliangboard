@@ -1765,3 +1765,23 @@ if (distillInterval > 0) {
   setInterval(tickDistill, distillInterval).unref()
   console.log(`[distill] 定时蒸馏已启用:每 ${Math.round(distillInterval / 1000)}s 一轮(活跃集群,产待审 pending)`)
 }
+
+// 定时 reconcile scheduler(第 4 阶段 R3):RECONCILE_INTERVAL_MS 触发,对所有有集群的项目幂等再 apply → 存 last_reconcile。
+const reconcileInterval = Number(process.env.RECONCILE_INTERVAL_MS || 0)
+if (reconcileInterval > 0) {
+  const tickReconcile = async () => {
+    try {
+      for (const p of listProjects(db, { userId: '', role: 'admin' })) {
+        try {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+          if (!cluster) continue
+          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+          if (r.failed?.length) console.error(`[reconcile] ${p.name}: ${r.failed.length} 失败`)
+        } catch (e) { console.error(`[reconcile] project ${p.id} 失败:`, e.message) }
+      }
+    } catch (e) { console.error('[reconcile] scheduler tick 失败:', e.message) }
+  }
+  setInterval(tickReconcile, reconcileInterval).unref()
+  console.log(`[reconcile] 定时 reconcile 已启用:每 ${Math.round(reconcileInterval / 1000)}s 一轮(所有项目)`)
+}
