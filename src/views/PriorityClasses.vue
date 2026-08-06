@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const store = useClusterStore()
 
 // 系统级 PriorityClass（不可删除）
@@ -83,16 +85,16 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-lg">
       <div>
-        <h2 class="text-display-lg text-on-surface">优先级类 (PriorityClasses)</h2>
+        <h2 class="text-display-lg text-on-surface">{{ $t('admin.priorityClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">
-          共 {{ store.priorityClassList.length }} 个 PriorityClass — 控制 Pod 调度与抢占优先级，value 越大优先级越高
+          {{ $t('admin.priorityClasses.subtitle', { count: store.priorityClassList.length }) }}
         </p>
       </div>
       <button
         @click="showCreateModal = true"
         class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
       >
-        <span class="material-symbols-outlined">add</span> Create PriorityClass
+        <span class="material-symbols-outlined">add</span> {{ $t('admin.priorityClasses.createBtn') }}
       </button>
     </div>
 
@@ -103,7 +105,7 @@ function handleDelete() {
         <input
           v-model="searchQuery"
           class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary"
-          placeholder="按名称或 description 搜索"
+          :placeholder="$t('admin.priorityClasses.searchPlaceholder')"
         />
       </div>
     </div>
@@ -114,12 +116,12 @@ function handleDelete() {
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
             <th class="px-md py-md text-label-caps text-on-surface-variant w-8"></th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Value</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Global Default</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Description</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-32 text-right">Actions</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thName') }}</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thValue') }}</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thGlobalDefault') }}</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thDescription') }}</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thAge') }}</th>
+            <th class="px-lg py-md text-label-caps text-on-surface-variant w-32 text-right">{{ $t('admin.priorityClasses.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
@@ -137,7 +139,7 @@ function handleDelete() {
                 <div class="flex items-center gap-sm flex-wrap">
                   <span class="material-symbols-outlined text-lg" :class="isSystem(row.name) ? 'text-error' : 'text-secondary'">flag</span>
                   <span class="font-semibold text-on-surface text-body-md font-mono">{{ row.name }}</span>
-                  <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30">SYSTEM</span>
+                  <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30">{{ $t('admin.priorityClasses.systemBadge') }}</span>
                 </div>
               </td>
               <td class="px-lg py-md">
@@ -146,7 +148,7 @@ function handleDelete() {
                     class="font-mono font-bold text-code-sm"
                     :class="isSystem(row.name) ? 'text-error' : row.value >= 1000000 ? 'text-primary' : 'text-on-surface'"
                   >{{ row.value.toLocaleString() }}</span>
-                  <span v-if="row.globalDefault" class="px-1.5 py-0.5 bg-primary-container/30 text-primary text-label-caps rounded font-semibold">DEFAULT</span>
+                  <span v-if="row.globalDefault" class="px-1.5 py-0.5 bg-primary-container/30 text-primary text-label-caps rounded font-semibold">{{ $t('admin.priorityClasses.defaultBadge') }}</span>
                 </div>
               </td>
               <td class="px-lg py-md">
@@ -162,14 +164,14 @@ function handleDelete() {
                   <button
                     @click="$router.push({ name: 'PriorityClassDetail', params: { name: row.name } })"
                     class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
-                    title="详情"
+                    :title="$t('admin.priorityClasses.titleDetail')"
                   >
                     <span class="material-symbols-outlined text-lg">open_in_new</span>
                   </button>
                   <button
                     @click="toggleExpand(row.name)"
                     class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
-                    title="查看 YAML"
+                    :title="$t('admin.priorityClasses.viewYaml')"
                   >
                     <span class="material-symbols-outlined text-lg">code</span>
                   </button>
@@ -177,7 +179,7 @@ function handleDelete() {
                     @click="confirmDelete(row)"
                     :disabled="isSystem(row.name)"
                     class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-                    :title="isSystem(row.name) ? '系统级，不可删除' : '删除'"
+                    :title="isSystem(row.name) ? $t('admin.priorityClasses.systemDeleteTip') : $t('admin.priorityClasses.deleteTip')"
                   >
                     <span class="material-symbols-outlined text-lg">delete</span>
                   </button>
@@ -202,7 +204,7 @@ function handleDelete() {
                   <div>
                     <div class="flex items-center gap-sm mb-md">
                       <span class="material-symbols-outlined text-on-surface-variant text-lg">info</span>
-                      <h4 class="text-label-caps text-on-surface-variant">详情</h4>
+                      <h4 class="text-label-caps text-on-surface-variant">Details</h4>
                     </div>
                     <dl class="flex flex-col gap-md">
                       <div>
@@ -241,69 +243,69 @@ function handleDelete() {
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
       <span class="material-symbols-outlined text-4xl text-surface-container-high">flag</span>
       <p class="text-on-surface-variant mt-md">
-        {{ searchQuery ? '未找到匹配的 PriorityClass' : '当前集群没有 PriorityClass' }}
+        {{ searchQuery ? $t('admin.priorityClasses.noMatchSearch') : $t('admin.priorityClasses.noPriorityClasses') }}
       </p>
       <button v-if="!searchQuery" @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-        Create PriorityClass
+        {{ $t('admin.priorityClasses.createBtnEmpty') }}
       </button>
     </div>
   </section>
 
   <!-- 创建 Modal -->
-  <Modal v-model="showCreateModal" title="Create PriorityClass" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="$t('admin.priorityClasses.createTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('admin.priorityClasses.nameLabel') }}</label>
         <input
           v-model="createForm.name"
           class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary"
-          placeholder="prod-high"
+          :placeholder="$t('admin.priorityClasses.namePlaceholder')"
         />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('admin.priorityClasses.valueLabel') }}</label>
         <input
           v-model.number="createForm.value"
           type="number"
           class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary"
-          placeholder="1000000"
+          :placeholder="$t('admin.priorityClasses.valuePlaceholder')"
         />
-        <p class="text-label-caps text-on-surface-variant mt-xs">数值越大优先级越高（系统级通常为 10 位数）</p>
+        <p class="text-label-caps text-on-surface-variant mt-xs">{{ $t('admin.priorityClasses.valueHint') }}</p>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Description</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('admin.priorityClasses.descriptionLabel') }}</label>
         <input
           v-model="createForm.description"
           class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary"
-          placeholder="生产环境高优先级应用"
+          :placeholder="$t('admin.priorityClasses.descriptionPlaceholder')"
         />
       </div>
       <label class="flex items-center gap-sm cursor-pointer">
         <input v-model="createForm.globalDefault" type="checkbox" class="w-4 h-4 accent-primary" />
-        <span class="text-body-md text-on-surface">设为 Global Default（仅可有一个）</span>
+        <span class="text-body-md text-on-surface">{{ $t('admin.priorityClasses.globalDefaultLabel') }}</span>
       </label>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('admin.priorityClasses.cancel') }}</button>
       <button
         @click="handleCreate"
         :disabled="!createForm.name || createForm.value === '' || createForm.value === null"
         class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40"
       >
-        Create
+        {{ $t('admin.priorityClasses.create') }}
       </button>
     </template>
   </Modal>
 
   <!-- 删除确认 Modal -->
-  <Modal v-model="showDeleteModal" title="Delete PriorityClass" width="max-w-md">
+  <Modal v-model="showDeleteModal" :title="$t('admin.priorityClasses.deleteTitle')" width="max-w-md">
     <p class="text-body-md text-on-surface-variant">
-      确认删除 PriorityClass <span class="text-on-surface font-semibold font-mono">{{ deleteTarget?.name }}</span>？
+      {{ $t('admin.priorityClasses.deleteConfirm') }}<span class="text-on-surface font-semibold font-mono">{{ deleteTarget?.name }}</span>？
     </p>
-    <p class="text-body-sm text-error mt-sm">该优先级类将被移除，引用它的 Pod 将失去对应优先级。此操作不可撤销。</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('admin.priorityClasses.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('admin.priorityClasses.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('admin.priorityClasses.delete') }}</button>
     </template>
   </Modal>
 </template>

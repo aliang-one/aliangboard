@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -12,6 +13,7 @@ import { usePagination } from '@/composables/usePagination'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -116,11 +118,11 @@ function handleBatchDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">ConfigMaps</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.configmaps.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.configmaps.subtitle', { count: nsConfigMaps.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> New ConfigMap
+        <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.configmaps.new') }}
       </button>
     </div>
 
@@ -128,18 +130,18 @@ function handleBatchDelete() {
     <div class="flex items-center gap-sm mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称或数据 key 搜索..." />
+        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" :placeholder="t('ns.configmaps.searchPlaceholder')" />
         <button v-if="search" @click="search = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsConfigMaps.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <span class="text-xs font-medium text-primary">{{ t('ns.configmaps.selected', { n: selected.size }) }}</span>
         <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
-          <span class="material-symbols-outlined text-sm">delete</span>批量删除
+          <span class="material-symbols-outlined text-sm">delete</span>{{ t('ns.configmaps.batchDelete') }}
         </button>
-        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
+        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">{{ t('ns.configmaps.cancel') }}</button>
       </div>
     </div>
 
@@ -150,11 +152,11 @@ function handleBatchDelete() {
             <th class="px-md py-2 w-10">
               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Data Keys</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Preview</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thKeys') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thPreview') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.age') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -186,7 +188,7 @@ function handleBatchDelete() {
           <tr v-if="!filtered.length">
             <td :colspan="6" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
+              <p class="text-on-surface-variant text-body-sm">{{ t('common.noData') }}</p>
             </td>
           </tr>
         </tbody>
@@ -197,21 +199,21 @@ function handleBatchDelete() {
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? `没有匹配 "${search}" 的 ConfigMap` : 'No ConfigMaps in this namespace' }}</p>
-      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除搜索</button>
-      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create ConfigMap</button>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? t('ns.configmaps.noMatch', { q: search }) : t('ns.configmaps.empty') }}</p>
+      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.configmaps.clearSearch') }}</button>
+      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.configmaps.createShort') }}</button>
     </div>
   </section>
 
   <!-- Create ConfigMap Modal -->
-  <Modal v-model="showCreateModal" title="Create ConfigMap" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="t('ns.configmaps.createTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">ConfigMap Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.configmaps.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-config" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-sm">Data Keys</label>
+        <label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('ns.configmaps.dataKeysLabel') }}</label>
         <div class="flex flex-col gap-sm">
           <div v-for="(kv, idx) in createForm.keys" :key="idx" class="flex gap-sm items-center">
             <input v-model="kv.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="KEY" />
@@ -219,34 +221,34 @@ function handleBatchDelete() {
             <button v-if="createForm.keys.length > 1" @click="removeCreateKey(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
           </div>
           <button @click="addCreateKey" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Key
+            <span class="material-symbols-outlined">add</span> {{ t('ns.configmaps.addKey') }}
           </button>
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete ConfigMap" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete ConfigMap <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Pods using this ConfigMap may fail. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.configmaps.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.configmaps.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.configmaps.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Batch Delete Modal -->
-  <Modal v-model="showBatchModal" title="批量删除 ConfigMap" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定要删除选中的 <span class="text-on-surface font-semibold">{{ selected.size }}</span> 个 ConfigMap 吗？</p>
-    <p class="text-body-sm text-error mt-sm">引用这些 ConfigMap 的 Pod 可能受影响。此操作不可撤销。</p>
+  <Modal v-model="showBatchModal" :title="t('ns.configmaps.batchTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.configmaps.batchConfirm', { n: selected.size }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.configmaps.batchWarning') }}</p>
     <template #actions>
-      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">全部删除</button>
+      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('ns.configmaps.deleteAll') }}</button>
     </template>
   </Modal>
 </template>

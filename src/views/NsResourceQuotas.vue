@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -10,6 +11,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -112,15 +114,15 @@ function getPercent(used, hard) {
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'ResourceQuotas' }
+      { label: $t('ns.resourceQuotas.title') }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">ResourceQuotas</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsResourceQuotas.length }} ResourceQuotas in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.resourceQuotas.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.resourceQuotas.subtitle', { n: nsResourceQuotas.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> New ResourceQuota
+        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.resourceQuotas.newBtn') }}
       </button>
     </div>
 
@@ -128,12 +130,12 @@ function getPercent(used, hard) {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Memory</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Pods</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thCpu') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thMemory') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thPods') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thAge') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.resourceQuotas.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -188,7 +190,7 @@ function getPercent(used, hard) {
           <tr v-if="!nsResourceQuotas.length">
             <td :colspan="6" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
+              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.resourceQuotas.emptyState') }}</p>
             </td>
           </tr>
         </tbody>
@@ -199,50 +201,50 @@ function getPercent(used, hard) {
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">speed</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">No ResourceQuotas in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create ResourceQuota</button>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.resourceQuotas.noQuotasInNs') }}</p>
+      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.resourceQuotas.createBtn') }}</button>
     </div>
   </section>
 
   <!-- Create ResourceQuota Modal -->
-  <Modal v-model="showCreateModal" title="Create ResourceQuota" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="$t('ns.resourceQuotas.createModalTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">ResourceQuota Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.quotaNameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-quota" />
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.cpuLimitLabel') }}</label>
           <input v-model="createForm.cpuHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="8" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.memoryLimitLabel') }}</label>
           <input v-model="createForm.memoryHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="16Gi" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Pods Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.podsLimitLabel') }}</label>
           <input v-model="createForm.podsHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="20" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Services Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.servicesLimitLabel') }}</label>
           <input v-model="createForm.servicesHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="10" />
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete ResourceQuota" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete ResourceQuota <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing a ResourceQuota may allow uncontrolled resource consumption. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('ns.resourceQuotas.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ $t('ns.resourceQuotas.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.resourceQuotas.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

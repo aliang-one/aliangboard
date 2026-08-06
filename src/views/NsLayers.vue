@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { groupByLayer, LAYER_TAXONOMY, TIER_OPTIONS, classifyResource } from '@/composables/useLayering'
 import { notify } from '@/composables/useToast'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -12,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 // 聚合本命名空间下可归类的资源（带 _kind 用于跳转与默认归类）
@@ -52,11 +54,11 @@ async function applyLayer(key) {
   layerSaving.value = true
   try {
     await store.reassignLayer(it.kind, it.name, it.namespace, key)
-    notify('success', `${it.name} 已移至「${layerLabel(key)}」`)
+    notify('success', t('ns.layers.layerMoveSuccess', { name: it.name, layer: layerLabel(key) }))
     showLayerModal.value = false
     layerTarget.value = null
   } catch (e) {
-    notify('error', e.message || '修改分层失败')
+    notify('error', e.message || t('ns.layers.modifyFailed'))
   } finally {
     layerSaving.value = false
   }
@@ -67,27 +69,20 @@ async function applyLayer(key) {
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: '应用分层' }
+      { label: t('ns.layers.title') }
     ]" />
 
     <div class="flex justify-between items-end mt-sm mb-sm">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">应用分层</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">
-          命名空间 <span class="text-primary font-medium">{{ route.params.namespace }}</span> 的应用按分层体系归类，共
-          <span class="text-primary font-semibold">{{ items.length }}</span> 个资源，已识别
-          <span class="text-primary font-semibold">{{ totalClassified }}</span> 个。
-        </p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.layers.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs" v-html="t('ns.layers.subtitle', { ns: route.params.namespace, total: items.length, classified: totalClassified })"></p>
       </div>
     </div>
 
     <!-- 归类说明 -->
     <div class="flex items-start gap-sm mb-md p-md rounded-lg bg-surface-container-low border border-outline-variant">
       <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0 mt-0.5">info</span>
-      <p class="text-xs text-on-surface-variant">
-        默认按名称/镜像启发式归类；要精确控制，可给资源打 label <code class="font-mono text-xs bg-surface-container px-1 rounded">layer.aliangboard.io</code>
-        （值如 <code class="font-mono text-xs bg-surface-container px-1 rounded">gateway</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">middleware</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-business</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-support</code>、<code class="font-mono text-xs bg-surface-container px-1 rounded">microservice-misc</code> 等）。
-      </p>
+      <p class="text-xs text-on-surface-variant" v-html="t('ns.layers.classificationHint')"></p>
     </div>
 
     <!-- 3 列分层布局：左=监控 | 中=主应用流 | 右=中间件 -->
@@ -106,7 +101,7 @@ async function applyLayer(key) {
                 <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                 <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
               </button>
-              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+              <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
             </div>
           </div>
         </div>
@@ -115,7 +110,7 @@ async function applyLayer(key) {
       <div v-else class="hidden xl:flex">
         <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
           <span class="material-symbols-outlined text-2xl text-surface-container-high">monitoring</span>
-          <p class="text-xs text-on-surface-variant mt-xs">监控层<br>（暂无）</p>
+          <p class="text-xs text-on-surface-variant mt-xs" v-html="t('ns.layers.monitoringLayerEmpty')"></p>
         </div>
       </div>
 
@@ -145,7 +140,7 @@ async function applyLayer(key) {
                     <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate max-w-[180px]">{{ it.name }}</span>
                     <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   </button>
-                  <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+                  <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
                 </div>
               </div>
             </div>
@@ -160,7 +155,7 @@ async function applyLayer(key) {
                   <span class="text-xs text-on-surface-variant/60 shrink-0">{{ it.kind }}</span>
                   <StatusChip v-if="it.status" :status="it.status" size="sm" />
                 </button>
-                <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+                <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
               </div>
             </div>
           </div>
@@ -181,7 +176,7 @@ async function applyLayer(key) {
                 <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:text-primary">{{ KIND_ICON[it.kind] || 'circle' }}</span>
                 <span class="font-mono text-xs text-on-surface group-hover:text-primary truncate text-left flex-1">{{ it.name }}</span>
               </button>
-              <button @click.stop="setLayer(it)" title="修改分层" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
+              <button @click.stop="setLayer(it)" :title="t('ns.layers.modifyLayer')" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary opacity-0 group-hover/chip:opacity-100 transition-opacity flex items-center justify-center"><span class="material-symbols-outlined" style="font-size:10px">layers</span></button>
             </div>
           </div>
         </div>
@@ -190,7 +185,7 @@ async function applyLayer(key) {
       <div v-else class="hidden xl:flex">
         <div class="w-full rounded-xl border border-dashed border-outline-variant/40 py-md text-center">
           <span class="material-symbols-outlined text-2xl text-surface-container-high">sync_alt</span>
-          <p class="text-xs text-on-surface-variant mt-xs">中间件<br>（暂无）</p>
+          <p class="text-xs text-on-surface-variant mt-xs" v-html="t('ns.layers.middlewareEmpty')"></p>
         </div>
       </div>
     </div>
@@ -198,13 +193,13 @@ async function applyLayer(key) {
     <!-- 空状态 -->
     <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">layers</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">该命名空间下暂无可归类的工作负载 / Service / Ingress</p>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.layers.emptyState') }}</p>
     </div>
 
     <!-- 体系一览（折叠式说明） -->
     <details class="mt-md rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <summary class="cursor-pointer px-md py-2.5 text-body-sm font-semibold text-on-surface flex items-center gap-sm">
-        <span class="material-symbols-outlined text-base">layers</span> 分层体系一览（{{ LAYER_TAXONOMY.length }} 层）
+        <span class="material-symbols-outlined text-base">layers</span> {{ t('ns.layers.taxonomyOverview', { n: LAYER_TAXONOMY.length }) }}
       </summary>
       <div class="flex flex-wrap gap-sm p-md border-t border-outline-variant/50">
         <div v-for="n in LAYER_TAXONOMY" :key="n.key" class="flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded-lg">
@@ -215,11 +210,8 @@ async function applyLayer(key) {
     </details>
 
     <!-- 修改分层 Modal（写 layer.aliangboard.io label，即时重排） -->
-    <Modal v-model="showLayerModal" :title="`修改分层 — ${layerTarget?.name || ''}`" width="max-w-lg">
-      <p class="text-body-sm text-on-surface-variant mb-sm">
-        选择该资源所属的应用分层（写入 label
-        <code class="font-mono text-code-sm bg-surface-container px-1 rounded">layer.aliangboard.io</code>，保存后即时重排）。
-      </p>
+    <Modal v-model="showLayerModal" :title="`${t('ns.layers.modifyLayer')} — ${layerTarget?.name || ''}`" width="max-w-lg">
+      <p class="text-body-sm text-on-surface-variant mb-sm" v-html="t('ns.layers.modifyLayerDesc')"></p>
       <div class="flex flex-wrap gap-xs">
         <button v-for="t in TIER_OPTIONS" :key="t.value" @click="applyLayer(t.value)" :disabled="layerSaving"
           class="flex items-center gap-xs px-md py-sm rounded-lg border text-body-sm transition-colors disabled:opacity-50"

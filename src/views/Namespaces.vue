@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -11,6 +12,7 @@ import { notify } from '@/composables/useToast'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
@@ -18,10 +20,10 @@ const { tableColumns } = useTableColumns()
 const syncing = ref(false)
 async function sync() {
   if (syncing.value) return
-  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  if (!store.remoteMode) { notify('info', t('ns.namespaces.noSyncNeeded')); return }
   syncing.value = true
-  try { await store.hydrateCoreResources(); notify('success', '已同步命名空间') }
-  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  try { await store.hydrateCoreResources(); notify('success', t('ns.namespaces.synced')) }
+  catch (e) { notify('error', t('ns.namespaces.syncFailed', { error: e.message || '' })) }
   finally { syncing.value = false }
 }
 
@@ -29,13 +31,13 @@ const headers = computed(() => tableColumns('namespaces'))
 
 const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.namespaceList))
 
-// 受保护的系统命名空间，禁止删除
+// 受保护的系统命名空间，禁止t('common.delete')
 const PROTECTED_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease', 'default']
 function isProtected(name) {
   return PROTECTED_NAMESPACES.includes(name)
 }
 
-/* ---------------- 创建 Namespace ---------------- */
+/* ---------------- t('ns.namespaces.createTitle') ---------------- */
 const showCreate = ref(false)
 const createName = ref('')
 const createLabelsText = ref('')
@@ -70,11 +72,11 @@ async function submitCreate() {
   createError.value = ''
   const name = createName.value.trim()
   if (!name) {
-    createError.value = 'Namespace 名称不能为空'
+    createError.value = t('ns.namespaces.nameRequired')
     return
   }
   if (store.getNamespaceByName(name)) {
-    createError.value = `Namespace "${name}" 已存在`
+    createError.value = t('ns.namespaces.nameExists', { name })
     return
   }
   const labels = parseLabels(createLabelsText.value)
@@ -85,7 +87,7 @@ async function submitCreate() {
   createLabelsText.value = ''
 }
 
-/* ---------------- 删除 Namespace ---------------- */
+/* ---------------- t('common.delete') Namespace ---------------- */
 const showDelete = ref(false)
 const deleteTarget = ref(null)
 
@@ -132,7 +134,7 @@ function submitDelete() {
       </div>
     </div>
 
-    <EmptyState v-if="!store.namespaceList.length" icon="folder_open" title="No namespaces" description="集群暂无命名空间。" />
+    <EmptyState v-if="!store.namespaceList.length" icon="folder_open" title="No namespaces" description="No namespaces in the cluster." />
     <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
@@ -159,7 +161,7 @@ function submitDelete() {
           <button
             class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
             :class="{ 'opacity-40 cursor-not-allowed': isProtected(row.name) }"
-            :title="isProtected(row.name) ? '系统命名空间，禁止删除' : 'Delete'"
+            :title="isProtected(row.name) ? t('ns.namespaces.systemNamespace') : 'Delete'"
             :disabled="isProtected(row.name)"
             @click.stop="openDelete(row)"
           >
@@ -172,25 +174,25 @@ function submitDelete() {
       </template>
     </DataTable>
 
-    <!-- 创建 Namespace Modal -->
-    <Modal v-model="showCreate" title="Create Namespace" width="max-w-lg">
+    <!-- t('ns.namespaces.createTitle') Modal -->
+    <Modal v-model="showCreate" :title="t('ns.namespaces.createTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div class="flex flex-col gap-sm">
-          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">Name <span class="text-error">*</span></label>
+          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">{{ t('ns.namespaces.nameLabel') }} <span class="text-error">*</span></label>
           <input
             v-model="createName"
             type="text"
-            placeholder="my-namespace"
+            :placeholder="t('ns.namespaces.namePlaceholder')"
             class="px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg text-body-md text-on-surface focus:outline-none focus:border-primary"
             @keyup.enter="submitCreate"
           />
         </div>
         <div class="flex flex-col gap-sm">
-          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">Labels <span class="text-on-surface-variant/60 normal-case tracking-normal">(可选，每行 key:value)</span></label>
+          <label class="text-label-caps uppercase tracking-wider text-on-surface-variant">{{ t('ns.namespaces.labelsLabel') }} <span class="text-on-surface-variant/60 normal-case tracking-normal">{{ t('ns.namespaces.labelsHint') }}</span></label>
           <textarea
             v-model="createLabelsText"
             rows="4"
-            placeholder="env: prod&#10;team: backend"
+            :placeholder="t('ns.namespaces.labelsPlaceholder')"
             class="px-md py-sm bg-surface-container-low border border-outline-variant rounded-lg text-body-md text-on-surface font-mono focus:outline-none focus:border-primary resize-y"
           ></textarea>
         </div>
@@ -204,20 +206,20 @@ function submitDelete() {
           class="px-md py-sm border border-outline-variant rounded-lg text-body-md text-on-surface hover:bg-surface-container-high transition-colors"
           @click="showCreate = false"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
         <button
           class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
           :disabled="!canCreate"
           @click="submitCreate"
         >
-          Create
+          {{ t('common.create') }}
         </button>
       </template>
     </Modal>
 
-    <!-- 删除确认 Modal -->
-    <Modal v-model="showDelete" title="Delete Namespace" width="max-w-md">
+    <!-- t('common.delete')确认 Modal -->
+    <Modal v-model="showDelete" :title="t('ns.namespaces.deleteTitle')" width="max-w-md">
       <div v-if="deleteTarget" class="flex flex-col gap-md">
         <div class="flex items-start gap-md">
           <div class="w-10 h-10 rounded-full bg-error-container/30 flex items-center justify-center shrink-0">
@@ -225,12 +227,10 @@ function submitDelete() {
           </div>
           <div class="flex flex-col gap-xs">
             <p class="text-body-md text-on-surface">
-              确定要删除 Namespace
-              <span class="font-bold font-mono">{{ deleteTarget.name }}</span>
-              吗？
+              {{ t('ns.namespaces.deleteConfirm') }} <span class="font-bold font-mono">{{ deleteTarget.name }}</span>{{ t('ns.namespaces.deleteSuffix') }}
             </p>
             <p class="text-body-sm text-on-surface-variant">
-              此操作将永久删除该命名空间及其下的所有资源（Pods、Services、Deployments 等），不可恢复。
+              {{ t('ns.namespaces.deleteWarning') }}
             </p>
           </div>
         </div>
@@ -238,7 +238,7 @@ function submitDelete() {
         <div v-if="deleteTargetProtected" class="flex items-start gap-sm p-md bg-error-container/20 border border-error/40 rounded-lg">
           <span class="material-symbols-outlined text-error text-lg shrink-0">block</span>
           <p class="text-body-sm text-error">
-            <span class="font-bold">{{ deleteTarget.name }}</span> 是系统命名空间，禁止删除。
+            <span class="font-bold">{{ deleteTarget.name }}</span> {{ t('ns.namespaces.isSystemNamespace') }}
           </p>
         </div>
       </div>
@@ -247,14 +247,14 @@ function submitDelete() {
           class="px-md py-sm border border-outline-variant rounded-lg text-body-md text-on-surface hover:bg-surface-container-high transition-colors"
           @click="showDelete = false"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
         <button
           v-if="!deleteTargetProtected"
           class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold transition-opacity hover:opacity-90"
           @click="submitDelete"
         >
-          Delete
+          {{ t('common.delete') }}
         </button>
       </template>
     </Modal>

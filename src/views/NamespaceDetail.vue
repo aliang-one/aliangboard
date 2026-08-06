@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -10,6 +11,7 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 
 const ns = computed(() => store.getNamespaceByName(route.params.name))
 const nsWorkloads = computed(() => store.workloadList.filter(w => w.namespace === route.params.name))
@@ -18,10 +20,10 @@ const nsServices = computed(() => store.serviceList.filter(s => s.namespace === 
 const syncing = ref(false)
 async function sync() {
   if (syncing.value) return
-  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  if (!store.remoteMode) { notify('info', t('ns.nsDetail.noSyncNeeded')); return }
   syncing.value = true
-  try { await store.hydrateCoreResources(); notify('success', '已同步') }
-  catch (e) { notify('error', `同步失败：${e.message || ''}`) }
+  try { await store.hydrateCoreResources(); notify('success', t('ns.nsDetail.syncSuccess')) }
+  catch (e) { notify('error', t('ns.nsDetail.syncFailed', { error: e.message || '' })) }
   finally { syncing.value = false }
 }
 </script>
@@ -36,13 +38,13 @@ async function sync() {
         ]" />
         <div class="flex items-center gap-xs mt-xs">
           <span class="material-symbols-outlined text-base text-on-surface-variant">folder_open</span>
-          <span class="text-xs text-on-surface-variant uppercase tracking-wider">Namespace Explorer</span>
+          <span class="text-xs text-on-surface-variant uppercase tracking-wider">{{ t('ns.nsDetail.namespaceExplorer') }}</span>
         </div>
-        <h2 class="text-headline-md text-on-surface font-bold">Namespace: <span class="text-primary">{{ ns.name }}</span></h2>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.nsDetail.namespaceLabel') }}: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
         <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50">
-          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+          <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.nsDetail.syncing') : t('ns.nsDetail.sync') }}
         </button>
       </div>
     </div>
@@ -52,24 +54,24 @@ async function sync() {
       <section class="col-span-12 lg:col-span-4 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">analytics</span>
-          <span class="text-body-sm font-semibold">Resource Quotas</span>
+          <span class="text-body-sm font-semibold">{{ t('ns.nsDetail.resourceQuotas') }}</span>
         </div>
         <div class="p-md space-y-md">
           <div>
-            <ProgressBar :value="62" show-label label="CPU Usage" />
+            <ProgressBar :value="62" show-label :label="t('ns.nsDetail.cpuUsage')" />
             <p class="font-mono text-xs text-on-surface-variant mt-1">7.4 / 12 Cores</p>
           </div>
           <div>
-            <ProgressBar :value="75" show-label label="Memory Usage" color="primary" />
+            <ProgressBar :value="75" show-label :label="t('ns.nsDetail.memoryUsage')" color="primary" />
             <p class="font-mono text-xs text-on-surface-variant mt-1">24.1 / 32 GiB</p>
           </div>
           <div class="grid grid-cols-2 gap-md pt-sm border-t border-outline-variant/40">
             <div>
-              <p class="text-on-surface-variant text-xs mb-xs">Pods</p>
+              <p class="text-on-surface-variant text-xs mb-xs">{{ t('ns.nsDetail.pods') }}</p>
               <p class="text-body-md font-semibold">{{ ns.pods }} / 50</p>
             </div>
             <div>
-              <p class="text-on-surface-variant text-xs mb-xs">Services</p>
+              <p class="text-on-surface-variant text-xs mb-xs">{{ t('ns.nsDetail.services') }}</p>
               <p class="text-body-md font-semibold">{{ ns.services }} / 20</p>
             </div>
           </div>
@@ -80,9 +82,9 @@ async function sync() {
       <section class="col-span-12 lg:col-span-8 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">grid_view</span>
-          <span class="text-body-sm font-semibold">Workload Distribution</span>
+          <span class="text-body-sm font-semibold">{{ t('ns.nsDetail.workloadDistribution') }}</span>
           <span class="ml-auto flex items-center gap-xs text-xs px-sm py-0.5 bg-primary/10 text-primary rounded">
-            <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-status"></span> Healthy
+            <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-status"></span> {{ t('ns.nsDetail.healthy') }}
           </span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-md p-md">
@@ -117,17 +119,17 @@ async function sync() {
       <section class="col-span-12 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
-          <span class="text-body-sm font-semibold">Workloads</span>
+          <span class="text-body-sm font-semibold">{{ t('ns.nsDetail.workloads') }}</span>
           <span class="text-xs text-on-surface-variant ml-auto">{{ nsWorkloads.length }}</span>
         </div>
         <table class="w-full text-left">
           <thead>
             <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.name') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.type') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.status') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.replicas') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.age') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">

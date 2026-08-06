@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -15,6 +16,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -95,13 +97,13 @@ function parsePorts(row) {
 
 // 后端端点健康：从 Endpoints 对象取 ready / notReady
 function epState(row) {
-  if (row.type === 'ExternalName') return { dot: 'bg-on-surface-variant', title: 'ExternalName · 外部 DNS 目标' }
+  if (row.type === 'ExternalName') return { dot: 'bg-on-surface-variant', title: t('ns.services.extNameHint') }
   const ep = store.getEndpointsByName(row.name, row.namespace)
-  if (!ep) return { dot: 'bg-outline-variant', title: '无 Endpoints 对象' }
+  if (!ep) return { dot: 'bg-outline-variant', title: t('ns.services.noEndpointsObj') }
   const ready = (ep.addresses || []).length, notReady = (ep.notReadyAddresses || []).length
-  if (ready > 0) return { dot: 'bg-primary', title: `${ready} 就绪 / ${notReady} 未就绪` }
-  if (notReady > 0) return { dot: 'bg-tertiary-container', title: `${notReady} 未就绪，暂无可用端点` }
-  return { dot: 'bg-error', title: '无端点' }
+  if (ready > 0) return { dot: 'bg-primary', title: t('ns.services.readyCount', { ready, notReady }) }
+  if (notReady > 0) return { dot: 'bg-tertiary-container', title: t('ns.services.notReadyOnly', { n: notReady }) }
+  return { dot: 'bg-error', title: t('ns.services.noEndpoints') }
 }
 
 // 装饰当前页行：预计算端口 / 端点 / 类型，避免模板内重复调用
@@ -114,9 +116,9 @@ const decorated = computed(() => paginated.value.map(row => ({
 
 // 行操作菜单
 function menuItems(row) {
-  const items = [{ label: '查看详情', icon: 'open_in_new', action: () => router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } }) }]
-  if (store.remoteMode) items.push({ label: '导出 YAML', icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
-  items.push({ label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) })
+  const items = [{ label: t('ns.services.menuDetail'), icon: 'open_in_new', action: () => router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } }) }]
+  if (store.remoteMode) items.push({ label: t('ns.services.menuExport'), icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
+  items.push({ label: t('ns.services.menuDelete'), icon: 'delete', danger: true, action: () => confirmDelete(row) })
   return items
 }
 
@@ -198,15 +200,15 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md font-bold text-on-surface">Services</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.services.title') }}</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.services.subtitle', { count: nsServices.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
-        <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" title="Endpoints（Service 的后端端点）">
-          <span class="material-symbols-outlined text-base">cable</span> Endpoints
+        <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" :title="t('ns.services.endpointsTitle')">
+          <span class="material-symbols-outlined text-base">cable</span> {{ t('ns.services.endpoints') }}
         </button>
         <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> New Service
+          <span class="material-symbols-outlined">add</span> {{ t('common.create') }} {{ t('ns.services.title') }}
         </button>
       </div>
     </div>
@@ -217,7 +219,7 @@ function handleDelete() {
         class="rounded-lg px-sm py-1.5 flex items-center gap-xs text-left border transition-colors"
         :class="typeFilter === 'All' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-lowest hover:border-primary'">
         <span class="material-symbols-outlined text-on-surface-variant text-base">share</span>
-        <span class="text-xs text-on-surface-variant">Total</span>
+        <span class="text-xs text-on-surface-variant">{{ t('ns.services.total') }}</span>
         <span class="text-body-sm font-bold text-on-surface ml-auto">{{ nsServices.length }}</span>
       </button>
       <button v-for="t in typeCards" :key="t.key" @click="toggleType(t.key)"
@@ -233,12 +235,12 @@ function handleDelete() {
     <div class="flex flex-wrap items-center gap-xs mb-sm">
       <div class="relative flex-1 min-w-[200px] max-w-md">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-base pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-sm py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="Search by name or IP..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-sm py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.services.searchPlaceholder')" />
       </div>
       <select v-model="typeFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1.5 text-body-sm focus:ring-primary focus:border-primary cursor-pointer">
-        <option v-for="t in typeOptions" :key="t" :value="t">{{ t === 'All' ? 'All Types' : t }}</option>
+        <option v-for="tOpt in typeOptions" :key="tOpt" :value="tOpt">{{ tOpt === 'All' ? t('ns.services.allTypes') : tOpt }}</option>
       </select>
-      <span class="text-xs text-on-surface-variant ml-auto">{{ filtered.length }} result{{ filtered.length !== 1 ? 's' : '' }}</span>
+      <span class="text-xs text-on-surface-variant ml-auto">{{ t('ns.pods.results', { n: filtered.length }) }}</span>
     </div>
 
     <!-- Table -->
@@ -247,13 +249,13 @@ function handleDelete() {
         <table class="w-full min-w-[900px] text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Name</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Type</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Cluster IP</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">External IP</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Ports</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Selector</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">Age</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thName') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thType') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thClusterIp') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thExternalIp') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thPorts') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thSelector') }}</th>
+            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('common.age') }}</th>
             <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap w-12"></th>
           </tr>
         </thead>
@@ -308,7 +310,7 @@ function handleDelete() {
           <tr v-if="!filtered.length">
             <td colspan="8" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-body-sm text-on-surface-variant">No services found matching your filters</p>
+              <p class="text-body-sm text-on-surface-variant">{{ t('ns.services.noMatch') }}</p>
             </td>
           </tr>
         </tbody>
@@ -321,16 +323,16 @@ function handleDelete() {
   </section>
 
   <!-- Create Service Modal（与详情页 Edit 字段集对齐）-->
-  <Modal v-model="showCreateModal" title="Create Service" width="max-w-xl">
+  <Modal v-model="showCreateModal" :title="t('ns.services.createTitle')" width="max-w-xl">
     <div class="flex flex-col gap-md">
       <!-- Name -->
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Service Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-service" />
       </div>
       <!-- Type -->
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Service Type</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.typeLabel') }}</label>
         <div class="flex flex-wrap gap-xs">
           <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" type="button" @click="createForm.type = st"
             class="px-md py-sm rounded-lg border font-medium text-body-sm transition-all"
@@ -341,23 +343,23 @@ function handleDelete() {
       </div>
       <!-- ExternalName -->
       <div v-if="createForm.type === 'ExternalName'">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">External Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.extNameReq') }}</label>
         <input v-model="createForm.externalName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-service.example.com" />
-        <p class="text-xs text-on-surface-variant/60 mt-xs">通过外部 DNS 名路由（CNAME），无端口 / 选择器。</p>
+        <p class="text-xs text-on-surface-variant/60 mt-xs">{{ t('ns.services.extNameRouteHint') }}</p>
       </div>
       <!-- Ports（结构化多端口）-->
       <div v-else>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Ports *</label>
+          <label class="text-label-caps text-on-surface-variant">{{ t('ns.services.portsLabel') }}</label>
           <button @click="addCreatePort" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
-            <span class="material-symbols-outlined text-sm">add</span> Add Port
+            <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.services.addPort') }}
           </button>
         </div>
         <div class="flex flex-col gap-xs">
           <div v-for="(p, idx) in createForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :options="store.nsContainerPorts" placeholder="target" empty-hint="当前命名空间暂无工作负载暴露容器端口，可直接输入" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :options="store.nsContainerPorts" placeholder="target" :empty-hint="t('ns.services.targetPortHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
@@ -371,7 +373,7 @@ function handleDelete() {
       <!-- Selector（多行）-->
       <div>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Selector</label>
+          <label class="text-label-caps text-on-surface-variant">{{ t('ns.services.selectorLabel') }}</label>
           <button @click="addCreateSelector" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
             <span class="material-symbols-outlined text-sm">add</span> Add
           </button>
@@ -391,14 +393,14 @@ function handleDelete() {
       <!-- Session Affinity -->
       <div v-if="createForm.type !== 'ExternalName'" class="grid grid-cols-2 gap-md items-end">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Session Affinity</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.sessionLabel') }}</label>
           <select v-model="createForm.sessionAffinity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary">
-            <option value="None">None（负载均衡）</option>
-            <option value="ClientIP">ClientIP（会话保持）</option>
+            <option value="None">{{ t('ns.services.sessionNone') }}</option>
+            <option value="ClientIP">{{ t('ns.services.sessionClientIp') }}</option>
           </select>
         </div>
         <div v-if="createForm.sessionAffinity === 'ClientIP'">
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Timeout (s)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.timeoutLabel') }}</label>
           <input v-model.number="createForm.sessionAffinityTimeout" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
@@ -406,15 +408,15 @@ function handleDelete() {
       <!-- Traffic Policy -->
       <div v-if="createForm.type !== 'ExternalName'" class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">External Traffic</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.extTrafficLabel') }}</label>
           <select v-model="createForm.externalTrafficPolicy" :disabled="createForm.type !== 'NodePort' && createForm.type !== 'LoadBalancer'" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary disabled:opacity-50">
-            <option value="">默认（Cluster）</option>
+            <option value="">{{ t('ns.services.extTrafficDefault') }}</option>
             <option value="Cluster">Cluster</option>
             <option value="Local">Local</option>
           </select>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Internal Traffic</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.services.intTrafficLabel') }}</label>
           <select v-model="createForm.internalTrafficPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary">
             <option value="Cluster">Cluster</option>
             <option value="Local">Local</option>
@@ -423,18 +425,18 @@ function handleDelete() {
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!canCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!canCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Confirm Modal -->
-  <Modal v-model="showDeleteModal" title="Delete Service" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete service <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This will disrupt traffic to the backend pods. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.services.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.services.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.services.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

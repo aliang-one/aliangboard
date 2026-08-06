@@ -1,5 +1,8 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -37,8 +40,8 @@ function confirm() {
           <slot />
           <div v-if="$slots.actions" class="flex justify-end gap-md mt-lg pt-md border-t border-outline-variant">
             <slot name="actions">
-              <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-              <button @click="confirm" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold">Confirm</button>
+              <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('component.modal.cancel') }}</button>
+              <button @click="confirm" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold">{{ t('component.modal.confirm') }}</button>
             </slot>
           </div>
         </div>

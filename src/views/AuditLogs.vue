@@ -58,17 +58,17 @@ onUnmounted(() => store.stopEventWatch())
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: 'Cluster', route: '/cluster' },
-      { label: 'Audit Logs' }
+      { label: t('audit.title') }
     ]" />
 
     <!-- 标题区 -->
     <div class="flex justify-between items-end mb-sm">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">审计日志 <span class="text-on-surface-variant font-normal text-headline-md">· {{ stats.total }}</span></h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">集群活动记录</p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('audit.title') }} <span class="text-on-surface-variant font-normal text-headline-md">· {{ stats.total }}</span></h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('audit.subtitle') }}</p>
       </div>
       <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full">
-        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>LIVE
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ t('audit.live') }}
       </span>
     </div>
 
@@ -76,8 +76,7 @@ onUnmounted(() => store.stopEventWatch())
     <div class="flex items-start gap-sm mb-md p-md rounded-lg bg-tertiary-container/10 border border-tertiary-container/30">
       <span class="material-symbols-outlined text-tertiary-container text-base shrink-0 mt-0.5">info</span>
       <p class="text-xs text-on-surface-variant">
-        Kubernetes 标准 API 不直接暴露审计日志（需集群开启 <code class="font-mono text-xs bg-surface-container-low px-1 rounded">audit logging</code> 并对接日志后端）。
-        此处如实以集群 <strong>Events</strong> 作为可用的活动记录展示——包含资源调度、扩缩容、镜像拉取、异常等事件。
+        {{ t('audit.dataSource') }}
       </p>
     </div>
 
@@ -86,21 +85,21 @@ onUnmounted(() => store.stopEventWatch())
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md">
         <div class="flex items-center gap-sm text-on-surface-variant mb-xs">
           <span class="material-symbols-outlined text-base">history</span>
-          <span class="text-xs">事件总数</span>
+          <span class="text-xs">{{ t('audit.totalEvents') }}</span>
         </div>
         <p class="text-headline-md text-on-surface font-semibold">{{ stats.total }}</p>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md">
         <div class="flex items-center gap-sm text-primary mb-xs">
           <span class="material-symbols-outlined text-base">check_circle</span>
-          <span class="text-xs">Normal</span>
+          <span class="text-xs">{{ t('audit.normal') }}</span>
         </div>
         <p class="text-headline-md text-primary font-semibold">{{ stats.normal }}</p>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md">
         <div class="flex items-center gap-sm text-tertiary-container mb-xs">
           <span class="material-symbols-outlined text-base">warning</span>
-          <span class="text-xs">Warning</span>
+          <span class="text-xs">{{ t('audit.warning') }}</span>
         </div>
         <p class="text-headline-md text-tertiary-container font-semibold">{{ stats.warning }}</p>
       </div>
@@ -112,12 +111,12 @@ onUnmounted(() => store.stopEventWatch())
         <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
           class="px-md py-xs rounded-full text-xs font-medium border transition-all capitalize"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
-          {{ opt === 'All' ? '全部' : opt }}
+          {{ opt === 'All' ? t('audit.all') : opt }}
         </button>
       </div>
       <div class="relative flex-1 min-w-[200px] max-w-md ml-auto">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-base pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="搜索原因 / 消息 / 资源..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('audit.searchPlaceholder')" />
       </div>
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ stats.total }}</span>
     </div>
@@ -128,12 +127,12 @@ onUnmounted(() => store.stopEventWatch())
         <table class="w-full text-left">
           <thead>
             <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">Type</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reason</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Resource</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Namespace</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Time</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">{{ t('audit.type') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.reason') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.resource') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.namespace') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.message') }}</th>
+              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.time') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
@@ -172,7 +171,7 @@ onUnmounted(() => store.stopEventWatch())
     <!-- 空状态 -->
     <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">manage_history</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">没有匹配的活动记录</p>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('audit.noRecords') }}</p>
     </div>
   </section>
 </template>

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -12,6 +13,7 @@ import { usePagination } from '@/composables/usePagination'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -174,11 +176,11 @@ function handleBatchDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">Secrets</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsSecrets.length }} secrets in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.secrets.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.secrets.subtitle', { count: nsSecrets.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> New Secret
+        <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.secrets.new') }}
       </button>
     </div>
 
@@ -193,18 +195,18 @@ function handleBatchDelete() {
       </div>
       <div class="relative flex-1 min-w-[200px] max-w-md ml-auto">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" placeholder="按名称或数据 key 搜索..." />
+        <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" :placeholder="t('ns.secrets.searchPlaceholder')" />
         <button v-if="search" @click="search = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsSecrets.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
+        <span class="text-xs font-medium text-primary">{{ t('ns.secrets.selected', { n: selected.size }) }}</span>
         <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
-          <span class="material-symbols-outlined text-sm">delete</span>批量删除
+          <span class="material-symbols-outlined text-sm">delete</span>{{ t('ns.secrets.batchDelete') }}
         </button>
-        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
+        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">{{ t('ns.secrets.cancel') }}</button>
       </div>
     </div>
 
@@ -215,12 +217,12 @@ function handleBatchDelete() {
             <th class="px-md py-2 w-10">
               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
             </th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Keys</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Data Preview</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.secrets.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.secrets.thType') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.secrets.thKeys') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.secrets.thPreview') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.age') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -255,7 +257,7 @@ function handleBatchDelete() {
           <tr v-if="!filtered.length">
             <td :colspan="7" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
+              <p class="text-on-surface-variant text-body-sm">{{ t('common.noData') }}</p>
             </td>
           </tr>
         </tbody>
@@ -266,33 +268,33 @@ function handleBatchDelete() {
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ (search || typeFilter !== 'All') ? 'search_off' : 'key' }}</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ (search || typeFilter !== 'All') ? '没有匹配的 Secret' : 'No secrets in this namespace' }}</p>
-      <button v-if="search || typeFilter !== 'All'" @click="search = ''; typeFilter = 'All'" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">清除筛选</button>
-      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create Secret</button>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ (search || typeFilter !== 'All') ? t('ns.secrets.noMatch') : t('ns.secrets.empty') }}</p>
+      <button v-if="search || typeFilter !== 'All'" @click="search = ''; typeFilter = 'All'" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.secrets.clearFilter') }}</button>
+      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.secrets.createShort') }}</button>
     </div>
   </section>
 
   <!-- Create Secret Modal -->
-  <Modal v-model="showCreateModal" title="Create Secret" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="t('ns.secrets.createTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Secret Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Type</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.typeLabel') }}</label>
         <select v-model="createForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="Opaque">Opaque — 通用键值</option>
-          <option value="kubernetes.io/basic-auth">Basic Auth — 用户名/密码</option>
-          <option value="kubernetes.io/dockerconfigjson">Docker Registry — 镜像仓库凭证</option>
-          <option value="kubernetes.io/tls">TLS — 证书/私钥</option>
-          <option value="kubernetes.io/ssh-auth">SSH Auth — SSH 私钥</option>
+          <option value="Opaque">{{ t('ns.secrets.typeOpaque') }}</option>
+          <option value="kubernetes.io/basic-auth">{{ t('ns.secrets.typeBasicAuth') }}</option>
+          <option value="kubernetes.io/dockerconfigjson">{{ t('ns.secrets.typeDocker') }}</option>
+          <option value="kubernetes.io/tls">{{ t('ns.secrets.typeTls') }}</option>
+          <option value="kubernetes.io/ssh-auth">{{ t('ns.secrets.typeSsh') }}</option>
         </select>
       </div>
 
       <!-- Opaque：自由 key-value -->
       <div v-if="createForm.type === 'Opaque'">
-        <label class="text-label-caps text-on-surface-variant block mb-sm">Data Keys</label>
+        <label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('ns.secrets.dataKeysLabel') }}</label>
         <div class="flex flex-col gap-sm">
           <div v-for="(kv, idx) in createForm.keys" :key="idx" class="flex gap-sm items-center">
             <input v-model="kv.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="KEY" />
@@ -300,7 +302,7 @@ function handleBatchDelete() {
             <button v-if="createForm.keys.length > 1" @click="removeCreateKey(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
           </div>
           <button @click="addCreateKey" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> Add Key
+            <span class="material-symbols-outlined">add</span> {{ t('ns.secrets.addKey') }}
           </button>
         </div>
       </div>
@@ -308,47 +310,47 @@ function handleBatchDelete() {
       <!-- basic-auth -->
       <div v-else-if="createForm.type === 'kubernetes.io/basic-auth'" class="flex flex-col gap-sm">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">用户名 (username)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.usernameLabel') }}</label>
           <input v-model="createForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="admin" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">密码 (password)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.passwordLabel') }}</label>
           <input v-model="createForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="••••••" />
         </div>
-        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 username / password 两个键</p>
+        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.secrets.basicAuthHint') }}</p>
       </div>
 
       <!-- dockerconfigjson -->
       <div v-else-if="createForm.type === 'kubernetes.io/dockerconfigjson'" class="flex flex-col gap-sm">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Registry 地址</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryLabel') }}</label>
           <input v-model="createForm.registry" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="registry.example.com" />
         </div>
         <div class="grid grid-cols-2 gap-sm">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">用户名</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryUserLabel') }}</label>
             <input v-model="createForm.registryUser" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">密码</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryPassLabel') }}</label>
             <input v-model="createForm.registryPassword" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
           </div>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">邮箱（可选）</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.emailLabel') }}</label>
           <input v-model="createForm.registryEmail" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="user@example.com" />
         </div>
-        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>将自动生成 .dockerconfigjson（含 base64 认证）</p>
+        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.secrets.dockerHint') }}</p>
       </div>
 
       <!-- tls -->
       <div v-else-if="createForm.type === 'kubernetes.io/tls'" class="flex flex-col gap-sm">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">TLS 证书 (tls.crt)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.tlsCrtLabel') }}</label>
           <textarea v-model="createForm.tlsCrt" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">TLS 私钥 (tls.key)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.tlsKeyLabel') }}</label>
           <textarea v-model="createForm.tlsKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
         </div>
       </div>
@@ -356,34 +358,34 @@ function handleBatchDelete() {
       <!-- ssh-auth -->
       <div v-else-if="createForm.type === 'kubernetes.io/ssh-auth'" class="flex flex-col gap-sm">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">SSH 私钥 (ssh-privatekey)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.sshKeyLabel') }}</label>
           <textarea v-model="createForm.sshKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-32 resize-y" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"></textarea>
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!canCreateSecret" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!canCreateSecret" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete Secret" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete secret <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Pods using this Secret will fail. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.secrets.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.secrets.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.secrets.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Batch Delete Modal -->
-  <Modal v-model="showBatchModal" title="批量删除 Secret" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定要删除选中的 <span class="text-on-surface font-semibold">{{ selected.size }}</span> 个 Secret 吗？</p>
-    <p class="text-body-sm text-error mt-sm">引用这些 Secret 的 Pod 将无法启动。此操作不可撤销。</p>
+  <Modal v-model="showBatchModal" :title="t('ns.secrets.batchTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.secrets.batchConfirm', { n: selected.size }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.secrets.batchWarning') }}</p>
     <template #actions>
-      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">全部删除</button>
+      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('ns.secrets.deleteAll') }}</button>
     </template>
   </Modal>
 </template>

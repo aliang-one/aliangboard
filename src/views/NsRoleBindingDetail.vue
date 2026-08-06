@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -8,6 +9,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -70,7 +72,7 @@ function saveEdit() {
   <div class="animate-fade-in" v-if="rb">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'RBAC', route: `/ns/${route.params.namespace}/rbac` },
+      { label: t('ns.roleBindingDetail.rbac'), route: `/ns/${route.params.namespace}/rbac` },
       { label: route.params.name }
     ]" />
 
@@ -83,18 +85,18 @@ function saveEdit() {
         <div>
           <h1 class="text-display-lg text-on-surface">{{ rb.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
-            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">RoleBinding</span>
-            <span class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ rb.namespace }}</span></span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ rb.age }}</span>
+            <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ t('ns.roleBindingDetail.roleBinding') }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.namespace') }}: <span class="text-primary font-medium">{{ rb.namespace }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.age') }}: {{ rb.age }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -104,7 +106,7 @@ function saveEdit() {
       <button v-for="tab in ['overview', 'subjects', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
+        {{ tab === 'overview' ? t('common.status') : tab === 'subjects' ? t('ns.roleBindingDetail.subjectsTab') : 'YAML' }}
       </button>
     </div>
 
@@ -112,25 +114,25 @@ function saveEdit() {
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">RoleBinding Details</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.roleBindingDetail.details') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Name</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleBindingDetail.name') }}</p>
               <p class="font-mono text-code-sm text-on-surface font-semibold">{{ rb.name }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Namespace</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleBindingDetail.namespace') }}</p>
               <p class="font-mono text-code-sm text-primary">{{ rb.namespace }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">RoleRef Kind</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleBindingDetail.roleRefKind') }}</p>
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-lg text-secondary">admin_panel_settings</span>
                 <span class="text-body-md font-semibold text-on-surface">{{ rb.roleKind }}</span>
               </div>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">RoleRef Name</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleBindingDetail.roleRefName') }}</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ rb.roleName }}</p>
             </div>
           </div>
@@ -138,7 +140,7 @@ function saveEdit() {
 
         <!-- RoleRef card -->
         <div v-if="referencedRole" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Referenced Role</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.roleBindingDetail.referencedRole') }}</h3>
           <div class="flex items-center gap-lg p-md rounded-lg bg-surface-container-low">
             <div class="w-10 h-10 rounded-lg bg-secondary-container/20 flex items-center justify-center">
               <span class="material-symbols-outlined text-secondary text-xl">admin_panel_settings</span>
@@ -147,9 +149,9 @@ function saveEdit() {
               <p class="font-mono text-code-sm text-on-surface font-semibold">{{ referencedRole.name }}</p>
               <div class="flex items-center gap-md mt-xs">
                 <span class="px-2 py-0.5 rounded-full text-label-caps font-medium" :class="referencedRole.scope === 'Cluster' ? 'bg-primary-container/20 text-primary' : 'bg-secondary-container/20 text-secondary'">
-                  {{ referencedRole.scope === 'Cluster' ? 'ClusterRole' : 'Role' }}
+                  {{ referencedRole.scope === 'Cluster' ? t('ns.roleBindingDetail.clusterRole') : t('ns.roleBindingDetail.role') }}
                 </span>
-                <span class="text-body-sm text-on-surface-variant">{{ referencedRole.bindings }} binding(s)</span>
+                <span class="text-body-sm text-on-surface-variant">{{ referencedRole.bindings }} {{ t('ns.roleBindingDetail.bindings') }}</span>
               </div>
             </div>
           </div>
@@ -158,26 +160,26 @@ function saveEdit() {
 
       <div class="lg:col-span-4">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.roleBindingDetail.summary') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Kind</span>
-              <span class="text-body-md font-semibold text-on-surface">RoleBinding</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.kind') }}</span>
+              <span class="text-body-md font-semibold text-on-surface">{{ t('ns.roleBindingDetail.roleBinding') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Subjects</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.subjects') }}</span>
               <span class="text-body-md font-semibold text-primary">{{ rb.subjects?.length || 0 }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Role Kind</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.roleKind') }}</span>
               <span class="text-body-md text-on-surface">{{ rb.roleKind }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Role Name</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleBindingDetail.roleName') }}</span>
               <span class="text-body-md font-mono text-primary">{{ rb.roleName }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}</span>
               <span class="text-body-md text-on-surface">{{ rb.age }}</span>
             </div>
           </div>
@@ -189,14 +191,14 @@ function saveEdit() {
     <div v-if="activeTab === 'subjects'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">Subjects ({{ rb.subjects?.length || 0 }})</h3>
+          <h3 class="text-headline-sm">{{ t('ns.roleBindingDetail.subjectsTab') }} {{ t('ns.roleBindingDetail.subjectCount', { n: rb.subjects?.length || 0 }) }}</h3>
         </div>
         <table v-if="rb.subjects?.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Kind</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Namespace</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleBindingDetail.subjectKind') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleBindingDetail.subjectName') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleBindingDetail.subjectNamespace') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -218,7 +220,7 @@ function saveEdit() {
         </table>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">group_off</span>
-          <p class="mt-sm">No subjects defined for this RoleBinding</p>
+          <p class="mt-sm">{{ t('ns.roleBindingDetail.noSubjects') }}</p>
         </div>
       </div>
     </div>
@@ -232,38 +234,38 @@ function saveEdit() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">RoleBinding Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">RoleBinding "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('ns.roleBindingDetail.notFound') }}</h2>
+    <p class="text-body-md text-on-surface-variant mt-sm">{{ t('ns.roleBindingDetail.notFoundDetail', { name: route.params.name, ns: route.params.namespace }) }}</p>
+    <button @click="router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('ns.roleBindingDetail.backToRBAC') }}</button>
   </div>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete RoleBinding" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete RoleBinding <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Subjects will lose the permissions granted by this binding. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.roleBindingDetail.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="t('ns.roleBindingDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.roleBindingDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit RoleBinding" width="max-w-2xl">
+  <Modal v-model="showEditModal" :title="t('ns.roleBindingDetail.editModalTitle')" width="max-w-2xl">
     <div class="flex flex-col gap-lg">
       <!-- RoleRef -->
       <div class="flex flex-col gap-md">
-        <h4 class="text-label-caps text-on-surface-variant">Role Reference</h4>
+        <h4 class="text-label-caps text-on-surface-variant">{{ t('ns.roleBindingDetail.roleReference') }}</h4>
         <div class="grid grid-cols-3 gap-md">
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Kind</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.kindLabel') }}</label>
             <select v-model="editRoleKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
               <option value="Role">Role</option>
               <option value="ClusterRole">ClusterRole</option>
             </select>
           </div>
           <div class="col-span-2">
-            <label class="text-label-caps text-on-surface-variant block mb-xs">Name</label>
-            <input v-model="editRoleName" list="rb-role-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="role-name" />
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.nameLabel') }}</label>
+            <input v-model="editRoleName" list="rb-role-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.roleBindingDetail.namePlaceholder')" />
             <datalist id="rb-role-list">
               <option v-for="r in store.roleList" :key="r.name" :value="r.name" />
             </datalist>
@@ -274,15 +276,15 @@ function saveEdit() {
       <!-- Subjects -->
       <div class="flex flex-col gap-md">
         <div class="flex items-center justify-between">
-          <h4 class="text-label-caps text-on-surface-variant">Subjects</h4>
+          <h4 class="text-label-caps text-on-surface-variant">{{ t('ns.roleBindingDetail.subjectsLabel') }}</h4>
           <button @click="addSubject" class="flex items-center gap-xs px-md py-xs bg-primary-container/10 text-primary text-body-sm font-semibold rounded-lg hover:bg-primary-container/20 transition-colors">
-            <span class="material-symbols-outlined text-base">add</span> Add Subject
+            <span class="material-symbols-outlined text-base">add</span> {{ t('ns.roleBindingDetail.addSubject') }}
           </button>
         </div>
         <div v-if="editSubjects.length" class="flex flex-col gap-sm divide-y divide-outline-variant/30">
           <div v-for="(s, idx) in editSubjects" :key="idx" class="flex items-end gap-sm pt-sm first:pt-0">
             <div>
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Kind</label>
+              <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.kindPlaceholder') }}</label>
               <select v-model="s.kind" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
                 <option value="User">User</option>
                 <option value="Group">Group</option>
@@ -290,12 +292,12 @@ function saveEdit() {
               </select>
             </div>
             <div class="flex-1">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Name</label>
-              <input v-model="s.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="name" />
+              <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.nameFieldPlaceholder') }}</label>
+              <input v-model="s.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.roleBindingDetail.nameFieldPlaceholder')" />
             </div>
             <div v-if="s.kind === 'ServiceAccount'" class="flex-1">
-              <label class="text-label-caps text-on-surface-variant block mb-xs">Namespace</label>
-              <input v-model="s.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="namespace" />
+              <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.namespacePlaceholder') }}</label>
+              <input v-model="s.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.roleBindingDetail.namespacePlaceholder')" />
             </div>
             <button @click="removeSubject(idx)" class="flex items-center justify-center w-10 h-10 mb-px border border-error/30 text-error rounded-lg hover:bg-error-container/10 transition-colors">
               <span class="material-symbols-outlined">delete</span>
@@ -303,13 +305,13 @@ function saveEdit() {
           </div>
         </div>
         <div v-else class="p-md text-center text-body-sm text-on-surface-variant bg-surface-container-low rounded-lg">
-          No subjects defined.
+          {{ t('ns.roleBindingDetail.noSubjects') }}
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.save') }}</button>
     </template>
   </Modal>
 </template>

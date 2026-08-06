@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -10,6 +11,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -93,15 +95,15 @@ function hpaStatus(status) {
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'HPA' }
+      { label: $t('ns.hpa.title') }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">HorizontalPodAutoscalers</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.hpa.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.hpa.subtitle', { n: nsHPAs.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> Create HPA
+        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.hpa.createBtn') }}
       </button>
     </div>
 
@@ -109,15 +111,15 @@ function hpaStatus(status) {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Target</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Min/Max Replicas</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Current Replicas</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU Target</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">CPU Current</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thTarget') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thMinMaxReplicas') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCurrentReplicas') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCpuTarget') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCpuCurrent') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thStatus') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thAge') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.hpa.thActions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -169,7 +171,7 @@ function hpaStatus(status) {
           <tr v-if="!nsHPAs.length">
             <td :colspan="9" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">暂无数据</p>
+              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.hpa.emptyState') }}</p>
             </td>
           </tr>
         </tbody>
@@ -180,21 +182,21 @@ function hpaStatus(status) {
     </div>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">speed</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">No HorizontalPodAutoscalers in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create HPA</button>
+      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.hpa.noHpainNs') }}</p>
+      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.hpa.createBtn') }}</button>
     </div>
   </section>
 
   <!-- Create HPA Modal -->
-  <Modal v-model="showCreateModal" title="Create HorizontalPodAutoscaler" width="max-w-lg">
+  <Modal v-model="showCreateModal" :title="$t('ns.hpa.createModalTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">HPA Name *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.hpaNameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-app-hpa" />
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Target Kind</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.targetKindLabel') }}</label>
           <select v-model="createForm.targetKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
             <option>Deployment</option>
             <option>StatefulSet</option>
@@ -202,48 +204,48 @@ function hpaStatus(status) {
           </select>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Target Name *</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.targetNameLabel') }}</label>
           <select v-model="createForm.targetName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
-            <option value="" disabled>选择工作负载…</option>
+            <option value="" disabled>{{ $t('ns.hpa.targetNamePlaceholder') }}</option>
             <option v-for="name in targetOptions" :key="name" :value="name">{{ name }}</option>
           </select>
-          <p v-if="!targetOptions.length" class="text-[10px] text-on-surface-variant/60 mt-xs">当前命名空间没有 {{ createForm.targetKind }} 类型的工作负载</p>
+          <p v-if="!targetOptions.length" class="text-[10px] text-on-surface-variant/60 mt-xs">{{ $t('ns.hpa.targetKindHint', { kind: createForm.targetKind }) }}</p>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Min Replicas</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.minReplicasLabel') }}</label>
           <input v-model.number="createForm.minReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Max Replicas</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.maxReplicasLabel') }}</label>
           <input v-model.number="createForm.maxReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target (%)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.cpuTargetLabel') }}</label>
           <input v-model.number="createForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Target (%)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.hpa.memoryTargetLabel') }}</label>
           <input v-model.number="createForm.memoryTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name || !createForm.targetName || createForm.minReplicas > createForm.maxReplicas" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name || !createForm.targetName || createForm.minReplicas > createForm.maxReplicas" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete HPA" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete HPA <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">The target workload will no longer be autoscaled. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('ns.hpa.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ $t('ns.hpa.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.hpa.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 </template>
