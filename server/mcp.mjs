@@ -4,18 +4,13 @@
 import { resolveApiKey } from './api-key-tools.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { tierTools } from './authorize.mjs'
+import { registry } from './tool-registry.mjs'
 
 const PROTOCOL = '2025-11-25'
 
-// MCP tool 元数据(描述 + inputSchema)。tools/list 按调用者 tier 过滤(只列能用的,不广告用不了的)。
-export const TOOL_META = {
-  get_pod_logs: { description: '获取 pod 日志(有界 tail,非 follow)。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' } }, required: ['namespace', 'pod'] } },
-  list_resources: { description: '列出 namespace 内某 kind 的资源(slim 名单)。kind: pods/services/configmaps/deployments/statefulsets/daemonsets。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' } }, required: ['namespace'] } },
-  get_resource: { description: '获取单个资源完整对象(去 managedFields)。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
-  get_events: { description: '列出 namespace 事件(可按资源 name 过滤)。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' } }, required: ['namespace'] } },
-  scale: { description: '扩缩容(operator+ 档)。replicas 会被钳到 1..20(禁止 scale 到 0)。kind: deployments/statefulsets。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets'] }, name: { type: 'string' }, replicas: { type: 'number' } }, required: ['namespace', 'kind', 'name', 'replicas'] } },
-  restart: { description: 'rollout restart(operator+ 档)。kind: deployments/statefulsets/daemonsets。', inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
-}
+// MCP tool 元数据(描述 + inputSchema):从 tool-registry 派生(单一源,schema 在 tool-registry.mjs)。
+// tools/list 仍按调用者 tier 过滤(只列能用的,不广告用不了的)。
+export const TOOL_META = registry.toMeta()
 
 const ok = (id, result) => ({ jsonrpc: '2.0', id, result })
 const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } })
