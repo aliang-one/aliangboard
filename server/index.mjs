@@ -15,10 +15,11 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
-import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile } from './workbench-projects.mjs'
+import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
+import { reconcileProject } from './reconcile.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -940,7 +941,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && seg.length === 1) {
       let files = [], commits = []
       try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
-      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits })
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id) })
     }
 
     // 文件读写 :id/files/<path>
@@ -965,6 +966,17 @@ async function handle(req, res) {
         const r = await wbCommit(repo, input.message || 'update')
         return sendJson(res, 200, r)
       } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '提交失败' }) }
+    }
+
+    // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
+    if (seg[1] === 'reconcile' && req.method === 'POST') {
+      try {
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+        if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
+        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+        const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+        return sendJson(res, 200, r)
+      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'reconcile 失败' }) }
     }
 
     return sendJson(res, 404, { message: '未知的工作台路由' })

@@ -22,6 +22,8 @@ export function createWorkbenchSchema(db) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_history_proj ON workbench_history(projectId, ts)`)
   // 定时蒸馏的待审 diff(每集群一条,最新覆盖;D4)
   db.exec(`CREATE TABLE IF NOT EXISTS pending_distills (clusterId TEXT PRIMARY KEY, proposed TEXT, current TEXT, summary TEXT, stats TEXT, ts INTEGER NOT NULL)`)
+  // 项目 reconcile 的最近结果(每项目一条;R1,第 4 阶段)
+  db.exec(`CREATE TABLE IF NOT EXISTS last_reconcile (projectId TEXT PRIMARY KEY, result TEXT, ts INTEGER NOT NULL)`)
 }
 
 export function createProject(db, { name, clusterId, ownerId }) {
@@ -63,4 +65,14 @@ export function getPendingDistill(db, clusterId) {
 }
 export function clearPendingDistill(db, clusterId) {
   db.prepare('DELETE FROM pending_distills WHERE clusterId=?').run(clusterId)
+}
+
+// 项目 reconcile 最近结果(每项目一条;第 4 阶段 R1)
+export function setLastReconcile(db, projectId, result) {
+  db.prepare('INSERT OR REPLACE INTO last_reconcile (projectId,result,ts) VALUES (?,?,?)').run(projectId, JSON.stringify(result ?? {}), Date.now())
+}
+export function getLastReconcile(db, projectId) {
+  const r = db.prepare('SELECT * FROM last_reconcile WHERE projectId=?').get(projectId)
+  if (r) { try { r.result = JSON.parse(r.result || '{}') } catch { r.result = {} } }
+  return r || null
 }
