@@ -40,6 +40,9 @@ const K8S = [
   { name: 'apply_yaml', minTier: 'admin', requiresApproval: true,
     description: 'server-side apply 一段 yaml(可含多资源,--- 分隔)。逐资源 apply,部分失败返 {applied,failed,total}。admin 档:需人审/admin key。受 SA RBAC 约束。',
     inputSchema: { type: 'object', properties: { yaml: { type: 'string', description: '要 apply 的 yaml(多资源 --- 分隔)' } }, required: ['yaml'] } },
+  { name: 'delete_resource', minTier: 'admin', requiresApproval: true,
+    description: '删除一个 K8s 资源(DELETE)。path 从 get_resource/list_resources 结果取(如 /apis/apps/v1/namespaces/default/deployments/nginx)。admin 档:需人审/admin key。受 SA RBAC 约束。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, path: { type: 'string', description: 'K8s 资源路径(从 get/list 结果取)' } }, required: ['namespace', 'path'] } },
 ].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。

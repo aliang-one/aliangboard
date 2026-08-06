@@ -191,6 +191,13 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn }) {
         if (!a.yaml || !a.yaml.trim()) throw new Error('apply_yaml 缺 yaml')
         return applyYamlFn(saCtx, a.yaml)
       } }),
+    delete_resource: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'delete_resource', namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
+      fn: async (saCtx) => {
+        if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
+        await requestFn(saCtx, a.path, { method: 'DELETE' })
+        return { deleted: a.path }
+      } }),
   }
 
   // 派发:T12 MCP tools/call → callTool;未知工具 → policy 拒(不暴露 tool 存在与否的细节过度,这里直接报)。
