@@ -12,6 +12,8 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import ResourceTopology from '@/components/common/ResourceTopology.vue'
 import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
+import LabelChips from '@/components/common/LabelChips.vue'
+import AnnotationList from '@/components/common/AnnotationList.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
@@ -515,17 +517,11 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           <div class="space-y-lg">
             <div>
               <h4 class="text-label-caps text-on-surface-variant mb-2">LABELS</h4>
-              <div class="flex flex-wrap gap-2">
-                <span v-for="(val, key) in pod.labels" :key="key" class="px-2 py-1 bg-surface-container rounded text-body-sm border border-outline-variant">
-                  {{ key }}: {{ val }}
-                </span>
-              </div>
+              <LabelChips :labels="pod.labels || {}" />
             </div>
             <div>
               <h4 class="text-label-caps text-on-surface-variant mb-2">ANNOTATIONS</h4>
-              <div class="text-body-sm bg-surface-container p-sm rounded border border-outline-variant font-mono text-code-sm text-on-surface-variant">
-                <div v-for="(val, key) in pod.annotations" :key="key">{{ key }}: "{{ val }}"</div>
-              </div>
+              <AnnotationList :annotations="pod.annotations || {}" />
             </div>
             <div>
               <h4 class="text-label-caps text-on-surface-variant mb-2">OWNER REFERENCES</h4>
