@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   BOUNDED_TOOLS, DANGEROUS_TOOLS, tierTools,
+  effectiveTools, normalizeToolOverrides,
   authorize, PermissionDeniedError, canIDecision, withPolicy,
 } from './authorize.mjs'
 
@@ -91,4 +92,44 @@ test('withPolicy: 拒绝时抛 PermissionDeniedError(reason+tool),handler 不被
 test('withPolicy: 吊销 key → revoked 拒', async () => {
   const fn = withPolicy('get_pod_logs', async () => 'should-not-run')
   await assert.rejects(() => fn({ keyRow: { tier: 'admin', revokedAt: 1 } }, {}), (e) => e.reason === 'revoked')
+})
+
+// --- effectiveTools: 运行时有效工具集(tier ∪ allow − deny,lenient) ---
+test('effectiveTools: 无 override = tier 基', () => {
+  const s = effectiveTools({ tier: 'read' })
+  assert.ok(s.has('get_pod_logs')); assert.ok(!s.has('exec_pod'))
+})
+test('effectiveTools: allow 越过 tier(operator + exec_pod)', () => {
+  const s = effectiveTools({ tier: 'operator', tool_overrides: JSON.stringify({ allow: ['exec_pod'] }) })
+  assert.ok(s.has('exec_pod'), 'allow 把 admin 工具加给 operator')
+  assert.ok(s.has('scale'), 'tier 基仍保留')
+})
+test('effectiveTools: deny 从 tier 减(admin − delete_resource)', () => {
+  const s = effectiveTools({ tier: 'admin', tool_overrides: JSON.stringify({ deny: ['delete_resource'] }) })
+  assert.ok(!s.has('delete_resource')); assert.ok(s.has('exec_pod'))
+})
+test('effectiveTools: 损坏 JSON → fail-open 到 tier(不空、不锁死 key)', () => {
+  const s = effectiveTools({ tier: 'read', tool_overrides: '{not json' })
+  assert.ok(s.has('get_pod_logs'))
+  assert.equal(effectiveTools({ tier: 'admin', tool_overrides: 'garbage' }).has('exec_pod'), true)
+})
+test('effectiveTools: 未知 tier → 空(fail-closed 不变)', () => {
+  assert.equal(effectiveTools({ tier: 'god' }).size, 0)
+  assert.equal(effectiveTools({}).size, 0)
+})
+
+// --- normalizeToolOverrides: mint/update 用(strict,坏→抛) ---
+test('normalizeToolOverrides: null/空对象 → null;合法 → 规范 JSON 串', () => {
+  assert.equal(normalizeToolOverrides(null), null)
+  assert.equal(normalizeToolOverrides(undefined), null)
+  assert.equal(normalizeToolOverrides({}), null)
+  assert.equal(normalizeToolOverrides({ allow: [] }), null)
+  assert.equal(normalizeToolOverrides({ allow: ['exec_pod'] }), JSON.stringify({ allow: ['exec_pod'] }))
+  assert.equal(normalizeToolOverrides({ deny: ['scale'] }), JSON.stringify({ deny: ['scale'] }))
+})
+test('normalizeToolOverrides: 校验未知名 / allow∩deny / 坏形状 → 抛', () => {
+  assert.throws(() => normalizeToolOverrides({ allow: ['bogus_tool'] }), /未知工具/)
+  assert.throws(() => normalizeToolOverrides({ allow: ['exec_pod'], deny: ['exec_pod'] }), /不能同时/)
+  assert.throws(() => normalizeToolOverrides('not json'))
+  assert.throws(() => normalizeToolOverrides({ allow: 'exec_pod' }), /字符串数组/)  // 非数组
 })

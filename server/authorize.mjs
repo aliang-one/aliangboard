@@ -17,11 +17,44 @@ export function tierTools(tier) {
   return []
 }
 
+// 运行时有效工具集:lenient。损坏/缺 override → 回退 tier(fail-open 到 tier,不锁死 key)。
+// keyRow.tool_overrides 来自 DB(TEXT 串)或内存对象,两者都兼容。
+export function effectiveTools(keyRow) {
+  const set = new Set(tierTools(keyRow?.tier))
+  const raw = keyRow?.tool_overrides
+  if (!raw) return set
+  let ov
+  try { ov = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return set }
+  if (!ov || typeof ov !== 'object' || Array.isArray(ov)) return set
+  if (Array.isArray(ov.allow)) for (const t of ov.allow) if (typeof t === 'string') set.add(t)
+  if (Array.isArray(ov.deny)) for (const t of ov.deny) if (typeof t === 'string') set.delete(t)
+  return set
+}
+
+// mint/update 用:strict。坏形状/未知名/allow∩deny → 抛。返回存库的规范 JSON 串(空→null)。
+// 已知工具宇宙 = BOUNDED ∪ DANGEROUS(恰好 K8s 工具全集;工作台工具不受覆盖管辖)。
+export function normalizeToolOverrides(raw) {
+  if (raw == null) return null
+  const ov = typeof raw === 'string' ? JSON.parse(raw) : raw  // 坏串让 JSON.parse 抛
+  if (!ov || typeof ov !== 'object' || Array.isArray(ov)) throw new Error('tool_overrides 必须是 {allow?,deny?} 对象')
+  const allow = Array.isArray(ov.allow) ? ov.allow : (ov.allow == null ? [] : null)
+  const deny = Array.isArray(ov.deny) ? ov.deny : (ov.deny == null ? [] : null)
+  if (!allow || !deny) throw new Error('tool_overrides allow/deny 必须是字符串数组')
+  const known = new Set([...BOUNDED_TOOLS, ...DANGEROUS_TOOLS])
+  for (const t of [...allow, ...deny]) if (!known.has(t)) throw new Error(`tool_overrides 含未知工具: ${t}`)
+  const both = allow.filter(t => deny.includes(t))
+  if (both.length) throw new Error(`tool_overrides 工具不能同时 allow 与 deny: ${both.join(',')}`)
+  const out = {}
+  if (allow.length) out.allow = allow
+  if (deny.length) out.deny = deny
+  return Object.keys(out).length ? JSON.stringify(out) : null
+}
+
 // 策略决策:(keyRow, tool) → { allowed, reason? }。纯函数,无副作用。
 // reason: 'revoked'(无 key 或已吊销)| 'policy'(tier 不含该工具)。
 export function authorize(keyRow, tool) {
   if (!keyRow || keyRow.revokedAt) return { allowed: false, reason: 'revoked' }
-  return tierTools(keyRow.tier).includes(tool)
+  return effectiveTools(keyRow).has(tool)
     ? { allowed: true }
     : { allowed: false, reason: 'policy' }
 }
