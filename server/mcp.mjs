@@ -9,7 +9,7 @@ import { registry } from './tool-registry.mjs'
 const PROTOCOL = '2025-11-25'
 
 // MCP tool 元数据(描述 + inputSchema):从 tool-registry 派生(单一源,schema 在 tool-registry.mjs)。
-// tools/list 仍按调用者 tier 过滤(只列能用的,不广告用不了的)。
+// tools/list 按调用者 effectiveTools 过滤(tier ∪ per-key tool_overrides 覆盖;只列能用的,不广告用不了的)。
 export const TOOL_META = registry.toMeta()
 
 const ok = (id, result) => ({ jsonrpc: '2.0', id, result })
