@@ -18,8 +18,8 @@ function makeDb() {
 }
 const cluster = { id: 'c1', apiServer: 'https://10.0.0.1:6443', authHeader: 'Bearer admin', ca: null, cert: null, key: null, insecure: true }
 
-// mock requestFn:覆盖 issuer / token / log / list / get / events
-function mockRequestFn({ logBody = 'line1\nline2\nline3' } = {}) {
+// mock requestFn:覆盖 issuer / token / log / list / get / events / Deployment 单体 / ReplicaSet 列表(rollout 用)
+function mockRequestFn({ logBody = 'line1\nline2\nline3', deployment = null, replicasets = null } = {}) {
   return async (ctx, path, init = {}) => {
     if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
     if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
@@ -31,6 +31,14 @@ function mockRequestFn({ logBody = 'line1\nline2\nline3' } = {}) {
     if (/\/namespaces\/[^/]+\/deployments$/.test(path)) return { body: { items: [{ metadata: { name: 'd1' }, spec: { replicas: 2 }, status: { readyReplicas: 2, updatedReplicas: 2 } }] } }
     if (/\/namespaces\/[^/]+\/pods\/[^/]+$/.test(path)) return { body: { metadata: { name: 'p1', managedFields: [{ x: 1 }] }, status: { phase: 'Running' } } }
     if (/\/namespaces\/[^/]+\/events/.test(path)) return { body: { items: [{ reason: 'BackOff', type: 'Warning', message: 'x'.repeat(400), lastTimestamp: '2026-01-01T00:00:00Z' }] } }
+    // --- 新增:Deployment 单体 GET(非 PATCH)+ ReplicaSet 列表(rollout 用)---
+    if (init.method !== 'PATCH' && /\/namespaces\/[^/]+\/deployments\/[^/]+$/.test(path)) return { body: deployment || {
+      metadata: { name: 'd1', uid: 'uid-d1', annotations: { 'deployment.kubernetes.io/revision': '2' } },
+      spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:2' }] } } } } }
+    if (/\/namespaces\/[^/]+\/replicasets$/.test(path)) return { body: { items: replicasets || [
+      { metadata: { name: 'd1-rs2', uid: 'rs2', ownerReferences: [{ uid: 'uid-d1', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '2' }, creationTimestamp: '2026-08-06T02:00:00Z' }, spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:2' }] } } } },
+      { metadata: { name: 'd1-rs1', uid: 'rs1', ownerReferences: [{ uid: 'uid-d1', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '1' }, creationTimestamp: '2026-08-06T01:00:00Z' }, spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } },
+    ] } }
     throw new Error('mock: unexpected path ' + path)
   }
 }
@@ -230,4 +238,27 @@ test('delete_resource(admin happy): DELETE path → requestFn called, 返 {delet
   assert.equal(out.deleted, '/api/v1/namespaces/ns/pods/p1')
   const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[rows.length - 1].result, 'ok')
+})
+
+// --- rollout_history(read 档:列 ReplicaSet revisions)---
+test('rollout_history(read happy): 列 revisions,降序,current 标记', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'rollout_history', { namespace: 'ns', name: 'd1' })
+  assert.equal(out.deployment, 'd1')
+  assert.equal(out.currentRevision, '2')
+  assert.equal(out.revisions.length, 2)
+  assert.equal(out.revisions[0].revision, '2', '降序')
+  assert.equal(out.revisions[0].current, true)
+  assert.equal(out.revisions[1].revision, '1')
+  assert.equal(out.revisions[1].image, 'img:1')
+})
+test('rollout_history: 只列该 Deployment 的 RS(ownerReference 过滤)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const otherRs = { metadata: { name: 'other-rs', ownerReferences: [{ uid: 'uid-other', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': '5' } }, spec: { template: { spec: { containers: [{ name: 'x', image: 'x' }] } } } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ replicasets: [otherRs] }) })
+  const out = await tools.callTool(k, cluster, 'rollout_history', { namespace: 'ns', name: 'd1' })
+  assert.equal(out.revisions.length, 0, '不属于 d1 的 RS 被过滤')
 })
