@@ -301,19 +301,22 @@ test('activeKeys: 近 window 按 key 聚合 + source 过滤 + label join', () =>
   writeAudit(db, { keyId:'k1', owner:'alice', clusterId:'c1', tool:'scale', result:'denied', source:'agent', ts: now-30_000 })
   writeAudit(db, { keyId:'k1', owner:'alice', clusterId:'c1', tool:'get', result:'error', source:'mcp', ts: now-10_000 })
   writeAudit(db, { keyId:'k1', owner:'alice', clusterId:'c1', tool:'old', result:'ok', source:'mcp', ts: now-10_000_000 }) // 超出 window
+  writeAudit(db, { keyId:'k1', owner:'alice', clusterId:'c1', tool:'started-only', result:null, source:'mcp', ts: now-5_000, status:'started' }) // started 行不计
   const all = activeKeys(db, { windowSec: 900 })
-  assert.equal(all.length, 1); assert.equal(all[0].keyId, 'k1'); assert.equal(all[0].label, null || 'p' ? all[0].label : null)
-  assert.equal(all[0].count, 3); assert.equal(all[0].ok, 1); assert.equal(all[0].denied, 1); assert.equal(all[0].error, 1)
+  assert.equal(all.length, 1); assert.equal(all[0].keyId, 'k1'); assert.equal(all[0].label, null)
+  assert.equal(all[0].count, 3, 'started 行不计 → 3(finalized)非 4'); assert.equal(all[0].ok, 1); assert.equal(all[0].denied, 1); assert.equal(all[0].error, 1)
   const mcpOnly = activeKeys(db, { windowSec: 900, source: 'mcp' })
   assert.equal(mcpOnly[0].count, 2)
 })
-test('queryAuditLog: 过滤 + 分页 + ts DESC + size 钳制', () => {
+test('queryAuditLog: 默认只列 finalized(排除 started) + 过滤 + 分页 + size 钳制', () => {
   const db = makeAudDb()
-  for (let i=0;i<5;i++) writeAudit(db, { keyId:'k1', tool:'t', result:'ok', source:'mcp', ts: 1000+i })
+  for (let i=0;i<5;i++) writeAudit(db, { keyId:'k1', tool:'t', result:'ok', source:'mcp', ts: 1000+i })          // 5 finalized
+  for (let i=0;i<3;i++) writeAudit(db, { keyId:'k1', tool:'t', result:null, source:'mcp', ts: 2000+i, status:'started' }) // 3 started(默认不计)
   const r = queryAuditLog(db, { source:'mcp', page:1, size:2 })
-  assert.equal(r.total, 5); assert.equal(r.items.length, 2); assert.ok(r.items[0].ts >= r.items[1].ts, 'DESC')
+  assert.equal(r.total, 5, '默认 finalized → 5,排除 3 started'); assert.equal(r.items.length, 2); assert.ok(r.items[0].ts >= r.items[1].ts, 'DESC')
   assert.equal(queryAuditLog(db, { size: 9999 }).size, 200, 'size 钳到 200')
   assert.equal(queryAuditLog(db, { result: 'denied' }).total, 0)
+  assert.equal(queryAuditLog(db, { status: null }).total, 8, 'status=null → 全部(5 finalized + 3 started)')
 })
 ```
 > `writeAudit` 的 entry 若带 `ts` 用之(改 writeAudit 接受 entry.ts 覆盖?现 writeAudit 用 `row={ts:Date.now(),...entry}` → entry.ts 会覆盖默认,OK,测试可控时间)。
@@ -326,6 +329,7 @@ Expected: FAIL — `activeKeys`/`queryAuditLog` 未导出。
 - [ ] **Step 3: 实现** — `server/audit.mjs` 末尾加:
 ```js
 // 近 windowSec 秒、按 key 聚合(可选 source 过滤);label LEFT JOIN api_keys。给「最近活跃 key」面板。
+// ⚠️ 只计 status='finalized' 行(reserveAudit 另写 'started' 行;不计 finalized 会把每次调用算 2 次)。
 export function activeKeys(db, { windowSec = 900, source = null } = {}) {
   const since = Date.now() - Math.min(Math.max(Number(windowSec) || 900, 1), 86400) * 1000
   const sql = `SELECT a.keyId, k.label, a.owner, a.clusterId, COUNT(*) AS count, MAX(a.ts) AS lastTs,
@@ -333,18 +337,20 @@ export function activeKeys(db, { windowSec = 900, source = null } = {}) {
       SUM(CASE WHEN a.result='denied' THEN 1 ELSE 0 END) AS denied,
       SUM(CASE WHEN a.result='error' THEN 1 ELSE 0 END) AS error
     FROM audit_log a LEFT JOIN api_keys k ON k.id = a.keyId
-    WHERE a.ts > ? AND a.keyId IS NOT NULL ${source ? 'AND a.source = ?' : ''}
+    WHERE a.ts > ? AND a.keyId IS NOT NULL AND a.status='finalized' ${source ? 'AND a.source = ?' : ''}
     GROUP BY a.keyId ORDER BY lastTs DESC`
   const rows = source ? db.prepare(sql).all(since, source) : db.prepare(sql).all(since)
   return rows.map(r => ({ keyId: r.keyId, label: r.label, owner: r.owner, clusterId: r.clusterId,
     count: Number(r.count) || 0, lastTs: Number(r.lastTs), ok: Number(r.ok) || 0, denied: Number(r.denied) || 0, error: Number(r.error) || 0 }))
 }
 
-// 分页调用流水(多过滤器可选,size 钳 1..200,ts DESC)。
-export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, source, since, until, page = 1, size = 50 } = {}) {
+// 分页调用流水(多过滤器可选,size 钳 1..200,ts DESC)。⚠️ 默认只列 status='finalized'(结果行);
+// 每次 call 另有一条 'started' 行(reserveAudit),不计入 → 避免每调用显示 2 行。
+export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, source, since, until, page = 1, size = 50, status = 'finalized' } = {}) {
   size = Math.min(Math.max(Number(size) || 50, 1), 200)
   page = Math.max(Number(page) || 1, 1)
   const where = []; const params = []
+  if (status) { where.push('status = ?'); params.push(status) }   // 默认 'finalized';传 null/'' → 不过滤(全部)
   if (keyId) { where.push('keyId = ?'); params.push(keyId) }
   if (owner) { where.push('owner = ?'); params.push(owner) }
   if (clusterId) { where.push('clusterId = ?'); params.push(clusterId) }
