@@ -5,6 +5,9 @@
 
 // 风险分级(eng-review):有界/可逆类 vs 无界/破坏/交互类。MCP 只挂第一类;第二类仅 agent(+人审)。
 export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'get_pod_logs', 'get_events', 'can_i', 'get_resource_yaml', 'scale', 'restart', 'rollout_history']
+// 延后接通(对 stateless MCP 价值低/风险高,见 docs/superpowers/specs/2026-08-06-mcp-rollout-and-per-tool-override-design.md「显式延后」):
+//   attach(streaming)、port_forward(网关主机 TCP 监听,外部 AI 拿到不可达 localhost)、upload_file(exec 写文件,转义/注入面大)。
+// 这些名留在 DANGEROUS_TOOLS 以保持 tier 组合的完整性;未实现 → 不进 apiKeyTools.listTools() → tools/list 自然不广告。
 export const DANGEROUS_TOOLS = ['exec_pod', 'attach', 'browse_files', 'read_file', 'upload_file', 'port_forward', 'kubectl_debug', 'rollout_undo', 'apply_yaml', 'delete_resource', 'update_image']
 const OPERATOR_EXTRA = ['scale', 'restart']            // operator 在 read 基础上加这两个有界写
 const READ_TOOLS = BOUNDED_TOOLS.filter(t => !OPERATOR_EXTRA.includes(t))  // read = 有界只读
