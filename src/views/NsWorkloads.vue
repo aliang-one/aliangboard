@@ -2,6 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import { exportYaml } from '@/api/client'
 import { readMeta } from '@/composables/useBusinessMeta'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -14,6 +16,19 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const workloadsKey = ['cluster', cid.value, 'workloads']
+const workloadsQuery = useResourceList({
+  key: workloadsKey,
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
 
 const typeFilter = ref('All')
 const statusFilter = ref('All')
@@ -23,7 +38,7 @@ const typeOptions = ['All', 'Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'Cr
 const statusOptions = ['All', 'Running', 'Pending', 'Failed', 'Succeeded']
 
 const filtered = computed(() => {
-  let list = store.nsWorkloads
+  let list = nsWorkloads
   if (typeFilter.value !== 'All') list = list.filter(w => w.type === typeFilter.value)
   if (statusFilter.value !== 'All') list = list.filter(w => w.status === statusFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
@@ -31,10 +46,10 @@ const filtered = computed(() => {
   return list
 })
 
-const deployCount = computed(() => store.nsWorkloads.filter(w => w.type === 'Deployment').length)
-const stsCount = computed(() => store.nsWorkloads.filter(w => w.type === 'StatefulSet').length)
-const dsCount = computed(() => store.nsWorkloads.filter(w => w.type === 'DaemonSet').length)
-const jobCount = computed(() => store.nsWorkloads.filter(w => ['Job', 'CronJob'].includes(w.type)).length)
+const deployCount = computed(() => nsWorkloads.filter(w => w.type === 'Deployment').length)
+const stsCount = computed(() => nsWorkloads.filter(w => w.type === 'StatefulSet').length)
+const dsCount = computed(() => nsWorkloads.filter(w => w.type === 'DaemonSet').length)
+const jobCount = computed(() => nsWorkloads.filter(w => ['Job', 'CronJob'].includes(w.type)).length)
 
 // 分页
 const currentPage = ref(1)
@@ -65,7 +80,7 @@ function menuItems(row) {
   return [
     { label: '查看详情', icon: 'open_in_new', action: () => goDetail(row) },
     { label: '导出 YAML', icon: 'download', action: () => exportWorkload(row) },
-    { label: '重启', icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
+    { label: '重启', icon: 'refresh', action: async () => { await store.restartWorkload(row.name, route.params.namespace); queryClient.invalidateQueries({ queryKey: workloadsKey }) } },
     { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
   ]
 }
@@ -80,6 +95,7 @@ function confirmDelete(row) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteWorkload(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: workloadsKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -96,7 +112,7 @@ function handleDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md font-bold text-on-surface">Workloads</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">rocket_launch</span> New Workload

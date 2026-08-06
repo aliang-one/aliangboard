@@ -2,6 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -12,8 +14,22 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.nsHPAs))
+// HPAs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+// targetOptions 仍读 store.nsWorkloads（不同资源，下拉用，保留 store 读）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const hpasKey = ['cluster', cid.value, 'hpas']
+const hpasQuery = useResourceList({
+  key: hpasKey,
+  fetcher: () => store.fetchHPAs(),
+  mock: store.hpaList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsHPAs = computed(() => (hpasQuery.data.value || []).filter(h => h.namespace === route.params.namespace))
+
+const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsHPAs))
 
 // Create HPA
 const showCreateModal = ref(false)
@@ -45,6 +61,7 @@ function handleCreate() {
     currentMemory: 0,
     status: 'Ok',
   })
+  queryClient.invalidateQueries({ queryKey: hpasKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -59,6 +76,7 @@ function confirmDelete(hpa) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteHPA(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: hpasKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -80,14 +98,14 @@ function hpaStatus(status) {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">HorizontalPodAutoscalers</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsHPAs.length }} HPAs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> Create HPA
       </button>
     </div>
 
-    <div v-if="store.nsHPAs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+    <div v-if="nsHPAs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -148,7 +166,7 @@ function hpaStatus(status) {
               </div>
             </td>
           </tr>
-          <tr v-if="!store.nsHPAs.length">
+          <tr v-if="!nsHPAs.length">
             <td :colspan="9" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
               <p class="text-on-surface-variant text-body-sm">暂无数据</p>
