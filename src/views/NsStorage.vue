@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -12,18 +14,32 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// PVCs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+// StorageClasses 仍读 store.scList（集群级，变化少，留 store）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pvcsKey = ['cluster', cid.value, 'pvcs']
+const pvcsQuery = useResourceList({
+  key: pvcsKey,
+  fetcher: () => store.fetchPVCs(),
+  mock: store.pvcList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsPVCs = computed(() => (pvcsQuery.data.value || []).filter(p => p.namespace === route.params.namespace))
 
 const activeTab = ref('pvc')
 
-const boundCount = computed(() => store.nsPVCs.filter(p => p.status === 'Bound').length)
-const pendingCount = computed(() => store.nsPVCs.filter(p => p.status === 'Pending').length)
+const boundCount = computed(() => nsPVCs.filter(p => p.status === 'Bound').length)
+const pendingCount = computed(() => nsPVCs.filter(p => p.status === 'Pending').length)
 
 // 搜索过滤
 const searchQuery = ref('')
 const filteredPVCs = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return store.nsPVCs
-  return store.nsPVCs.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
+  if (!q) return nsPVCs
+  return nsPVCs.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filteredPVCs, { resetDeps: [searchQuery] })
@@ -53,6 +69,7 @@ function handleCreatePVC() {
     volume: '',
     age: 'Just now',
   })
+  queryClient.invalidateQueries({ queryKey: pvcsKey })
   showCreatePVC.value = false
   resetCreate()
 }
@@ -67,6 +84,7 @@ function confirmDelete(pvc) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deletePVC(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: pvcsKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -85,7 +103,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <!-- Tabs -->
     <div class="flex items-center gap-xs border-b border-outline-variant mb-md mt-sm">
       <button @click="activeTab = 'pvc'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'pvc' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-        PVCs ({{ store.nsPVCs.length }})
+        PVCs ({{ nsPVCs.length }})
         <span v-if="activeTab === 'pvc'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
       <button @click="activeTab = 'storageclass'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'storageclass' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
@@ -99,7 +117,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
       <div class="flex justify-between items-end mb-md">
         <div>
           <h2 class="text-headline-md font-bold text-on-surface">Persistent Volume Claims</h2>
-          <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsPVCs.length }} PVCs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+          <p class="text-body-sm text-on-surface-variant mt-1">{{ nsPVCs.length }} PVCs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
         </div>
         <button @click="showCreatePVC = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> New PVC
@@ -127,7 +145,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
           <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或 StorageClass 搜索..." />
           <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
         </div>
-        <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ store.nsPVCs.length }}</span>
+        <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ nsPVCs.length }}</span>
       </div>
 
       <div v-if="filteredPVCs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
