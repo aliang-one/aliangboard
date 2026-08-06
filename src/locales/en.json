@@ -1027,7 +1027,8 @@
     "customDisplayDesc": "Select columns to display in list views. Settings are saved locally and take effect immediately.",
     "resetAll": "Reset All",
     "reset": "Reset",
-    "language": "Language"
+    "language": "Language",
+    "zhName": "中文"
   },
   "storage": {
     "title": "Storage",
@@ -1298,7 +1299,8 @@
       "noDescription": "No description available.",
       "notFound": "CRD Not Found",
       "notFoundDesc": "Custom resource definition named <span class=\"font-mono text-on-surface font-semibold\">{name}</span> not found.",
-      "backToCrdList": "Back to CRDs"
+      "backToCrdList": "Back to CRDs",
+      "fillBySchema": "Fill per {kind} OpenAPI schema"
     }
   },
   "network": {
@@ -1393,6 +1395,41 @@
       "projectCreated": "Project created",
       "createFailed": "Failed to create"
     },
+    "ledger": {
+      "title": "Cluster Ledger",
+      "subtitle": "One cluster-context repo per cluster: INDEX.md is the platform survey fact layer, learnings.md is the distilled team knowledge.",
+      "bootstrap": "Bootstrap",
+      "bootstrapping": "Bootstrapping…",
+      "bootstrapSuccess": "INDEX.md generated",
+      "bootstrapFailed": "Bootstrap failed",
+      "confirmBootstrap": "Will survey the cluster with read-only tools and generate INDEX.md (overwrites existing), continue?",
+      "loadFailed": "Failed to load ledger",
+      "verifiedAt": "Verified at",
+      "filesCount": "{n} files",
+      "filesTitle": "All files",
+      "fileItem": "· {file}",
+      "noLedger": "No ledger for this cluster yet.",
+      "noLedgerAdmin": "Click Bootstrap on the right to generate.",
+      "noLedgerUser": "Please ask an administrator to generate it.",
+      "indexLabel": "INDEX.md (capability facts)",
+      "learningsLabel": "learnings.md (team knowledge/pitfalls, distillation output)",
+      "distill": "Distill Ledger",
+      "distilling": "Distilling…",
+      "distillTitle": "Distill knowledge from recent conversations and operations, merge into learnings",
+      "distillDone": "Distillation done: {summary}",
+      "distillFailed": "Distillation failed",
+      "learningsApplied": "Learnings applied",
+      "applyFailed": "Apply failed",
+      "pendingReview": "Scheduled distillation pending review: {summary}",
+      "viewDiff": "View diff",
+      "dismiss": "Dismiss",
+      "distillModalTitle": "Distill learnings (human review)",
+      "distillModalDesc": "{summary} · Left = current learnings.md, right = distilled (editable, write after confirm).",
+      "currentLearnings": "Current learnings.md",
+      "distilledEdit": "Distilled (editable)",
+      "empty": "(empty)",
+      "applying": "Applying…"
+    },
     "detail": {
       "back": "Back",
       "aiAssistant": "AI Assistant",
@@ -1418,7 +1455,15 @@
       "commitFailed": "Failed to commit",
       "noChangesToCommit": "No new changes to commit (save first)",
       "newFileCreated": "Created {path}, edit then click save to write",
-      "projectNotFound": "Project not found or no access."
+      "projectNotFound": "Project not found or no access.",
+      "reconcile": "Reconcile",
+      "reconciling": "reconcile…",
+      "reconcileTitle": "Idempotently re-apply manifests to align the cluster with the repo (declared field scope)",
+      "reconcileSummary": "reconcile: {applied} applied, {failed} failed",
+      "reconcileFailed": "reconcile failed",
+      "lastReconcile": "Last reconcile {ts}",
+      "reconcileSkipped": "Skipped ({reason})",
+      "hasFailures": "has failures"
     }
   },
   "workloadDetail": {
