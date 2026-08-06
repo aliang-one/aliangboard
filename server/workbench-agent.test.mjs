@@ -56,11 +56,13 @@ test('工作台 write_project_file resume 拒绝 → 不写,记 denied', async (
   assert.equal(out.denied.length, 1)
 })
 
-test('registry:W5 工具(apply/propose_ledger/propose_learning/bootstrap_ledger)在 workbenchToolDefs 且需人审', () => {
+test('registry:工作台工具(apply/propose_learning/bootstrap_ledger;propose_ledger_update 已移除)在 workbenchToolDefs 且需人审', () => {
   const wb = registry.workbenchToolDefs().map(t => t.function.name)
-  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_ledger_update') && wb.includes('propose_learning') && wb.includes('bootstrap_ledger'))
+  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_learning') && wb.includes('bootstrap_ledger'))
+  assert.ok(!wb.includes('propose_ledger_update'), 'propose_ledger_update 已移除(能力靠 survey,知识靠 distill)')
   const req = registry.requiringApproval()
-  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_ledger_update') && req.includes('propose_learning') && req.includes('bootstrap_ledger'))
+  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_learning') && req.includes('bootstrap_ledger'))
+  assert.ok(!req.includes('propose_ledger_update'))
 })
 
 test('bootstrap_ledger → checkpoint;resume 批准 → ctx.wb.bootstrapLedger 被调,摘要喂回', async () => {
@@ -89,16 +91,13 @@ test('apply_project_manifests → checkpoint;resume 批准 → readManifests+app
   assert.equal(calls.length, 2, 'read + apply')
 })
 
-test('propose_ledger_update → checkpoint;resume 批准 → writeLedger 被调', async () => {
+test('propose_ledger_update 已移除:LLM 若调用 → 未知工具错误喂回(不再写台账)', async () => {
   const writes = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), writeLedger: async (p, c) => { writes.push({ p, c }) }, appendLearning: async () => {} }
-  const llmClient = { chat: seqChat([tc('1', 'propose_ledger_update', { path: 'capabilities/ci-cd.md', content: '# CI/CD' }), fin('已记台账')]) }
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), appendLearning: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'propose_ledger_update', { path: 'capabilities/x.md', content: 'x' }), fin('作罢')]) }
   const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const cp = await run({ history: [] })
-  assert.equal(cp.status, 'pending_approval')
-  assert.deepEqual(writes, [], 'checkpoint 时未写台账')
-  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
-  assert.equal(out.content, '已记台账')
-  assert.equal(writes.length, 1)
-  assert.equal(writes[0].p, 'capabilities/ci-cd.md')
+  const out = await run({ history: [] })
+  // propose_ledger_update 不在 registry → execTool 抛"未知工具" → 当工具错误喂回 LLM → 终答
+  assert.equal(out.content, '作罢')
+  assert.deepEqual(writes, [], 'propose_ledger_update 不应再写任何东西')
 })

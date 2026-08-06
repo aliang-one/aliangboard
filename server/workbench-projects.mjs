@@ -20,6 +20,8 @@ export function createWorkbenchSchema(db) {
     ts INTEGER NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_history_proj ON workbench_history(projectId, ts)`)
+  // 定时蒸馏的待审 diff(每集群一条,最新覆盖;D4)
+  db.exec(`CREATE TABLE IF NOT EXISTS pending_distills (clusterId TEXT PRIMARY KEY, proposed TEXT, current TEXT, summary TEXT, stats TEXT, ts INTEGER NOT NULL)`)
 }
 
 export function createProject(db, { name, clusterId, ownerId }) {
@@ -47,4 +49,18 @@ export function appendHistory(db, projectId, role, content) {
 export function recentHistory(db, projectId, n = 30) {
   const rows = db.prepare('SELECT role,content FROM workbench_history WHERE projectId=? ORDER BY ts DESC LIMIT ?').all(projectId, n)
   return rows.reverse() // 最旧在前
+}
+
+// 定时蒸馏的待审 diff(每集群一条,最新覆盖)。scheduler 写,台账页读,apply 后清。
+export function setPendingDistill(db, clusterId, { proposed, current, summary, stats }) {
+  db.prepare('INSERT OR REPLACE INTO pending_distills (clusterId,proposed,current,summary,stats,ts) VALUES (?,?,?,?,?,?)')
+    .run(clusterId, proposed ?? '', current ?? '', summary ?? '', JSON.stringify(stats ?? {}), Date.now())
+}
+export function getPendingDistill(db, clusterId) {
+  const r = db.prepare('SELECT * FROM pending_distills WHERE clusterId=?').get(clusterId)
+  if (r) { try { r.stats = JSON.parse(r.stats || '{}') } catch { r.stats = {} } }
+  return r || null
+}
+export function clearPendingDistill(db, clusterId) {
+  db.prepare('DELETE FROM pending_distills WHERE clusterId=?').run(clusterId)
 }
