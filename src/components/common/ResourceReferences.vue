@@ -127,7 +127,13 @@ function goToWorkload(wl) {
             <span class="material-symbols-outlined text-tertiary-container">info</span>
             <div>
               <p class="text-body-sm font-semibold text-on-surface mb-xs">{{ t('component.resourceRef.impactTitle') }}</p>
-              <p class="text-body-sm text-on-surface-variant">{{ t('component.resourceRef.impactDesc', { kind, count: references.length }) }}</p>
+              <p class="text-body-sm text-on-surface-variant">
+                {{ t('component.resourceRef.impactDescPrefix', { kind }) }}
+                <span class="font-semibold text-tertiary-container">{{ references.length }}</span>
+                {{ t('component.resourceRef.impactDescCountUnit') }}
+                <span class="font-semibold">{{ t('component.resourceRef.impactRestart') }}</span>
+                {{ t('component.resourceRef.impactDescSuffix') }}
+              </p>
             </div>
           </div>
         </div>
