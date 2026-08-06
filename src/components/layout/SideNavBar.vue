@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
+import { i18n, setLocale } from '@/i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,15 +16,15 @@ const nsSearch = ref('')
 // 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
 // 选中 namespace 时该板块默认折叠（让命名空间工作为主），无 namespace 时自动展开（此时它是唯一内容）。
 const clusterPrimaryNav = [
-  { icon: 'dashboard', label: 'Cluster Overview', route: '/cluster' },
-  { icon: 'dns', label: 'Nodes', route: '/nodes' },
-  { icon: 'folder_open', label: 'Namespaces', route: '/namespaces' },
-  { icon: 'storage', label: '存储', route: '/storage' },
-  { icon: 'monitoring', label: '监控中心', route: '/monitoring' },
+  { icon: 'dashboard', labelKey: 'nav.clusterOverview', route: '/cluster' },
+  { icon: 'dns', labelKey: 'nav.nodes', route: '/nodes' },
+  { icon: 'folder_open', labelKey: 'nav.namespaces', route: '/namespaces' },
+  { icon: 'storage', labelKey: 'nav.storage', route: '/storage' },
+  { icon: 'monitoring', labelKey: 'nav.monitoring', route: '/monitoring' },
   { icon: 'workspaces', label: '工作台', route: '/workbench' },
 ]
 const clusterResourcesNav = [
-  { icon: 'extension', label: 'CRDs', route: '/crds' },
+  { icon: 'extension', labelKey: 'nav.crds', route: '/crds' },
   { icon: 'flag', label: 'PriorityClasses', route: '/priorityclasses' },
   { icon: 'language', label: 'IngressClasses', route: '/ingressclasses' },
   { icon: 'memory', label: 'RuntimeClasses', route: '/runtimeclasses' },
@@ -34,16 +35,16 @@ const clusterResourcesNav = [
   { icon: 'hard_drive', label: 'CSINodes', route: '/admin/csinodes' },
 ]
 const clusterOtherNav = [
-  { icon: 'history', label: 'Audit Logs', route: '/audit-logs' },
-  { icon: 'hub', label: 'Clusters', route: '/clusters' },
+  { icon: 'history', labelKey: 'nav.auditLogs', route: '/audit-logs' },
+  { icon: 'hub', labelKey: 'nav.clusters', route: '/clusters' },
 ]
 // 平台管理（admin only）
 const platformAdminNav = [
-  { icon: 'group', label: '用户管理', route: '/admin/users' },
+  { icon: 'group', labelKey: 'nav.userManagement', route: '/admin/users' },
   { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
-  { icon: 'vpn_key', label: 'API Keys', route: '/admin/apikeys' },
-  { icon: 'smart_toy', label: 'AI 控制台', route: '/admin/agent' },
-  { icon: 'neurology', label: 'LLM 配置', route: '/admin/llm-config' },
+  { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
+  { icon: 'smart_toy', labelKey: 'nav.aiConsole', route: '/admin/agent' },
+  { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
 ]
 const clusterNavOpen = ref(false)
 
@@ -58,7 +59,7 @@ const nsNavGroups = [
     ]
   },
   {
-    label: '工作负载',
+    labelKey: 'nav.workloads',
     icon: 'work',
     items: [
       { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
@@ -258,10 +259,10 @@ function nsStatusColor(status) {
       <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
       <div v-if="currentNs" class="animate-fade-in mb-md">
         <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
-        <div v-for="group in nsNavGroups" :key="group.label" class="mb-xs">
+        <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
           <div class="flex items-center gap-xs px-md pt-sm pb-xs">
             <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
-            <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.label }}</p>
+            <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.labelKey ? $t(group.labelKey) : group.label }}</p>
           </div>
           <a
             v-for="item in group.items"
@@ -283,28 +284,28 @@ function nsStatusColor(status) {
         <button @click="clusterNavOpen = !clusterNavOpen"
           class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
           <span class="material-symbols-outlined text-base transition-transform" :class="(clusterNavOpen || !currentNs) ? 'rotate-90' : ''">chevron_right</span>
-          <p class="text-label-caps">集群管理</p>
+          <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
         </button>
         <div v-show="clusterNavOpen || !currentNs" class="flex flex-col gap-xs">
           <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.label }}</span>
+            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
           <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">集群资源</p>
           <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.label }}</span>
+            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
           <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">审计 / 多集群</p>
           <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.label }}</span>
+            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
         </div>
       </div>
@@ -316,7 +317,7 @@ function nsStatusColor(status) {
           class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-          <span class="text-body-sm">{{ item.label }}</span>
+          <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
         </a>
       </div>
     </nav>
@@ -329,12 +330,17 @@ function nsStatusColor(status) {
         class="w-full py-sm px-md bg-primary text-on-primary rounded-lg font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-sm mb-sm"
       >
         <span class="material-symbols-outlined text-lg">rocket_launch</span>
-        Deploy New App
+        {{ $t('nav.deploy') }}
       </button>
       <a @click="router.push('/settings')" class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container rounded-lg px-md py-sm transition-all duration-200 cursor-pointer">
         <span class="material-symbols-outlined text-lg">tune</span>
-        <span class="text-body-sm">Settings</span>
+        <span class="text-body-sm">{{ $t('nav.settings') }}</span>
       </a>
+      <div class="flex items-center gap-xs px-md py-sm">
+        <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'text-primary font-semibold' : 'text-on-surface-variant'" class="text-xs px-sm py-xs rounded hover:bg-surface-container transition-colors">中文</button>
+        <span class="text-on-surface-variant/30 text-xs">|</span>
+        <button @click="setLocale('en')" :class="i18n.global.locale.value === 'en' ? 'text-primary font-semibold' : 'text-on-surface-variant'" class="text-xs px-sm py-xs rounded hover:bg-surface-container transition-colors">EN</button>
+      </div>
     </div>
   </aside>
   <!-- Click-outside overlay -->
