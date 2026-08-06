@@ -81,17 +81,10 @@ function exportWorkload(row) {
 // 行操作菜单
 function menuItems(row) {
   return [
-<<<<<<< HEAD
-    { label: '查看详情', icon: 'open_in_new', action: () => goDetail(row) },
-    { label: '导出 YAML', icon: 'download', action: () => exportWorkload(row) },
-    { label: '重启', icon: 'refresh', action: async () => { await store.restartWorkload(row.name, route.params.namespace); queryClient.invalidateQueries({ queryKey: workloadsKey }) } },
-    { label: '删除', icon: 'delete', danger: true, action: () => confirmDelete(row) },
-=======
     { label: t('ns.workloads.viewDetail'), icon: 'open_in_new', action: () => goDetail(row) },
     { label: t('ns.workloads.exportYaml'), icon: 'download', action: () => exportWorkload(row) },
     { label: t('ns.workloads.restart'), icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
     { label: t('ns.workloads.delete'), icon: 'delete', danger: true, action: () => confirmDelete(row) },
->>>>>>> feat/i18n-phase2
   ]
 }
 
@@ -121,13 +114,8 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-<<<<<<< HEAD
-        <h2 class="text-headline-md font-bold text-on-surface">Workloads</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsWorkloads.length }} workloads in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: store.nsWorkloads.length, ns: route.params.namespace }) }}</p>
->>>>>>> feat/i18n-phase2
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: nsWorkloads.length, ns: route.params.namespace }) }}</p>
       </div>
       <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
         <span class="material-symbols-outlined">rocket_launch</span> {{ t('ns.workloads.new') }}

@@ -118,11 +118,7 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.pdb.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
-<<<<<<< HEAD
-          {{ nsPDBs.length }} 个 PodDisruptionBudget · 保证自愿驱逐时最小可用副本数
-=======
-          {{ $t('ns.pdb.subtitle', { n: store.nsPDBs.length }) }}
->>>>>>> feat/i18n-phase2
+          {{ $t('ns.pdb.subtitle', { n: nsPDBs.length }) }}
         </p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">

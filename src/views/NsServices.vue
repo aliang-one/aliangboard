@@ -200,13 +200,8 @@ function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-<<<<<<< HEAD
-        <h2 class="text-headline-md font-bold text-on-surface">Services</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.services.title') }}</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.services.subtitle', { count: store.nsServices.length, ns: route.params.namespace }) }}</p>
->>>>>>> feat/i18n-phase2
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.services.subtitle', { count: nsServices.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
         <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" :title="t('ns.services.endpointsTitle')">
@@ -224,13 +219,8 @@ function handleDelete() {
         class="rounded-lg px-sm py-1.5 flex items-center gap-xs text-left border transition-colors"
         :class="typeFilter === 'All' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-lowest hover:border-primary'">
         <span class="material-symbols-outlined text-on-surface-variant text-base">share</span>
-<<<<<<< HEAD
-        <span class="text-xs text-on-surface-variant">Total</span>
-        <span class="text-body-sm font-bold text-on-surface ml-auto">{{ nsServices.length }}</span>
-=======
         <span class="text-xs text-on-surface-variant">{{ t('ns.services.total') }}</span>
-        <span class="text-body-sm font-bold text-on-surface ml-auto">{{ store.nsServices.length }}</span>
->>>>>>> feat/i18n-phase2
+        <span class="text-body-sm font-bold text-on-surface ml-auto">{{ nsServices.length }}</span>
       </button>
       <button v-for="t in typeCards" :key="t.key" @click="toggleType(t.key)"
         class="rounded-lg px-sm py-1.5 flex items-center gap-xs text-left border transition-colors"

@@ -103,11 +103,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <!-- Tabs -->
     <div class="flex items-center gap-xs border-b border-outline-variant mb-md mt-sm">
       <button @click="activeTab = 'pvc'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'pvc' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-<<<<<<< HEAD
-        PVCs ({{ nsPVCs.length }})
-=======
-        {{ t('ns.storage.pvcTab') }} ({{ store.nsPVCs.length }})
->>>>>>> feat/i18n-phase2
+        {{ t('ns.storage.pvcTab') }} ({{ nsPVCs.length }})
         <span v-if="activeTab === 'pvc'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
       <button @click="activeTab = 'storageclass'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'storageclass' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
@@ -120,13 +116,8 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
     <div v-if="activeTab === 'pvc'">
       <div class="flex justify-between items-end mb-md">
         <div>
-<<<<<<< HEAD
-          <h2 class="text-headline-md font-bold text-on-surface">Persistent Volume Claims</h2>
-          <p class="text-body-sm text-on-surface-variant mt-1">{{ nsPVCs.length }} PVCs in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
-=======
           <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.storage.pvcTab') }}</h2>
-          <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.pvcCount', { n: store.nsPVCs.length }) }} <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
->>>>>>> feat/i18n-phase2
+          <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.pvcCount', { n: nsPVCs.length }) }} <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
         </div>
         <button @click="showCreatePVC = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> {{ t('ns.storage.newPVC') }}
