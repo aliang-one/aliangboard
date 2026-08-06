@@ -56,7 +56,14 @@ const WORKLOADS = ['deployments', 'statefulsets', 'daemonsets']
 function slimPod(p) { return { name: p.metadata?.name, phase: p.status?.phase, ready: (p.status?.containerStatuses || []).map(c => ({ name: c.name, ready: c.ready })) } }
 function slimWorkload(d) { return { name: d.metadata?.name, ready: d.status?.readyReplicas || 0, desired: d.spec?.replicas || 0, updated: d.status?.updatedReplicas || 0 } }
 
-export function createApiKeyTools({ db, requestFn }) {
+// pod 文件路径校验:只放行安全字符(防 shell 注入;admin 档虽已可信 exec,仍做纵深防御)
+function safePodPath(p) {
+  if (!p || typeof p !== 'string') throw new Error('路径为空')
+  if (!/^[a-zA-Z0-9._/~: -]+$/.test(p)) throw new Error(`路径含非法字符(仅允许字母数字 . _ / ~ : - 空格): ${p.slice(0, 40)}`)
+  return p
+}
+
+export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
   async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, fn }) {
@@ -152,6 +159,51 @@ export function createApiKeyTools({ db, requestFn }) {
           return { kind, name: a.name, restartedAt }
         } })
     },
+    exec_pod: async (keyRow, cluster, a) => {
+      const command = Array.isArray(a.command) ? a.command.join(' ') : String(a.command || '')
+      return runBoundedTool({ keyRow, cluster, tool: 'exec_pod', namespace: a.namespace, verb: 'exec', resource: `Pod/${a.pod}`, summary: `pod=${a.pod} c=${a.container || ''} cmd=${command.slice(0, 80)}`,
+        fn: async (saCtx) => {
+          if (!execFn) throw new Error('exec_pod 未启用(网关未注入 execFn)')
+          if (!command) throw new Error('exec_pod 缺 command')
+          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', command)
+          return { pod: a.pod, container: a.container || '', exitCode: r.status ?? null, stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192) }
+        } })
+    },
+    browse_files: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'browse_files', namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/files`, summary: `pod=${a.pod} path=${(a.path || '/').slice(0, 80)}`,
+      fn: async (saCtx) => {
+        if (!execFn) throw new Error('browse_files 未启用')
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `ls -la ${safePodPath(a.path || '/')}`)
+        return { pod: a.pod, path: a.path || '/', listing: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
+      } }),
+    read_file: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'read_file', namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/file`, summary: `pod=${a.pod} path=${(a.path || '').slice(0, 80)}`,
+      fn: async (saCtx) => {
+        if (!execFn) throw new Error('read_file 未启用')
+        if (!a.path) throw new Error('read_file 缺 path')
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat ${safePodPath(a.path)}`)
+        return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
+      } }),
+    apply_yaml: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'apply_yaml', namespace: keyRow.boundSA_namespace, verb: 'apply', resource: 'yaml', summary: `apply yaml ${(a.yaml || '').length} chars`,
+      fn: async (saCtx) => {
+        if (!applyYamlFn) throw new Error('apply_yaml 未启用(网关未注入 applyYamlFn)')
+        if (!a.yaml || !a.yaml.trim()) throw new Error('apply_yaml 缺 yaml')
+        return applyYamlFn(saCtx, a.yaml)
+      } }),
+    delete_resource: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'delete_resource', namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
+      fn: async (saCtx) => {
+        if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
+        await requestFn(saCtx, a.path, { method: 'DELETE' })
+        return { deleted: a.path }
+      } }),
+    kubectl_debug: async (keyRow, cluster, a) => runBoundedTool({
+      keyRow, cluster, tool: 'kubectl_debug', namespace: a.namespace, verb: 'patch', resource: `Pod/${a.pod}/ephemeral`, summary: `pod=${a.pod} image=${a.image || 'busybox'}`,
+      fn: async (saCtx) => {
+        if (!ephemeralFn) throw new Error('kubectl_debug 未启用')
+        return ephemeralFn(saCtx, a.namespace, a.pod, { name: a.name || 'debugger', image: a.image || 'busybox:latest', command: a.command, targetContainerName: a.targetContainerName })
+      } }),
   }
 
   // 派发:T12 MCP tools/call → callTool;未知工具 → policy 拒(不暴露 tool 存在与否的细节过度,这里直接报)。
