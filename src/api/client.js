@@ -195,6 +195,9 @@ export const workbenchApi = {
   bootstrapLedger: clusterId => platformRequest('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
   // 项目 agent 聊天(W4b):{ projectId, message?, resume? } → { status:'done'|'pending_approval', content, trace, ... }
   chat: payload => platformRequest('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
+  // 台账蒸馏(D2,自我学习):{ clusterId } → { proposed, current, summary, stats }
+  distill: clusterId => platformRequest('/api/workbench/distill', { method: 'POST', body: JSON.stringify({ clusterId }) }),
+  applyDistill: (clusterId, learnings) => platformRequest('/api/workbench/distill/apply', { method: 'POST', body: JSON.stringify({ clusterId, learnings }) }),
 }
 export const authApi = {
   login: payload => platformRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
