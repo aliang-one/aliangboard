@@ -4,10 +4,12 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
+import { useI18n } from 'vue-i18n'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 const projects = ref([])
 const clusters = ref([])
 const loading = ref(true)
@@ -16,9 +18,9 @@ const form = ref({ name: '', clusterId: '' })
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 const headers = [
-  { key: 'name', label: '项目' },
-  { key: 'cluster', label: '集群' },
-  { key: 'created', label: '创建' },
+  { key: 'name', label: t('workbench.list.tableProject') },
+  { key: 'cluster', label: t('workbench.list.tableCluster') },
+  { key: 'created', label: t('workbench.list.tableCreated') },
   { key: 'actions', label: '', align: 'right' },
 ]
 
@@ -28,7 +30,7 @@ async function load() {
     const [pr, cr] = await Promise.all([workbenchApi.listProjects(), authApi.myClusters()])
     projects.value = pr.projects || []
     clusters.value = Array.isArray(cr) ? cr : (cr.clusters || [])
-  } catch (e) { notify('error', e.message || '加载失败') }
+  } catch (e) { notify('error', e.message || t('workbench.list.loadingFailed')) }
   finally { loading.value = false }
 }
 onMounted(load)
@@ -38,9 +40,9 @@ async function doCreate() {
     const res = await workbenchApi.createProject({ name: form.value.name.trim(), clusterId: form.value.clusterId })
     showCreate.value = false
     form.value = { name: '', clusterId: '' }
-    notify('success', '项目已创建')
+    notify('success', t('workbench.list.projectCreated'))
     router.push({ name: 'WorkbenchProject', params: { id: res.project.id } })
-  } catch (e) { notify('error', e.message || '创建失败') }
+  } catch (e) { notify('error', e.message || t('workbench.list.createFailed')) }
 }
 </script>
 
@@ -49,16 +51,16 @@ async function doCreate() {
     <div class="flex items-center justify-between mb-md">
       <div>
         <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-sm">
-          <span class="material-symbols-outlined">workspaces</span> 工作台
+          <span class="material-symbols-outlined">workspaces</span> {{ t('workbench.list.title') }}
         </h2>
-        <p class="text-body-sm text-on-surface-variant mt-xs">目标驱动的工程 repo:每个项目一个 git 仓库,存 manifests / notes;后续接 AI authoring + 人审 apply(越用越懂集群)。</p>
+        <p class="text-body-sm text-on-surface-variant mt-xs" v-html="t('workbench.list.subtitle')"></p>
       </div>
       <div class="flex items-center gap-sm">
         <button @click="router.push({ name: 'WorkbenchLedger' })" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">
-          <span class="material-symbols-outlined text-sm">menu_book</span> 集群台账
+          <span class="material-symbols-outlined text-sm">menu_book</span> {{ t('workbench.list.clusterLedger') }}
         </button>
         <button @click="showCreate = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
-          <span class="material-symbols-outlined text-sm">add</span> 新建项目
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('workbench.list.newProject') }}
         </button>
       </div>
     </div>
@@ -74,22 +76,22 @@ async function doCreate() {
       </template>
     </DataTable>
 
-    <Modal v-model="showCreate" title="新建项目" width="max-w-md">
+    <Modal v-model="showCreate" :title="t('workbench.list.createModalTitle')" width="max-w-md">
       <div class="flex flex-col gap-md">
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">项目名(目标,如 ci-cd-system)</label>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.list.projectNameLabel') }}</label>
           <input v-model="form.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ci-cd-system" />
         </div>
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">绑定集群</label>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.list.bindClusterLabel') }}</label>
           <select v-model="form.clusterId" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-            <option value="" disabled>选择集群</option>
+            <option value="" disabled>{{ t('workbench.list.selectCluster') }}</option>
             <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }} ({{ c.apiServer }})</option>
           </select>
-          <p v-if="!clusters.length" class="text-body-xs text-status-warning mt-xs">没有可用集群。先在「集群管理」接入,或让管理员分配。</p>
+          <p v-if="!clusters.length" class="text-body-xs text-status-warning mt-xs" v-html="t('workbench.list.noClusterHint')"></p>
         </div>
       </div>
       <template #actions>
-        <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">取消</button>
-        <button @click="doCreate" :disabled="!form.name.trim() || !form.clusterId" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">创建</button>
+        <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('workbench.list.cancel') }}</button>
+        <button @click="doCreate" :disabled="!form.name.trim() || !form.clusterId" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.list.create') }}</button>
       </template>
     </Modal>
   </section>

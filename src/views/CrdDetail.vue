@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { api } from '@/api/client'
 import { dump as yamlDump } from 'js-yaml'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -13,6 +14,7 @@ import { notify } from '@/composables/useToast'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 
 const crd = computed(() => store.getCRDByName(route.params.name))
 
@@ -101,7 +103,7 @@ const instYamlModel = (inst) => instYaml.value[instKey(inst)] ?? store.generateC
 // 保存编辑（通用 server-side apply，适用于任意 CR kind）+ 局部刷新
 async function applyInstYaml(yaml) {
   const r = await store.applyCRYaml(crd.value.name, yaml)
-  notify(r.ok ? 'success' : 'error', r.ok ? `${r.kind}/${r.name} 已更新` : (r.error || '应用失败'))
+  notify(r.ok ? 'success' : 'error', r.ok ? t('admin.crdDetail.updatedSuccess', { kind: r.kind, name: r.name }) : (r.error || t('admin.crdDetail.applyFailed')))
   if (r.ok) {
     // spec 可能被 defaulter/webhook 改动：重新拉取当前展开行的实时 YAML
     const open = [...expandedInst.value]
@@ -124,8 +126,8 @@ async function handleDeleteInst() {
     await store.deleteCRInstance(crd.value, inst)
     const k = instKey(inst); const m = { ...instYaml.value }; delete m[k]; instYaml.value = m
     expandedInst.value = new Set([...expandedInst.value].filter(x => x !== k))
-    notify('success', `${crd.value.kind}/${inst.name} 已删除`)
-  } catch (e) { notify('error', e.message || '删除失败') }
+    notify('success', t('admin.crdDetail.deletedSuccess', { kind: crd.value.kind, name: inst.name }))
+  } catch (e) { notify('error', e.message || t('admin.crdDetail.deleteFailed')) }
   showDeleteInst.value = false; deleteInstTarget.value = null
 }
 
@@ -142,7 +144,7 @@ function openCreateInst() {
 }
 async function handleCreateInst(yaml) {
   const r = await store.applyCRYaml(crd.value.name, yaml)
-  notify(r.ok ? 'success' : 'error', r.ok ? `${r.kind}/${r.name} 已创建` : (r.error || '创建失败'))
+  notify(r.ok ? 'success' : 'error', r.ok ? t('admin.crdDetail.createdSuccess', { kind: r.kind, name: r.name }) : (r.error || t('admin.crdDetail.createFailed')))
   if (r.ok) showCreateInst.value = false
   return r
 }
@@ -178,7 +180,7 @@ async function handleCreateInst(yaml) {
               {{ crd.scope }}
             </span>
             <span class="text-on-surface-variant/40">·</span>
-            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} {{ t('admin.crdDetail.instancesCount', { n: crd.instances?.length || 0 }) }}</span>
           </div>
         </div>
       </div>
@@ -187,7 +189,7 @@ async function handleCreateInst(yaml) {
           @click="router.push('/crds')"
           class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
         >
-          <span class="material-symbols-outlined text-sm">arrow_back</span> 返回列表
+          <span class="material-symbols-outlined text-sm">arrow_back</span> {{ t('admin.crdDetail.backToList') }}
         </button>
       </div>
     </div>
@@ -209,7 +211,7 @@ async function handleCreateInst(yaml) {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">info</span>
-            <span class="text-body-sm font-semibold">概览</span>
+            <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.overview') }}</span>
           </div>
           <div class="p-md grid grid-cols-2 gap-sm">
             <div class="p-sm rounded-lg bg-surface-container-low">
@@ -249,22 +251,22 @@ async function handleCreateInst(yaml) {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">description</span>
-            <span class="text-body-sm font-semibold">描述</span>
+            <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.description') }}</span>
           </div>
           <div class="p-md">
             <p class="text-body-sm text-on-surface-variant leading-relaxed">
-              {{ crd.description || '暂无描述信息。' }}
+              {{ crd.description || t('admin.crdDetail.noDescription') }}
             </p>
           </div>
         </div>
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">analytics</span>
-            <span class="text-body-sm font-semibold">实例统计</span>
+            <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.instanceStats') }}</span>
           </div>
           <div class="p-md space-y-sm">
             <div class="flex justify-between items-center py-xs border-b border-outline-variant/30">
-              <span class="text-xs text-on-surface-variant">实例总数</span>
+              <span class="text-xs text-on-surface-variant">{{ t('admin.crdDetail.totalInstances') }}</span>
               <span class="font-mono text-code-sm text-primary font-semibold">{{ crd.instances?.length || 0 }}</span>
             </div>
             <div class="flex justify-between items-center py-xs">
@@ -282,26 +284,26 @@ async function handleCreateInst(yaml) {
         <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/50">
           <div class="flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">list_alt</span>
-            <span class="text-body-sm font-semibold">{{ crd.kind }} 实例</span>
+            <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.instancesTitle', { kind: crd.kind }) }}</span>
           </div>
           <div class="flex items-center gap-sm">
-            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} {{ t('admin.crdDetail.instancesCount', { n: crd.instances?.length || 0 }) }}</span>
             <button
               @click="openCreateInst"
               class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
             >
-              <span class="material-symbols-outlined text-sm">add</span> 创建实例
+              <span class="material-symbols-outlined text-sm">add</span> {{ t('admin.crdDetail.createInstance') }}
             </button>
           </div>
         </div>
         <table v-if="crd.instances && crd.instances.length" class="w-full">
           <thead>
             <tr class="border-b border-outline-variant bg-surface-container-low/50">
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAMESPACE</th>
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">STATUS</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.name') }}</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.namespace') }}</th>
+              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.status') }}</th>
               <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">AGE</th>
-              <th class="text-right px-md py-2 text-xs font-medium text-on-surface-variant w-24">ACTIONS</th>
+              <th class="text-right px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('admin.crdDetail.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -325,10 +327,10 @@ async function handleCreateInst(yaml) {
                 </td>
                 <td class="px-md py-2 text-right">
                   <div class="flex gap-1 justify-end">
-                    <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? '收起' : '查看 / 编辑 YAML'">
+                    <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? t('admin.crdDetail.collapse') : t('admin.crdDetail.viewEditYaml')">
                       <span class="material-symbols-outlined text-base transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
                     </button>
-                    <button @click="confirmDeleteInst(inst)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除实例">
+                    <button @click="confirmDeleteInst(inst)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.crdDetail.deleteInstance')">
                       <span class="material-symbols-outlined text-base">delete</span>
                     </button>
                   </div>
@@ -344,7 +346,7 @@ async function handleCreateInst(yaml) {
         </table>
         <div v-else class="px-md py-md text-center">
           <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-          <p class="text-body-sm text-on-surface-variant mt-xs">该 CRD 暂无实例</p>
+          <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.crdDetail.noInstances') }}</p>
         </div>
       </div>
     </div>
@@ -355,28 +357,22 @@ async function handleCreateInst(yaml) {
     </div>
 
     <!-- 创建实例 Modal（通用 YAML apply） -->
-    <Modal v-model="showCreateInst" :title="`创建 ${crd.kind} 实例`" width="max-w-2xl">
-      <p class="text-body-sm text-on-surface-variant mb-sm">
-        编辑 YAML 后应用（server-side apply）。骨架按
-        <span class="font-mono">{{ crd.group }}/{{ crd.version }} · {{ crd.kind }}</span> 生成。
-      </p>
+    <Modal v-model="showCreateInst" :title="t('admin.crdDetail.createModalTitle', { kind: crd.kind })" width="max-w-2xl">
+      <p class="text-body-sm text-on-surface-variant mb-sm" v-html="t('admin.crdDetail.createModalDesc', { group: crd.group, version: crd.version, kind: crd.kind })"></p>
       <YamlEditor v-model="createYaml" :readonly="false" height="320px" @save="handleCreateInst" />
       <template #actions>
-        <button @click="showCreateInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-        <button @click="handleCreateInst(createYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">应用创建</button>
+        <button @click="showCreateInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('admin.crdDetail.cancel') }}</button>
+        <button @click="handleCreateInst(createYaml)" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('admin.crdDetail.applyCreate') }}</button>
       </template>
     </Modal>
 
     <!-- 删除实例 Modal -->
-    <Modal v-model="showDeleteInst" :title="`删除 ${crd.kind} 实例`" width="max-w-md">
-      <p class="text-body-md text-on-surface-variant">
-        确认删除 <span class="font-mono text-on-surface font-semibold">{{ crd.kind }}/{{ deleteInstTarget?.name }}</span>
-        <span v-if="deleteInstTarget?.namespace">（namespace <span class="font-mono">{{ deleteInstTarget.namespace }}</span>）</span>？
-      </p>
-      <p class="text-body-sm text-error mt-sm">此操作不可撤销。</p>
+    <Modal v-model="showDeleteInst" :title="t('admin.crdDetail.deleteModalTitle', { kind: crd.kind })" width="max-w-md">
+      <p class="text-body-md text-on-surface-variant" v-html="t('admin.crdDetail.deleteConfirm', { kind: crd.kind, name: deleteInstTarget?.name, namespace: deleteInstTarget?.namespace })"></p>
+      <p class="text-body-sm text-error mt-sm" v-html="t('admin.crdDetail.deleteWarning')"></p>
       <template #actions>
-        <button @click="showDeleteInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">取消</button>
-        <button @click="handleDeleteInst" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">删除</button>
+        <button @click="showDeleteInst = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('admin.crdDetail.cancel') }}</button>
+        <button @click="handleDeleteInst" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('admin.crdDetail.deleteButton') }}</button>
       </template>
     </Modal>
   </div>
@@ -384,11 +380,11 @@ async function handleCreateInst(yaml) {
   <!-- Not Found 兜底 -->
   <div v-else class="animate-fade-in text-center py-md">
     <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-xs">CRD 未找到</h2>
-    <p class="text-body-sm text-on-surface-variant mt-xs">找不到名为 <span class="font-mono text-on-surface font-semibold">{{ route.params.name }}</span> 的自定义资源定义。</p>
+    <h2 class="text-headline-md text-on-surface mt-xs">{{ t('admin.crdDetail.notFound') }}</h2>
+    <p class="text-body-sm text-on-surface-variant mt-xs" v-html="t('admin.crdDetail.notFoundDesc', { name: route.params.name })"></p>
     <button
       @click="router.push('/crds')"
       class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold hover:opacity-90 transition-opacity"
-    >返回 CRD 列表</button>
+    >{{ t('admin.crdDetail.backToCrdList') }}</button>
   </div>
 </template>
