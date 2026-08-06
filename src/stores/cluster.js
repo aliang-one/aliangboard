@@ -1185,6 +1185,7 @@ export const useClusterStore = defineStore('cluster', () => {
       ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
     ]
   }
+  async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -3475,7 +3476,7 @@ status:
     refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
-    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads,
+    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
