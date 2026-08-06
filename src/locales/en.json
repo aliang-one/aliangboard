@@ -161,8 +161,10 @@
       "imagePullDetail": "Authenticates image pulls",
       "distTitle": "Reference type distribution",
       "impactTitle": "Modification impact",
-      "impactDesc": "This {kind} is referenced by {count} Workload(s). After modification, pods referencing it need a restart to take effect (envFrom/env) or will automatically reflect changes (volume-mounted config files, depending on whether the app hot-reloads).",
-      "restart": "restart",
+      "impactDescPrefix": "This {kind} is referenced by",
+      "impactDescCountUnit": "Workload(s). After modification, pods referencing it need a",
+      "impactDescSuffix": "to take effect (envFrom/env) or will automatically reflect changes (volume-mounted config files, depending on whether the app hot-reloads).",
+      "impactRestart": "restart",
       "noRefsTitle": "No references",
       "noRefsHint": "No Workload in this namespace references this {kind}",
       "noRefsHint2": "This may mean the resource is orphaned, or only referenced directly by external tools/pods"

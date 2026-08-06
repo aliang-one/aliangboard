@@ -161,8 +161,10 @@
       "imagePullDetail": "拉取镜像时认证",
       "distTitle": "引用方式分布",
       "impactTitle": "修改影响提示",
-      "impactDesc": "此 {kind} 被 {count} 个 Workload 引用。修改内容后，引用它的 Pod 需要 重启 才能生效（envFrom/env）或会自动反映（volume 挂载的配置文件，取决于应用是否热加载）。",
-      "restart": "重启",
+      "impactDescPrefix": "此 {kind} 被",
+      "impactDescCountUnit": "个 Workload 引用。修改内容后，引用它的 Pod 需要",
+      "impactDescSuffix": "才能生效（envFrom/env）或会自动反映（volume 挂载的配置文件，取决于应用是否热加载）。",
+      "impactRestart": "重启",
       "noRefsTitle": "暂无引用",
       "noRefsHint": "当前命名空间内没有 Workload 引用此 {kind}",
       "noRefsHint2": "这意味着此资源可能是孤立的，或仅被外部工具/Pod 直接引用"
