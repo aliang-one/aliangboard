@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -9,7 +10,8 @@ import Modal from '@/components/common/Modal.vue'
 import ResourceReferences from '@/components/common/ResourceReferences.vue'
 import CodeViewer from '@/components/common/CodeViewer.vue'
 
-const route = useRoute()
+const { t } = useI18n()
+	const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()

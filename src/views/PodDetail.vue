@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { dump as yamlDump } from 'js-yaml'
 import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -14,7 +15,8 @@ import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 
-const route = useRoute()
+const { t } = useI18n()
+	const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
@@ -194,8 +196,8 @@ async function exportPod() {
   if (!pod.value) return
   try {
     await exportYaml(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}`, `${pod.value.name}.yaml`)
-    notify('success', '已导出 YAML')
-  } catch (e) { notify('error', e.message || '导出失败') }
+    notify('success', t('podDetail.exportSuccess'))
+  } catch (e) { notify('error', e.message || t('podDetail.exportFailed')) }
 }
 async function doConfirmed() {
   const mode = confirmAction.value?.mode
@@ -204,10 +206,10 @@ async function doConfirmed() {
   try {
     await store.deletePod(pod.value.name, pod.value.namespace)
     // 重启语义：删除该 Pod，由所属控制器重新拉起（独立 Pod 不会重建）
-    notify('success', mode === 'restart' ? '已删除该 Pod，由控制器重新拉起（独立 Pod 不会重建）' : 'Pod 已删除')
+    notify('success', mode === 'restart' ? t('podDetail.restartSuccess') : t('podDetail.deleteSuccess'))
     router.push(`/ns/${route.params.namespace}/pods`)
   } catch (e) {
-    notify('error', e.message || '操作失败')
+    notify('error', e.message || t('podDetail.deleteFailed'))
   }
 }
 

@@ -5,6 +5,7 @@
 // - Port Forward / Export YAML / 查看 YAML / Delete 收进头部 ⋮ 菜单；YAML 用独立弹窗。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { dump as yamlDump } from 'js-yaml'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -19,7 +20,8 @@ import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 
-const route = useRoute()
+const { t } = useI18n()
+	const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
