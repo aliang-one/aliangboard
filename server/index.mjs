@@ -441,6 +441,27 @@ async function applyYamlPartial(session, yaml) {
   return { applied, failed, total: objects.length }
 }
 
+// 工作台:台账 bootstrap(survey 集群 → 事实型 INDEX.md)。/ledger/bootstrap 端点 + agent bootstrap_ledger 工具共用。
+async function bootstrapLedgerForCluster(cluster) {
+  const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+  const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
+  const [namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses] = await Promise.all([
+    safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
+    safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
+    safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
+  ])
+  const vat = verifiedAt()
+  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses })
+  const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+  if (!(await hasRepo(repo))) await initRepo(repo)
+  await wbWriteFile(repo, 'INDEX.md', index)
+  await wbCommit(repo, `台账 bootstrap · ${vat}`)
+  const list = (items) => (items || []).map(i => i.metadata?.name).filter(Boolean)
+  const depNs = new Set((deployments || []).map(d => d.metadata?.namespace).filter(Boolean))
+  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} namespaces${nodes ? `, ${nodes.length} 节点` : ''};IngressClasses=[${list(ingressClasses).join(',') || '无'}];StorageClasses=[${list(storageClasses).join(',') || '无'}];有 Deployment 的 namespace ${depNs.size} 个。INDEX.md 已写入,read_ledger 可看详情。`
+  return { index, files: await wbListFiles(repo), summary, verifiedAt: vat }
+}
+
 // === 实时交互通道：Pod exec 终端 / 端口转发 ===
 // exec 与 port-forward 走 SPDY/WebSocket 多路复用，原生 fetch 透传无法承载，
 // 故仅这两类操作引入 @kubernetes/client-node（CRUD 仍走原生 fetch 透传，保持轻量）。
@@ -783,6 +804,7 @@ async function handle(req, res) {
           applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
           writeLedger: (p, c) => wbWriteFile(ledgerRepo, p, c),
           appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
+          bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
         }
         const { run } = createAgentRunner({ llmClient, workbench })
         const trace = []
@@ -792,7 +814,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(复用已知能力)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。写文件、apply、台账更新都需用户审批,被拒会告知你。'
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(复用已知能力)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
           out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
           if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }
@@ -960,23 +982,10 @@ async function handle(req, res) {
     const ps = requireAdmin(req, res); if (!ps) return
     try {
       const input = await readBody(req)
-      const clusterId = input.clusterId
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
       if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      // 平台直连集群凭据 survey(只读 list);每项 try/catch,不可用返 null
-      const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-      const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
-      const [namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses] = await Promise.all([
-        safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
-        safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
-        safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
-      ])
-      const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: verifiedAt(), namespaces, nodes, ingressClasses, storageClasses, deployments, services, ingresses })
-      const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
-      if (!(await hasRepo(repo))) await initRepo(repo)
-      await wbWriteFile(repo, 'INDEX.md', index)
-      await wbCommit(repo, `台账 bootstrap · ${verifiedAt()}`)
-      return sendJson(res, 200, { index, files: await wbListFiles(repo) })
+      const r = await bootstrapLedgerForCluster(cluster)
+      return sendJson(res, 200, { index: r.index, files: r.files })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
   }
 

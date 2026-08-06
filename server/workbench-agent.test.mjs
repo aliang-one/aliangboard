@@ -56,11 +56,24 @@ test('工作台 write_project_file resume 拒绝 → 不写,记 denied', async (
   assert.equal(out.denied.length, 1)
 })
 
-test('registry:W5 工具(apply/propose_ledger/propose_learning)在 workbenchToolDefs 且需人审', () => {
+test('registry:W5 工具(apply/propose_ledger/propose_learning/bootstrap_ledger)在 workbenchToolDefs 且需人审', () => {
   const wb = registry.workbenchToolDefs().map(t => t.function.name)
-  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_ledger_update') && wb.includes('propose_learning'))
+  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_ledger_update') && wb.includes('propose_learning') && wb.includes('bootstrap_ledger'))
   const req = registry.requiringApproval()
-  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_ledger_update') && req.includes('propose_learning'))
+  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_ledger_update') && req.includes('propose_learning') && req.includes('bootstrap_ledger'))
+})
+
+test('bootstrap_ledger → checkpoint;resume 批准 → ctx.wb.bootstrapLedger 被调,摘要喂回', async () => {
+  const calls = []
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), writeLedger: async () => {}, appendLearning: async () => {}, bootstrapLedger: async () => { calls.push('boot'); return { summary: '3 namespaces, IngressClasses=[nginx]', verifiedAt: '2026-08-06' } } }
+  const llmClient = { chat: seqChat([tc('1', 'bootstrap_ledger', {}), fin('集群有 nginx 入口,3 个 namespace')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.deepEqual(calls, [], 'checkpoint 时未 survey')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '集群有 nginx 入口,3 个 namespace')
+  assert.deepEqual(calls, ['boot'], 'resume 批准后 survey')
 })
 
 test('apply_project_manifests → checkpoint;resume 批准 → readManifests+applyManifests 被调', async () => {

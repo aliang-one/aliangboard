@@ -56,6 +56,10 @@ const WB = [
     description: '记一条团队习惯/踩坑/决策到台账 learnings.md(如"Go 服务走 goproxy.internal")。需人审,原样批准(追加)。',
     inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'] },
     exec: async (ctx, args) => { await ctx.wb.appendLearning(args.content); return { ok: true } } },
+  { name: 'bootstrap_ledger', requiresApproval: true,
+    description: '重新 survey 绑定集群(namespaces/节点/IngressClass/StorageClass/工作负载)→ 重写台账 INDEX.md(verified_at 刷新),回摘要。用于:台账为空/过时、用户问"集群有什么能力/资源"或"更新台账"时先调它,再 read_ledger 看详情。',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    exec: async (ctx) => ctx.wb.bootstrapLedger() },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]
