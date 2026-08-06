@@ -170,6 +170,7 @@ onMounted(async () => {
             <span class="font-mono font-semibold">{{ pendingApproval.name }}</span>
           </div>
           <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm">把项目 <span class="font-mono">manifests/</span> 下所有 yaml server-side apply 到绑定集群(逐资源,部分失败会上报)。apply 走平台 apply 路径(审计),不走 API key。</p>
+          <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm">平台直连凭据 survey 集群(namespaces/节点/IngressClass/StorageClass/工作负载)→ 重写台账 <span class="font-mono">INDEX.md</span>(verified_at 刷新)。只读 survey,不改集群资源。</p>
           <template v-else-if="pendingApproval.args.path">
             <p class="text-body-sm">路径:<span class="font-mono">{{ pendingApproval.args.path }}</span></p>
             <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
