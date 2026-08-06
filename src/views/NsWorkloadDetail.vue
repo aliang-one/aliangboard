@@ -284,15 +284,19 @@ function refreshSoon() { setTimeout(() => { store.hydrateCoreResources({ silent:
 
 // 部署中自动刷新：rollout 非健康时每 5s 静默轻量刷新（不闪加载条），恢复健康后停止
 let autoTimer = null
-function stopAutoRefresh() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null } }
+function stopAutoRefresh() { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null } }
 function startAutoRefresh() {
   if (autoTimer || !store.remoteMode) return
-  autoTimer = setInterval(async () => {
-    if (!rollout.value || rollout.value.level === 'healthy') { stopAutoRefresh(); return }
+  const tick = async () => {
     try { await store.hydrateCoreResources({ silent: true, lite: true }) } catch { /* 忽略 */ }
-  }, 5000)
+  }
+  // 自重排 setTimeout：部署中 5s 看进度；稳定后 10s 保新鲜（消除「健康即变旧」的迟钝感）。离开页面停止。
+  const schedule = () => {
+    const deploying = rollout.value?.level && rollout.value.level !== 'healthy'
+    autoTimer = setTimeout(async () => { await tick(); schedule() }, deploying ? 5000 : 10000)
+  }
+  schedule()
 }
-watch(() => rollout.value?.level, lvl => { if (lvl && lvl !== 'healthy') startAutoRefresh(); else stopAutoRefresh() }, { immediate: true })
 onUnmounted(stopAutoRefresh)
 
 // 删除 Pod（Deployment 控制器会立即重建 → 触发重新拉镜像；用于镜像补传后卡在 PullImage 的 Pod）
@@ -549,7 +553,7 @@ async function ensureWorkload() {
   catch { /* 找不到则静默，页面 v-if=workload 自然显示空 */ }
 }
 watch(() => [route.params.type, route.params.name, route.params.namespace], () => ensureWorkload())
-onMounted(() => { if (store.remoteMode) { startMetrics(); startPodMetrics(); ensureWorkload() } })
+onMounted(() => { if (store.remoteMode) { startMetrics(); startPodMetrics(); ensureWorkload(); startAutoRefresh() } })
 // 注意：模板会把 ref 自动解包成数组再传入，所以参数是数组本身（不是 ref）
 function windowed(series) {
   const w = METRIC_WINDOWS.find(x => x.key === metricsWindow.value) || METRIC_WINDOWS[1]
