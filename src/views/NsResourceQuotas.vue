@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -12,8 +14,20 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.nsResourceQuotas))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const resourcequotasKey = ['cluster', cid.value, 'resourcequotas']
+const resourcequotasQuery = useResourceList({
+  key: resourcequotasKey,
+  fetcher: () => store.fetchResourceQuotas(),
+  mock: store.resourceQuotaList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsResourceQuotas = computed(() => (resourcequotasQuery.data.value || []).filter(r => r.namespace === route.params.namespace))
+
+const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsResourceQuotas))
 
 // Create ResourceQuota
 const showCreateModal = ref(false)
@@ -47,6 +61,7 @@ function handleCreate() {
       services: '0',
     },
   })
+  queryClient.invalidateQueries({ queryKey: resourcequotasKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -61,6 +76,7 @@ function confirmDelete(rq) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteResourceQuota(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: resourcequotasKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -101,14 +117,14 @@ function getPercent(used, hard) {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">ResourceQuotas</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsResourceQuotas.length }} ResourceQuotas in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsResourceQuotas.length }} ResourceQuotas in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> New ResourceQuota
       </button>
     </div>
 
-    <div v-if="store.nsResourceQuotas.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+    <div v-if="nsResourceQuotas.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -169,7 +185,7 @@ function getPercent(used, hard) {
               </div>
             </td>
           </tr>
-          <tr v-if="!store.nsResourceQuotas.length">
+          <tr v-if="!nsResourceQuotas.length">
             <td :colspan="6" class="px-md py-md text-center">
               <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
               <p class="text-on-surface-variant text-body-sm">暂无数据</p>

@@ -1167,6 +1167,9 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
+  async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
+  async function fetchLimitRanges() { const d = await api.k8s('/api/v1/limitranges?limit=5000'); return (d?.items || []).map(mapLimitRange) }
+  async function fetchResourceQuotas() { const d = await api.k8s('/api/v1/resourcequotas?limit=5000'); return (d?.items || []).map(mapResourceQuota) }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -3457,6 +3460,7 @@ status:
     refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
+    fetchPDBs, fetchLimitRanges, fetchResourceQuotas,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
