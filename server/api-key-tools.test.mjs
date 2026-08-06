@@ -23,6 +23,7 @@ function mockRequestFn({ logBody = 'line1\nline2\nline3' } = {}) {
   return async (ctx, path, init = {}) => {
     if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
     if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
+    if (init.method === 'DELETE') return { body: { kind: 'Status', status: 'Success' } }
     if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
     if (path.endsWith('/token')) return { body: { status: { token: 'SA-TOKEN', expirationTimestamp: new Date(Date.now() + 600000).toISOString() } } }
     if (path.includes('/log')) return { body: logBody }
@@ -219,4 +220,14 @@ test('apply_yaml(admin happy): 走全链 → applyYamlFn(saCtx, yaml) 被调,返
   assert.ok(called.authHeader?.startsWith('Bearer '), 'SA-token ctx')
   assert.equal(out.applied.length, 1)
   assert.equal(out.total, 1)
+})
+
+test('delete_resource(admin happy): DELETE path → requestFn called, 返 {deleted} + 审计 ok', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/namespaces/ns/pods/p1' })
+  assert.equal(out.deleted, '/api/v1/namespaces/ns/pods/p1')
+  const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[rows.length - 1].result, 'ok')
 })
