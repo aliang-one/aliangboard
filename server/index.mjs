@@ -15,6 +15,8 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject } from './workbench-projects.mjs'
+import { ensureGitAvailable, initRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits } from './workbench-repos.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -31,6 +33,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.ALIANG_DB || join(__dirname, '..', 'data', 'aliangboard.db')
 mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
 const db = new DatabaseSync(dbPath)
+// 工作台 repo 根目录(per-project repo + cluster ledger 的 git repo 落在这下面)
+const WORKBENCH_DIR = process.env.ALIANG_WORKBENCH_DIR || join(__dirname, '..', 'data', 'workbench')
+mkdirSync(WORKBENCH_DIR, { recursive: true })
+ensureGitAvailable().then(() => {}, e => console.error('[workbench] git 二进制不可用,工作台端点将失败:', e.message))
 try { chmodSync(dbPath, 0o600) } catch { /* 部分文件系统不支持，忽略 */ } // 含 K8s 凭据，收紧为仅属主可读写
 db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -104,6 +110,7 @@ createApiKeysSchema(db)
 // result=denied + reason 也写(含拒绝)。requestSummary 是截断摘要——codex #12:不放原始日志/输出(防注入+泄露)。
 // prevHash/hash:链式哈希;node:sqlite DatabaseSync 单进程同步 → 插入天然串行,prevHash 不会读到并发分叉(MVP 单进程)。
 createAuditSchema(db)
+createWorkbenchSchema(db)
 // === 平台设置(LLM 配置等,key/value 通用)===
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
@@ -804,6 +811,76 @@ async function handle(req, res) {
       const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
       return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
     } catch (e) { return sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }) }
+  }
+
+  // ====== 工作台:项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
+  if (url.pathname.startsWith('/api/workbench/projects')) {
+    const ps = requirePlatform(req, res); if (!ps) return
+    const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
+    // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
+    const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
+    const id = seg[0]
+
+    if (!id) {
+      // 列表 / 创建
+      if (req.method === 'GET') {
+        const projects = listProjects(db, { userId: ps.userId, role: ps.role }).map(p => ({ ...p, clusterName: clusterNameOf(p.clusterId) }))
+        return sendJson(res, 200, { projects })
+      }
+      if (req.method === 'POST') {
+        try {
+          const input = await readBody(req)
+          if (!input.name || !input.clusterId) return sendJson(res, 400, { message: '缺 name / clusterId' })
+          if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) return sendJson(res, 404, { message: '集群不存在' })
+          const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
+          const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+          await initRepo(repo)
+          await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
+          await wbCommit(repo, `初始化项目 ${p.name}`)
+          return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) } })
+        } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建失败' }) }
+      }
+      return sendJson(res, 405, { message: 'method not allowed' })
+    }
+
+    // 以下均需项目 + ownership
+    const p = getProject(db, id)
+    if (!p) return sendJson(res, 404, { message: '项目不存在' })
+    if (p.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
+    const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+
+    // 详情:文件树 + 最近提交
+    if (req.method === 'GET' && seg.length === 1) {
+      let files = [], commits = []
+      try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits })
+    }
+
+    // 文件读写 :id/files/<path>
+    if (seg[1] === 'files') {
+      const relPath = decodeURIComponent(seg.slice(2).join('/'))
+      if (!relPath) return sendJson(res, 400, { message: '缺文件路径' })
+      try {
+        if (req.method === 'GET') return sendJson(res, 200, { path: relPath, content: await wbReadFile(repo, relPath) })
+        if (req.method === 'PUT') {
+          const input = await readBody(req)
+          await wbWriteFile(repo, relPath, input.content ?? '') // wbWriteFile 内置路径禁闭
+          return sendJson(res, 200, { ok: true })
+        }
+      } catch (e) { return sendJson(res, 400, { message: e?.message || '文件操作失败' }) }
+      return sendJson(res, 405, { message: 'method not allowed' })
+    }
+
+    // 提交 :id/commit
+    if (seg[1] === 'commit' && req.method === 'POST') {
+      try {
+        const input = await readBody(req)
+        const r = await wbCommit(repo, input.message || 'update')
+        return sendJson(res, 200, r)
+      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '提交失败' }) }
+    }
+
+    return sendJson(res, 404, { message: '未知的工作台路由' })
   }
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===

@@ -428,6 +428,18 @@ const routes = [
         component: () => import('@/views/NsEvents.vue'),
         meta: { title: 'Events', icon: 'notifications_active', scope: 'namespace' }
       },
+      {
+        path: 'workbench',
+        name: 'Workbench',
+        component: () => import('@/views/WorkbenchList.vue'),
+        meta: { title: '工作台', icon: 'workspaces', scope: 'global' }
+      },
+      {
+        path: 'workbench/:id',
+        name: 'WorkbenchProject',
+        component: () => import('@/views/WorkbenchDetail.vue'),
+        meta: { title: '项目', scope: 'global' }
+      },
       // === 平台管理（admin only）===
       {
         path: 'admin/users',
