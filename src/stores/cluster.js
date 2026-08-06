@@ -10,6 +10,7 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { queryClient } from '@/queryClient'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
   services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
@@ -52,6 +53,14 @@ export const formatMem = ki => {
   if (ki >= 1024 ** 2) return (ki / 1024 ** 2).toFixed(ki % 1024 ** 2 ? 1 : 0) + 'Gi'
   if (ki >= 1024) return Math.round(ki / 1024) + 'Mi'
   return Math.round(ki) + 'Ki'
+}
+
+// 失效某资源的所有 cluster query（跨 cid，匹配 key[2]），让读 query 的列表/详情页在 CRUD 后自动刷新。
+// key[2] = 资源名（如 'configmaps'）；详情页 key ['cluster',cid,'configmaps',name] 也被匹配。
+function invalidateResource(resource) {
+  queryClient.invalidateQueries({
+    predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === resource,
+  })
 }
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -553,11 +562,15 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: Services ===
   async function addService(svc) {
-    if (remoteMode.value) return remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
-    serviceList.value.push({ ...svc, age: 'Just now' })
-    // Update namespace service count
-    const ns = namespaceList.value.find(n => n.name === svc.namespace)
-    if (ns) ns.services++
+    if (remoteMode.value) {
+      await remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
+    } else {
+      serviceList.value.push({ ...svc, age: 'Just now' })
+      // Update namespace service count
+      const ns = namespaceList.value.find(n => n.name === svc.namespace)
+      if (ns) ns.services++
+    }
+    invalidateResource('services')
   }
 
   async function updateService(name, ns, updates) {
@@ -566,23 +579,26 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(serviceList.value[idx]))
     serviceList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('service', serviceList.value[idx]), 'Service', () => { serviceList.value[idx] = before })
+    invalidateResource('services')
   }
 
   async function deleteService(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`, serviceList, s => s.name === name && s.namespace === ns)
-      return
+    } else {
+      const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
+      if (idx !== -1) serviceList.value.splice(idx, 1)
+      const nsObj = namespaceList.value.find(n => n.name === ns)
+      if (nsObj) nsObj.services = Math.max(0, nsObj.services - 1)
     }
-    const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx !== -1) serviceList.value.splice(idx, 1)
-    const nsObj = namespaceList.value.find(n => n.name === ns)
-    if (nsObj) nsObj.services = Math.max(0, nsObj.services - 1)
+    invalidateResource('services')
   }
 
   // === CRUD: Ingress ===
   async function addIngress(ing) {
-    if (remoteMode.value) return remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
-    ingressList.value.push({ ...ing, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
+    else ingressList.value.push({ ...ing, age: 'Just now' })
+    invalidateResource('ingresses')
   }
 
   async function updateIngress(name, ns, updates) {
@@ -591,6 +607,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(ingressList.value[idx]))
     ingressList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('ingress', ingressList.value[idx]), 'Ingress', () => { ingressList.value[idx] = before })
+    invalidateResource('ingresses')
   }
 
   // 结构化编辑 Ingress 路由规则：入参 flatRules + defaultBackend，
@@ -613,16 +630,18 @@ export const useClusterStore = defineStore('cluster', () => {
   async function deleteIngress(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, ingressList, i => i.name === name && i.namespace === ns)
-      return
+    } else {
+      const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
+      if (idx !== -1) ingressList.value.splice(idx, 1)
     }
-    const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
-    if (idx !== -1) ingressList.value.splice(idx, 1)
+    invalidateResource('ingresses')
   }
 
   // === CRUD: ConfigMaps ===
   async function addConfigMap(cm) {
-    if (remoteMode.value) return remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
-    configMapList.value.push({ ...cm, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
+    else configMapList.value.push({ ...cm, age: 'Just now' })
+    invalidateResource('configmaps')
   }
 
   async function updateConfigMap(name, ns, updates) {
@@ -631,24 +650,28 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(configMapList.value[idx]))
     configMapList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('configmap', configMapList.value[idx]), 'ConfigMap', () => { configMapList.value[idx] = before })
+    invalidateResource('configmaps')
   }
 
   async function deleteConfigMap(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`, configMapList, c => c.name === name && c.namespace === ns)
-      return
+    } else {
+      const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
+      if (idx !== -1) configMapList.value.splice(idx, 1)
     }
-    const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
-    if (idx !== -1) configMapList.value.splice(idx, 1)
+    invalidateResource('configmaps')
   }
 
   // === CRUD: Secrets ===
   async function addSecret(sec) {
     if (remoteMode.value) {
       // 表单 data 为明文；先 base64 编码再交给 generateYAML，其内部 decodeBase64 会还原为 stringData 明文
-      return remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
+      await remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
+    } else {
+      secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
     }
-    secretList.value.push({ ...sec, data: encodeSecretData(sec.data), age: 'Just now' })
+    invalidateResource('secrets')
   }
 
   async function updateSecret(name, ns, updates) {
@@ -660,21 +683,24 @@ export const useClusterStore = defineStore('cluster', () => {
     if (next.data) next.data = encodeSecretData(next.data)
     secretList.value[idx] = { ...before, ...next }
     if (remoteMode.value) await remoteUpdate(generateYAML('secret', secretList.value[idx]), 'Secret', () => { secretList.value[idx] = before })
+    invalidateResource('secrets')
   }
 
   async function deleteSecret(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`, secretList, s => s.name === name && s.namespace === ns)
-      return
+    } else {
+      const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
+      if (idx !== -1) secretList.value.splice(idx, 1)
     }
-    const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx !== -1) secretList.value.splice(idx, 1)
+    invalidateResource('secrets')
   }
 
   // === CRUD: PVCs ===
   async function addPVC(pvc) {
-    if (remoteMode.value) return remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
-    pvcList.value.push({ ...pvc, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
+    else pvcList.value.push({ ...pvc, age: 'Just now' })
+    invalidateResource('pvcs')
   }
 
   async function updatePVC(name, ns, updates) {
@@ -683,15 +709,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(pvcList.value[idx]))
     pvcList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('pvc', pvcList.value[idx]), 'PVC', () => { pvcList.value[idx] = before })
+    invalidateResource('pvcs')
   }
 
   async function deletePVC(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`, pvcList, p => p.name === name && p.namespace === ns)
-      return
+    } else {
+      const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
+      if (idx !== -1) pvcList.value.splice(idx, 1)
     }
-    const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx !== -1) pvcList.value.splice(idx, 1)
+    invalidateResource('pvcs')
   }
 
   // === CRUD: PersistentVolumes（集群级）===
@@ -1163,10 +1191,15 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
   async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
+  async function fetchService(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`); return d ? mapService(d) : null }
   async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
+  async function fetchConfigMap(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`); return d ? mapConfigMap(d) : null }
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
+  async function fetchSecret(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`); return d ? mapSecret(d) : null }
   async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
+  async function fetchIngress(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`); return d ? mapIngress(d) : null }
   async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
+  async function fetchNetworkPolicy(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`); return d ? mapNetworkPolicy(d) : null }
   async function fetchPDBs() { const d = await api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'); return (d?.items || []).map(mapPDB) }
   async function fetchLimitRanges() { const d = await api.k8s('/api/v1/limitranges?limit=5000'); return (d?.items || []).map(mapLimitRange) }
   async function fetchResourceQuotas() { const d = await api.k8s('/api/v1/resourcequotas?limit=5000'); return (d?.items || []).map(mapResourceQuota) }
@@ -1186,6 +1219,7 @@ export const useClusterStore = defineStore('cluster', () => {
     ]
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
+  async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -1226,8 +1260,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: NetworkPolicies ===
   async function addNetworkPolicy(np) {
-    if (remoteMode.value) return remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
-    networkPolicyList.value.push({ ...np, age: 'Just now' })
+    if (remoteMode.value) await remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
+    else networkPolicyList.value.push({ ...np, age: 'Just now' })
+    invalidateResource('networkpolicies')
   }
 
   async function updateNetworkPolicy(name, ns, updates) {
@@ -1236,15 +1271,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(networkPolicyList.value[idx]))
     networkPolicyList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('networkpolicy', networkPolicyList.value[idx]), 'NetworkPolicy', () => { networkPolicyList.value[idx] = before })
+    invalidateResource('networkpolicies')
   }
 
   async function deleteNetworkPolicy(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`, networkPolicyList, n => n.name === name && n.namespace === ns)
-      return
+    } else {
+      const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
+      if (idx !== -1) networkPolicyList.value.splice(idx, 1)
     }
-    const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
-    if (idx !== -1) networkPolicyList.value.splice(idx, 1)
+    invalidateResource('networkpolicies')
   }
 
   // === CRUD: HPAs ===
@@ -3476,6 +3513,11 @@ status:
     refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
+    fetchConfigMap,
+    fetchSecret,
+    fetchService,
+    fetchIngress,
+    fetchNetworkPolicy, fetchPVC,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
