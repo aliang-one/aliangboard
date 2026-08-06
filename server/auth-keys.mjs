@@ -3,6 +3,7 @@
 // 明文仅签发时返回一次,库里只存 hash + 非密 prefix(UI 识别用,不见全 key)。
 // 纯函数、db 注入(无全局状态):便于单测传临时 db。
 import { randomUUID, randomBytes, createHash } from 'node:crypto'
+import { normalizeToolOverrides } from './authorize.mjs'
 
 const KEY_BYTES = 32 // 256 位熵 → base64url ≈ 43 字符
 
@@ -16,12 +17,15 @@ export function createApiKeysSchema(db) {
     boundSA_namespace TEXT NOT NULL,
     boundSA_name TEXT NOT NULL,
     tier TEXT NOT NULL DEFAULT 'read',
+    tool_overrides TEXT,
     label TEXT,
     createdBy TEXT,
     createdAt INTEGER NOT NULL,
     revokedAt INTEGER
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_owner ON api_keys(owner)`)
+  // 旧库(表已存在但无该列)补列;新库 CREATE 已带 → ALTER 抛「列已存在」,吞掉。
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN tool_overrides TEXT') } catch { /* 列已存在 */ }
 }
 
 export function hashKey(plaintext) {
@@ -35,18 +39,19 @@ export function generateKeyPlaintext() {
 
 // 签发一把 key。返回 {id, plaintext(仅此次可见), prefix, ...}。明文不入库。
 export function mintKey(db, input) {
-  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null } = input || {}
+  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null, tool_overrides = null } = input || {}
   if (!owner || !clusterId || !boundSA_namespace || !boundSA_name) {
     throw new Error('mintKey 缺少必填字段(owner / clusterId / boundSA_namespace / boundSA_name)')
   }
   if (!['read', 'operator', 'admin'].includes(tier)) throw new Error(`mintKey 非法 tier: ${tier}`)
+  const overridesJson = normalizeToolOverrides(tool_overrides)  // strict: 坏→抛
   const plaintext = generateKeyPlaintext()
   const id = randomUUID()
   const createdAt = Date.now()
-  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, label, createdBy, createdAt, revokedAt)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)`).run(
-    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, label, createdBy, createdAt)
-  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, label, createdBy, createdAt }
+  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, label, createdBy, createdAt, revokedAt)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).run(
+    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, overridesJson, label, createdBy, createdAt)
+  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides: overridesJson, label, createdBy, createdAt }
 }
 
 // 按明文查 key(高熵 hash 查找;返回行或 null。是否有效由 isActive 判)。
@@ -66,7 +71,7 @@ export function revokeKey(db, id) {
 
 // 列表(UI 用):绝不返回 keyHash / 明文,只 prefix。
 export function listKeys(db, { owner } = {}) {
-  const sql = `SELECT id, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, label, createdBy, createdAt, revokedAt
+  const sql = `SELECT id, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, label, createdBy, createdAt, revokedAt
                FROM api_keys ${owner ? 'WHERE owner = ?' : ''} ORDER BY createdAt DESC`
   return owner ? db.prepare(sql).all(owner) : db.prepare(sql).all()
 }
