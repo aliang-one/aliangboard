@@ -14,6 +14,7 @@ import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
 import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
+import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -58,45 +59,28 @@ test('package.json 可解析且包含 build/typecheck/test 脚本', () => {
   }
 })
 
-// --- K8s 资源量解析契约（镜像 stores/cluster.js 的 cpuToMilli/memToKi，锁定 metrics 解析行为）---
-// 说明：测试运行器零依赖、无法 import 带 @/ 别名的 store，故按既有 base64 用例的惯例镜像逻辑作为契约。
-// 若修改 store 中的解析器，请同步本镜像，使两处保持一致。
+// --- K8s 资源量解析（现从 useResourceFormat 直接 import，无需镜像）---
 test('K8s 资源量解析：CPU→毫核、内存→Ki（覆盖各后缀与裸值）', () => {
-  const cpuToMilli = q => {
-    if (q == null || q === '') return 0
-    const s = String(q).trim()
-    if (s.endsWith('n')) return Math.round(Number(s.slice(0, -1)) / 1e6)
-    if (s.endsWith('u')) return Math.round(Number(s.slice(0, -1)) / 1e3)
-    if (s.endsWith('m')) return Number(s.slice(0, -1)) || 0
-    const n = Number(s)
-    return isNaN(n) ? 0 : n * 1000
-  }
-  const memToKi = q => {
-    if (q == null || q === '') return 0
-    const s = String(q).trim()
-    const m = s.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$/)
-    if (!m) return 0
-    const num = Number(m[1])
-    const suf = m[2] || ''
-    const mult = {
-      Ki: 1, Mi: 1024, Gi: 1024 ** 2, Ti: 1024 ** 3, Pi: 1024 ** 4, Ei: 1024 ** 5,
-      k: 1000 / 1024, M: 1e6 / 1024, G: 1e9 / 1024, T: 1e12 / 1024, P: 1e15 / 1024, E: 1e18 / 1024,
-    }
-    return Math.round(num * (suf ? (mult[suf] ?? 1) : 1 / 1024))
-  }
-  // CPU：毫核 / 核 / 纳核（metrics-server 常返回纳核）/ 微核 / 空值
+  // CPU：毫核 / 核 / 纳核 / 微核 / 空值
   assert.equal(cpuToMilli('500m'), 500)
   assert.equal(cpuToMilli('2'), 2000)
   assert.equal(cpuToMilli('868940n'), 1)      // 纳核 → 0.87m，四舍五入为 1m
   assert.equal(cpuToMilli('750u'), 1)         // 微核 → 0.75m，四舍五入为 1m
   assert.equal(cpuToMilli(''), 0)
   assert.equal(cpuToMilli(null), 0)
-  // 内存：二进制后缀 / 裸字节
-  assert.equal(memToKi('512Mi'), 524288)
-  assert.equal(memToKi('1Gi'), 1048576)
-  assert.equal(memToKi('1024Ki'), 1024)
-  assert.equal(memToKi('1048576'), 1024)      // 无后缀视为裸字节
-  assert.equal(memToKi(''), 0)
+  // 内存：Ki/Mi/Gi/裸字节
+  assert.equal(memToKi('1Gi'), 1024 ** 2)
+  assert.equal(memToKi('512Mi'), 512 * 1024)
+  assert.equal(memToKi('1024'), 1)            // 裸字节 → 1024 B = 1 Ki
+})
+
+test('用量格式化：CPU→毫核串、内存→Ti/Gi/Mi 降级、空值→—', () => {
+  assert.equal(formatCpu(500), '500m')
+  assert.equal(formatCpu(null), '—')
+  assert.equal(formatMem(1024), '1Mi')
+  assert.equal(formatMem(1024 ** 2), '1Gi')
+  assert.equal(formatMem(1024 ** 3), '1Ti')
+  assert.equal(formatMem(null), '—')
 })
 
 // --- Namespace 应用分层：归类契约（label 权威 > 名称/镜像启发式 > 默认）---
