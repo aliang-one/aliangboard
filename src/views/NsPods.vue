@@ -117,7 +117,7 @@ function handleCreate() {
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
           :title="store.podWatchLive ? t('ns.pods.liveOn') : t('ns.pods.liveOff')">
           <span class="material-symbols-outlined">{{ store.podWatchLive ? 'pause' : 'play_arrow' }}</span>
-          <span class="flex items-center gap-xs">Live
+          <span class="flex items-center gap-xs">LIVE
             <span v-if="store.podWatchLive" class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>
           </span>
         </button>
