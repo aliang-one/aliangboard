@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClusterStore, formatCpu, formatMem } from '@/stores/cluster'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -13,7 +14,15 @@ import PodCard from '@/components/common/PodCard.vue'
 
 const route = useRoute()
 const store = useClusterStore()
-const node = computed(() => store.getNodeByName(route.params.name))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nodeDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'nodes', route.params.name],
+  fetcher: () => store.fetchNode(route.params.name),
+  mock: store.getNodeByName(route.params.name),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const node = computed(() => nodeDetail.data.value ?? store.getNodeByName(route.params.name))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/nodes/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('node', node.value),

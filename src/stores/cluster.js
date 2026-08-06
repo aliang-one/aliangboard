@@ -1189,6 +1189,17 @@ export const useClusterStore = defineStore('cluster', () => {
     return (nodeData?.items || []).map(item => mapNode(item, metricFor(item.metadata?.name)))
   }
 
+  // 单节点拉取（node + node-metrics 过滤）。供 NodeDetail useResourceDetail 作 fetcher。
+  async function fetchNode(name) {
+    const [nodeData, metricsData] = await Promise.all([
+      api.k8s(`/api/v1/nodes/${encodeURIComponent(name)}`),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/nodes').catch(() => null),
+    ])
+    const m = (metricsData?.items || []).find(it => it.metadata?.name === name)
+    const metric = m ? { cpuMilli: cpuToMilli(m.usage?.cpu), memKi: memToKi(m.usage?.memory) } : null
+    return nodeData ? mapNode(nodeData, metric) : null
+  }
+
   // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
   async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
   async function fetchService(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`); return d ? mapService(d) : null }
@@ -1541,6 +1552,7 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = true
+    invalidateResource('nodes')
   }
 
   async function uncordonNode(name) {
@@ -1553,6 +1565,7 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     const node = nodeList.value.find(n => n.name === name)
     if (node) node.unschedulable = false
+    invalidateResource('nodes')
   }
 
   // Drain：cordon + 驱逐该节点上的业务 Pod（mock 模拟，保留系统命名空间 Pod）
@@ -3535,6 +3548,7 @@ status:
     fetchIngress,
     fetchNetworkPolicy, fetchPVC,
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
+    fetchNode,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
