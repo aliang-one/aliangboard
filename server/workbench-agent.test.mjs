@@ -55,3 +55,37 @@ test('工作台 write_project_file resume 拒绝 → 不写,记 denied', async (
   assert.deepEqual(writes, [], '拒绝时不写')
   assert.equal(out.denied.length, 1)
 })
+
+test('registry:W5 工具(apply/propose_ledger/propose_learning)在 workbenchToolDefs 且需人审', () => {
+  const wb = registry.workbenchToolDefs().map(t => t.function.name)
+  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_ledger_update') && wb.includes('propose_learning'))
+  const req = registry.requiringApproval()
+  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_ledger_update') && req.includes('propose_learning'))
+})
+
+test('apply_project_manifests → checkpoint;resume 批准 → readManifests+applyManifests 被调', async () => {
+  const calls = []
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => { calls.push('read'); return 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm' }, applyManifests: async (yaml) => { calls.push(['apply', yaml]); return { applied: [{ kind: 'ConfigMap', name: 'cm' }], failed: [], total: 1 } }, writeLedger: async () => {}, appendLearning: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'apply_project_manifests', {}), fin('已 apply')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.deepEqual(calls, [], 'checkpoint 时未 read/apply(批准前不执行)')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '已 apply')
+  assert.equal(calls.length, 2, 'read + apply')
+})
+
+test('propose_ledger_update → checkpoint;resume 批准 → writeLedger 被调', async () => {
+  const writes = []
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), writeLedger: async (p, c) => { writes.push({ p, c }) }, appendLearning: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'propose_ledger_update', { path: 'capabilities/ci-cd.md', content: '# CI/CD' }), fin('已记台账')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.deepEqual(writes, [], 'checkpoint 时未写台账')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '已记台账')
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].p, 'capabilities/ci-cd.md')
+})
