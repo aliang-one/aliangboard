@@ -25,20 +25,20 @@ function hasPressure(node) {
   <div class="animate-fade-in">
     <!-- Page Header -->
     <div class="flex flex-col gap-sm mb-md">
-      <h1 class="text-headline-md text-on-surface font-bold">Cluster Overview</h1>
-      <p class="text-body-sm text-on-surface-variant mt-xs">Real-time performance metrics and operational health for {{ store.cluster.name }}.</p>
+      <h1 class="text-headline-md text-on-surface font-bold">{{ $t('cluster.title') }}</h1>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('cluster.realtimeMetrics') }} {{ store.cluster.name }}.</p>
     </div>
 
     <!-- Summary Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-md mb-md">
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
-          <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL NODES</p>
+          <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.totalNodes') }}</p>
           <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
           <p class="text-body-sm flex items-center gap-xs mt-xs"
             :class="{ 'text-primary': store.clusterHealth.severity === 'ok', 'text-tertiary-container': store.clusterHealth.severity === 'warn', 'text-error': store.clusterHealth.severity === 'crit' || store.clusterHealth.severity === 'none' }">
             <span class="material-symbols-outlined text-base">{{ store.clusterHealth.severity === 'ok' ? 'check_circle' : 'warning' }}</span>
-            {{ store.clusterHealth.status }} · 控制面 {{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }}
+            {{ store.clusterHealth.status }} · {{ $t('cluster.controlPlane') }} {{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }}
           </p>
         </div>
         <span class="material-symbols-outlined text-surface-container-high text-2xl">dns</span>
@@ -46,10 +46,10 @@ function hasPressure(node) {
 
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
-          <p class="text-label-caps text-on-surface-variant mb-xs">TOTAL PODS</p>
+          <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.totalPods') }}</p>
           <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.podCount }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
-            <span class="material-symbols-outlined text-base">cached</span> Running smoothly
+            <span class="material-symbols-outlined text-base">cached</span> {{ $t('cluster.runningSmoothly') }}
           </p>
         </div>
         <span class="material-symbols-outlined text-surface-container-high text-2xl">layers</span>
@@ -57,10 +57,10 @@ function hasPressure(node) {
 
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
-          <p class="text-label-caps text-on-surface-variant mb-xs">ACTIVE EVENTS</p>
+          <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.activeEvents') }}</p>
           <h3 class="text-headline-md text-tertiary font-bold">{{ store.cluster.activeEvents }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
-            <span class="material-symbols-outlined text-base">info</span> Last 60 minutes
+            <span class="material-symbols-outlined text-base">info</span> {{ $t('cluster.last60Minutes') }}
           </p>
         </div>
         <span class="material-symbols-outlined text-surface-container-high text-2xl">notifications_active</span>
@@ -75,11 +75,11 @@ function hasPressure(node) {
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
             <div class="flex items-center gap-sm">
               <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
-              <span class="text-body-sm font-semibold">Resource Usage</span>
+              <span class="text-body-sm font-semibold">{{ $t('cluster.resourceUsage') }}</span>
             </div>
             <div class="flex items-center gap-sm">
-              <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" title="集群未安装 metrics-server 或当前凭证无 metrics 读取权限">
-                <span class="material-symbols-outlined text-sm">sensors_off</span> 指标不可用
+              <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" :title="$t('cluster.metricsUnavailableHint')">
+                <span class="material-symbols-outlined text-sm">sensors_off</span> {{ $t('cluster.metricsUnavailable') }}
               </span>
               <div class="flex gap-xs">
                 <span
@@ -97,7 +97,7 @@ function hasPressure(node) {
             <div class="flex flex-col gap-sm">
               <div class="flex justify-between items-end">
                 <div>
-                  <p class="text-label-caps text-on-surface-variant">CPU UTILIZATION</p>
+                  <p class="text-label-caps text-on-surface-variant">{{ $t('cluster.cpuUtilization') }}</p>
                   <p class="text-headline-md text-primary">{{ store.cluster.cpuUsage != null ? store.cluster.cpuUsage + '%' : '—' }}</p>
                 </div>
                 <p v-if="store.cluster.cpuUsage != null" class="text-body-sm flex items-center gap-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-primary'">
@@ -110,14 +110,14 @@ function hasPressure(node) {
                 </svg>
               </div>
               <div class="flex justify-between font-mono text-code-sm text-on-surface-variant">
-                <span>24h ago</span><span>Now</span>
+                <span>{{ $t('cluster.timeAgo') }}</span><span>{{ $t('cluster.timeNow') }}</span>
               </div>
             </div>
             <!-- Memory Chart -->
             <div class="flex flex-col gap-sm">
               <div class="flex justify-between items-end">
                 <div>
-                  <p class="text-label-caps text-on-surface-variant">MEMORY ALLOCATION</p>
+                  <p class="text-label-caps text-on-surface-variant">{{ $t('cluster.memoryAllocation') }}</p>
                   <p class="text-headline-md text-primary">{{ store.cluster.memoryUsage != null ? store.cluster.memoryUsage + '%' : '—' }}</p>
                 </div>
                 <p v-if="store.cluster.memoryUsage != null" class="text-body-sm flex items-center gap-xs" :class="store.cluster.memoryTrendUp ? 'text-error' : 'text-primary'">
@@ -130,7 +130,7 @@ function hasPressure(node) {
                 </svg>
               </div>
               <div class="flex justify-between font-mono text-code-sm text-on-surface-variant">
-                <span>24h ago</span><span>Now</span>
+                <span>{{ $t('cluster.timeAgo') }}</span><span>{{ $t('cluster.timeNow') }}</span>
               </div>
             </div>
           </div>
@@ -139,9 +139,9 @@ function hasPressure(node) {
         <!-- Node Health Grid -->
         <div class="flex flex-col gap-sm">
           <div class="flex justify-between items-center px-md">
-            <span class="text-body-sm font-semibold">Node Health</span>
+            <span class="text-body-sm font-semibold">{{ $t('cluster.nodeHealth') }}</span>
             <router-link to="/nodes" class="text-primary font-semibold flex items-center gap-xs text-body-sm">
-              View all nodes <span class="material-symbols-outlined text-md">arrow_forward</span>
+              {{ $t('cluster.viewAllNodes') }} <span class="material-symbols-outlined text-md">arrow_forward</span>
             </router-link>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-sm">
@@ -183,7 +183,7 @@ function hasPressure(node) {
                     <span class="w-1.5 h-1.5 rounded-full animate-pulse-status" :class="node.status === 'Ready' ? 'bg-primary-container' : 'bg-error'"></span>
                     {{ node.status === 'Ready' ? 'Ready' : 'NotReady' }}
                   </span>
-                  <span v-if="hasPressure(node)" class="text-error flex items-center" title="节点存在压力条件（Disk/Memory/PID）">
+                  <span v-if="hasPressure(node)" class="text-error flex items-center" :title="$t('cluster.nodePressureHint')">
                     <span class="material-symbols-outlined text-sm">warning</span>
                   </span>
                   <span class="font-mono text-on-surface-variant truncate">{{ node.ip }}</span>
@@ -191,7 +191,7 @@ function hasPressure(node) {
                 <div class="flex items-center gap-md mt-auto pt-xs">
                   <div class="flex-1 min-w-0">
                     <div class="flex justify-between text-[10px] mb-0.5">
-                      <span class="text-on-surface-variant">Mem</span>
+                      <span class="text-on-surface-variant">{{ $t('cluster.mem') }}</span>
                       <span class="font-mono text-on-surface-variant">{{ node.memory != null ? node.memory + '%' : '—' }}</span>
                     </div>
                     <ProgressBar v-if="node.memory != null" :value="node.memory" />
@@ -215,7 +215,7 @@ function hasPressure(node) {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant sticky top-[5.5rem]">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">notifications</span>
-            <span class="text-body-sm font-semibold">Recent Events</span>
+            <span class="text-body-sm font-semibold">{{ $t('cluster.recentEvents') }}</span>
             <span class="text-xs text-on-surface-variant ml-auto">{{ store.eventList.length }}</span>
           </div>
           <div class="flex flex-col gap-sm p-md">
@@ -248,7 +248,7 @@ function hasPressure(node) {
           </div>
           <div class="px-md pb-md">
             <button @click="router.push('/audit-logs')" class="w-full py-1.5 border border-outline-variant rounded-lg text-on-surface-variant font-medium text-body-sm hover:bg-surface-container transition-colors">
-              Show More Events
+              {{ $t('cluster.showMoreEvents') }}
             </button>
           </div>
         </div>

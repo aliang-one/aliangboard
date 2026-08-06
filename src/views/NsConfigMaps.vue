@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -11,13 +13,26 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// ConfigMaps 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const configmapsKey = ['cluster', cid.value, 'configmaps']
+const configmapsQuery = useResourceList({
+  key: configmapsKey,
+  fetcher: () => store.fetchConfigMaps(),
+  mock: store.configMapList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsConfigMaps = computed(() => (configmapsQuery.data.value || []).filter(c => c.namespace === route.params.namespace))
 
 // 搜索过滤
 const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return store.nsConfigMaps
-  return store.nsConfigMaps.filter(cm => {
+  if (!q) return nsConfigMaps
+  return nsConfigMaps.filter(cm => {
     if (cm.name.toLowerCase().includes(q)) return true
     return Object.keys(cm.data || {}).some(k => k.toLowerCase().includes(q))
   })
@@ -51,6 +66,7 @@ async function handleCreate() {
     data,
   })
   if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+  queryClient.invalidateQueries({ queryKey: configmapsKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -65,6 +81,7 @@ function confirmDelete(cm) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteConfigMap(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: configmapsKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -85,6 +102,7 @@ const showBatchModal = ref(false)
 function confirmBatchDelete() { if (selected.value.size) showBatchModal.value = true }
 function handleBatchDelete() {
   selected.value.forEach(name => store.deleteConfigMap(name, route.params.namespace))
+  queryClient.invalidateQueries({ queryKey: configmapsKey })
   selected.value = new Set()
   showBatchModal.value = false
 }
@@ -99,7 +117,7 @@ function handleBatchDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">ConfigMaps</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsConfigMaps.length }} ConfigMaps in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> New ConfigMap
@@ -115,7 +133,7 @@ function handleBatchDelete() {
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsConfigMaps.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsConfigMaps.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
         <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
         <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">

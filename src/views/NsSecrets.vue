@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -11,16 +13,29 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// Secrets 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const secretsKey = ['cluster', cid.value, 'secrets']
+const secretsQuery = useResourceList({
+  key: secretsKey,
+  fetcher: () => store.fetchSecrets(),
+  mock: store.secretList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsSecrets = computed(() => (secretsQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
 const typeFilter = ref('All')
 const search = ref('')
 const typeOptions = computed(() => {
-  const types = new Set(store.nsSecrets.map(s => s.type))
+  const types = new Set(nsSecrets.map(s => s.type))
   return ['All', ...types]
 })
 
 const filtered = computed(() => {
-  let list = store.nsSecrets
+  let list = nsSecrets
   if (typeFilter.value !== 'All') {
     list = list.filter(s => s.type === typeFilter.value)
   }
@@ -102,6 +117,7 @@ async function handleCreate() {
     data,
   })
   if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+  queryClient.invalidateQueries({ queryKey: secretsKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -116,6 +132,7 @@ function confirmDelete(sec) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteSecret(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: secretsKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -143,6 +160,7 @@ const showBatchModal = ref(false)
 function confirmBatchDelete() { if (selected.value.size) showBatchModal.value = true }
 function handleBatchDelete() {
   selected.value.forEach(name => store.deleteSecret(name, route.params.namespace))
+  queryClient.invalidateQueries({ queryKey: secretsKey })
   selected.value = new Set()
   showBatchModal.value = false
 }
@@ -157,7 +175,7 @@ function handleBatchDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">Secrets</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ store.nsSecrets.length }} secrets in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsSecrets.length }} secrets in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> New Secret
@@ -180,7 +198,7 @@ function handleBatchDelete() {
           <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
-      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsSecrets.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsSecrets.length }}</span>
       <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
         <span class="text-xs font-medium text-primary">已选 {{ selected.size }} 项</span>
         <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
