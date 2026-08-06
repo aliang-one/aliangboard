@@ -4,6 +4,7 @@
 // 按 ctx 里有什么决定 offering:有 keyRow → K8s 工具(按 tier);有 workbench → 工作台工具。
 import { createAgent } from './agent.mjs'
 import { registry } from './tool-registry.mjs'
+import { effectiveTools } from './authorize.mjs'
 
 // OpenAI tools 格式:tier 允许的 K8s 工具(从 registry 按 minTier 过滤)。
 export function buildToolDefs(tier) {
@@ -14,7 +15,7 @@ export function buildToolDefs(tier) {
 // workbench = { readLedger, readFile, writeFile }(端点注入的闭包,操作项目/台账 repo)。
 export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench }) {
   const toolDefs = [
-    ...(keyRow ? registry.toolDefsForTier(keyRow.tier) : []),
+    ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs() : []),
   ]
   const offered = new Set(toolDefs.map(t => t.function.name))
