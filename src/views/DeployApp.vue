@@ -100,6 +100,17 @@ function makeForm() {
   imagePullSecrets: '',
   // 容器安全上下文
   securityContext: { enabled: false, privileged: false, runAsUser: '', runAsGroup: '', runAsNonPrivileged: false, readOnlyRootFilesystem: false, addCaps: '', dropCaps: '' },
+  // Pod 安全上下文（pod 级）
+  podSecurityContext: { runAsUser: '', runAsGroup: '', runAsNonRoot: false, fsGroup: '', seccompProfile: '' },
+  // DNS
+  dnsPolicy: '',
+  dnsConfig: { nameservers: [], searches: [], options: [] },
+  // 主机别名
+  hostAliases: [],
+  // 主机网络
+  hostNetwork: false, hostPID: false, hostIPC: false,
+  // Pod 亲和/反亲和（简化）
+  podAffinity: { enabled: false, type: 'anti-affinity', topologyKey: 'kubernetes.io/hostname', labelKey: '', labelValue: '', strength: 'preferred' },
   // 生命周期钩子
   lifecycle: { postStart: '', preStop: '' },
   }
@@ -116,7 +127,7 @@ const steps = [
   { title: 'Basic Information', icon: 'info' },
   { title: 'Container Config', icon: 'layers' },
   { title: 'Volumes', icon: 'storage' },
-  { title: 'Scheduling & Update', icon: 'tune' },
+  { title: 'Advanced Settings', icon: 'settings' },
   { title: 'Service & Ingress', icon: 'hub' },
   { title: 'Review & Deploy', icon: 'rocket_launch' },
 ]
@@ -154,6 +165,14 @@ function addNodeSelector() { form.value.nodeSelectors.push({ key: '', value: '' 
 function removeNodeSelector(idx) { form.value.nodeSelectors.splice(idx, 1) }
 function addToleration() { form.value.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' }) }
 function removeToleration(idx) { form.value.tolerations.splice(idx, 1) }
+function addDnsNameserver() { form.value.dnsConfig.nameservers.push('') }
+function removeDnsNameserver(i) { form.value.dnsConfig.nameservers.splice(i, 1) }
+function addDnsSearch() { form.value.dnsConfig.searches.push('') }
+function removeDnsSearch(i) { form.value.dnsConfig.searches.splice(i, 1) }
+function addDnsOption() { form.value.dnsConfig.options.push({ name: '', value: '' }) }
+function removeDnsOption(i) { form.value.dnsConfig.options.splice(i, 1) }
+function addHostAlias() { form.value.hostAliases.push({ ip: '', hostnames: '' }) }
+function removeHostAlias(i) { form.value.hostAliases.splice(i, 1) }
 
 function nextStep() { if (currentStep.value < steps.length - 1) currentStep.value++ }
 function prevStep() { if (currentStep.value > 0) currentStep.value-- }
@@ -422,6 +441,56 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
       if (t.operator === 'Equal') yaml += `\n        value: "${t.value}"`
       yaml += `\n        effect: ${t.effect}`
     })
+  }
+  // Pod 安全上下文（pod 级）
+  const psc = f.podSecurityContext
+  if (psc.runAsUser || psc.runAsGroup || psc.runAsNonRoot || psc.fsGroup || psc.seccompProfile) {
+    yaml += `\n      securityContext:`
+    if (psc.runAsUser) yaml += `\n        runAsUser: ${psc.runAsUser}`
+    if (psc.runAsGroup) yaml += `\n        runAsGroup: ${psc.runAsGroup}`
+    if (psc.runAsNonRoot) yaml += `\n        runAsNonRoot: true`
+    if (psc.fsGroup) yaml += `\n        fsGroup: ${psc.fsGroup}`
+    if (psc.seccompProfile) yaml += `\n        seccompProfile:\n          type: ${psc.seccompProfile}`
+  }
+  // DNS
+  if (f.dnsPolicy) yaml += `\n      dnsPolicy: ${f.dnsPolicy}`
+  const dc = f.dnsConfig
+  const dnsNs = dc.nameservers.filter(x => x)
+  const dnsSr = dc.searches.filter(x => x)
+  const dnsOps = dc.options.filter(o => o.name)
+  if (dnsNs.length || dnsSr.length || dnsOps.length) {
+    yaml += `\n      dnsConfig:`
+    if (dnsNs.length) yaml += `\n        nameservers:\n${dnsNs.map(n => `        - ${n}`).join('\n')}`
+    if (dnsSr.length) yaml += `\n        searches:\n${dnsSr.map(s => `        - ${s}`).join('\n')}`
+    if (dnsOps.length) {
+      yaml += `\n        options:`
+      dnsOps.forEach(o => { yaml += `\n        - name: ${o.name}`; if (o.value) yaml += `\n          value: "${o.value}"` })
+    }
+  }
+  // 主机别名
+  const ha = f.hostAliases.filter(h => h.ip)
+  if (ha.length) {
+    yaml += `\n      hostAliases:`
+    ha.forEach(h => {
+      yaml += `\n      - ip: ${h.ip}`
+      const hosts = (h.hostnames || '').split(',').map(x => x.trim()).filter(Boolean)
+      if (hosts.length) yaml += `\n        hostnames:\n${hosts.map(x => `        - ${x}`).join('\n')}`
+    })
+  }
+  // 主机网络
+  if (f.hostNetwork) yaml += `\n      hostNetwork: true`
+  if (f.hostPID) yaml += `\n      hostPID: true`
+  if (f.hostIPC) yaml += `\n      hostIPC: true`
+  // Pod 亲和/反亲和
+  const pa = f.podAffinity
+  if (pa.enabled && pa.labelKey) {
+    const aKey = pa.type === 'anti-affinity' ? 'podAntiAffinity' : 'podAffinity'
+    yaml += `\n      affinity:\n        ${aKey}:`
+    if (pa.strength === 'required') {
+      yaml += `\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                ${pa.labelKey}: "${pa.labelValue}"\n            topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}`
+    } else {
+      yaml += `\n          preferredDuringSchedulingIgnoredDuringExecution:\n          - weight: 100\n            podAffinityTerm:\n              topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}\n              labelSelector:\n                matchLabels:\n                  ${pa.labelKey}: "${pa.labelValue}"`
+    }
   }
   yaml += `
       containers:
@@ -1099,9 +1168,9 @@ async function handleDeploy() {
         </div>
       </div>
 
-      <!-- Step 4: Scheduling & Update -->
+      <!-- Step 4: 高级设置 -->
       <div v-if="currentStep === 3">
-        <h3 class="text-headline-sm font-bold mb-md">调度与更新策略</h3>
+        <h3 class="text-headline-sm font-bold mb-md">高级设置</h3>
 
         <!-- 更新策略 -->
         <h4 class="text-body-sm font-semibold mb-xs">更新策略 (Update Strategy)</h4>
@@ -1159,6 +1228,67 @@ async function handleDeploy() {
             <option value="">None</option>
             <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
           </select>
+        </div>
+
+        <!-- 服务账号 -->
+        <h4 class="text-body-sm font-semibold mt-md mb-xs">服务账号 (ServiceAccount)</h4>
+        <div class="grid grid-cols-2 gap-sm mb-md">
+          <div><label class="text-xs text-on-surface-variant block mb-xs">ServiceAccount</label><select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">Default</option><option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option></select></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Image Pull Secret</label><select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">None</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
+        </div>
+
+        <!-- Pod 安全上下文 -->
+        <h4 class="text-body-sm font-semibold mb-xs">Pod 安全上下文 (Security Context)</h4>
+        <div class="grid grid-cols-3 gap-sm mb-md">
+          <div><label class="text-xs text-on-surface-variant block mb-xs">runAsUser</label><input v-model.number="form.podSecurityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">runAsGroup</label><input v-model.number="form.podSecurityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">fsGroup</label><input v-model.number="form.podSecurityContext.fsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="2000" /></div>
+          <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.podSecurityContext.runAsNonRoot" class="h-4 w-4 accent-primary" /><span class="text-xs">runAsNonRoot</span></label>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">seccompProfile</label><select v-model="form.podSecurityContext.seccompProfile" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">默认</option><option>RuntimeDefault</option><option>Unconfined</option><option>Localhost</option></select></div>
+        </div>
+
+        <!-- DNS 配置 -->
+        <h4 class="text-body-sm font-semibold mb-xs">DNS 配置</h4>
+        <div class="flex flex-col gap-sm mb-md">
+          <div><label class="text-xs text-on-surface-variant block mb-xs">dnsPolicy</label><select v-model="form.dnsPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">默认</option><option>ClusterFirst</option><option>ClusterFirstWithHostNet</option><option>Default</option><option>None</option></select></div>
+          <!-- nameservers -->
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Nameservers</label><div v-for="(ns, i) in form.dnsConfig.nameservers" :key="'ns'+i" class="flex gap-sm items-center mb-xs"><input v-model="form.dnsConfig.nameservers[i]" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8.8.8.8" /><button @click="removeDnsNameserver(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsNameserver" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> Add Nameserver</button></div>
+          <!-- searches -->
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Searches</label><div v-for="(s, i) in form.dnsConfig.searches" :key="'sr'+i" class="flex gap-sm items-center mb-xs"><input v-model="form.dnsConfig.searches[i]" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="svc.cluster.local" /><button @click="removeDnsSearch(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsSearch" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> Add Search</button></div>
+          <!-- options -->
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Options</label><div v-for="(o, i) in form.dnsConfig.options" :key="'op'+i" class="flex gap-sm items-center mb-xs"><input v-model="o.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ndots" /><input v-model="o.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="5" /><button @click="removeDnsOption(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsOption" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> Add Option</button></div>
+        </div>
+
+        <!-- 主机别名 -->
+        <h4 class="text-body-sm font-semibold mb-xs">主机别名 (Host Aliases)</h4>
+        <div class="flex flex-col gap-sm mb-md">
+          <div v-for="(h, i) in form.hostAliases" :key="'ha'+i" class="flex gap-sm items-center">
+            <input v-model="h.ip" class="w-32 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="IP" />
+            <input v-model="h.hostnames" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="host1.com, host2.com (逗号分隔)" />
+            <button @click="removeHostAlias(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+          </div>
+          <button @click="addHostAlias" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> Add Host Alias</button>
+        </div>
+
+        <!-- 主机网络 -->
+        <h4 class="text-body-sm font-semibold mb-xs">主机网络</h4>
+        <div class="flex gap-md mb-md">
+          <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.hostNetwork" class="h-4 w-4 accent-primary" /><span class="text-xs">hostNetwork</span></label>
+          <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.hostPID" class="h-4 w-4 accent-primary" /><span class="text-xs">hostPID</span></label>
+          <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.hostIPC" class="h-4 w-4 accent-primary" /><span class="text-xs">hostIPC</span></label>
+        </div>
+
+        <!-- Pod 亲和/反亲和 -->
+        <h4 class="text-body-sm font-semibold mb-xs">Pod 亲和/反亲和 (Affinity)</h4>
+        <div class="flex flex-col gap-sm mb-md">
+          <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.podAffinity.enabled" class="h-4 w-4 accent-primary" /><span class="text-xs">启用 Pod 亲和/反亲和</span></label>
+          <div v-if="form.podAffinity.enabled" class="grid grid-cols-2 md:grid-cols-3 gap-sm">
+            <div><label class="text-xs text-on-surface-variant block mb-xs">类型</label><select v-model="form.podAffinity.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="affinity">亲和 (affinity)</option><option value="anti-affinity">反亲和 (anti-affinity)</option></select></div>
+            <div><label class="text-xs text-on-surface-variant block mb-xs">强度</label><select v-model="form.podAffinity.strength" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="preferred">preferred (尽量)</option><option value="required">required (必须)</option></select></div>
+            <div><label class="text-xs text-on-surface-variant block mb-xs">topologyKey</label><input v-model="form.podAffinity.topologyKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="kubernetes.io/hostname" /></div>
+            <div><label class="text-xs text-on-surface-variant block mb-xs">标签 Key</label><input v-model="form.podAffinity.labelKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app" /></div>
+            <div><label class="text-xs text-on-surface-variant block mb-xs">标签 Value</label><input v-model="form.podAffinity.labelValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="myapp" /></div>
+          </div>
         </div>
       </div>
 
