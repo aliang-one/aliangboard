@@ -1637,6 +1637,10 @@ async function handle(req, res) {
     }
     return sendJson(res, 200, { clusterIds: clusterIds || [] })
   }
+
+  // 兜底:未匹配的路由返 404。否则 handle() 直接 return、响应永不结束 → 前端 fetch 挂起
+  // (如旧 gateway 缺新端点时,LLM 配置页一直转圈)。所有路由块都显式 return,此处只在无匹配时触发。
+  return sendJson(res, 404, { message: `not found: ${req.method} ${url.pathname}` })
 }
 
 const httpServer = createServer((req, res) => {
