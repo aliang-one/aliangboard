@@ -1,28 +1,32 @@
-// 把 agent 核心接到底座(W4a:走 tool-registry 单一源;W4b 加工作台工具 + 双-principal 桥)。
-// agent = 内部 API-key 消费者:用一把 key 当 K8s principal,复用 callTool 全套(authorize + SA + 审计)。
-// 写操作走 checkpoint/resume 人审(见 agent.mjs)。
+// 把 agent 核心接到工具(W4:K8s 工具 + 工作台工具,双-principal 经 registry 分派)。
+// 双-principal 桥 = registry 本身:K8s 工具 exec 包 callTool(keyRow+SA+审计),
+// 工作台工具 exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入,平台侧 git)。
+// 按 ctx 里有什么决定 offering:有 keyRow → K8s 工具(按 tier);有 workbench → 工作台工具。
 import { createAgent } from './agent.mjs'
 import { registry } from './tool-registry.mjs'
 
-// OpenAI tools 格式:tier 允许的工具(从 registry 按 minTier 过滤)。
+// OpenAI tools 格式:tier 允许的 K8s 工具(从 registry 按 minTier 过滤)。
 export function buildToolDefs(tier) {
   return registry.toolDefsForTier(tier)
 }
 
-// 工厂:注入 llmClient + 底座 apiKeyTools + keyRow(cluster)。返回 { run, toolDefs }。
-// execTool 经 registry 分派 → 各工具 exec 闭包(持各自 principal)。W4b 加 workbench ctx 后,平台工具自动接入。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster }) {
-  const toolDefs = buildToolDefs(keyRow.tier)
+// 工厂:注入 llmClient + (apiKeyTools,keyRow,cluster) 和/或 workbench。返回 { run, toolDefs }。
+// workbench = { readLedger, readFile, writeFile }(端点注入的闭包,操作项目/台账 repo)。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench }) {
+  const toolDefs = [
+    ...(keyRow ? registry.toolDefsForTier(keyRow.tier) : []),
+    ...(workbench ? registry.workbenchToolDefs() : []),
+  ]
+  const offered = new Set(toolDefs.map(t => t.function.name))
   const requiringApproval = new Set(registry.requiringApproval())
-  const allowed = new Set(registry.forTier(keyRow.tier))
-  const ctx = { apiKeyTools, keyRow, cluster }
+  const ctx = { apiKeyTools, keyRow, cluster, wb: workbench }
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)
-    return t.exec(ctx, args) // K8s 工具 → callTool(keyRow+SA);W4b 平台工具 → 平台 session
+    return t.exec(ctx, args) // registry 分派:K8s→callTool;工作台→ctx.wb
   }
   const chat = (messages, tools) => llmClient.chat({ messages, tools })
-  // 只对「该 tier 实际可用的写工具」要求人审;tier 够不上的写工具直接执行(底座 authorize 会拒)
-  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && allowed.has(n) })
+  // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调
+  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && offered.has(n) })
   return { run: agent.run, toolDefs }
 }

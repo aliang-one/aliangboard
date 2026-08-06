@@ -1,14 +1,15 @@
-// 工具注册表(W4):统一 agent/MCP 工具的 metadata + 分派路由。单一源。
-// K8s 工具(principal:'k8s')exec 包底座 callTool(keyRow+SA+审计);
-// 工作台工具(W4b,principal:'platform')exec 走平台 session + projectId。
-// agent-runner 用 registry 决定 toolDefs / 人审 / 分派;双-principal 桥 = registry 本身(每工具 exec 闭包持各自 principal)。
-// authorize.mjs 的 tierTools 仍管 MCP /mcp 的 K8s 权限过滤(未改,零回归);本表管 agent 工具面。
+// 工具注册表(W4):统一 agent 工具的 metadata + 分派路由。单一源。
+// 两族工具,两个 principal,一个 registry(双-principal 桥 = registry 本身):
+//   - K8s 工具(principal:'k8s',有 minTier):exec 包底座 callTool(keyRow+SA+审计);按 tier 过滤。
+//   - 工作台工具(principal:'platform',无 minTier):exec 用 ctx.wb.{readLedger,readFile,writeFile};
+//     不走 K8s tier(forTier 因 minTier 缺失自动排除);write_project_file 走人审。
+// agent-runner 按 ctx 里有什么(keyRow / workbench)决定 offering;execTool 经 registry.get(name).exec(ctx,args) 分派。
 
 const RANK = { read: 0, operator: 1, admin: 2 }
-const rank = t => RANK[t] ?? 99
+const rank = t => RANK[t] ?? 99 // 工作台工具无 minTier → rank 99 → 自动排除出 forTier/toolDefsForTier
 
-// 6 个已实现 K8s 工具(agent/MCP 面)。minTier = 最低可用档;requiresApproval = agent 调用时走 checkpoint 人审。
-const ENTRIES = [
+// 6 个已实现 K8s 工具。minTier = 最低可用档;requiresApproval = agent 调用时走 checkpoint 人审。
+const K8S = [
   { name: 'get_pod_logs', minTier: 'read', requiresApproval: false,
     description: '获取 pod 日志(有界 tail,非 follow)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' } }, required: ['namespace', 'pod'] } },
@@ -27,17 +28,37 @@ const ENTRIES = [
   { name: 'restart', minTier: 'operator', requiresApproval: true,
     description: 'rollout restart(operator+ 档)。kind: deployments/statefulsets/daemonsets。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
-].map(t => ({
-  ...t,
-  principal: 'k8s',
-  exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args), // 复用底座全套
-}))
+].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args) }))
+
+// 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。
+const WB = [
+  { name: 'read_ledger', requiresApproval: false,
+    description: '读取集群台账 INDEX.md(平台 survey 的事实层:namespaces/工作负载/入口/存储)。agent 据此复用已知能力,避免从零摸集群。',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    exec: async (ctx) => { try { return await ctx.wb.readLedger() } catch (e) { return `读台账失败: ${e.message}` } } },
+  { name: 'read_project_file', requiresApproval: false,
+    description: '读取项目 repo 内某文件(如 manifests/ 下已写的 yaml 或 notes/)。',
+    inputSchema: { type: 'object', properties: { path: { type: 'string', description: '相对路径,如 manifests/deploy.yaml' } }, required: ['path'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.readFile(args.path) } catch (e) { return `读文件失败: ${e.message}` } } },
+  { name: 'write_project_file', requiresApproval: true,
+    description: '写/覆盖项目 repo 内某文件(如写 manifests/deploy.yaml)。需人审;批准后落盘(未自动 commit)。',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+    exec: async (ctx, args) => { await ctx.wb.writeFile(args.path, args.content); return { ok: true, path: args.path } } },
+].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
+
+const ENTRIES = [...K8S, ...WB]
+
+const toDef = t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } })
 
 export const registry = {
   get: name => ENTRIES.find(t => t.name === name) || null,
+  // K8s 工具按 tier(WB 工具 minTier 缺失 → rank 99 → 自动排除)
   forTier: tier => ENTRIES.filter(t => rank(t.minTier) <= rank(tier)).map(t => t.name),
+  toolDefsForTier: tier => ENTRIES.filter(t => rank(t.minTier) <= rank(tier)).map(toDef),
+  // 工作台工具(无 tier)
+  workbenchToolDefs: () => WB.map(toDef),
+  // 所有需人审的(K8s scale/restart + WB write_project_file);runner 用 offering 交集判定
   requiringApproval: () => ENTRIES.filter(t => t.requiresApproval).map(t => t.name),
-  toolDefsForTier: tier => ENTRIES.filter(t => rank(t.minTier) <= rank(tier)).map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } })),
   toMeta: () => Object.fromEntries(ENTRIES.map(t => [t.name, { description: t.description, inputSchema: t.inputSchema }])),
   all: () => ENTRIES,
 }
