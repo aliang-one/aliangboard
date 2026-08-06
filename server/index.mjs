@@ -808,7 +808,6 @@ async function handle(req, res) {
           writeFile: (p, c) => wbWriteFile(repo, p, c),
           readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
           applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
-          writeLedger: (p, c) => wbWriteFile(ledgerRepo, p, c),
           appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
           bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
         }
@@ -820,7 +819,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
           out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
           if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }
