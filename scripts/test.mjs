@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { classifyResource, groupByLayer } from '../src/composables/useLayering.js'
 import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
-import { yamlScalar } from '../src/composables/useYaml.js'
+import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
 
@@ -404,6 +404,30 @@ test('detectSecretTemplate: 按 type+keys 判定', () => {
   assert.equal(detectSecretTemplate({ type: 'Opaque', data: { GITHUB_TOKEN: '' } }), 'git-token')
   assert.equal(detectSecretTemplate({ type: 'Opaque', data: { AWS_ACCESS_KEY_ID: '' } }), 'aws')
   assert.equal(detectSecretTemplate({ type: 'Opaque', data: { random: '' } }), 'opaque')
+})
+
+// --- dumpResourceYaml：原始 K8s 对象 → 干净 YAML（剔除 managedFields，可选 status） ---
+test('dumpResourceYaml 剔除 managedFields、默认保留 status', () => {
+  const raw = { apiVersion: 'v1', kind: 'Pod', metadata: { name: 'web', managedFields: [{ x: 1 }] }, status: { phase: 'Running' }, spec: { containers: [] } }
+  const y = dumpResourceYaml(raw)
+  assert.ok(!y.includes('managedFields'), 'managedFields 应被剔除')
+  assert.ok(y.includes('phase: Running'), 'status 默认保留')
+  assert.ok(y.includes('kind: Pod'))
+})
+test('dumpResourceYaml stripStatus=true 剔除 status', () => {
+  const raw = { kind: 'Service', metadata: { name: 's', managedFields: [{}] }, status: { loadBalancer: { ingress: [] } }, spec: {} }
+  const y = dumpResourceYaml(raw, { stripStatus: true })
+  assert.ok(!y.includes('loadBalancer'), 'status 应被剔除')
+})
+test('dumpResourceYaml 空/undefined 安全返回空串', () => {
+  assert.equal(dumpResourceYaml(null), '')
+  assert.equal(dumpResourceYaml(undefined), '')
+})
+test('dumpResourceYaml 不修改原对象', () => {
+  const raw = { metadata: { name: 'n', managedFields: [1] }, status: { x: 1 } }
+  dumpResourceYaml(raw)
+  assert.ok(Array.isArray(raw.metadata.managedFields), '原对象 managedFields 不被破坏')
+  assert.ok(raw.status, '原对象 status 不被破坏')
 })
 
 // --- 汇总 ---
