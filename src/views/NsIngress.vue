@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -13,6 +14,7 @@ import { INGRESS_CLASSES, PERF_GROUPS, buildIngressAnnotations } from '@/composa
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 // 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索
@@ -124,15 +126,15 @@ function handleDelete() {
   <section class="animate-fade-in">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'Ingress' }
+      { label: t('ns.ingress.title') }
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md font-bold text-on-surface">Ingress</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsIngress.length }} ingress rules in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.ingress.title') }}</h2>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.ingress.subtitle', { count: store.nsIngress.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> New Ingress
+        <span class="material-symbols-outlined">add</span> {{ t('ns.ingress.new') }}
       </button>
     </div>
 
@@ -140,7 +142,7 @@ function handleDelete() {
     <div class="flex items-center gap-md mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
-        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="按名称或域名搜索..." />
+        <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.ingress.searchPlaceholder')" />
         <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">close</span></button>
       </div>
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ store.nsIngress.length }}</span>
@@ -150,12 +152,12 @@ function handleDelete() {
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Name</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Class</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">路由 Rules</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">TLS</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24 whitespace-nowrap">Actions</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thName') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thClass') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.ingress.thRules') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thTls') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('common.age') }}</th>
+            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24 whitespace-nowrap">{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/15">
@@ -177,7 +179,7 @@ function handleDelete() {
                   <span class="text-on-surface-variant">{{ r.path }}</span>
                   <span class="text-on-surface-variant/40">→</span>
                   <span v-if="r.backend" class="text-on-surface max-w-[200px] truncate" :title="r.backend">{{ r.backend }}</span>
-                  <span v-else class="text-on-surface-variant/40 italic">无后端</span>
+                  <span v-else class="text-on-surface-variant/40 italic">{{ t('ns.ingress.noBackend') }}</span>
                 </div>
               </div>
             </td>
@@ -186,15 +188,15 @@ function handleDelete() {
                 <span class="material-symbols-outlined text-base text-primary">lock</span>
                 <span class="font-mono text-xs text-primary max-w-[140px] truncate" :title="row.tlsSecret">{{ row.tlsSecret || 'TLS' }}</span>
               </div>
-              <span v-else class="text-xs text-on-surface-variant/50">无</span>
+              <span v-else class="text-xs text-on-surface-variant/50">{{ t('common.none') }}</span>
             </td>
             <td class="px-md py-2 text-body-sm text-on-surface-variant whitespace-nowrap">{{ row.age }}</td>
             <td class="px-md py-2 whitespace-nowrap" @click.stop>
               <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="查看详情">
+                <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('ns.ingress.viewDetail')">
                   <span class="material-symbols-outlined text-lg">open_in_new</span>
                 </button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="删除">
+                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
                   <span class="material-symbols-outlined text-lg">delete</span>
                 </button>
               </div>
@@ -208,17 +210,17 @@ function handleDelete() {
     </div>
     <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ searchQuery ? 'search_off' : 'language' }}</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">{{ searchQuery ? `没有匹配 "${searchQuery}" 的 Ingress` : 'No ingress rules in this namespace' }}</p>
-      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container">清除搜索</button>
-      <button v-else @click="showCreateModal = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">Create Ingress</button>
+      <p class="text-body-sm text-on-surface-variant mt-xs">{{ searchQuery ? t('ns.ingress.noMatch', { q: searchQuery }) : t('ns.ingress.empty') }}</p>
+      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container">{{ t('ns.ingress.clearSearch') }}</button>
+      <button v-else @click="showCreateModal = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">{{ t('ns.ingress.createShort') }}</button>
     </div>
   </section>
 
   <!-- Create Ingress Modal -->
-  <Modal v-model="showCreateModal" title="Create Ingress" width="max-w-3xl">
+  <Modal v-model="showCreateModal" :title="t('ns.ingress.createTitle')" width="max-w-3xl">
     <!-- 标签栏 -->
     <div class="flex gap-xs border-b border-outline-variant mb-md">
-      <button v-for="t in [{k:'basic',l:'基础'},{k:'perf',l:'性能调优'},{k:'extra',l:'安全与其它'}]" :key="t.k" @click="createTab = t.k"
+      <button v-for="t in [{k:'basic',l:t('ns.ingress.tabBasic')},{k:'perf',l:t('ns.ingress.tabPerf')},{k:'extra',l:t('ns.ingress.tabExtra')}]" :key="t.k" @click="createTab = t.k"
         class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
         :class="createTab === t.k ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
         {{ t.l }}
@@ -229,27 +231,27 @@ function handleDelete() {
     <div v-if="createTab === 'basic'" class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Ingress Name *</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.nameLabel') }}</label>
           <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-ingress" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Ingress Class</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.classLabel') }}</label>
           <select v-model="createForm.className" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option v-for="c in INGRESS_CLASSES" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Host *</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.hostLabel') }}</label>
         <input v-model="createForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="app.example.com" />
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Path</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.pathLabel') }}</label>
           <input v-model="createForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Path Type</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.pathTypeLabel') }}</label>
           <select v-model="createForm.pathType" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
           </select>
@@ -257,27 +259,27 @@ function handleDelete() {
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Backend Service *</label>
-          <PortSelect v-model="createForm.serviceName" :options="nsServiceNames" placeholder="my-service" empty-hint="当前命名空间暂无 Service，可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.backendSvcLabel') }}</label>
+          <PortSelect v-model="createForm.serviceName" :options="nsServiceNames" placeholder="my-service" :empty-hint="t('ns.ingress.noServiceInNs')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Service Port *</label>
-          <PortSelect v-model="createForm.servicePort" :options="selectedServicePorts" placeholder="80" empty-hint="选择 Service 后显示其端口，也可直接输入" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.svcPortLabel') }}</label>
+          <PortSelect v-model="createForm.servicePort" :options="selectedServicePorts" placeholder="80" :empty-hint="t('ns.ingress.selectSvcForPort')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
         </div>
       </div>
       <div class="flex items-center gap-sm">
         <input v-model="createForm.enableTLS" type="checkbox" class="rounded text-primary h-4 w-4" />
-        <span class="text-body-md font-medium">Enable TLS</span>
+        <span class="text-body-md font-medium">{{ t('ns.ingress.enableTls') }}</span>
       </div>
       <div v-if="createForm.enableTLS">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">TLS Secret Name</label>
-        <input v-model="createForm.tlsSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="my-tls-secret (auto-generated if empty)" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.tlsSecretLabel') }}</label>
+        <input v-model="createForm.tlsSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('ns.ingress.tlsSecretPlaceholder')" />
       </div>
     </div>
 
     <!-- 性能调优 / 安全与其它：参数分组 -->
     <div v-else class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm">
-      <p class="text-xs text-on-surface-variant">参数将以 <code class="font-mono bg-surface-container-low px-1 rounded">nginx.ingress.kubernetes.io/*</code> 注解写入；留空即用控制器默认值。</p>
+      <p class="text-xs text-on-surface-variant">{{ t('ns.ingress.perfHint') }}</p>
       <div v-for="g in PERF_GROUPS.filter(x => x.tab === createTab)" :key="g.title" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center gap-sm mb-sm">
           <span class="material-symbols-outlined text-primary text-lg">{{ g.icon }}</span>
@@ -288,7 +290,7 @@ function handleDelete() {
             <label class="text-xs text-on-surface-variant block mb-xs">{{ fld.label }}</label>
             <textarea v-if="fld.area" v-model="adv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
             <select v-else-if="fld.options" v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option v-for="o in fld.options" :key="o" :value="o">{{ o || '默认（不设置）' }}</option>
+              <option v-for="o in fld.options" :key="o" :value="o">{{ o || t('ns.ingress.defaultOpt') }}</option>
             </select>
             <input v-else v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
           </div>
@@ -298,31 +300,31 @@ function handleDelete() {
       <!-- 自定义注解（仅「安全与其它」标签显示）-->
       <div v-if="createTab === 'extra'" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center justify-between mb-sm">
-          <h4 class="text-body-sm font-semibold text-on-surface">自定义注解（任意 key/value）</h4>
-          <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>新增</button>
+          <h4 class="text-body-sm font-semibold text-on-surface">{{ t('ns.ingress.customAnnoTitle') }}</h4>
+          <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>{{ t('ns.ingress.addAnno') }}</button>
         </div>
         <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs">
           <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-          <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
+          <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.ingress.valuePlaceholder')" />
           <button @click="removeCustomAnnotation(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
-        <p v-if="!customAnnotations.length" class="text-xs text-on-surface-variant">暂无自定义注解</p>
+        <p v-if="!customAnnotations.length" class="text-xs text-on-surface-variant">{{ t('ns.ingress.noCustomAnno') }}</p>
       </div>
     </div>
 
     <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name || !createForm.host || !createForm.serviceName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
+      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCreate" :disabled="!createForm.name || !createForm.host || !createForm.serviceName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Confirm Modal -->
-  <Modal v-model="showDeleteModal" title="Delete Ingress" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete ingress <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This will remove all routing rules. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.ingress.deleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.ingress.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.ingress.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>
