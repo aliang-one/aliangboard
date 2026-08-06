@@ -9,18 +9,34 @@ import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+const queryClient = useQueryClient()
+
+// Services 走 Vue Query（cluster-wide fetch + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+// hydrate 仍为其他页供数（过渡双源，后续收敛）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const servicesKey = ['cluster', cid.value, 'services']
+const servicesQuery = useResourceList({
+  key: servicesKey,
+  fetcher: () => store.fetchServices(),
+  mock: store.serviceList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
 const typeFilter = ref('All')
 const typeOptions = ['All', 'ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']
 const searchQuery = ref('')
 
 const filtered = computed(() => {
-  let list = store.nsServices
+  let list = nsServices
   if (typeFilter.value !== 'All') list = list.filter(s => s.type === typeFilter.value)
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
@@ -31,9 +47,9 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, searchQuery] })
 
-const clusterIPCount = computed(() => store.nsServices.filter(s => s.type === 'ClusterIP').length)
-const nodePortCount = computed(() => store.nsServices.filter(s => s.type === 'NodePort').length)
-const lbCount = computed(() => store.nsServices.filter(s => s.type === 'LoadBalancer').length)
+const clusterIPCount = computed(() => nsServices.filter(s => s.type === 'ClusterIP').length)
+const nodePortCount = computed(() => nsServices.filter(s => s.type === 'NodePort').length)
+const lbCount = computed(() => nsServices.filter(s => s.type === 'LoadBalancer').length)
 
 // 类型 → 图标 / 配色（行图标 + 徽章 + 汇总卡）
 const TYPE_META = {
@@ -151,6 +167,7 @@ async function handleCreate() {
   }
   const r = await store.addService(payload)
   if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+  queryClient.invalidateQueries({ queryKey: servicesKey })
   showCreateModal.value = false
   resetCreate()
 }
@@ -165,6 +182,7 @@ function confirmDelete(svc) {
 function handleDelete() {
   if (deleteTarget.value) {
     store.deleteService(deleteTarget.value.name, route.params.namespace)
+    queryClient.invalidateQueries({ queryKey: servicesKey })
   }
   showDeleteModal.value = false
   deleteTarget.value = null
@@ -181,7 +199,7 @@ function handleDelete() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md font-bold text-on-surface">Services</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ nsServices.length }} services in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
       <div class="flex items-center gap-sm">
         <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" title="Endpoints（Service 的后端端点）">
@@ -200,7 +218,7 @@ function handleDelete() {
         :class="typeFilter === 'All' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-lowest hover:border-primary'">
         <span class="material-symbols-outlined text-on-surface-variant text-base">share</span>
         <span class="text-xs text-on-surface-variant">Total</span>
-        <span class="text-body-sm font-bold text-on-surface ml-auto">{{ store.nsServices.length }}</span>
+        <span class="text-body-sm font-bold text-on-surface ml-auto">{{ nsServices.length }}</span>
       </button>
       <button v-for="t in typeCards" :key="t.key" @click="toggleType(t.key)"
         class="rounded-lg px-sm py-1.5 flex items-center gap-xs text-left border transition-colors"
