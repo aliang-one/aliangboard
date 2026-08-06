@@ -81,3 +81,35 @@ test('listKeys: 不含 keyHash/明文,只 prefix;按 owner 过滤;按时间倒�
   assert.equal(listKeys(db, { owner: 'alice' }).map(r => r.id)[0], a.id)
   assert.equal(listKeys(db, { owner: 'bob' }).length, 1)
 })
+
+// --- Task 2: tool_overrides 承载(per-tool 权限覆盖)---
+test('mintKey: tool_overrides 合法 → 存规范 JSON 串;listKeys/lookupKey 回带', () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin', tool_overrides: { deny: ['delete_resource'] } })
+  assert.equal(k.tool_overrides, JSON.stringify({ deny: ['delete_resource'] }))
+  const row = listKeys(db)[0]
+  assert.equal(row.tool_overrides, JSON.stringify({ deny: ['delete_resource'] }))
+  const byLookup = lookupKey(db, k.plaintext)
+  assert.equal(byLookup.tool_overrides, JSON.stringify({ deny: ['delete_resource'] }))
+})
+
+test('mintKey: 无 tool_overrides → 列为 null', () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  assert.equal(k.tool_overrides, null)
+  assert.equal(listKeys(db)[0].tool_overrides, null)
+})
+
+test('mintKey: 非法 tool_overrides(未知名/allow∩deny)→ 抛,不建 key', () => {
+  const db = makeDb()
+  assert.throws(() => mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tool_overrides: { allow: ['bogus'] } }), /未知工具/)
+  assert.throws(() => mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tool_overrides: { allow: ['exec_pod'], deny: ['exec_pod'] } }), /不能同时/)
+  assert.equal(listKeys(db).length, 0, '失败不建 key')
+})
+
+test('schema 幂等: 重复 createApiKeysSchema 不报错(tool_overrides 列已存在)', () => {
+  const db = makeDb()
+  assert.doesNotThrow(() => createApiKeysSchema(db))  // 二次调用
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tool_overrides: { allow: ['scale'] } })
+  assert.ok(k.id)
+})
