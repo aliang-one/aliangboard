@@ -22,7 +22,7 @@ async function loadClusters() {
     const res = await authApi.myClusters()
     clusters.value = res.clusters || []
   } catch (e) {
-    errorMsg.value = e?.message || '加载集群列表失败'
+    errorMsg.value = e?.message || t('selectCluster.loadFailed')
   } finally { loading.value = false }
 }
 onMounted(loadClusters)
@@ -36,7 +36,7 @@ async function connect(cluster) {
     // 不在这里全量水合——改为进入 AppLayout 后后台加载（避免阻塞，用户先看到页面）
     window.location.href = '/cluster'
   } catch (e) {
-    errorMsg.value = e?.message || '连接集群失败'
+    errorMsg.value = e?.message || t('selectCluster.connectFailed')
   } finally { connecting.value = '' }
 }
 

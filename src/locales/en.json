@@ -1203,7 +1203,11 @@
       "deleteTitle": "Delete Workload",
       "deleteConfirm": "Delete workload {name}?",
       "deleteWarning": "This action cannot be undone. All Pods managed by this workload will be terminated.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "restartSuccess": "Restarted {name}",
+      "restartFailed": "Restart failed",
+      "emptyTitle": "No workloads",
+      "emptyDescription": "No matching workloads found, or cluster has no workloads."
     },
     "namespaceOverview": {
       "deployCount": "{n} Deployments · {layers} layers with instances",
@@ -1407,6 +1411,8 @@
     "title": "Select Cluster",
     "subtitle": "{user}, select a Kubernetes cluster to connect",
     "loadingError": "Failed to load cluster list",
+    "loadFailed": "Failed to load cluster list",
+    "connectFailed": "Failed to connect to cluster",
     "connecting": "Connecting to",
     "versionUnknown": "Version unknown",
     "noClusters": "No available clusters",
@@ -1668,7 +1674,10 @@
       "serverResultSubtitle": "SelfSubjectAccessReview",
       "serverResultHint": "Click \"Server-side can-i\" to query server-side determination for the current logged-in user (kubectl auth can-i server-side semantics).",
       "reasonLabel": "Reason: ",
-      "evaluationError": "Evaluation error: "
+      "evaluationError": "Evaluation error: ",
+      "for": "for",
+      "execute": "execute",
+      "currentUser": "Current user"
     },
     "deleteResource": "Delete resource",
     "deleteConfirm": "Confirm delete <span class=\"font-mono text-on-surface font-semibold\">{name}</span><span v-if=\"namespace\" class=\"text-on-surface-variant\"> ({namespace})</span>?",
@@ -1860,11 +1869,13 @@
       "configMap": "ConfigMap",
       "files": "Files ({n})",
       "selectFile": "Select a file from the left to view content",
+      "selectFileHint": "Select a file from the left to view content",
       "noFiles": "No files",
       "newFile": "New File",
+      "lineCount": "{n} lines",
+      "delete": "Delete",
       "lines": "{n} lines",
       "edit": "Edit",
-      "delete": "Delete",
       "save": "Save",
       "cancel": "Cancel",
       "deleteConfirm": "Are you sure you want to delete ConfigMap <span class=\"text-on-surface font-semibold\">{name}</span>?",
@@ -2470,6 +2481,7 @@
       "path": "Path:",
       "approve": "Approve",
       "reject": "Reject",
+      "defaultProjectName": "Project",
       "loadProjectFailed": "Failed to load project",
       "serviceUnavailable": "Service temporarily unavailable"
     },
@@ -2770,5 +2782,23 @@
     "title": "{name} · Terminal",
     "expired": "Session expired, please close this window and reopen the terminal from the original page.",
     "closeWindow": "Close Window"
+  },
+  "storageclass": {
+    "editModalTitle": "Edit StorageClass (mutable fields only)",
+    "setDefaultLabel": "Set as default StorageClass",
+    "annotationHint": "System annotation <code>storageclass.kubernetes.io/is-default-class</code> is controlled by the default toggle, not listed here.",
+    "deleteModalTitle": "Delete StorageClass",
+    "deleteConfirm": "Confirm delete StorageClass <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone."
+  },
+  "secret": {
+    "templateTls": "Contains tls.crt (certificate) + tls.key (private key)",
+    "templateSsh": "Contains ssh-privatekey{known_hosts ? ' + known_hosts' : ''}",
+    "templateBasicAuth": "Username: <span class=\"font-mono\">{username}</span>",
+    "templateAws": "AWS credentials (3 keys)",
+    "templateDb": "Database connection ({count} keys)"
+  },
+  "pv": {
+    "editModalTitle": "Edit PersistentVolume (mutable fields only)",
+    "deleteConfirm": "Confirm delete PV <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone."
   }
 }

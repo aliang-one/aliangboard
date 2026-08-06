@@ -34,7 +34,7 @@ const dataEntries = computed(() => {
   return Object.entries(cm.value.data)
 })
 
-// 进入 Data tab / 切换 ConfigMap 时自动选中第一个文件
+// Auto-select first file when entering Data tab / switching ConfigMap
 watch([() => cm.value?.name, () => activeTab.value, () => dataEntries.value.length], () => {
   if (activeTab.value === 'data' && dataEntries.value.length && !selectedKey.value) {
     selectedKey.value = dataEntries.value[0][0]
@@ -42,12 +42,12 @@ watch([() => cm.value?.name, () => activeTab.value, () => dataEntries.value.leng
 }, { immediate: true })
 watch(() => cm.value?.name, () => { selectedKey.value = ''; editingKey.value = null })
 
-// 引用此 ConfigMap 的 Workload 数量
+// Number of Workloads referencing this ConfigMap
 const refCount = computed(() =>
   store.getResourceReferences('ConfigMap', route.params.name, route.params.namespace).length
 )
 
-// 配置文件类型识别
+// Config file type detection
 const COLLAPSE_THRESHOLD = 6
 const expandedKeys = ref(new Set())
 
@@ -134,7 +134,7 @@ const allLabels = computed(() => {
   return Object.entries(cm.value.labels)
 })
 
-// === Annotations 编辑 ===
+// === Annotations editing ===
 const showAddAnnModal = ref(false)
 const newAnnKey = ref('')
 const newAnnValue = ref('')
@@ -164,7 +164,7 @@ function saveEditAnn() {
   editingAnn.value = null
 }
 
-// === Labels 编辑 ===
+// === Labels editing ===
 const showAddLabelModal = ref(false)
 const newLabelKey = ref('')
 const newLabelValue = ref('')
@@ -271,10 +271,10 @@ function saveEditLabel() {
               <span class="inline-flex items-center gap-1 px-1.5 py-0 rounded text-label-caps font-medium" :class="detectLang(selectedKey).color">
                 <span class="material-symbols-outlined text-xs">{{ detectLang(selectedKey).icon }}</span>{{ detectLang(selectedKey).label }}
               </span>
-              <span class="text-label-caps text-on-surface-variant">{{ lineCount(cm.data[selectedKey]) }} 行</span>
+              <span class="text-label-caps text-on-surface-variant">{{ t('ns.cmDetail.lineCount', { n: lineCount(cm.data[selectedKey]) }) }}</span>
             </div>
             <div class="flex gap-xs">
-              <button v-if="editingKey !== selectedKey" @click="startEdit(selectedKey)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="编辑"><span class="material-symbols-outlined text-lg">edit</span></button>
+              <button v-if="editingKey !== selectedKey" @click="startEdit(selectedKey)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="$t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
               <button @click="deleteKey(selectedKey); selectedKey = dataEntries.find(([k]) => k !== selectedKey)?.[0] || ''" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('ns.cmDetail.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
             </div>
           </div>
@@ -282,8 +282,8 @@ function saveEditLabel() {
           <div v-if="editingKey === selectedKey" class="p-md flex-1">
             <textarea v-model="editValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[300px] resize-y focus:ring-2 focus:ring-primary focus:border-primary"></textarea>
             <div class="flex justify-end gap-sm mt-sm">
-              <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">取消</button>
-              <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">保存</button>
+              <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ t('common.cancel') }}</button>
+              <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ t('common.save') }}</button>
             </div>
           </div>
           <!-- 查看模式 -->
@@ -295,7 +295,7 @@ function saveEditLabel() {
         <div v-else class="flex items-center justify-center flex-1 min-h-[300px] text-on-surface-variant">
           <div class="text-center">
             <span class="material-symbols-outlined text-3xl text-surface-container-high">description</span>
-            <p class="mt-sm text-body-sm">选择左侧文件查看内容</p>
+            <p class="mt-sm text-body-sm">{{ t('ns.cmDetail.selectFileHint') }}</p>
           </div>
         </div>
       </div>

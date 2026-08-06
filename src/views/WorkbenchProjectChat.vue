@@ -41,7 +41,7 @@ function applyResponse(agentId, res) {
     updateTurn(agentId, { status: 'pending_approval', steps: res.steps ?? t.steps, denied: res.denied || [], truncated: false })
     pendingApproval.value = { turnId: agentId, toolCallId: res.pending.toolCallId, name: res.pending.name, args: res.pending.args, runContext: res.runContext, queue: res.queue, denied: res.denied, steps: res.steps }
   } else {
-    updateTurn(agentId, { status: 'done', content: res.content || '(无回答)', steps: res.steps ?? 0, denied: res.denied || [], truncated: !!res.truncated })
+    updateTurn(agentId, { status: 'done', content: res.content || t('workbench.chat.noAnswer'), steps: res.steps ?? 0, denied: res.denied || [], truncated: !!res.truncated })
   }
 }
 
@@ -84,7 +84,7 @@ function useHint(h) { input.value = h }
 function clearChat() { turns.value = []; pendingApproval.value = null; errorBanner.value = '' }
 
 onMounted(async () => {
-  try { const r = await workbenchApi.getProject(id); projectName.value = r.project?.name || '项目' }
+  try { const r = await workbenchApi.getProject(id); projectName.value = r.project?.name || t('workbench.chat.defaultProjectName') }
   catch (e) { errorBanner.value = e.message || t('workbench.chat.loadProjectFailed') }
 })
 </script>

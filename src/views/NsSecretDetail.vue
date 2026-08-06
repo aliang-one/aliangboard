@@ -29,7 +29,7 @@ const editingKey = ref(null)
 const editValue = ref('')
 const revealedKeys = ref(new Set())
 
-// Secret.data 存的是 base64；展示/t('common.edit')时解码，回写时由 store 重新编码
+// Secret.data stores base64; decode for display/edit, re-encode when writing back via store
 const decode = (v) => store.decodeBase64(v)
 const decodedData = (d) => Object.fromEntries(Object.entries(d || {}).map(([k, v]) => [k, decode(v)]))
 
@@ -164,7 +164,7 @@ const typeBadge = computed(() => {
   return { color: 'bg-surface-container text-on-surface-variant border-outline-variant', icon: 'key' }
 })
 
-// 引用此 Secret 的 Workload 数量
+// Number of Workloads referencing this Secret
 const refCount = computed(() =>
   store.getResourceReferences('Secret', route.params.name, route.params.namespace).length
 )
@@ -222,17 +222,17 @@ const refCount = computed(() =>
               <span v-for="reg in dockerRegistries" :key="reg.server"><span class="font-mono text-primary">{{ reg.server }}</span> · {{ reg.username }}</span>
             </div>
             <!-- TLS -->
-            <p v-else-if="secretTemplateId === 'tls'" class="text-body-sm text-on-surface-variant mt-xs">包含 tls.crt (证书) + tls.key (私钥)</p>
+            <p v-else-if="secretTemplateId === 'tls'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateTls') }}</p>
             <!-- SSH -->
-            <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">包含 ssh-privatekey{{ secret.value?.data?.known_hosts ? ' + known_hosts' : '' }}</p>
+            <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateSsh', { known_hosts: secret.value?.data?.known_hosts } ) }}</p>
             <!-- Basic Auth -->
-            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">用户: <span class="font-mono">{{ decode(secret.value?.data?.username) || '—' }}</span></p>
+            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateBasicAuth', { username: decode(secret.value?.data?.username) || '—' } ) }}</p>
             <!-- Git Token -->
             <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">Key: <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
             <!-- AWS -->
-            <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">AWS 凭证 (3 keys)</p>
+            <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateAws') }}</p>
             <!-- DB -->
-            <p v-else-if="secretTemplateId === 'db'" class="text-body-sm text-on-surface-variant mt-xs">数据库连接 ({{ dataEntries.length }} keys)</p>
+            <p v-else-if="secretTemplateId === 'db'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateDb', { count: dataEntries.length }) }}</p>
           </div>
         </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">

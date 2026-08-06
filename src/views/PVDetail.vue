@@ -31,7 +31,7 @@ const pvc = computed(() => {
 const sc = computed(() => pv.value?.storageClass ? store.getSCByName(pv.value.storageClass) : null)
 const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
 
-// 结构化t('common.edit')（仅 K8s 可变字段：reclaimPolicy + labels/annotations）+ t('common.delete')
+// Structured edit (K8s mutable fields only: reclaimPolicy + labels/annotations) + delete
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
 const editForm = ref({ reclaimPolicy: 'Retain', labels: [], annotations: [] })
@@ -151,7 +151,7 @@ async function handleDelete() {
     </div>
 
     <!-- Edit Modal -->
-    <Modal v-model="showEditModal" title="t('common.edit') PersistentVolume（仅可变字段）" width="max-w-lg">
+    <Modal v-model="showEditModal" :title="t('pv.editModalTitle')" width="max-w-lg">
       <div class="flex flex-col gap-md">
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Reclaim Policy</label>
@@ -164,26 +164,26 @@ async function handleDelete() {
         <div>
           <div class="flex items-center justify-between mb-xs">
             <label class="text-label-caps text-on-surface-variant">Labels</label>
-            <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ t('common.add')</button>
+            <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
             <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">无</p>
+          <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
             <label class="text-label-caps text-on-surface-variant">Annotations</label>
-            <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ t('common.add')</button>
+            <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
             <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">无</p>
+          <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
       </div>
       <template #actions>
@@ -194,7 +194,7 @@ async function handleDelete() {
 
     <!-- Delete Modal -->
     <Modal v-model="showDeleteModal" title="t('common.delete') PersistentVolume" width="max-w-md">
-      <p class="text-body-md text-on-surface-variant">确认t('common.delete') PV <span class="text-on-surface font-semibold">{{ pv.name }}</span>？此操作不可撤销。</p>
+      <p class="text-body-md text-on-surface-variant" v-html="t('pv.deleteConfirm', { name: pv.name })"></p>
       <template #actions>
         <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">t('common.cancel')</button>
         <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">t('common.delete')</button>
