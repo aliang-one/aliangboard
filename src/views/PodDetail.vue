@@ -81,11 +81,11 @@ const logSince = ref('')            // 空字符串 = 不限时间；否则为 s
 const logPrevious = ref(false)      // --previous：上一容器（崩溃前）日志
 const lineOptions = [100, 500, 1000, 5000]
 const sinceOptions = [
-  { label: '全部', value: '' },
-  { label: '近 5 分钟', value: '300' },
-  { label: '近 15 分钟', value: '900' },
-  { label: '近 1 小时', value: '3600' },
-  { label: '近 6 小时', value: '21600' },
+  { label: t('podDetail.sinceAll'), value: '' },
+  { label: t('podDetail.since5min'), value: '300' },
+  { label: t('podDetail.since15min'), value: '900' },
+  { label: t('podDetail.since1hour'), value: '3600' },
+  { label: t('podDetail.since6hours'), value: '21600' },
 ]
 const sampleLogMessages = [
   { level: 'INFO', message: 'GET /api/v1/health - 200 OK (8ms)' },
@@ -262,9 +262,9 @@ async function doAttachDebug() {
     selectedContainer.value = debugForm.value.name   // 终端容器选择切到调试容器
     showDebug.value = false
     activeTab.value = 'terminal'
-    notify('success', `已注入调试容器 ${debugForm.value.name}（稍候片刻待其启动，再点 Connect 进入）`)
+    notify('success', t('podDetail.debugSuccess', { name: debugForm.value.name }))
   } catch (e) {
-    notify('error', e.message || '注入调试容器失败')
+    notify('error', e.message || t('podDetail.debugFailed'))
   } finally {
     debugAttaching.value = false
   }
