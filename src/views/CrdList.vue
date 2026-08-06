@@ -1,11 +1,13 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const store = useClusterStore()
 
 // 搜索关键字
@@ -52,18 +54,18 @@ const totalInstances = computed(() =>
     <div class="flex flex-col gap-sm mt-sm mb-md">
       <div class="flex items-end justify-between gap-md flex-wrap">
         <div>
-          <h1 class="text-headline-md text-on-surface font-bold">自定义资源定义 (CRDs)</h1>
+          <h1 class="text-headline-md text-on-surface font-bold">{{ $t('admin.crdList.title') }}</h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
-            管理集群中已注册的自定义资源定义及其实例。
+            {{ $t('admin.crdList.subtitle') }}
           </p>
         </div>
         <div class="flex items-center gap-sm">
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
-            <p class="text-xs text-on-surface-variant">CRDS</p>
+            <p class="text-xs text-on-surface-variant">{{ $t('admin.crdList.crdsLabel') }}</p>
             <p class="text-body-sm text-primary font-bold">{{ store.crdList.length }}</p>
           </div>
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
-            <p class="text-xs text-on-surface-variant">INSTANCES</p>
+            <p class="text-xs text-on-surface-variant">{{ $t('admin.crdList.instancesLabel') }}</p>
             <p class="text-body-sm text-primary font-bold">{{ totalInstances }}</p>
           </div>
         </div>
@@ -75,7 +77,7 @@ const totalInstances = computed(() =>
         <input
           v-model="search"
           type="text"
-          placeholder="按 name / kind / group 搜索..."
+          :placeholder="$t('admin.crdList.searchPlaceholder')"
           class="w-full pl-xl pr-md py-1.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-body-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:border-primary transition-colors"
         />
       </div>
@@ -87,12 +89,12 @@ const totalInstances = computed(() =>
         <thead>
           <tr class="border-b border-outline-variant bg-surface-container-low/50">
             <th class="w-10 px-md py-2"></th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">GROUP / VERSION</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">KIND</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">SCOPE</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">INSTANCES</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">DESCRIPTION</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thName') }}</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thGroupVersion') }}</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thKind') }}</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thScope') }}</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thInstances') }}</th>
+            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thDescription') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -125,13 +127,13 @@ const totalInstances = computed(() =>
                   v-if="crd.scope === 'Namespaced'"
                   class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs font-semibold rounded inline-flex items-center gap-1"
                 >
-                  <span class="material-symbols-outlined text-xs">folder</span> Namespaced
+                  <span class="material-symbols-outlined text-xs">folder</span> {{ $t('admin.crdList.namespaced') }}
                 </span>
                 <span
                   v-else
                   class="px-2 py-0.5 bg-secondary-fixed/20 text-secondary text-xs font-semibold rounded inline-flex items-center gap-1"
                 >
-                  <span class="material-symbols-outlined text-xs">public</span> Cluster
+                  <span class="material-symbols-outlined text-xs">public</span> {{ $t('admin.crdList.cluster') }}
                 </span>
               </td>
               <td class="px-md py-2">
@@ -150,18 +152,18 @@ const totalInstances = computed(() =>
                   <div class="flex items-center justify-between px-md py-2 bg-surface-container-low/50 border-b border-outline-variant/50">
                     <div class="flex items-center gap-sm">
                       <span class="material-symbols-outlined text-primary text-base">list_alt</span>
-                      <span class="text-xs font-medium text-on-surface">INSTANCES</span>
+                      <span class="text-xs font-medium text-on-surface">{{ $t('admin.crdList.instancesTitle') }}</span>
                       <span class="text-xs text-on-surface-variant">({{ crd.kind }})</span>
                     </div>
-                    <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} 个实例</span>
+                    <span class="text-xs text-on-surface-variant">{{ $t('admin.crdList.instancesCount', { n: crd.instances?.length || 0 }) }}</span>
                   </div>
                   <table v-if="crd.instances && crd.instances.length" class="w-full">
                     <thead>
                       <tr class="border-b border-outline-variant/50 bg-surface-container-low/30">
-                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAME</th>
-                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">NAMESPACE</th>
-                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">STATUS</th>
-                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">AGE</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thInstanceName') }}</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thNamespace') }}</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thStatus') }}</th>
+                        <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thAge') }}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -188,7 +190,7 @@ const totalInstances = computed(() =>
                   </table>
                   <div v-else class="px-md py-md text-center">
                     <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-                    <p class="text-xs text-on-surface-variant mt-xs">该 CRD 暂无实例</p>
+                    <p class="text-xs text-on-surface-variant mt-xs">{{ $t('admin.crdList.noInstances') }}</p>
                   </div>
                 </div>
               </td>
@@ -205,7 +207,7 @@ const totalInstances = computed(() =>
       <div v-if="!filteredCrds.length" class="px-md py-md text-center">
         <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
         <p class="text-body-sm text-on-surface-variant mt-xs">
-          {{ search ? '没有匹配的 CRD' : '当前集群没有已注册的 CRD' }}
+          {{ search ? $t('admin.crdList.noMatchSearch') : $t('admin.crdList.noCrds') }}
         </p>
       </div>
     </div>
