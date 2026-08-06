@@ -562,11 +562,15 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: Services ===
   async function addService(svc) {
-    if (remoteMode.value) return remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
-    serviceList.value.push({ ...svc, age: 'Just now' })
-    // Update namespace service count
-    const ns = namespaceList.value.find(n => n.name === svc.namespace)
-    if (ns) ns.services++
+    if (remoteMode.value) {
+      await remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
+    } else {
+      serviceList.value.push({ ...svc, age: 'Just now' })
+      // Update namespace service count
+      const ns = namespaceList.value.find(n => n.name === svc.namespace)
+      if (ns) ns.services++
+    }
+    invalidateResource('services')
   }
 
   async function updateService(name, ns, updates) {
@@ -575,17 +579,19 @@ export const useClusterStore = defineStore('cluster', () => {
     const before = JSON.parse(JSON.stringify(serviceList.value[idx]))
     serviceList.value[idx] = { ...before, ...updates }
     if (remoteMode.value) await remoteUpdate(generateYAML('service', serviceList.value[idx]), 'Service', () => { serviceList.value[idx] = before })
+    invalidateResource('services')
   }
 
   async function deleteService(name, ns) {
     if (remoteMode.value) {
       await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`, serviceList, s => s.name === name && s.namespace === ns)
-      return
+    } else {
+      const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
+      if (idx !== -1) serviceList.value.splice(idx, 1)
+      const nsObj = namespaceList.value.find(n => n.name === ns)
+      if (nsObj) nsObj.services = Math.max(0, nsObj.services - 1)
     }
-    const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx !== -1) serviceList.value.splice(idx, 1)
-    const nsObj = namespaceList.value.find(n => n.name === ns)
-    if (nsObj) nsObj.services = Math.max(0, nsObj.services - 1)
+    invalidateResource('services')
   }
 
   // === CRUD: Ingress ===
@@ -1179,6 +1185,7 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
   async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
+  async function fetchService(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`); return d ? mapService(d) : null }
   async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
   async function fetchConfigMap(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`); return d ? mapConfigMap(d) : null }
   async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
@@ -3496,6 +3503,7 @@ status:
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
     fetchConfigMap,
     fetchSecret,
+    fetchService,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
     refreshMetrics,
     // Pod Watch（实时监听）
