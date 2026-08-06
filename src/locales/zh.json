@@ -128,7 +128,31 @@
     "llmConfig": "LLM 配置",
     "settings": "设置",
     "deploy": "部署",
-    "workloads": "工作负载"
+    "workloads": "工作负载",
+    "workbench": "工作台",
+    "overview": "概览",
+    "network": "网络",
+    "storageConfig": "存储与配置",
+    "security": "安全",
+    "policy": "策略",
+    "clusterResources": "集群资源",
+    "auditAndMultiCluster": "审计 / 多集群",
+    "platformAdmin": "平台管理",
+    "searchPlaceholder": "搜索资源（Pod / 工作负载 / Service …，回车跳首个）...",
+    "switchCluster": "切换集群",
+    "manageAll": "管理全部",
+    "notSelected": "未选择",
+    "filterNamespaces": "过滤命名空间...",
+    "noMatchingNamespaces": "无匹配命名空间",
+    "refreshPage": "刷新当前页",
+    "refreshPageData": "刷新当前页数据",
+    "activityLog": "活动记录",
+    "logout": "退出登录"
+  },
+  "layout": {
+    "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
+    "clusterUnreachable": "集群不可达或未连接：{reasons}",
+    "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}"
   },
   "clusters": {
     "title": "集群管理",

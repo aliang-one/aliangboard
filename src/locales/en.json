@@ -128,7 +128,31 @@
     "llmConfig": "LLM Config",
     "settings": "Settings",
     "deploy": "Deploy",
-    "workloads": "Workloads"
+    "workloads": "Workloads",
+    "workbench": "Workbench",
+    "overview": "Overview",
+    "network": "Network",
+    "storageConfig": "Storage & Config",
+    "security": "Security",
+    "policy": "Policy",
+    "clusterResources": "Cluster Resources",
+    "auditAndMultiCluster": "Audit / Multi-Cluster",
+    "platformAdmin": "Platform Admin",
+    "searchPlaceholder": "Search resources (Pod / Workload / Service …, press Enter to open the first)...",
+    "switchCluster": "Switch Cluster",
+    "manageAll": "Manage All",
+    "notSelected": "Not selected",
+    "filterNamespaces": "Filter namespaces...",
+    "noMatchingNamespaces": "No matching namespaces",
+    "refreshPage": "Refresh current page",
+    "refreshPageData": "Refresh current page data",
+    "activityLog": "Activity Log",
+    "logout": "Logout"
+  },
+  "layout": {
+    "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
+    "clusterUnreachable": "Cluster unreachable or not connected: {reasons}",
+    "clusterStatusSummary": "Cluster: {status} · Control plane {ready}/{total} · Worker {wready}/{wtotal}"
   },
   "clusters": {
     "title": "Cluster Management",

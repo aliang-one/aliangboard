@@ -20,7 +20,7 @@ const clusterPrimaryNav = [
   { icon: 'folder_open', labelKey: 'nav.namespaces', route: '/namespaces' },
   { icon: 'storage', labelKey: 'nav.storage', route: '/storage' },
   { icon: 'monitoring', labelKey: 'nav.monitoring', route: '/monitoring' },
-  { icon: 'workspaces', label: '工作台', route: '/workbench' },
+  { icon: 'workspaces', labelKey: 'nav.workbench', route: '/workbench' },
 ]
 const clusterResourcesNav = [
   { icon: 'extension', labelKey: 'nav.crds', route: '/crds' },
@@ -40,7 +40,7 @@ const clusterOtherNav = [
 // 平台管理（admin only）
 const platformAdminNav = [
   { icon: 'group', labelKey: 'nav.userManagement', route: '/admin/users' },
-  { icon: 'cloud', label: '集群管理', route: '/admin/clusters' },
+  { icon: 'cloud', labelKey: 'nav.clusterManagement', route: '/admin/clusters' },
   { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
   { icon: 'smart_toy', labelKey: 'nav.aiConsole', route: '/admin/agent' },
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
@@ -50,7 +50,7 @@ const clusterNavOpen = ref(false)
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
   {
-    label: '概览',
+    labelKey: 'nav.overview',
     icon: 'grid_view',
     items: [
       { icon: 'dashboard', label: 'Namespace Overview', routeKey: 'overview' },
@@ -67,7 +67,7 @@ const nsNavGroups = [
     ]
   },
   {
-    label: '网络',
+    labelKey: 'nav.network',
     icon: 'share',
     items: [
       { icon: 'hub', label: 'Services', routeKey: 'services' },
@@ -76,7 +76,7 @@ const nsNavGroups = [
     ]
   },
   {
-    label: '存储与配置',
+    labelKey: 'nav.storageConfig',
     icon: 'folder_shared',
     items: [
       { icon: 'storage', label: 'Storage (PVC)', routeKey: 'storage' },
@@ -85,14 +85,14 @@ const nsNavGroups = [
     ]
   },
   {
-    label: '安全',
+    labelKey: 'nav.security',
     icon: 'security',
     items: [
       { icon: 'admin_panel_settings', label: 'RBAC', routeKey: 'rbac' },
     ]
   },
   {
-    label: '策略',
+    labelKey: 'nav.policy',
     icon: 'policy',
     items: [
       { icon: 'pie_chart', label: 'ResourceQuota', routeKey: 'resourcequotas' },
@@ -292,14 +292,14 @@ function nsStatusColor(status) {
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
             <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
-          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">集群资源</p>
+          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.clusterResources') }}</p>
           <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
             <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
-          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">审计 / 多集群</p>
+          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.auditAndMultiCluster') }}</p>
           <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
@@ -311,7 +311,7 @@ function nsStatusColor(status) {
 
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
-        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs">平台管理</p>
+        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs">{{ $t('nav.platformAdmin') }}</p>
         <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
           class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">

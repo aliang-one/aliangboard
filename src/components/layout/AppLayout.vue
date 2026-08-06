@@ -40,8 +40,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
         class="px-lg py-sm flex items-center gap-sm text-on-error bg-error/10 border-b border-error/30 text-body-sm">
         <span class="material-symbols-outlined text-base">crisis_alert</span>
-        <span v-if="store.clusterHealth.status === 'Critical'">控制面异常：{{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }} 就绪 · {{ store.clusterHealth.reasons.join('；') }}</span>
-        <span v-else>集群不可达或未连接：{{ store.clusterHealth.reasons.join('；') }}</span>
+        <span v-if="store.clusterHealth.status === 'Critical'">{{ $t('layout.controlPlaneAbnormal', { ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, reasons: store.clusterHealth.reasons.join('；') }) }}</span>
+        <span v-else>{{ $t('layout.clusterUnreachable', { reasons: store.clusterHealth.reasons.join('；') }) }}</span>
       </div>
       <main class="flex-1 overflow-y-auto bg-surface p-margin">
         <router-view v-slot="{ Component, route }">
@@ -59,7 +59,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <div class="flex items-center gap-lg">
           <div class="flex items-center gap-sm">
             <span class="w-2 h-2 rounded-full" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
-            <span class="text-body-sm text-on-surface-variant">集群: {{ store.clusterHealth.status }} · 控制面 {{ store.clusterHealth.controlPlane.ready }}/{{ store.clusterHealth.controlPlane.total }} · worker {{ store.clusterHealth.workers.ready }}/{{ store.clusterHealth.workers.total }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
           </div>
         </div>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
