@@ -26,3 +26,6 @@ data/
 *.sln
 *.sw?
 .playwright-mcp.claude/
+
+# Superpowers SDD 工作区（账本/报告等 scratch，勿入库）
+.superpowers/
