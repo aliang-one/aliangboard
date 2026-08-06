@@ -1,6 +1,9 @@
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+
+const { t } = useI18n()
 
 // 单个卷挂载卡片：类型图标胶囊 + 挂到容器 + 来源(下拉) + 键映射items(key 下拉) + 挂载到/subPath/只读。
 // items 与 subPath 可共存（K8s 合法）：subPath 挂载 items 投影出的某个文件。
@@ -66,65 +69,65 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
     <!-- 挂到容器 + 来源（下拉选择）-->
     <div class="grid grid-cols-2 gap-xs">
       <div>
-        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">挂到容器</label>
+        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountToContainer') }}</label>
         <select v-model="entry.target" :class="fld">
           <option v-for="c in containers" :key="c.value" :value="c.value">{{ c.label }}</option>
         </select>
       </div>
       <div>
-        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">来源</label>
+        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.source') }}</label>
         <select v-if="entry.type === 'pvc'" v-model="entry.pvcName" :class="fld">
-          <option value="">选择 PVC</option>
+          <option value="">{{ t('component.volumeMount.selectPvc') }}</option>
           <option v-for="p in pvcs" :key="p" :value="p">{{ p }}</option>
         </select>
         <input v-else-if="entry.type === 'hostPath'" v-model="entry.hostPath" :class="fld" placeholder="/var/lib/data" />
         <div v-else-if="entry.type === 'nfs'" class="grid grid-cols-2 gap-xs">
-          <input v-model="entry.server" :class="fld" placeholder="server IP/主机" />
-          <input v-model="entry.nfsPath" :class="fld" placeholder="导出路径 /export" />
+          <input v-model="entry.server" :class="fld" :placeholder="t('component.volumeMount.serverPlaceholder')" />
+          <input v-model="entry.nfsPath" :class="fld" :placeholder="t('component.volumeMount.exportPathPlaceholder')" />
         </div>
         <select v-else-if="entry.type === 'configMap'" v-model="entry.cmName" :class="fld">
-          <option value="">选择 ConfigMap</option>
+          <option value="">{{ t('component.volumeMount.selectConfigMap') }}</option>
           <option v-for="cm in availableConfigMaps" :key="cm" :value="cm">{{ cm }}</option>
         </select>
         <select v-else-if="entry.type === 'secret'" v-model="entry.secretName" :class="fld">
-          <option value="">选择 Secret</option>
+          <option value="">{{ t('component.volumeMount.selectSecret') }}</option>
           <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
         </select>
-        <p v-else class="text-xs text-on-surface-variant/70 py-1.5">临时空目录，Pod 删除即失效</p>
+        <p v-else class="text-xs text-on-surface-variant/70 py-1.5">{{ t('component.volumeMount.emptyDirHint') }}</p>
       </div>
     </div>
 
     <!-- 键映射 items（仅 configMap/secret；key 下拉选择）—— 置上 -->
     <div v-if="showItems" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-xs">
       <div class="flex items-center justify-between">
-        <span class="text-[10px] font-semibold text-on-surface-variant">键映射 items（可选：把指定 key 投影成文件名）</span>
-        <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>添加</button>
+        <span class="text-[10px] font-semibold text-on-surface-variant">{{ t('component.volumeMount.keyMapping') }}</span>
+        <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ t('common.add') }}</button>
       </div>
-      <p class="text-[10px] text-on-surface-variant/60">提示：items 会把所选 key 都挂到上方「挂载到」目录下（多个文件一次挂齐）；subPath 只挂其中一个文件，二者通常不必同时用。要把一个卷挂到多个不同路径，请新增多条卷或直接编 YAML。</p>
+      <p class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.keyMappingHint') }}</p>
       <div v-for="(it, idx) in entry.items" :key="idx" class="grid grid-cols-[1fr_auto_1fr_auto] gap-xs items-center">
         <select v-model="it.key" @change="onItemKey(it)" :class="fld">
-          <option value="">选择 key</option>
+          <option value="">{{ t('component.volumeMount.selectKey') }}</option>
           <option v-for="k in selectedKeys" :key="k" :value="k">{{ k }}</option>
         </select>
         <span class="material-symbols-outlined text-sm text-on-surface-variant">arrow_forward</span>
-        <input v-model="it.path" :class="fld" placeholder="文件名 path" />
+        <input v-model="it.path" :class="fld" :placeholder="t('component.volumeMount.fileNamePlaceholder')" />
         <button @click="entry.items.splice(idx, 1)" class="p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
       </div>
-      <p v-if="(entry.cmName || entry.secretName) && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">该资源暂无可列 key（可能未加载）；items 留空则整挂（全部 key 作文件）。</p>
+      <p v-if="(entry.cmName || entry.secretName) && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.noKeysHint') }}</p>
     </div>
 
     <!-- 挂载到 / subPath / 只读 —— 置下 -->
     <div class="grid grid-cols-[1fr_1fr_auto] gap-xs items-end">
       <div>
-        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">挂载到</label>
+        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountPath') }}</label>
         <input v-model="entry.mountPath" :class="fld" placeholder="/etc/config" />
       </div>
       <div>
-        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">subPath</label>
-        <input v-model="entry.subPath" :class="fld" placeholder="(可选) 单文件挂载" />
+        <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.subPathLabel') }}</label>
+        <input v-model="entry.subPath" :class="fld" :placeholder="t('component.volumeMount.subPathPlaceholder')" />
       </div>
       <label class="flex items-center gap-0.5 text-xs text-on-surface-variant pb-1.5 whitespace-nowrap">
-        <input type="checkbox" v-model="entry.readOnly" class="h-3.5 w-3.5 accent-primary" /> 只读
+        <input type="checkbox" v-model="entry.readOnly" class="h-3.5 w-3.5 accent-primary" /> {{ t('component.volumeMount.readOnly') }}
       </label>
     </div>
   </div>

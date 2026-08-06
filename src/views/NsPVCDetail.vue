@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -11,6 +12,8 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -72,12 +75,12 @@ const ferror = ref('')
 const fInited = ref(false)
 const joinPath = (base, name) => (base.replace(/\/$/, '') + '/' + name).replace(/\/+/g, '/')
 async function browsePvc(p) {
-  if (!store.remoteMode) { ferror.value = '仅连接集群后可浏览'; return }
+  if (!store.remoteMode) { ferror.value = t('ns.pvcDetail.browseFailed'); return }
   floading.value = true; ferror.value = ''; ffile.value = null
   try {
     const r = await pvcFileApi.list({ namespace: route.params.namespace, pvc: route.params.name, path: p || '/' })
     fpath.value = r.path; fentries.value = r.entries; fInited.value = true
-  } catch (e) { ferror.value = e.message || '浏览失败' }
+  } catch (e) { ferror.value = e.message || t('ns.pvcDetail.browseFailed') }
   finally { floading.value = false }
 }
 async function openFEntry(e) {
@@ -86,7 +89,7 @@ async function openFEntry(e) {
   try {
     const r = await pvcFileApi.read({ namespace: route.params.namespace, pvc: route.params.name, path: joinPath(fpath.value, e.name) })
     ffile.value = { ...r, name: e.name }
-  } catch (e) { ferror.value = e.message || '读取失败' }
+  } catch (e) { ferror.value = e.message || t('component.podCard.filesDisabled') }
   finally { floading.value = false }
 }
 function fup() {
@@ -101,7 +104,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
   <div class="animate-fade-in" v-if="pvc">
     <Breadcrumbs :items="[
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
-      { label: 'Storage', route: `/ns/${route.params.namespace}/storage` },
+      { label: t('ns.storage.title'), route: `/ns/${route.params.namespace}/storage` },
       { label: route.params.name }
     ]" />
 
@@ -121,10 +124,10 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
       </div>
       <div class="flex gap-sm">
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('ns.pvcDetail.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('ns.pvcDetail.delete') }}
         </button>
       </div>
     </div>
@@ -133,37 +136,37 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
       <button v-for="tab in ['overview', 'files', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
+        {{ tab === 'overview' ? t('common.status') : tab === 'files' ? t('ns.pvcDetail.files') : 'YAML' }}
       </button>
     </div>
 
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">PVC Details</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.pvcDetail.title') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Status</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.status') }}</p>
               <StatusChip :status="pvc.status" />
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Capacity</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.capacity') }}</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ pvc.capacity }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Access Modes</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.accessModes') }}</p>
               <p class="text-body-md text-on-surface">{{ pvc.accessModes }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">StorageClass</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.storageClass') }}</p>
               <p class="text-body-md text-on-surface">{{ pvc.storageClass }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Volume</p>
-              <p class="font-mono text-code-sm" :class="pvc.volume ? 'text-primary' : 'text-on-surface-variant'">{{ pvc.volume || 'Not bound' }}</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.volume') }}</p>
+              <p class="font-mono text-code-sm" :class="pvc.volume ? 'text-primary' : 'text-on-surface-variant'">{{ pvc.volume || t('ns.pvcDetail.notBound') }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Namespace</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.namespace') }}</p>
               <p class="text-body-md text-on-surface">{{ pvc.namespace }}</p>
             </div>
           </div>
@@ -171,35 +174,35 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
       </div>
       <div class="lg:col-span-4 flex flex-col gap-lg">
         <div v-if="pv" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Bound Volume</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.pvcDetail.boundVolume') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">PV Name</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.pvName') }}</span>
               <span class="font-mono text-code-sm text-primary font-semibold">{{ pv.name }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Reclaim Policy</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.reclaimPolicy') }}</span>
               <span class="text-body-md text-on-surface">{{ pv.reclaimPolicy }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}</span>
               <span class="text-body-md text-on-surface">{{ pv.age }}</span>
             </div>
           </div>
         </div>
         <div v-if="sc" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">StorageClass</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.pvcDetail.storageClassTitle') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Name</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.name') }}</span>
               <span class="text-body-md text-primary font-semibold">{{ sc.name }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Provisioner</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.provisioner') }}</span>
               <span class="text-body-sm text-on-surface">{{ sc.provisioner }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Reclaim Policy</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.reclaimPolicy') }}</span>
               <span class="text-body-md text-on-surface">{{ sc.reclaimPolicy }}</span>
             </div>
           </div>
@@ -210,20 +213,20 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
     <div v-if="activeTab === 'files'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="flex items-center gap-sm px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <button @click="fup" :disabled="fpath === '/'" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg disabled:opacity-30" title="上一级">
+          <button @click="fup" :disabled="fpath === '/'" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg disabled:opacity-30" :title="t('ns.pvcDetail.parentDir')">
             <span class="material-symbols-outlined text-lg">arrow_upward</span>
           </button>
           <span class="material-symbols-outlined text-on-surface-variant">folder_open</span>
           <span class="font-mono text-code-sm text-on-surface flex-1 truncate">{{ fpath }}</span>
-          <button @click="browsePvc(fpath)" :disabled="floading" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg" title="刷新">
+          <button @click="browsePvc(fpath)" :disabled="floading" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg" :title="t('ns.pvcDetail.refresh')">
             <span class="material-symbols-outlined text-lg" :class="floading ? 'animate-spin' : ''">refresh</span>
           </button>
         </div>
         <div class="p-lg">
           <p v-if="ferror" class="text-body-sm text-error py-sm">{{ ferror }}</p>
-          <p v-else-if="floading" class="text-body-sm text-on-surface-variant py-sm">加载中…（首次会在 PVC 所在命名空间起一个 busybox 浏览器 Pod，可能需几秒拉镜像）</p>
+          <p v-else-if="floading" class="text-body-sm text-on-surface-variant py-sm">{{ t('ns.pvcDetail.loading') }}</p>
           <template v-else-if="!ffile">
-            <p v-if="!fentries.length" class="text-body-sm text-on-surface-variant text-center py-md">空目录</p>
+            <p v-if="!fentries.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ t('ns.pvcDetail.emptyDir') }}</p>
             <div v-for="e in fentries" :key="e.name" @click="openFEntry(e)" class="flex items-center gap-sm px-sm py-xs rounded-lg hover:bg-surface-container-low cursor-pointer">
               <span class="material-symbols-outlined text-lg" :class="e.type === 'dir' ? 'text-primary' : 'text-on-surface-variant'">{{ e.type === 'dir' ? 'folder' : 'description' }}</span>
               <span class="font-mono text-code-sm text-on-surface">{{ e.name }}</span>
@@ -232,12 +235,12 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
           <div v-else>
             <div class="flex items-center justify-between mb-sm">
               <span class="font-mono text-code-sm text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined text-base text-on-surface-variant">description</span>{{ ffile.name }}</span>
-              <button @click="ffile = null" class="text-xs text-primary hover:underline">← 返回列表</button>
+              <button @click="ffile = null" class="text-xs text-primary hover:underline">← {{ t('ns.pvcDetail.backToList') }}</button>
             </div>
-            <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">二进制文件，无法文本预览。</p>
+            <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.binaryFile') }}</p>
             <pre v-else class="bg-[#0b1c30] text-[#cfe3ff] p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-[#cfe3ff]/60">
 
-…（内容过长已截断预览）</span></pre>
+{{ t('ns.pvcDetail.truncated') }}</span></pre>
           </div>
         </div>
       </div>
@@ -249,27 +252,27 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">PVC Not Found</h2>
-    <button @click="router.push({ name: 'NsStorage', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Storage</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('ns.pvcDetail.notFound') }}</h2>
+    <button @click="router.push({ name: 'NsStorage', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('ns.pvcDetail.backToStorage') }}</button>
   </div>
 
-  <Modal v-model="showDeleteModal" title="Delete PVC" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete PVC <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This may cause data loss. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('ns.pvcDetail.deleteModalTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="t('ns.pvcDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.pvcDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showEditModal" title="Edit PVC" width="max-w-lg">
+  <Modal v-model="showEditModal" :title="t('ns.pvcDetail.editModalTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Capacity</label>
-        <input v-model="editCapacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="50Gi" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.capacityLabel') }}</label>
+        <input v-model="editCapacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pvcDetail.capacityPlaceholder')" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Access Mode</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.accessModeLabel') }}</label>
         <select v-model="editAccessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
           <option value="RWO">RWO (ReadWriteOnce)</option>
           <option value="RWM">RWM (ReadWriteMany)</option>
@@ -278,16 +281,16 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
         </select>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">StorageClass</label>
-        <input v-model="editStorageClass" list="pvc-sc-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="ssd-standard" />
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.storageClassLabel') }}</label>
+        <input v-model="editStorageClass" list="pvc-sc-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pvcDetail.storageClassPlaceholder')" />
         <datalist id="pvc-sc-list">
           <option v-for="s in store.scList" :key="s.name" :value="s.name" />
         </datalist>
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.save') }}</button>
     </template>
   </Modal>
 </template>

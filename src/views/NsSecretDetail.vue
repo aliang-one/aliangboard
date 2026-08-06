@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -10,7 +11,8 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import ResourceReferences from '@/components/common/ResourceReferences.vue'
 
-const route = useRoute()
+const { t } = useI18n()
+	const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
@@ -37,7 +39,7 @@ const editingKey = ref(null)
 const editValue = ref('')
 const revealedKeys = ref(new Set())
 
-// Secret.data 存的是 base64；展示/编辑时解码，回写时由 store 重新编码
+// Secret.data stores base64; decode for display/edit, re-encode when writing back via store
 const decode = (v) => store.decodeBase64(v)
 const decodedData = (d) => Object.fromEntries(Object.entries(d || {}).map(([k, v]) => [k, decode(v)]))
 
@@ -108,7 +110,7 @@ const allLabels = computed(() => {
   return Object.entries(secret.value.labels)
 })
 
-// === Annotations 编辑 ===
+// === Annotations t('common.edit') ===
 const showAddAnnModal = ref(false)
 const newAnnKey = ref('')
 const newAnnValue = ref('')
@@ -136,7 +138,7 @@ function saveEditAnn() {
   editingAnn.value = null
 }
 
-// === Labels 编辑 ===
+// === Labels t('common.edit') ===
 const showAddLabelModal = ref(false)
 const newLabelKey = ref('')
 const newLabelValue = ref('')
@@ -172,7 +174,7 @@ const typeBadge = computed(() => {
   return { color: 'bg-surface-container text-on-surface-variant border-outline-variant', icon: 'key' }
 })
 
-// 引用此 Secret 的 Workload 数量
+// Number of Workloads referencing this Secret
 const refCount = computed(() =>
   store.getResourceReferences('Secret', route.params.name, route.params.namespace).length
 )
@@ -230,17 +232,17 @@ const refCount = computed(() =>
               <span v-for="reg in dockerRegistries" :key="reg.server"><span class="font-mono text-primary">{{ reg.server }}</span> · {{ reg.username }}</span>
             </div>
             <!-- TLS -->
-            <p v-else-if="secretTemplateId === 'tls'" class="text-body-sm text-on-surface-variant mt-xs">包含 tls.crt (证书) + tls.key (私钥)</p>
+            <p v-else-if="secretTemplateId === 'tls'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateTls') }}</p>
             <!-- SSH -->
-            <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">包含 ssh-privatekey{{ secret.value?.data?.known_hosts ? ' + known_hosts' : '' }}</p>
+            <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateSsh', { known_hosts: secret.value?.data?.known_hosts } ) }}</p>
             <!-- Basic Auth -->
-            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">用户: <span class="font-mono">{{ decode(secret.value?.data?.username) || '—' }}</span></p>
+            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateBasicAuth', { username: decode(secret.value?.data?.username) || '—' } ) }}</p>
             <!-- Git Token -->
             <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">Key: <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
             <!-- AWS -->
-            <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">AWS 凭证 (3 keys)</p>
+            <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateAws') }}</p>
             <!-- DB -->
-            <p v-else-if="secretTemplateId === 'db'" class="text-body-sm text-on-surface-variant mt-xs">数据库连接 ({{ dataEntries.length }} keys)</p>
+            <p v-else-if="secretTemplateId === 'db'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateDb', { count: dataEntries.length }) }}</p>
           </div>
         </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
@@ -292,7 +294,7 @@ const refCount = computed(() =>
       <ResourceReferences kind="Secret" :name="route.params.name" />
     </div>
 
-    <!-- Annotations Tab（可编辑）-->
+    <!-- Annotations Tab（可t('common.edit')）-->
     <div v-if="activeTab === 'annotations'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
@@ -327,7 +329,7 @@ const refCount = computed(() =>
       </div>
     </div>
 
-    <!-- Labels Tab（可编辑）-->
+    <!-- Labels Tab（可t('common.edit')）-->
     <div v-if="activeTab === 'labels'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -9,20 +10,20 @@ import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
+const { t } = useI18n()
 const store = useClusterStore()
 
 const searchQuery = ref('')
-// Sync：重新水合当前集群（core + extended + CRDs + metrics，hydrateCoreResources 内部已串联）
 const syncing = ref(false)
 async function sync() {
   if (syncing.value) return
-  if (!store.remoteMode) { notify('info', '演示数据模式下无需同步'); return }
+  if (!store.remoteMode) { notify('info', t('clusters.demoModeNoSync')); return }
   syncing.value = true
   try {
     await store.hydrateCoreResources()
-    notify('success', `已同步 ${store.currentCluster}`)
+    notify('success', t('clusters.synced', { cluster: store.currentCluster }))
   } catch (e) {
-    notify('error', `同步失败：${e.message || '未知错误'}`)
+    notify('error', t('clusters.syncFailed', { error: e.message || t('clusters.unknownError') }))
   } finally {
     syncing.value = false
   }
@@ -46,10 +47,9 @@ function addCluster() {
 }
 
 function removeCluster(c) {
-  // 注意：仅从已保存列表移除，不主动断开当前连接
-  if (!window.confirm(`移除已保存的集群「${c.name}」？\n（仅从列表删除，不会影响当前已连接的会话）`)) return
+  if (!window.confirm(t('clusters.removeClusterConfirm', { name: c.name }))) return
   store.removeSavedClusterStore(c.apiServer)
-  notify('success', '已移除')
+  notify('success', t('clusters.removed'))
 }
 </script>
 
@@ -62,18 +62,18 @@ function removeCluster(c) {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">集群管理</h2>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('clusters.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">
-          共 <span class="text-primary font-semibold">{{ store.clusterList.length }}</span> 个集群，当前为
+          {{ t('clusters.totalClusters', { count: store.clusterList.length }) }}
           <span class="text-primary font-semibold">{{ store.currentCluster }}</span>
         </p>
       </div>
       <div class="flex gap-sm">
         <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-3 py-1.5 bg-surface-container-highest text-on-surface text-body-sm font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          <span class="material-symbols-outlined text-sm" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+          <span class="material-symbols-outlined text-sm" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('clusters.syncing') : t('common.sync') }}
         </button>
         <button @click="addCluster" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-sm">add</span> 添加集群
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('clusters.addCluster') }}
         </button>
       </div>
     </div>
@@ -85,7 +85,7 @@ function removeCluster(c) {
         <input
           v-model="searchQuery"
           class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          placeholder="按名称、版本或发行版搜索..."
+          :placeholder="t('clusters.searchPlaceholder')"
         />
         <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
           <span class="material-symbols-outlined text-base">close</span>
@@ -114,7 +114,7 @@ function removeCluster(c) {
       <div class="w-12 h-12 rounded-full bg-surface-container mx-auto flex items-center justify-center mb-sm">
         <span class="material-symbols-outlined text-2xl text-on-surface-variant">search_off</span>
       </div>
-      <p class="text-body-sm text-on-surface-variant font-medium">未找到匹配的集群</p>
+      <p class="text-body-sm text-on-surface-variant font-medium">{{ t('clusters.noMatchingClusters') }}</p>
     </div>
   </section>
 </template>

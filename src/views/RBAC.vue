@@ -2,43 +2,45 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('roles')
 
-const tabs = [
-  { key: 'roles', label: 'Roles' },
-  { key: 'clusterrolebindings', label: 'ClusterRoleBindings' },
-  { key: 'serviceaccounts', label: 'ServiceAccounts' },
-]
+const tabs = computed(() => [
+  { key: 'roles', label: t('rbac.rolesTab') },
+  { key: 'clusterrolebindings', label: t('rbac.clusterRoleBindingsTab') },
+  { key: 'serviceaccounts', label: t('rbac.serviceAccountsTab') },
+])
 
-const roleHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'scope', label: 'Scope' },
-  { key: 'bindings', label: 'Bindings' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const roleHeaders = computed(() => [
+  { key: 'name', label: t('rbac.thName') },
+  { key: 'namespace', label: t('rbac.thNamespace') },
+  { key: 'scope', label: t('rbac.thScope') },
+  { key: 'bindings', label: t('rbac.thBindings') },
+  { key: 'actions', label: t('rbac.thActions'), align: 'right' },
+])
 
-const crbHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'roleName', label: 'Role' },
-  { key: 'subjects', label: 'Subjects' },
-  { key: 'age', label: 'Age' },
-]
+const crbHeaders = computed(() => [
+  { key: 'name', label: t('rbac.thName') },
+  { key: 'roleName', label: t('rbac.thRoleName') },
+  { key: 'subjects', label: t('rbac.thSubjects') },
+  { key: 'age', label: t('rbac.thAge') },
+])
 
-const saHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'age', label: 'Age' },
-  { key: 'actions', label: 'Actions', align: 'right' },
-]
+const saHeaders = computed(() => [
+  { key: 'name', label: t('rbac.thName') },
+  { key: 'namespace', label: t('rbac.thNamespace') },
+  { key: 'age', label: t('rbac.thAge') },
+  { key: 'actions', label: t('rbac.thActions'), align: 'right' },
+])
 
 function openRole(row) {
   if (row.scope === 'Cluster') router.push({ name: 'ClusterRoleDetail', params: { name: row.name } })
@@ -84,11 +86,11 @@ async function doDelete() {
   try {
     if (tab === 'roles') await store.deleteRole(name, namespace || '')
     else if (tab === 'serviceaccounts') await store.deleteServiceAccount(name, namespace)
-    notify('success', `已删除 ${name}`)
+    notify('success', t('rbac.deleted', { name }))
     showDeleteModal.value = false
     deleteTarget.value = null
   } catch (e) {
-    notify('error', e.message || '删除失败')
+    notify('error', e.message || t('rbac.deleteFailed'))
   } finally {
     deleting.value = false
   }
@@ -99,15 +101,15 @@ async function doDelete() {
   <section class="animate-fade-in">
     <div class="flex justify-between items-end mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">RBAC</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">Manage Role-Based Access Control: Roles, RoleBindings, and ServiceAccounts.</p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('rbac.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('rbac.subtitle') }}</p>
       </div>
       <div class="flex gap-sm">
         <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-base">verified_user</span> 权限模拟
+          <span class="material-symbols-outlined text-base">verified_user</span> {{ t('rbac.permissionSimulation') }}
         </button>
         <button @click="createRole" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
-          <span class="material-symbols-outlined text-base">add</span> Create Role
+          <span class="material-symbols-outlined text-base">add</span> {{ t('rbac.createRole') }}
         </button>
       </div>
     </div>
@@ -130,7 +132,7 @@ async function doDelete() {
       </template>
       <template #namespace="{ row }">
         <span v-if="row.namespace" class="font-mono text-code-sm">{{ row.namespace }}</span>
-        <span v-else class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium">CLUSTER-WIDE</span>
+        <span v-else class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium">{{ t('rbac.clusterWide') }}</span>
       </template>
       <template #scope="{ row }">
         <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.scope }}</span>
@@ -140,8 +142,8 @@ async function doDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editRole(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editRole(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -160,7 +162,7 @@ async function doDelete() {
         <span class="font-mono text-code-sm text-primary">{{ row.roleName }}</span>
       </template>
       <template #subjects="{ row }">
-        <span class="text-body-sm text-on-surface-variant">{{ row.subjects?.length || 0 }} subject(s)</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('rbac.subjectCount', { n: row.subjects?.length || 0 }) }}</span>
       </template>
       <template #pagination>
         <Pagination v-if="total > pageSize" :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
@@ -179,8 +181,8 @@ async function doDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editSA(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" title="Edit"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" title="Delete"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editSA(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -190,12 +192,12 @@ async function doDelete() {
   </section>
 
   <!-- Delete Confirm Modal -->
-  <Modal v-model="showDeleteModal" title="Delete resource" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">确定删除 <span class="font-mono text-on-surface font-semibold">{{ deleteTarget?.name }}</span><span v-if="deleteTarget?.namespace" class="text-on-surface-variant">（{{ deleteTarget.namespace }}）</span>？</p>
-    <p class="text-body-sm text-error mt-sm">此操作不可撤销。删除 {{ deleteTarget?.tab === 'roles' ? (deleteTarget?.scope === 'Cluster' ? 'ClusterRole' : 'Role') : deleteTarget?.tab === 'serviceaccounts' ? 'ServiceAccount' : '资源' }} 将影响依赖它的绑定。</p>
+  <Modal v-model="showDeleteModal" :title="t('rbac.deleteResource')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="t('rbac.deleteConfirm', { name: deleteTarget?.name, namespace: deleteTarget?.namespace })"></p>
+    <p class="text-body-sm text-error mt-sm" v-html="t('rbac.deleteWarning', { resourceType: deleteTarget?.tab === 'roles' ? (deleteTarget?.scope === 'Cluster' ? 'ClusterRole' : 'Role') : deleteTarget?.tab === 'serviceaccounts' ? 'ServiceAccount' : t('rbac.resource') })"></p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="doDelete" :disabled="deleting" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-50">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="doDelete" :disabled="deleting" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>
