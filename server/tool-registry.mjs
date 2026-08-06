@@ -44,6 +44,18 @@ const WB = [
     description: '写/覆盖项目 repo 内某文件(如写 manifests/deploy.yaml)。需人审;批准后落盘(未自动 commit)。',
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
     exec: async (ctx, args) => { await ctx.wb.writeFile(args.path, args.content); return { ok: true, path: args.path } } },
+  { name: 'apply_project_manifests', requiresApproval: true,
+    description: '把项目 manifests/ 下所有 yaml server-side apply 到集群(逐资源,部分失败上报 {applied,failed})。需人审。apply 走平台 apply 路径(审计),不走 API key 的 SA。',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    exec: async (ctx) => { const yaml = await ctx.wb.readManifests(); if (!yaml || !yaml.trim()) return { error: 'manifests/ 为空,先 write_project_file 写 yaml 再 apply' }; return ctx.wb.applyManifests(yaml) } },
+  { name: 'propose_ledger_update', requiresApproval: true,
+    description: '提议更新集群台账(如 capabilities/ci-cd.md,写"意味着什么/怎么用"的语义层,区别于资源清单)。需人审,原样批准(覆盖写)。',
+    inputSchema: { type: 'object', properties: { path: { type: 'string', description: '台账内相对路径,如 capabilities/ci-cd.md' }, content: { type: 'string' } }, required: ['path', 'content'] },
+    exec: async (ctx, args) => { await ctx.wb.writeLedger(args.path, args.content); return { ok: true, path: args.path } } },
+  { name: 'propose_learning', requiresApproval: true,
+    description: '记一条团队习惯/踩坑/决策到台账 learnings.md(如"Go 服务走 goproxy.internal")。需人审,原样批准(追加)。',
+    inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'] },
+    exec: async (ctx, args) => { await ctx.wb.appendLearning(args.content); return { ok: true } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]

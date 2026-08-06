@@ -421,6 +421,26 @@ async function applyYaml(session, yaml) {
   return results
 }
 
+// 工作台用(W5):逐资源 try/catch,部分失败上报。applyYaml(throw-on-first)不动,保留给 /api/apply。
+async function applyYamlPartial(session, yaml) {
+  const objects = []
+  yamlLoadAll(yaml, o => { if (o) objects.push(o) })
+  const applied = [], failed = []
+  for (const object of objects) {
+    const label = { kind: object?.kind, name: object?.metadata?.name, namespace: object?.metadata?.namespace }
+    try {
+      if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
+      const { group, version, resource } = await discoverResource(session, object)
+      const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
+      const namespacePart = resource.namespaced ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}` : ''
+      const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
+      await requestKubernetes(session, path, { method: 'PATCH', headers: { 'content-type': 'application/apply-patch+yaml' }, body: JSON.stringify(object) })
+      applied.push(label)
+    } catch (e) { failed.push({ ...label, error: e.message }) }
+  }
+  return { applied, failed, total: objects.length }
+}
+
 // === 实时交互通道：Pod exec 终端 / 端口转发 ===
 // exec 与 port-forward 走 SPDY/WebSocket 多路复用，原生 fetch 透传无法承载，
 // 故仅这两类操作引入 @kubernetes/client-node（CRUD 仍走原生 fetch 透传，保持轻量）。
@@ -753,10 +773,16 @@ async function handle(req, res) {
         if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
         const repo = join(WORKBENCH_DIR, proj.clusterId, 'projects', proj.id)
         const ledgerRepo = join(WORKBENCH_DIR, proj.clusterId, 'cluster-context')
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(proj.clusterId)
+        const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
         const workbench = {
           readLedger: async () => { try { return await wbReadFile(ledgerRepo, 'INDEX.md') } catch { return '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)' } },
           readFile: (p) => wbReadFile(repo, p),
           writeFile: (p, c) => wbWriteFile(repo, p, c),
+          readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
+          applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
+          writeLedger: (p, c) => wbWriteFile(ledgerRepo, p, c),
+          appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
         }
         const { run } = createAgentRunner({ llmClient, workbench })
         const trace = []
@@ -766,7 +792,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。先 read_ledger 读集群台账(复用已知能力、避免从零摸集群);用 read_project_file 看已有 manifests;用 write_project_file 写 manifests/(yaml,要可直接 server-side apply)。写文件需用户审批,被拒会告知你。'
+          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(复用已知能力)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_ledger_update/propose_learning 把这次建立的能力/踩坑记进台账(以后所有项目复用,越用越聪明)。写文件、apply、台账更新都需用户审批,被拒会告知你。'
           out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
           if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }

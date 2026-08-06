@@ -164,11 +164,17 @@ onMounted(async () => {
     <!-- 写文件审批 Modal -->
     <Modal :modelValue="!!pendingApproval" title="写文件审批" width="max-w-2xl">
       <div v-if="pendingApproval" class="flex flex-col gap-md">
-        <p class="text-body-sm text-on-surface-variant">agent 要写项目文件。批准后落盘(未自动 commit,你可回详情页提交)。</p>
         <div class="bg-surface-container-low border border-outline-variant rounded-lg p-md flex flex-col gap-xs">
-          <div class="flex items-center gap-sm"><span class="material-symbols-outlined text-status-warning">edit_document</span><span class="font-mono font-semibold">{{ pendingApproval.name }}</span></div>
-          <p class="text-body-sm">路径:<span class="font-mono">{{ pendingApproval.args.path }}</span></p>
-          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
+          <div class="flex items-center gap-sm">
+            <span class="material-symbols-outlined text-status-warning">{{ pendingApproval.name === 'apply_project_manifests' ? 'rocket_launch' : 'edit_document' }}</span>
+            <span class="font-mono font-semibold">{{ pendingApproval.name }}</span>
+          </div>
+          <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm">把项目 <span class="font-mono">manifests/</span> 下所有 yaml server-side apply 到绑定集群(逐资源,部分失败会上报)。apply 走平台 apply 路径(审计),不走 API key。</p>
+          <template v-else-if="pendingApproval.args.path">
+            <p class="text-body-sm">路径:<span class="font-mono">{{ pendingApproval.args.path }}</span></p>
+            <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
+          </template>
+          <pre v-else class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
         </div>
       </div>
       <template #actions>
