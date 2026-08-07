@@ -469,3 +469,73 @@ test('list_resources(kind): 既有 6-kind 快捷回归(pods)', async () => {
   const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
   assert.equal(out.kind, 'pods'); assert.ok(out.count >= 1)
 })
+
+// --- can_i(RBAC 自检 via SelfSubjectAccessReview)---
+test('can_i(happy): SSAR allowed → {allowed:true},resourceAttributes 正确;read 档可调', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  let posted = null
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'POST' && path.endsWith('/selfsubjectaccessreviews')) { posted = JSON.parse(init.body); return { body: { status: { allowed: true, reason: '' } } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'can_i', { namespace: 'ns', verb: 'delete', resource: 'secrets', group: '' })
+  assert.equal(out.allowed, true)
+  assert.equal(posted.kind, 'SelfSubjectAccessReview')
+  assert.equal(posted.spec.resourceAttributes.namespace, 'ns')
+  assert.equal(posted.spec.resourceAttributes.verb, 'delete')
+  assert.equal(posted.spec.resourceAttributes.resource, 'secrets')
+  assert.equal(posted.spec.resourceAttributes.group, '')
+  assert.deepEqual(out.queried, { namespace: 'ns', verb: 'delete', resource: 'secrets', group: '', name: undefined, subresource: undefined })
+})
+test('can_i(denied): SSAR allowed:false → {allowed:false, reason}', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'POST' && path.endsWith('/selfsubjectaccessreviews')) return { body: { status: { allowed: false, reason: 'forbidden by RBAC' } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'can_i', { namespace: 'ns', verb: 'get', resource: 'pods' })
+  assert.equal(out.allowed, false)
+  assert.match(out.reason, /forbidden by RBAC/)
+  assert.equal(out.evaluationError, null)
+})
+test('can_i(evaluationError): SSAR evaluationError 透传', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'POST' && path.endsWith('/selfsubjectaccessreviews')) return { body: { status: { allowed: false, evaluationError: 'cannot evaluate' } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'can_i', { namespace: 'ns', verb: 'get', resource: 'pods' })
+  assert.equal(out.allowed, false)
+  assert.match(out.evaluationError, /cannot evaluate/)
+})
+test('can_i(SSAR 403): SA 无 SSAR RBAC → 优雅 evaluationError,不抛', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const e403 = new Error('forbidden'); e403.status = 403
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'POST' && path.endsWith('/selfsubjectaccessreviews')) throw e403
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'can_i', { namespace: 'ns', verb: 'get', resource: 'pods' })
+  assert.equal(out.allowed, false)
+  assert.match(out.evaluationError, /selfsubjectaccessreviews/)
+})
+test('can_i: ns 不符 → policy 拒(既有 ns 校验)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'can_i', { namespace: 'other', verb: 'get', resource: 'pods' }), (e) => e.reason === 'policy')
+})
+test('can_i: 缺 verb/resource → 报错', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'can_i', { namespace: 'ns', resource: 'pods' }), /缺 verb/)
+})

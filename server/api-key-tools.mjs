@@ -170,6 +170,32 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { count: all.length, returned: items.length, items }
         } })
     },
+    can_i: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'can_i', source, namespace: a.namespace, verb: 'can_i', resource: `${a.verb || '?'}/${a.resource || '?'}`,
+      summary: `can ${a.verb || '?'} ${a.group ? a.group + '/' : ''}${a.resource || '?'}`,
+      fn: async (saCtx) => {
+        if (!a.verb || !a.resource) throw new Error('can_i 缺 verb/resource(如 verb=delete resource=secrets)')
+        // 形状稳定(name/subresource 始终在键位,缺省 undefined),便于 deepEqual / 调用方读 queried。
+        const ra = { namespace: a.namespace, verb: a.verb, group: a.group || '', resource: a.resource, name: a.name || undefined, subresource: a.subresource || undefined }
+        let body
+        try {
+          ({ body } = await requestFn(saCtx, '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectAccessReview', spec: { resourceAttributes: ra } }),
+          }))
+        } catch (e) {
+          // SSAR 失败(SA 无 create SSAR 的 RBAC → 403;或 5xx/网络)→ 优雅返,不抛
+          const code = e.status ? `http${e.status}` : 'error'
+          const hint = e.status === 403 ? 'SA 无 selfsubjectaccessreviews 的 create 权限(can_i 需 SA 有 SSAR RBAC)' : (e.message || 'error')
+          return { allowed: false, reason: null, evaluationError: `SSAR 请求失败(${code}): ${String(hint).slice(0, 300)}`, queried: ra }
+        }
+        return {
+          allowed: !!body?.status?.allowed,
+          reason: body?.status?.reason ? String(body.status.reason).slice(0, 300) : null,
+          evaluationError: body?.status?.evaluationError ? String(body.status.evaluationError).slice(0, 300) : null,
+          queried: ra,
+        }
+      } }),
     rollout_history: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'rollout_history', source, namespace: a.namespace, verb: 'get', resource: `Deployment/${a.name}/rollout`, summary: `deploy=${a.name}`,
       fn: async (saCtx) => {
