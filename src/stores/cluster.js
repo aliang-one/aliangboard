@@ -2234,6 +2234,42 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
+  // CRD 定义映射（抽自 hydrateCRDs；保留 _plural 供实例路径用）
+  function mapCRD(item) {
+    const names = item.spec?.names || {}
+    const versions = item.spec?.versions || []
+    const served = versions.find(v => v.served && v.storage) || versions.find(v => v.served) || versions[0]
+    return {
+      name: item.metadata?.name,
+      group: item.spec?.group || '',
+      version: served?.name || '',
+      kind: names.kind || '',
+      scope: item.spec?.scope || 'Namespaced',
+      namespaced: item.spec?.scope === 'Namespaced',
+      description: names.list || names.kind || '',
+      instances: [],
+      _plural: names.plural || item.metadata?.name?.split('.')[0] || '',
+    }
+  }
+  // CR 实例映射（抽自 hydrateCRDs）
+  function mapCRInstance(it) {
+    return {
+      name: it.metadata?.name,
+      namespace: it.metadata?.namespace || '',
+      status: it.status?.phase || it.status?.conditions?.find(x => x.type === 'Ready')?.status || 'Ready',
+      age: ageOf(it.metadata?.creationTimestamp),
+      spec: it.spec,
+      labels: it.metadata?.labels || {},
+      annotations: it.metadata?.annotations || {},
+    }
+  }
+  async function fetchCRDs() { const d = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500'); return (d?.items || []).map(mapCRD) }
+  async function fetchCRD(name) { const d = await api.k8s(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${encodeURIComponent(name)}`); return d ? mapCRD(d) : null }
+  async function fetchCRInstances(crd) {
+    const d = await api.k8s(`/apis/${crd.group}/${crd.version}/${crd._plural}?limit=500`)
+    return (d?.items || []).map(mapCRInstance)
+  }
+
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
   // 入参 metricsAvailable：调用前 nodeList/podList 的 metric 字段须已就绪
   // （hydrate 经 mapNode/mapPod 设置；refreshMetrics 就地更新）。hydrate 与 refreshMetrics 共用本函数。
@@ -3562,6 +3598,7 @@ status:
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
     fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
+    fetchCRDs, fetchCRD, fetchCRInstances,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
