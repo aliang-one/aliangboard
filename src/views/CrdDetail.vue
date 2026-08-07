@@ -2,6 +2,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { api } from '@/api/client'
 import { dump as yamlDump } from 'js-yaml'
 import { useI18n } from 'vue-i18n'
@@ -16,7 +17,24 @@ const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
 
-const crd = computed(() => store.getCRDByName(route.params.name))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const crdDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'crds', route.params.name],
+  fetcher: () => store.fetchCRD(route.params.name),
+  mock: store.getCRDByName(route.params.name),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const crd = computed(() => crdDetail.data.value ?? store.getCRDByName(route.params.name))
+const instancesQuery = useResourceList({
+  key: ['cluster', cid.value, 'crds', route.params.name, 'instances'],
+  fetcher: () => store.fetchCRInstances(crd.value),
+  mock: crd.value?.instances || [],
+  mockMode: !store.remoteMode,
+  enabled: !store.remoteMode ? true : (!!crd.value && !!crd.value._plural),
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const instances = computed(() => instancesQuery.data.value || [])
 
 const activeTab = ref('overview')
 
@@ -108,7 +126,7 @@ async function applyInstYaml(yaml) {
     // spec 可能被 defaulter/webhook 改动：重新拉取当前展开行的实时 YAML
     const open = [...expandedInst.value]
     if (open.length === 1) {
-      const inst = crd.value.instances.find(i => instKey(i) === open[0])
+      const inst = instances.value.find(i => instKey(i) === open[0])
       if (inst) ensureInstYaml(inst, true)
     }
   }
@@ -180,7 +198,7 @@ async function handleCreateInst(yaml) {
               {{ crd.scope }}
             </span>
             <span class="text-on-surface-variant/40">·</span>
-            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} {{ t('admin.crdDetail.instancesCount', { n: crd.instances?.length || 0 }) }}</span>
+            <span class="text-xs text-on-surface-variant">{{ instances.length }} {{ t('admin.crdDetail.instancesCount', { n: instances.length }) }}</span>
           </div>
         </div>
       </div>
@@ -267,7 +285,7 @@ async function handleCreateInst(yaml) {
           <div class="p-md space-y-sm">
             <div class="flex justify-between items-center py-xs border-b border-outline-variant/30">
               <span class="text-xs text-on-surface-variant">{{ t('admin.crdDetail.totalInstances') }}</span>
-              <span class="font-mono text-code-sm text-primary font-semibold">{{ crd.instances?.length || 0 }}</span>
+              <span class="font-mono text-code-sm text-primary font-semibold">{{ instances.length }}</span>
             </div>
             <div class="flex justify-between items-center py-xs">
               <span class="text-xs text-on-surface-variant">Scope</span>
@@ -287,7 +305,7 @@ async function handleCreateInst(yaml) {
             <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.instancesTitle', { kind: crd.kind }) }}</span>
           </div>
           <div class="flex items-center gap-sm">
-            <span class="text-xs text-on-surface-variant">{{ crd.instances?.length || 0 }} {{ t('admin.crdDetail.instancesCount', { n: crd.instances?.length || 0 }) }}</span>
+            <span class="text-xs text-on-surface-variant">{{ instances.length }} {{ t('admin.crdDetail.instancesCount', { n: instances.length }) }}</span>
             <button
               @click="openCreateInst"
               class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
@@ -296,7 +314,7 @@ async function handleCreateInst(yaml) {
             </button>
           </div>
         </div>
-        <table v-if="crd.instances && crd.instances.length" class="w-full">
+        <table v-if="instances.length" class="w-full">
           <thead>
             <tr class="border-b border-outline-variant bg-surface-container-low/50">
               <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.name') }}</th>
@@ -307,7 +325,7 @@ async function handleCreateInst(yaml) {
             </tr>
           </thead>
           <tbody>
-            <template v-for="inst in crd.instances" :key="inst.name + (inst.namespace || '')">
+            <template v-for="inst in instances" :key="inst.name + (inst.namespace || '')">
               <tr class="border-b border-outline-variant/15 last:border-0 hover:bg-surface-container-low/40 transition-colors">
                 <td class="px-md py-2">
                   <div class="flex items-center gap-sm">
