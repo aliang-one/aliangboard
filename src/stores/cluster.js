@@ -2389,9 +2389,6 @@ export const useClusterStore = defineStore('cluster', () => {
       api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
       api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
       api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
-      api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'),
-      api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'),
-      api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'),
     ])
     const items = i => (reqs[i].status === 'fulfilled' ? reqs[i].value?.items : null) || []
     configMapList.value = items(0).map(mapConfigMap)
@@ -2413,9 +2410,6 @@ export const useClusterStore = defineStore('cluster', () => {
     roleBindingList.value = items(12).map(mapRoleBinding)
     clusterRoleBindingList.value = items(14).map(mapRoleBinding)
     scList.value = items(15).map(mapStorageClass)
-    ingressClassList.value = items(16).map(mapIngressClass)
-    runtimeClassList.value = items(17).map(mapRuntimeClass)
-    priorityClassList.value = items(18).map(mapPriorityClass)
     return { failed: reqs.filter(r => r.status === 'rejected').length }
   }
 
