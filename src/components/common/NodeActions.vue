@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useEscClose } from '@/composables/useEscClose'
 
 const { t } = useI18n()
 
@@ -15,6 +16,9 @@ const confirmInput = ref('')
 const loading = ref(false)
 
 const isConfirmed = ref(false)
+
+const isOpen = ref(true)
+useEscClose(isOpen, () => emit('close'))
 
 function checkConfirm() {
   isConfirmed.value = confirmInput.value === props.nodeName

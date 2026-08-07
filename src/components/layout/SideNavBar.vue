@@ -51,18 +51,10 @@ const clusterNavOpen = ref(false)
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
   {
-    labelKey: 'nav.overview',
-    icon: 'grid_view',
-    items: [
-      { icon: 'dashboard', label: 'Namespace Overview', routeKey: 'overview' },
-      { icon: 'notifications_active', label: 'Events', routeKey: 'events' },
-    ]
-  },
-  {
     labelKey: 'nav.workloads',
     icon: 'work',
     items: [
-      { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
+      { icon: 'apps', labelKey: 'nav.workloadsList', routeKey: 'workloads' },
       { icon: 'view_in_ar', label: 'Pods', routeKey: 'pods' },
       { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
     ]
@@ -210,17 +202,27 @@ function nsStatusColor(status) {
     <div class="px-md pt-md pb-sm shrink-0">
       <p class="text-label-caps text-on-surface-variant mb-xs px-sm">NAMESPACE</p>
       <div class="relative">
-        <button
-          @click="showNsDropdown = !showNsDropdown"
-          class="w-full flex items-center justify-between px-md py-sm rounded-lg border transition-all"
-          :class="currentNs ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant bg-surface-container-low text-on-surface-variant hover:border-primary/50'"
+        <div
+          class="w-full flex items-stretch rounded-lg border overflow-hidden transition-all"
+          :class="currentNs ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'"
         >
-          <div class="flex items-center gap-sm min-w-0">
+          <button
+            data-test="ns-home"
+            @click="currentNs && router.push({ name: 'NamespaceOverview', params: { namespace: currentNs } })"
+            class="flex-1 flex items-center gap-sm min-w-0 px-md py-sm"
+            :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
+          >
             <span class="material-symbols-outlined text-lg">folder_open</span>
             <span class="text-body-md font-medium truncate">{{ currentNs || 'Select Namespace' }}</span>
-          </div>
-          <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
-        </button>
+          </button>
+          <button
+            @click="showNsDropdown = !showNsDropdown"
+            class="px-md py-sm shrink-0 border-l border-current/10"
+            :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
+          >
+            <span class="material-symbols-outlined text-lg transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
+          </button>
+        </div>
         <!-- Dropdown -->
         <div
           v-if="showNsDropdown"
@@ -274,7 +276,7 @@ function nsStatusColor(status) {
               : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
           >
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.label }}</span>
+            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
         </div>
       </div>
@@ -331,6 +333,11 @@ function nsStatusColor(status) {
       >
         <span class="material-symbols-outlined text-lg">rocket_launch</span>
         {{ $t('nav.deploy') }}
+      </button>
+      <button v-if="currentNs" @click="goNsRoute('events')"
+        class="w-full flex items-center justify-center gap-sm py-xs px-md text-body-sm text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors mb-sm">
+        <span class="material-symbols-outlined text-lg">notifications_active</span>
+        {{ $t('nav.events') }}
       </button>
       <a @click="router.push('/settings')" class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container rounded-lg px-md py-sm transition-all duration-200 cursor-pointer">
         <span class="material-symbols-outlined text-lg">tune</span>

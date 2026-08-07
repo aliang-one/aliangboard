@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import PortSelect from '@/components/common/PortSelect.vue'
 import { SECRET_TEMPLATES, buildSecretData } from '@/composables/useSecretTemplates'
+import { useEscClose } from '@/composables/useEscClose'
 
 const { t } = useI18n()
 const store = useClusterStore()
@@ -54,6 +55,8 @@ const titles = {
 const title = computed(() => titles[props.resourceType] || 'Create Resource')
 
 function close() { emit('update:modelValue', false) }
+const isOpen = computed(() => props.modelValue)
+useEscClose(isOpen, close)
 
 function addRow(arr) { arr.push({ key: '', value: '' }) }
 function removeRow(arr, idx) { if (arr.length > 1) arr.splice(idx, 1) }
