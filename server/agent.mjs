@@ -5,6 +5,12 @@
 // 状态在浏览器↔网关往返,服务端无会话(与底座 stateless 原则一致)。
 const MAX_STEPS = 8 // 防失控循环
 
+// 工具执行失败的观察串(喂回 LLM):优先 detail(PERMISSION_DENIED 的具体原因,如 ns 越界),
+// 让 LLM/用户能诊断为何失败而非只看到裸 "PERMISSION_DENIED: policy"。纯函数,便于单测。
+export function formatToolError(e) {
+  return `工具执行失败: ${e?.detail || e?.message || String(e)}`
+}
+
 export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, maxSteps = MAX_STEPS }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
@@ -62,7 +68,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
 
         let result
         try { result = await execTool(name, args) }
-        catch (e) { result = `工具执行失败: ${e.message}` }
+        catch (e) { result = formatToolError(e) }
         messages.push({ role: 'tool', tool_call_id: id, content: typeof result === 'string' ? result : JSON.stringify(result) })
         onStep?.({ type: 'tool', name, args, result })
       }

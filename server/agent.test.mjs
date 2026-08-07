@@ -1,7 +1,7 @@
 // Agent loop 测试(mock chat + mock execTool;写操作走 checkpoint/resume 人审)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createAgent } from './agent.mjs'
+import { createAgent, formatToolError } from './agent.mjs'
 
 // mock chat:按顺序返回一组 assistant message(最后一条若无 tool_calls 即终答)
 function mockChat(responses) {
@@ -125,4 +125,13 @@ test('失控循环(一直 tool call 不终答)→ maxSteps 截断', async () => 
   const out = await run({})
   assert.equal(out.truncated, true)
   assert.equal(out.steps, 3)
+})
+
+// --- formatToolError:工具失败观察串(让 LLM 知道为何失败,可自我纠正)---
+test('formatToolError: PD 带 detail → 观察含 detail', () => {
+  const e = new Error('PERMISSION_DENIED: policy'); e.code = 'PERMISSION_DENIED'; e.detail = "namespace 'default' 超出该 API key 绑定作用域 'anydoor'"
+  assert.match(formatToolError(e), /namespace 'default' 超出该 API key 绑定作用域 'anydoor'/)
+})
+test('formatToolError: 普通 error(无 detail)→ 含 message', () => {
+  assert.match(formatToolError(new Error('缺 path')), /缺 path/)
 })

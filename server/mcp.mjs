@@ -36,7 +36,7 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
       const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {}, 'mcp')
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
     } catch (e) {
-      if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.message}`)
+      if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.detail || e.message}`)
       return ok(id, { isError: true, content: [{ type: 'text', text: e.message || String(e) }] })
     }
   }

@@ -74,11 +74,20 @@ test('deny: bogus tier → policy 拒 + 审计 denied', async () => {
   assert.equal(db.prepare('SELECT result FROM audit_log').get().result, 'denied')
 })
 
-test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒', async () => {
+test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒,detail 命名两个 ns + 指向配置', async () => {
   const db = makeDb()
   const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
-  await assert.rejects(() => tools.getPodLogs(k, cluster, { namespace: 'other', pod: 'p1' }), (e) => e.reason === 'policy')
+  await assert.rejects(() => tools.getPodLogs(k, cluster, { namespace: 'other', pod: 'p1' }), (e) =>
+    e.reason === 'policy' && /'other'/.test(e.detail) && /'ns'/.test(e.detail) && /API Keys/.test(e.detail))
+})
+
+test('deny(tier): 工具不在 tier 允许集 → policy 拒,detail 指出工具 + 配置位置', async () => {
+  const db = makeDb()
+  const read = mintKey(db, { owner: 'b', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: async () => ({ stdout: '', stderr: '' }) })
+  await assert.rejects(tools.callTool(read, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'ls' }), (e) =>
+    e.reason === 'policy' && /exec_pod/.test(e.detail) && /API Keys/.test(e.detail))
 })
 
 // --- list_resources ---
