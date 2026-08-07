@@ -23,11 +23,14 @@ export function createAuditSchema(db) {
     result TEXT,
     reason TEXT,
     requestSummary TEXT,
+    source TEXT,
     prevHash TEXT NOT NULL,
     hash TEXT NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_log_owner ON audit_log(owner)`)
+  // 旧库(表已存在但无 source 列)补列;新库 CREATE 已带 → ALTER 抛「列已存在」,吞掉。
+  try { db.exec('ALTER TABLE audit_log ADD COLUMN source TEXT') } catch { /* 列已存在 */ }
 }
 
 // canonical:固定序字段 → JSON 数组(确定性,特殊字符安全转义)。
@@ -48,11 +51,11 @@ export function writeAudit(db, entry) {
   const prevHash = lastHash(db)
   const row = { ts: Date.now(), status: 'finalized', ...entry }
   const hash = rowHash(prevHash, row)
-  const r = db.prepare(`INSERT INTO audit_log (ts,status,keyId,owner,clusterId,namespace,verb,resource,tool,result,reason,requestSummary,prevHash,hash)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+  const r = db.prepare(`INSERT INTO audit_log (ts,status,keyId,owner,clusterId,namespace,verb,resource,tool,result,reason,requestSummary,source,prevHash,hash)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
     row.ts, row.status, row.keyId ?? null, row.owner ?? null, row.clusterId ?? null, row.namespace ?? null,
     row.verb ?? null, row.resource ?? null, row.tool ?? null, row.result ?? null, row.reason ?? null, row.requestSummary ?? null,
-    prevHash, hash)
+    row.source ?? null, prevHash, hash)
   return { seq: Number(r.lastInsertRowid), prevHash, hash }
 }
 
