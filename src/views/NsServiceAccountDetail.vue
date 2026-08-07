@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -16,7 +17,24 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const sa = computed(() => store.getServiceAccountByName(route.params.name, route.params.namespace))
+// 主资源 serviceaccount + 关联 rolebindings 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
+// nsSecrets 故意保留 store（secrets 非 RBAC，本计划不裁剪）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const saDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'serviceaccounts', route.params.name],
+  fetcher: () => store.fetchServiceAccount(route.params.name, route.params.namespace),
+  mock: store.getServiceAccountByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const sa = computed(() => saDetail.data.value ?? store.getServiceAccountByName(route.params.name, route.params.namespace))
+const roleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'rolebindings'],
+  fetcher: () => store.fetchRoleBindings(),
+  mock: store.roleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/serviceaccounts/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('serviceaccount', sa.value),
@@ -26,6 +44,7 @@ const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
 // Associated secrets of type service-account-token
+// NOTE: 故意保留 store.nsSecrets —— secrets 非 RBAC，本计划不裁剪，保持 hydrated 行为不变。
 const saSecrets = computed(() => {
   if (!sa.value) return []
   return store.nsSecrets.filter(s =>
@@ -34,9 +53,11 @@ const saSecrets = computed(() => {
 })
 
 // RoleBindings that reference this ServiceAccount as a subject
+// 旧逻辑为 store.nsRoleBindings.filter(...)（已隐式按 namespace 过滤）；新逻辑显式按 namespace 过滤 query 结果。
 const saRoleBindings = computed(() => {
   if (!sa.value) return []
-  return store.nsRoleBindings.filter(rb =>
+  return (roleBindingsQuery.data.value || []).filter(rb =>
+    rb.namespace === route.params.namespace &&
     rb.subjects?.some(s => s.kind === 'ServiceAccount' && s.name === sa.value.name)
   )
 })
