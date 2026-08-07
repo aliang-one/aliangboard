@@ -10,7 +10,7 @@ import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
 import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
 import { normalizeToolOverrides } from './authorize.mjs'
-import { createAuditSchema } from './audit.mjs'
+import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
@@ -1655,6 +1655,29 @@ async function handle(req, res) {
     const id = decodeURIComponent(url.pathname.slice('/api/admin/apikeys/'.length))
     const revoked = revokeKey(db, id)
     return sendJson(res, 200, { ok: true, revoked })
+  }
+
+  // ====== Admin: 审计流水(active/log/verify;Task 5)======
+  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log/active') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const windowSec = Math.min(Math.max(Number(url.searchParams.get('window')) || 900, 1), 86400)
+    const source = url.searchParams.get('source') || null
+    return sendJson(res, 200, { active: activeKeys(db, { windowSec, source }) })
+  }
+  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const q = url.searchParams
+    const out = queryAuditLog(db, {
+      keyId: q.get('key') || undefined, owner: q.get('owner') || undefined, clusterId: q.get('cluster') || undefined,
+      tool: q.get('tool') || undefined, result: q.get('result') || undefined, source: q.get('source') || undefined,
+      since: q.get('since') || undefined, until: q.get('until') || undefined,
+      page: q.get('page') || undefined, size: q.get('size') || undefined,
+    })
+    return sendJson(res, 200, out)
+  }
+  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log/verify') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    return sendJson(res, 200, verifyChain(db))
   }
 
   // ====== Admin: 用户管理 ======
