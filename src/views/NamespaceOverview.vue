@@ -182,7 +182,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
           <span class="material-symbols-outlined text-primary text-2xl">folder_open</span>
         </div>
         <div>
-          <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }}</h1>
+          <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }} <span class="text-on-surface-variant font-normal">· {{ t('ns.namespaceOverview.topology') }}</span></h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
             <span class="text-primary font-semibold">{{ deployments.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: deployments.length, layers: layerSections.filter(s => s.items.length).length }) }}
           </p>
