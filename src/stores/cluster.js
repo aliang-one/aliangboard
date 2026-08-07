@@ -1204,6 +1204,19 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
   async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
+  async function fetchRoles() {
+    const [roles, clusterRoles] = await Promise.all([
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
+      api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
+    ])
+    return [
+      ...((roles?.items || []).map(r => mapRole(r, 'Namespace'))),
+      ...((clusterRoles?.items || []).map(r => mapRole(r, 'Cluster'))),
+    ]
+  }
+  async function fetchRoleBindings() { const d = await api.k8s('/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=5000'); return (d?.items || []).map(mapRoleBinding) }
+  async function fetchClusterRoleBindings() { const d = await api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'); return (d?.items || []).map(mapRoleBinding) }
+  async function fetchServiceAccounts() { const d = await api.k8s('/api/v1/serviceaccounts?limit=5000'); return (d?.items || []).map(mapServiceAccount) }
   async function fetchRuntimeClasses() { const d = await api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'); return (d?.items || []).map(mapRuntimeClass) }
   async function fetchIngressClasses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'); return (d?.items || []).map(mapIngressClass) }
   async function fetchPriorityClasses() { const d = await api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'); return (d?.items || []).map(mapPriorityClass) }
@@ -3540,6 +3553,7 @@ status:
     fetchNode,
     prefillQueryCache,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
+    fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
