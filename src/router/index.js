@@ -360,7 +360,7 @@ const routes = [
         path: 'ns/:namespace/networkpolicies',
         name: 'NsNetworkPolicies',
         component: () => import('@/views/NsNetworkPolicies.vue'),
-        meta: { title: 'NetworkPolicies', icon: 'firewall', scope: 'namespace' }
+        meta: { title: 'NetworkPolicies', icon: 'shield', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/networkpolicies/:name',

@@ -72,7 +72,7 @@ const nsNavGroups = [
     items: [
       { icon: 'hub', label: 'Services', routeKey: 'services' },
       { icon: 'language', label: 'Ingress', routeKey: 'ingress' },
-      { icon: 'firewall', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
+      { icon: 'shield', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
     ]
   },
   {
