@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useEscClose } from '@/composables/useEscClose'
 
 const { t } = useI18n()
 
@@ -13,6 +14,10 @@ const emit = defineEmits(['confirm', 'close'])
 
 const replicas = ref(props.currentReplicas)
 const loading = ref(false)
+
+// 挂载即打开(父组件 v-if 控制);ESC 同 Cancel。
+const isOpen = ref(true)
+useEscClose(isOpen, () => emit('close'))
 
 async function handleScale() {
   loading.value = true
