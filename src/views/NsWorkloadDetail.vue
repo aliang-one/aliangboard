@@ -1298,7 +1298,7 @@ function podStatusBorder(s) {
               </PodCard>
             </div>
             <div v-else class="flex-1 py-md text-center text-body-sm text-on-surface-variant">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>
               <p class="mt-xs">{{ $t('workload.revision.noPods') }}</p>
             </div>
           </template>
@@ -1606,7 +1606,7 @@ function podStatusBorder(s) {
               <span class="text-[11px] shrink-0" :class="podHealth(p).text">{{ podHealth(p).label }}</span>
             </div>
             <div v-if="!managedPods.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>{{ $t('workload.topology.noPods') }}
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>{{ $t('workload.topology.noPods') }}
             </div>
           </div>
         </div>
@@ -1696,7 +1696,7 @@ function podStatusBorder(s) {
 
       <!-- 空状态 -->
       <div v-else class="rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant/50 py-xl text-center">
-        <span class="material-symbols-outlined text-3xl text-surface-container-high">pod</span>
+        <span class="material-symbols-outlined text-3xl text-surface-container-high">deployed_code</span>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ managedPods.length ? $t('workload.podList.noPodsFiltered') : $t('workload.podList.noPodsAtAll') }}</p>
       </div>
     </div>
