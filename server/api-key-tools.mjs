@@ -63,6 +63,14 @@ function safePodPath(p) {
   return p
 }
 
+// path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> === 绑定 ns;集群级 path 或他 ns → policy 拒。
+// delete_resource 旧实现只校验 namespace arg、不校验 path 实际 ns —— 本 helper 补 policy 层闭环。
+export function assertPathInNs(path, ns) {
+  const m = String(path || '').match(/\/namespaces\/([^/]+)\//)
+  if (!m) throw new PermissionDeniedError('policy', { detail: `path 非命名空间资源(集群级),ns 绑定 key 不允许: ${String(path).slice(0, 80)}` })
+  if (m[1] !== ns) throw new PermissionDeniedError('policy', { detail: `path 命名空间 ${m[1]} 超出绑定 ns ${ns}` })
+}
+
 export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
@@ -253,6 +261,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
+        assertPathInNs(a.path, keyRow.boundSA_namespace)
         await requestFn(saCtx, a.path, { method: 'DELETE' })
         return { deleted: a.path }
       } }),
