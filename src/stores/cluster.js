@@ -1204,6 +1204,10 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
   async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
+  async function fetchRuntimeClasses() { const d = await api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'); return (d?.items || []).map(mapRuntimeClass) }
+  async function fetchIngressClasses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'); return (d?.items || []).map(mapIngressClass) }
+  async function fetchPriorityClasses() { const d = await api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'); return (d?.items || []).map(mapPriorityClass) }
+  async function fetchPriorityClass(name) { const d = await api.k8s(`/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`); return d ? mapPriorityClass(d) : null }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -2385,9 +2389,6 @@ export const useClusterStore = defineStore('cluster', () => {
       api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
       api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
       api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
-      api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'),
-      api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'),
-      api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'),
     ])
     const items = i => (reqs[i].status === 'fulfilled' ? reqs[i].value?.items : null) || []
     configMapList.value = items(0).map(mapConfigMap)
@@ -2409,9 +2410,6 @@ export const useClusterStore = defineStore('cluster', () => {
     roleBindingList.value = items(12).map(mapRoleBinding)
     clusterRoleBindingList.value = items(14).map(mapRoleBinding)
     scList.value = items(15).map(mapStorageClass)
-    ingressClassList.value = items(16).map(mapIngressClass)
-    runtimeClassList.value = items(17).map(mapRuntimeClass)
-    priorityClassList.value = items(18).map(mapPriorityClass)
     return { failed: reqs.filter(r => r.status === 'rejected').length }
   }
 
@@ -3537,7 +3535,7 @@ status:
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
     prefillQueryCache,
-    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs,
+    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,

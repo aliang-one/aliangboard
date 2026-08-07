@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
@@ -11,7 +12,15 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
-const pc = computed(() => store.getPriorityClassByName(route.params.name))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pcDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'priorityclasses', route.params.name],
+  fetcher: () => store.fetchPriorityClass(route.params.name),
+  mock: store.getPriorityClassByName(route.params.name),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const pc = computed(() => pcDetail.data.value ?? store.getPriorityClassByName(route.params.name))
 const yaml = computed(() => store.generateExtraYAML('priorityclass', pc.value))
 const activeTab = ref('overview')
 </script>

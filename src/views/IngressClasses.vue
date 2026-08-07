@@ -1,6 +1,7 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -11,6 +12,16 @@ const { t } = useI18n()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 const expanded = ref(null)
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const ingressClassesQuery = useResourceList({
+  key: ['cluster', cid.value, 'ingressclasses'],
+  fetcher: () => store.fetchIngressClasses(),
+  mock: store.ingressClassList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 function toggleExpand(name) { expanded.value = expanded.value === name ? null : name }
 const yamlOf = (c) => store.generateYAML('ingressclass', c)
 
@@ -53,7 +64,7 @@ function handleDelete() {
     <div class="flex justify-between items-end mt-sm mb-lg">
       <div>
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.ingressClasses.title') }}</h2>
-        <p class="text-on-surface-variant text-body-md mt-1">{{ $t('admin.ingressClasses.subtitle', { count: store.ingressClassList.length }) }}</p>
+        <p class="text-on-surface-variant text-body-md mt-1">{{ $t('admin.ingressClasses.subtitle', { count: ingressClasses.length }) }}</p>
       </div>
       <button
         @click="showCreateModal = true"
@@ -75,7 +86,7 @@ function handleDelete() {
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-variant/30">
-          <template v-for="row in store.ingressClassList" :key="row.name">
+          <template v-for="row in ingressClasses" :key="row.name">
             <tr class="hover:bg-surface-container-low/50 transition-colors">
               <td class="px-lg py-md">
                 <div class="flex items-center gap-sm">
