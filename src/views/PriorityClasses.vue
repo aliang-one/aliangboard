@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -10,6 +11,16 @@ import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
 const store = useClusterStore()
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const priorityClassesQuery = useResourceList({
+  key: ['cluster', cid.value, 'priorityclasses'],
+  fetcher: () => store.fetchPriorityClasses(),
+  mock: store.priorityClassList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const priorityClasses = computed(() => priorityClassesQuery.data.value || [])
 
 // 系统级 PriorityClass（不可删除）
 const SYSTEM_PRIORITY_CLASSES = ['system-node-critical', 'system-cluster-critical']
@@ -20,12 +31,12 @@ const searchQuery = ref('')
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   const list = q
-    ? store.priorityClassList.filter(
+    ? priorityClasses.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           (p.description || '').toLowerCase().includes(q)
       )
-    : [...store.priorityClassList]
+    : [...priorityClasses]
   // 按 value 降序
   return list.sort((a, b) => b.value - a.value)
 })
@@ -87,7 +98,7 @@ function handleDelete() {
       <div>
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.priorityClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">
-          {{ $t('admin.priorityClasses.subtitle', { count: store.priorityClassList.length }) }}
+          {{ $t('admin.priorityClasses.subtitle', { count: priorityClasses.length }) }}
         </p>
       </div>
       <button

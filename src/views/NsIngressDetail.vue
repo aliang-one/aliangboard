@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -31,6 +31,15 @@ const ingDetail = useResourceDetail({
 })
 const ing = computed(() => ingDetail.data.value ?? store.getIngressByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
+
+const ingressClassesQuery = useResourceList({
+  key: ['cluster', cid.value, 'ingressclasses'],
+  fetcher: () => store.fetchIngressClasses(),
+  mock: store.ingressClassList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 
 const showDeleteModal = ref(false)
 
@@ -590,7 +599,7 @@ function saveEditLabel() {
     <p class="text-body-sm text-on-surface-variant mb-sm">{{ $t('ns.ingressDetail.editClassHint') }}</p>
     <select v-model="editClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
       <option value="">{{ $t('ns.ingressDetail.defaultEmpty') }}</option>
-      <option v-for="c in store.ingressClassList" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('ns.ingressDetail.defaultClass') : '' }}</option>
+      <option v-for="c in ingressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('ns.ingressDetail.defaultClass') : '' }}</option>
     </select>
     <template #actions>
       <button @click="showClassModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.ingressDetail.cancel') }}</button>
