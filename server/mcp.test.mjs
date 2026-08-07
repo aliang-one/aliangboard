@@ -58,6 +58,13 @@ test('tools/call: 非权限错(kube 失败)→ isError result(让 AI 看到错�
   assert.match(r.result.content[0].text, /pod not found/)
 })
 
+test('tools/call: PERMISSION_DENIED 带 detail → MCP error 含 detail(可诊断,非裸 policy)', async () => {
+  const tools = mockTools({ callTool: async () => { const e = new Error('PERMISSION_DENIED: policy'); e.code = 'PERMISSION_DENIED'; e.reason = 'policy'; e.detail = "namespace 'default' 超出该 API key 绑定作用域 'anydoor'"; throw e } })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'list_resources', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
+  assert.equal(r.error.code, -32603)
+  assert.match(r.error.message, /namespace 'default' 超出该 API key 绑定作用域 'anydoor'/, 'error 应含 detail,不是裸 PERMISSION_DENIED: policy')
+})
+
 test('tools/call: 集群不存在 → isError', async () => {
   const r = await handleMcpMessage({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'list_resources', arguments: {} } }, { keyRow: readKey, cluster: null, apiKeyTools: mockTools() })
   assert.equal(r.result.isError, true)

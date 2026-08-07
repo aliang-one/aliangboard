@@ -78,8 +78,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
   async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, source, fn }) {
     const intent = { keyId: keyRow.id, owner: keyRow.owner, clusterId: keyRow.clusterId, namespace, verb, resource, tool, source, requestSummary: summary }
     const decision = authorize(keyRow, tool)
-    if (!decision.allowed) { finalizeAudit(db, intent, { result: 'denied', reason: decision.reason }); throw new PermissionDeniedError(decision.reason, { tool }) }
-    if (namespace !== keyRow.boundSA_namespace) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: 'namespace 超出绑定 SA 作用域' }) }
+    if (!decision.allowed) { finalizeAudit(db, intent, { result: 'denied', reason: decision.reason }); throw new PermissionDeniedError(decision.reason, { tool, detail: `工具 '${tool}' 不在当前 API key 的允许工具集(tier='${keyRow.tier}'${keyRow.tool_overrides ? ' + tool_overrides 覆盖' : ''} 决定;在 平台管理 → API Keys 配置)` }) }
+    if (namespace !== keyRow.boundSA_namespace) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: `namespace '${namespace}' 超出该 API key 绑定作用域 '${keyRow.boundSA_namespace}'(绑定 ns 在 平台管理 → API Keys 配置)` }) }
     reserveAudit(db, intent)
     try {
       const bootstrapCtx = buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
