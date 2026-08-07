@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
@@ -12,13 +13,28 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
-const role = computed(() => store.getClusterRoleByName(route.params.name))
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const roleDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'roles', route.params.name],
+  fetcher: () => store.fetchClusterRole(route.params.name),
+  mock: store.getClusterRoleByName(route.params.name),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const role = computed(() => roleDetail.data.value ?? store.getClusterRoleByName(route.params.name))
+const clusterRoleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'clusterrolebindings'],
+  fetcher: () => store.fetchClusterRoleBindings(),
+  mock: store.clusterRoleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('role', role.value),
 })
 const activeTab = ref('overview')
-const bindings = computed(() => store.clusterRoleBindingList.filter(b => b.roleName === role.value?.name))
+const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filter(b => b.roleName === role.value?.name))
 </script>
 
 <template>
