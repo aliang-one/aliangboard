@@ -6,9 +6,20 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
 const store = useClusterStore()
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const crdsQuery = useResourceList({
+  key: ['cluster', cid.value, 'crds'],
+  fetcher: () => store.fetchCRDs(),
+  mock: store.crdList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const crds = computed(() => crdsQuery.data.value || [])
 
 // 搜索关键字
 const search = ref('')
@@ -27,8 +38,8 @@ function toggle(name) {
 
 const filteredCrds = computed(() => {
   const kw = search.value.trim().toLowerCase()
-  if (!kw) return store.crdList
-  return store.crdList.filter(c =>
+  if (!kw) return crds
+  return crds.filter(c =>
     c.name.toLowerCase().includes(kw) ||
     c.kind.toLowerCase().includes(kw) ||
     c.group.toLowerCase().includes(kw) ||
@@ -37,10 +48,6 @@ const filteredCrds = computed(() => {
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filteredCrds, { resetDeps: [search] })
-
-const totalInstances = computed(() =>
-  store.crdList.reduce((sum, c) => sum + (c.instances?.length || 0), 0)
-)
 </script>
 
 <template>
@@ -62,11 +69,11 @@ const totalInstances = computed(() =>
         <div class="flex items-center gap-sm">
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
             <p class="text-xs text-on-surface-variant">{{ $t('admin.crdList.crdsLabel') }}</p>
-            <p class="text-body-sm text-primary font-bold">{{ store.crdList.length }}</p>
+            <p class="text-body-sm text-primary font-bold">{{ crds.length }}</p>
           </div>
           <div class="px-md py-xs bg-surface-container-lowest border border-outline-variant rounded-lg text-center">
             <p class="text-xs text-on-surface-variant">{{ $t('admin.crdList.instancesLabel') }}</p>
-            <p class="text-body-sm text-primary font-bold">{{ totalInstances }}</p>
+            <p class="text-body-sm text-primary font-bold">—</p>
           </div>
         </div>
       </div>
