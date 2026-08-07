@@ -6,6 +6,7 @@ import { authorize, PermissionDeniedError } from './authorize.mjs'
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
+import { dump as yamlDump } from 'js-yaml'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -134,6 +135,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { resource: body }
         } })
     },
+    get_resource_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'get_resource_yaml', source, namespace: a.namespace, verb: 'get', resource: a.path || '?', summary: `get ${(a.path || '').slice(0, 80)}`,
+      fn: async (saCtx) => {
+        if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
+        assertPathInNs(a.path, keyRow.boundSA_namespace)
+        const { body } = await requestFn(saCtx, a.path)
+        if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
+        const full = yamlDump(body)
+        const originalBytes = Buffer.byteLength(full, 'utf8')
+        const truncated = originalBytes > LOG_BYTE_MAX
+        const yaml = truncated ? Buffer.from(full, 'utf8').subarray(0, LOG_BYTE_MAX).toString('utf8') : full
+        return { kind: body?.kind, name: body?.metadata?.name, apiVersion: body?.apiVersion, yaml, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
+      } }),
     get_events: async (keyRow, cluster, a, source) => {
       return runBoundedTool({ keyRow, cluster, tool: 'get_events', source, namespace: a.namespace, verb: 'list', resource: 'events', summary: `for=${a.name || '(all)'}`,
         fn: async (saCtx) => {

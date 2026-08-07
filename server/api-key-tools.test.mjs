@@ -387,3 +387,45 @@ test('delete_resource: 集群级 path → policy 拒', async () => {
     (e) => e.reason === 'policy',
   )
 })
+
+// --- get_resource_yaml(path-based,任意 kind/CRD)---
+test('get_resource_yaml: path GET → YAML + managedFields 去噪;read 档可调', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (!init.method && /\/ingresses\/foo$/.test(path)) return { body: { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'foo', managedFields: [{ x: 1 }] }, spec: { rules: [] } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo' })
+  assert.equal(out.kind, 'Ingress'); assert.equal(out.name, 'foo'); assert.equal(out.apiVersion, 'networking.k8s.io/v1')
+  assert.match(out.yaml, /kind: Ingress/); assert.doesNotMatch(out.yaml, /managedFields/)
+  assert.equal(out.truncated, false)
+})
+test('get_resource_yaml: 大对象截 32KB + truncated + originalBytes', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const big = { kind: 'ConfigMap', apiVersion: 'v1', metadata: { name: 'big' }, data: { blob: 'x'.repeat(60000) } }
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (!init.method && /\/configmaps\/big$/.test(path)) return { body: big }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/namespaces/ns/configmaps/big' })
+  assert.equal(out.truncated, true)
+  assert.ok(out.originalBytes > 32768, 'originalBytes 记原始大小')
+  assert.ok(Buffer.byteLength(out.yaml, 'utf8') <= 32768 + 4, '截断后 yaml 不超上限')
+})
+test('get_resource_yaml: path ns 不符 / 集群级 → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/namespaces/other/pods/p1' }), (e) => e.reason === 'policy')
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/persistentvolumes/pv1' }), (e) => e.reason === 'policy')
+})
+test('get_resource_yaml: 缺 path → 报错', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns' }), /缺 path/)
+})
