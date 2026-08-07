@@ -2395,17 +2395,12 @@ export const useClusterStore = defineStore('cluster', () => {
       secrets: () => api.k8s('/api/v1/secrets?limit=5000'),
       persistentvolumeclaims: () => api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
       endpoints: () => api.k8s('/api/v1/endpoints?limit=5000'),
-      serviceaccounts: () => api.k8s('/api/v1/serviceaccounts?limit=5000'),
       resourcequotas: () => api.k8s('/api/v1/resourcequotas?limit=5000'),
       limitranges: () => api.k8s('/api/v1/limitranges?limit=5000'),
       persistentvolumes: () => api.k8s('/api/v1/persistentvolumes?limit=5000'),
       networkpolicies: () => api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
       horizontalpodautoscalers: () => api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
       poddisruptionbudgets: () => api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
-      roles: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
-      rolebindings: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=5000'),
-      clusterroles: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
-      clusterrolebindings: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
       storageclasses: () => api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
     }
     const out = {}
@@ -2417,20 +2412,12 @@ export const useClusterStore = defineStore('cluster', () => {
     secretList.value = out.secrets.map(mapSecret)
     pvcList.value = out.persistentvolumeclaims.map(mapPVC)
     endpointsList.value = out.endpoints.map(mapEndpoints)
-    saList.value = out.serviceaccounts.map(mapServiceAccount)
     resourceQuotaList.value = out.resourcequotas.map(mapResourceQuota)
     limitRangeList.value = out.limitranges.map(mapLimitRange)
     pvList.value = out.persistentvolumes.map(mapPV)
     networkPolicyList.value = out.networkpolicies.map(mapNetworkPolicy)
     hpaList.value = out.horizontalpodautoscalers.map(mapHPA)
     pdbList.value = out.poddisruptionbudgets.map(mapPDB)
-    // roles 列表同时承载命名空间级 Role 与集群级 ClusterRole（用 scope 区分）
-    roleList.value = [
-      ...out.roles.map(r => mapRole(r, 'Namespace')),
-      ...out.clusterroles.map(r => mapRole(r, 'Cluster')),
-    ]
-    roleBindingList.value = out.rolebindings.map(mapRoleBinding)
-    clusterRoleBindingList.value = out.clusterrolebindings.map(mapRoleBinding)
     scList.value = out.storageclasses.map(mapStorageClass)
     return { failed }
   }
