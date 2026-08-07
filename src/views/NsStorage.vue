@@ -31,15 +31,15 @@ const nsPVCs = computed(() => (pvcsQuery.data.value || []).filter(p => p.namespa
 
 const activeTab = ref('pvc')
 
-const boundCount = computed(() => nsPVCs.filter(p => p.status === 'Bound').length)
-const pendingCount = computed(() => nsPVCs.filter(p => p.status === 'Pending').length)
+const boundCount = computed(() => nsPVCs.value.filter(p => p.status === 'Bound').length)
+const pendingCount = computed(() => nsPVCs.value.filter(p => p.status === 'Pending').length)
 
 // 搜索过滤
 const searchQuery = ref('')
 const filteredPVCs = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return nsPVCs
-  return nsPVCs.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
+  return nsPVCs.value.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filteredPVCs, { resetDeps: [searchQuery] })

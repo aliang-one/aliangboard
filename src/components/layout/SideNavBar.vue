@@ -44,6 +44,7 @@ const platformAdminNav = [
   { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
   { icon: 'smart_toy', labelKey: 'nav.aiConsole', route: '/admin/agent' },
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
+  { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
 ]
 const clusterNavOpen = ref(false)
 
@@ -72,7 +73,7 @@ const nsNavGroups = [
     items: [
       { icon: 'hub', label: 'Services', routeKey: 'services' },
       { icon: 'language', label: 'Ingress', routeKey: 'ingress' },
-      { icon: 'firewall', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
+      { icon: 'shield', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
     ]
   },
   {

@@ -66,8 +66,8 @@ function safePodPath(p) {
 export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
-  async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, fn }) {
-    const intent = { keyId: keyRow.id, owner: keyRow.owner, clusterId: keyRow.clusterId, namespace, verb, resource, tool, requestSummary: summary }
+  async function runBoundedTool({ keyRow, cluster, tool, namespace, verb, resource, summary, source, fn }) {
+    const intent = { keyId: keyRow.id, owner: keyRow.owner, clusterId: keyRow.clusterId, namespace, verb, resource, tool, source, requestSummary: summary }
     const decision = authorize(keyRow, tool)
     if (!decision.allowed) { finalizeAudit(db, intent, { result: 'denied', reason: decision.reason }); throw new PermissionDeniedError(decision.reason, { tool }) }
     if (namespace !== keyRow.boundSA_namespace) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: 'namespace 超出绑定 SA 作用域' }) }
@@ -88,9 +88,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
   }
 
   const tools = {
-    get_pod_logs: async (keyRow, cluster, a) => {
+    get_pod_logs: async (keyRow, cluster, a, source) => {
       const tailN = Math.min(Math.max(Number(a.tail) || LOG_TAIL_MAX, 1), LOG_TAIL_MAX)
-      return runBoundedTool({ keyRow, cluster, tool: 'get_pod_logs', namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'get_pod_logs', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}`,
         summary: `pod=${a.pod} container=${a.container || ''} tail=${tailN}`,
         fn: async (saCtx) => {
           const q = new URLSearchParams({ tailLines: String(tailN) }); if (a.container) q.set('container', a.container)
@@ -103,11 +103,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { logs, tail: tailN, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
         } })
     },
-    list_resources: async (keyRow, cluster, a) => {
+    list_resources: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || 'pods').toLowerCase()
       const templ = LIST_PATH[kind]
       if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets)` })
-      return runBoundedTool({ keyRow, cluster, tool: 'list_resources', namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
           const all = body?.items || []
@@ -115,19 +115,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { kind, count: all.length, returned: items.length, items }
         } })
     },
-    get_resource: async (keyRow, cluster, a) => {
+    get_resource: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || 'pods').toLowerCase()
       const getter = GET_PATH[kind]
       if (!getter) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${kind}` })
-      return runBoundedTool({ keyRow, cluster, tool: 'get_resource', namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `kind=${kind} name=${a.name}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'get_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `kind=${kind} name=${a.name}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, getter(a.namespace, a.name))
           if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
           return { resource: body }
         } })
     },
-    get_events: async (keyRow, cluster, a) => {
-      return runBoundedTool({ keyRow, cluster, tool: 'get_events', namespace: a.namespace, verb: 'list', resource: 'events', summary: `for=${a.name || '(all)'}`,
+    get_events: async (keyRow, cluster, a, source) => {
+      return runBoundedTool({ keyRow, cluster, tool: 'get_events', source, namespace: a.namespace, verb: 'list', resource: 'events', summary: `for=${a.name || '(all)'}`,
         fn: async (saCtx) => {
           const url = a.name
             ? `/api/v1/namespaces/${enc(a.namespace)}/events?fieldSelector=${enc('involvedObject.name=' + a.name)}`
@@ -138,8 +138,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { count: all.length, returned: items.length, items }
         } })
     },
-    rollout_history: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'rollout_history', namespace: a.namespace, verb: 'get', resource: `Deployment/${a.name}/rollout`, summary: `deploy=${a.name}`,
+    rollout_history: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'rollout_history', source, namespace: a.namespace, verb: 'get', resource: `Deployment/${a.name}/rollout`, summary: `deploy=${a.name}`,
       fn: async (saCtx) => {
         const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
         if (!dp) throw new Error(`Deployment ${a.name} 不存在`)
@@ -157,8 +157,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           .sort((x, y) => (Number(y.revision) || 0) - (Number(x.revision) || 0))
         return { namespace: a.namespace, deployment: a.name, currentRevision: curRev, revisions }
       } }),
-    rollout_undo: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'rollout_undo', namespace: a.namespace, verb: 'patch', resource: `Deployment/${a.name}/rollback`, summary: `deploy=${a.name} →rev=${a.toRevision}`,
+    rollout_undo: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'rollout_undo', source, namespace: a.namespace, verb: 'patch', resource: `Deployment/${a.name}/rollback`, summary: `deploy=${a.name} →rev=${a.toRevision}`,
       fn: async (saCtx) => {
         if (a.toRevision == null || a.toRevision === '') throw new Error('rollout_undo 缺 toRevision(先 rollout_history 看 revisions)')
         const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
@@ -176,9 +176,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         })
         return { undone: a.name, toRevision: Number(a.toRevision), previousImage: prevImage, newImage }
       } }),
-    update_image: async (keyRow, cluster, a) => {
+    update_image: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || '').toLowerCase()
-      return runBoundedTool({ keyRow, cluster, tool: 'update_image', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} ${a.container}=${(a.image || '').slice(0, 40)}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'update_image', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} ${a.container}=${(a.image || '').slice(0, 40)}`,
         fn: async (saCtx) => {
           if (!WORKLOADS.includes(kind)) throw new Error(`update_image 仅支持 ${WORKLOADS.join('/')},不是 ${kind}`)
           if (!a.container) throw new Error('update_image 缺 container')
@@ -196,9 +196,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { kind, name: a.name, container: a.container, previousImage: targetC.image || null, newImage: a.image }
         } })
     },
-    scale: async (keyRow, cluster, a) => {
+    scale: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || '').toLowerCase()
-      return runBoundedTool({ keyRow, cluster, tool: 'scale', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'scale', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,
         fn: async (saCtx) => {
           if (!SCALE_KINDS.includes(kind)) throw new Error(`scale 仅支持 ${SCALE_KINDS.join('/')},不是 ${kind}`)
           const replicas = Number(a.replicas)
@@ -207,9 +207,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { kind, name: a.name, replicas: body?.spec?.replicas ?? replicas }
         } })
     },
-    restart: async (keyRow, cluster, a) => {
+    restart: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || '').toLowerCase()
-      return runBoundedTool({ keyRow, cluster, tool: 'restart', namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'restart', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name}`,
         fn: async (saCtx) => {
           if (!RESTART_KINDS.includes(kind)) throw new Error(`restart 仅支持 ${RESTART_KINDS.join('/')},不是 ${kind}`)
           const restartedAt = new Date().toISOString()
@@ -217,9 +217,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { kind, name: a.name, restartedAt }
         } })
     },
-    exec_pod: async (keyRow, cluster, a) => {
+    exec_pod: async (keyRow, cluster, a, source) => {
       const command = Array.isArray(a.command) ? a.command.join(' ') : String(a.command || '')
-      return runBoundedTool({ keyRow, cluster, tool: 'exec_pod', namespace: a.namespace, verb: 'exec', resource: `Pod/${a.pod}`, summary: `pod=${a.pod} c=${a.container || ''} cmd=${command.slice(0, 80)}`,
+      return runBoundedTool({ keyRow, cluster, tool: 'exec_pod', source, namespace: a.namespace, verb: 'exec', resource: `Pod/${a.pod}`, summary: `pod=${a.pod} c=${a.container || ''} cmd=${command.slice(0, 80)}`,
         fn: async (saCtx) => {
           if (!execFn) throw new Error('exec_pod 未启用(网关未注入 execFn)')
           if (!command) throw new Error('exec_pod 缺 command')
@@ -227,37 +227,37 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { pod: a.pod, container: a.container || '', exitCode: r.status ?? null, stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192) }
         } })
     },
-    browse_files: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'browse_files', namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/files`, summary: `pod=${a.pod} path=${(a.path || '/').slice(0, 80)}`,
+    browse_files: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'browse_files', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/files`, summary: `pod=${a.pod} path=${(a.path || '/').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!execFn) throw new Error('browse_files 未启用')
         const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `ls -la ${safePodPath(a.path || '/')}`)
         return { pod: a.pod, path: a.path || '/', listing: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
       } }),
-    read_file: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'read_file', namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/file`, summary: `pod=${a.pod} path=${(a.path || '').slice(0, 80)}`,
+    read_file: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'read_file', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/file`, summary: `pod=${a.pod} path=${(a.path || '').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!execFn) throw new Error('read_file 未启用')
         if (!a.path) throw new Error('read_file 缺 path')
         const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat ${safePodPath(a.path)}`)
         return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
       } }),
-    apply_yaml: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'apply_yaml', namespace: keyRow.boundSA_namespace, verb: 'apply', resource: 'yaml', summary: `apply yaml ${(a.yaml || '').length} chars`,
+    apply_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'apply_yaml', source, namespace: keyRow.boundSA_namespace, verb: 'apply', resource: 'yaml', summary: `apply yaml ${(a.yaml || '').length} chars`,
       fn: async (saCtx) => {
         if (!applyYamlFn) throw new Error('apply_yaml 未启用(网关未注入 applyYamlFn)')
         if (!a.yaml || !a.yaml.trim()) throw new Error('apply_yaml 缺 yaml')
         return applyYamlFn(saCtx, a.yaml)
       } }),
-    delete_resource: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'delete_resource', namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
+    delete_resource: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
         await requestFn(saCtx, a.path, { method: 'DELETE' })
         return { deleted: a.path }
       } }),
-    kubectl_debug: async (keyRow, cluster, a) => runBoundedTool({
-      keyRow, cluster, tool: 'kubectl_debug', namespace: a.namespace, verb: 'patch', resource: `Pod/${a.pod}/ephemeral`, summary: `pod=${a.pod} image=${a.image || 'busybox'}`,
+    kubectl_debug: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'kubectl_debug', source, namespace: a.namespace, verb: 'patch', resource: `Pod/${a.pod}/ephemeral`, summary: `pod=${a.pod} image=${a.image || 'busybox'}`,
       fn: async (saCtx) => {
         if (!ephemeralFn) throw new Error('kubectl_debug 未启用')
         return ephemeralFn(saCtx, a.namespace, a.pod, { name: a.name || 'debugger', image: a.image || 'busybox:latest', command: a.command, targetContainerName: a.targetContainerName })
@@ -265,10 +265,10 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
   }
 
   // 派发:T12 MCP tools/call → callTool;未知工具 → policy 拒(不暴露 tool 存在与否的细节过度,这里直接报)。
-  async function callTool(keyRow, cluster, tool, args) {
+  async function callTool(keyRow, cluster, tool, args, source = 'direct') {
     const fn = tools[tool]
     if (!fn) throw new PermissionDeniedError('policy', { tool, detail: `未知工具: ${tool}` })
-    return fn(keyRow, cluster, args || {})
+    return fn(keyRow, cluster, args || {}, source)
   }
 
   return { callTool, getPodLogs: tools.get_pod_logs, listTools: () => Object.keys(tools) }

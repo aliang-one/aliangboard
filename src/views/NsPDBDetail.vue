@@ -202,7 +202,7 @@ async function handleDelete() {
           <!-- Namespace -->
           <div class="px-lg py-md flex items-center justify-between">
             <div class="flex items-center gap-sm">
-              <span class="material-symbols-outlined text-on-surface-variant">namespace</span>
+              <span class="material-symbols-outlined text-on-surface-variant">folder_open</span>
               <span class="text-body-md text-on-surface-variant">{{ t('ns.pdbDetail.namespace') }}</span>
             </div>
             <span class="text-body-sm font-mono text-on-surface">{{ pdb.namespace }}</span>

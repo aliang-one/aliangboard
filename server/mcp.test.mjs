@@ -73,6 +73,13 @@ test('notification(无 id)→ null(无响应)', async () => {
   assert.equal(r, null)
 })
 
+test('tools/call: 经 MCP 路传 source=mcp 给 callTool', async () => {
+  let captured = null
+  const apiKeyTools = { ...mockTools(), callTool: async (k, c, t, a, source) => { captured = source; return { tool: t } } }
+  await handleMcpMessage({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'list_resources', arguments: { namespace: 'ns' } } }, { keyRow: readKey, cluster, apiKeyTools })
+  assert.equal(captured, 'mcp')
+})
+
 test('tools/list(覆盖): effectiveTools allow 把 admin 工具暴露给 read key', async () => {
   const readWithAllow = { ...readKey, tool_overrides: JSON.stringify({ allow: ['exec_pod'] }) }
   // 内联 apiKeyTools:listTools 含 exec_pod(mockTools 的 listTools 不含,会被 .filter 过滤掉)

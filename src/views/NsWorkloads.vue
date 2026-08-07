@@ -41,7 +41,7 @@ const typeOptions = ['All', 'Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'Cr
 const statusOptions = ['All', 'Running', 'Pending', 'Failed', 'Succeeded']
 
 const filtered = computed(() => {
-  let list = nsWorkloads
+  let list = nsWorkloads.value
   if (typeFilter.value !== 'All') list = list.filter(w => w.type === typeFilter.value)
   if (statusFilter.value !== 'All') list = list.filter(w => w.status === statusFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
@@ -49,10 +49,10 @@ const filtered = computed(() => {
   return list
 })
 
-const deployCount = computed(() => nsWorkloads.filter(w => w.type === 'Deployment').length)
-const stsCount = computed(() => nsWorkloads.filter(w => w.type === 'StatefulSet').length)
-const dsCount = computed(() => nsWorkloads.filter(w => w.type === 'DaemonSet').length)
-const jobCount = computed(() => nsWorkloads.filter(w => ['Job', 'CronJob'].includes(w.type)).length)
+const deployCount = computed(() => nsWorkloads.value.filter(w => w.type === 'Deployment').length)
+const stsCount = computed(() => nsWorkloads.value.filter(w => w.type === 'StatefulSet').length)
+const dsCount = computed(() => nsWorkloads.value.filter(w => w.type === 'DaemonSet').length)
+const jobCount = computed(() => nsWorkloads.value.filter(w => ['Job', 'CronJob'].includes(w.type)).length)
 
 // 分页
 const currentPage = ref(1)
@@ -153,7 +153,7 @@ function handleDelete() {
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-10 pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.workloads.searchPlaceholder')" />
       </div>
       <select v-model="typeFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
-        <option v-for="t in typeOptions" :key="t" :value="t">{{ t === 'All' ? t('ns.workloads.allTypes') : t }}</option>
+        <option v-for="t in typeOptions" :key="t" :value="t">{{ t === 'All' ? $t('ns.workloads.allTypes') : t }}</option>
       </select>
       <select v-model="statusFilter" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary focus:border-primary cursor-pointer">
         <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? t('ns.workloads.allStatuses') : s }}</option>
