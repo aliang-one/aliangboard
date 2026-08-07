@@ -2372,45 +2372,49 @@ export const useClusterStore = defineStore('cluster', () => {
 
   async function hydrateExtendedResources() {
     if (!remoteMode.value) return
-    const reqs = await Promise.allSettled([
-      api.k8s('/api/v1/configmaps?limit=5000'),
-      api.k8s('/api/v1/secrets?limit=5000'),
-      api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
-      api.k8s('/api/v1/endpoints?limit=5000'),
-      api.k8s('/api/v1/serviceaccounts?limit=5000'),
-      api.k8s('/api/v1/resourcequotas?limit=5000'),
-      api.k8s('/api/v1/limitranges?limit=5000'),
-      api.k8s('/api/v1/persistentvolumes?limit=5000'),
-      api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
-      api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
-      api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
-      api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
-      api.k8s('/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=5000'),
-      api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
-      api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
-      api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
-    ])
-    const items = i => (reqs[i].status === 'fulfilled' ? reqs[i].value?.items : null) || []
-    configMapList.value = items(0).map(mapConfigMap)
-    secretList.value = items(1).map(mapSecret)
-    pvcList.value = items(2).map(mapPVC)
-    endpointsList.value = items(3).map(mapEndpoints)
-    saList.value = items(4).map(mapServiceAccount)
-    resourceQuotaList.value = items(5).map(mapResourceQuota)
-    limitRangeList.value = items(6).map(mapLimitRange)
-    pvList.value = items(7).map(mapPV)
-    networkPolicyList.value = items(8).map(mapNetworkPolicy)
-    hpaList.value = items(9).map(mapHPA)
-    pdbList.value = items(10).map(mapPDB)
+    const fetchers = {
+      configmaps: () => api.k8s('/api/v1/configmaps?limit=5000'),
+      secrets: () => api.k8s('/api/v1/secrets?limit=5000'),
+      persistentvolumeclaims: () => api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
+      endpoints: () => api.k8s('/api/v1/endpoints?limit=5000'),
+      serviceaccounts: () => api.k8s('/api/v1/serviceaccounts?limit=5000'),
+      resourcequotas: () => api.k8s('/api/v1/resourcequotas?limit=5000'),
+      limitranges: () => api.k8s('/api/v1/limitranges?limit=5000'),
+      persistentvolumes: () => api.k8s('/api/v1/persistentvolumes?limit=5000'),
+      networkpolicies: () => api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
+      horizontalpodautoscalers: () => api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
+      poddisruptionbudgets: () => api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
+      roles: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
+      rolebindings: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=5000'),
+      clusterroles: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
+      clusterrolebindings: () => api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=5000'),
+      storageclasses: () => api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
+    }
+    const out = {}
+    let failed = 0
+    await Promise.all(Object.entries(fetchers).map(async ([k, fn]) => {
+      try { out[k] = (await fn())?.items || [] } catch { out[k] = []; failed++ }
+    }))
+    configMapList.value = out.configmaps.map(mapConfigMap)
+    secretList.value = out.secrets.map(mapSecret)
+    pvcList.value = out.persistentvolumeclaims.map(mapPVC)
+    endpointsList.value = out.endpoints.map(mapEndpoints)
+    saList.value = out.serviceaccounts.map(mapServiceAccount)
+    resourceQuotaList.value = out.resourcequotas.map(mapResourceQuota)
+    limitRangeList.value = out.limitranges.map(mapLimitRange)
+    pvList.value = out.persistentvolumes.map(mapPV)
+    networkPolicyList.value = out.networkpolicies.map(mapNetworkPolicy)
+    hpaList.value = out.horizontalpodautoscalers.map(mapHPA)
+    pdbList.value = out.poddisruptionbudgets.map(mapPDB)
     // roles 列表同时承载命名空间级 Role 与集群级 ClusterRole（用 scope 区分）
     roleList.value = [
-      ...items(11).map(r => mapRole(r, 'Namespace')),
-      ...items(13).map(r => mapRole(r, 'Cluster')),
+      ...out.roles.map(r => mapRole(r, 'Namespace')),
+      ...out.clusterroles.map(r => mapRole(r, 'Cluster')),
     ]
-    roleBindingList.value = items(12).map(mapRoleBinding)
-    clusterRoleBindingList.value = items(14).map(mapRoleBinding)
-    scList.value = items(15).map(mapStorageClass)
-    return { failed: reqs.filter(r => r.status === 'rejected').length }
+    roleBindingList.value = out.rolebindings.map(mapRoleBinding)
+    clusterRoleBindingList.value = out.clusterrolebindings.map(mapRoleBinding)
+    scList.value = out.storageclasses.map(mapStorageClass)
+    return { failed }
   }
 
   // 拉取 CRD 列表，并对每个 CRD 并发拉取其实例（容忍失败）
