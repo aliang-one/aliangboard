@@ -3,10 +3,27 @@ import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 
 const { t } = useI18n()
 const store = useClusterStore()
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const roleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'rolebindings'],
+  fetcher: () => store.fetchRoleBindings(),
+  mock: store.roleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const clusterRoleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'clusterrolebindings'],
+  fetcher: () => store.fetchClusterRoleBindings(),
+  mock: store.clusterRoleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 
 const subjectKind = ref('User')
 const subjectName = ref('admin@kubezen.io')
@@ -21,7 +38,7 @@ const resources = ['pods', 'pods/log', 'services', 'configmaps', 'secrets', 'dep
 // 从现有绑定中提取 subject，供 datalist 自动补全
 const knownSubjects = computed(() => {
   const set = new Set()
-  ;[...store.roleBindingList, ...store.clusterRoleBindingList].forEach(b => {
+  ;[...(roleBindingsQuery.data.value || []), ...(clusterRoleBindingsQuery.data.value || [])].forEach(b => {
     (b.subjects || []).forEach(s => set.add(s.name))
   })
   return Array.from(set)
