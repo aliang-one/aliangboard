@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createAuditSchema, writeAudit, reserveAudit, finalizeAudit, verifyChain, rowHash, GENESIS_HASH } from './audit.mjs'
+import { createAuditSchema, writeAudit, reserveAudit, finalizeAudit, verifyChain, rowHash, GENESIS_HASH, activeKeys, queryAuditLog } from './audit.mjs'
+import { createApiKeysSchema } from './auth-keys.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -104,4 +105,48 @@ test('verifyChain: source 与无 source 行混合仍 valid(source 不在 CORE_FI
   writeAudit(db, { tool: 't3', result: 'ok', source: 'agent' })
   const v = verifyChain(db)
   assert.equal(v.valid, true)
+})
+
+// T4 读 helper:activeKeys(按 key 聚合)+ queryAuditLog(分页流水)。
+// 内存库同时建 audit_log + api_keys,以便 LEFT JOIN label。
+function makeAudDb() {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  createApiKeysSchema(db)
+  return db
+}
+
+test('activeKeys: 近 window 按 key 聚合 + source 过滤 + label join + 排除 started', () => {
+  const db = makeAudDb()
+  // label 不给 → LEFT JOIN 得 NULL;owner/clusterId/boundSA_* 是 NOT NULL,必须填。
+  db.prepare("INSERT INTO api_keys (id,keyHash,prefix,owner,clusterId,boundSA_namespace,boundSA_name,tier,createdAt,revokedAt) VALUES ('k1','h','p','alice','c1','ns','sa','read',0,NULL)").run()
+  const now = Date.now()
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'list_resources', result: 'ok', source: 'mcp', ts: now - 60_000 })
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'scale', result: 'denied', source: 'agent', ts: now - 30_000 })
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'get', result: 'error', source: 'mcp', ts: now - 10_000 })
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'old', result: 'ok', source: 'mcp', ts: now - 10_000_000 }) // 超出 window
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'started-only', result: null, source: 'mcp', ts: now - 5_000, status: 'started' }) // started 行不计
+  const all = activeKeys(db, { windowSec: 900 })
+  assert.equal(all.length, 1)
+  assert.equal(all[0].keyId, 'k1')
+  assert.equal(all[0].label, null)
+  assert.equal(all[0].count, 3, 'started 行不计 → 3(finalized)非 4')
+  assert.equal(all[0].ok, 1)
+  assert.equal(all[0].denied, 1)
+  assert.equal(all[0].error, 1)
+  const mcpOnly = activeKeys(db, { windowSec: 900, source: 'mcp' })
+  assert.equal(mcpOnly[0].count, 2)
+})
+
+test('queryAuditLog: 默认只列 finalized(排除 started) + 过滤 + 分页 + size 钳制', () => {
+  const db = makeAudDb()
+  for (let i = 0; i < 5; i++) writeAudit(db, { keyId: 'k1', tool: 't', result: 'ok', source: 'mcp', ts: 1000 + i })          // 5 finalized
+  for (let i = 0; i < 3; i++) writeAudit(db, { keyId: 'k1', tool: 't', result: null, source: 'mcp', ts: 2000 + i, status: 'started' }) // 3 started(默认不计)
+  const r = queryAuditLog(db, { source: 'mcp', page: 1, size: 2 })
+  assert.equal(r.total, 5, '默认 finalized → 5,排除 3 started')
+  assert.equal(r.items.length, 2)
+  assert.ok(r.items[0].ts >= r.items[1].ts, 'DESC')
+  assert.equal(queryAuditLog(db, { size: 9999 }).size, 200, 'size 钳到 200')
+  assert.equal(queryAuditLog(db, { result: 'denied' }).total, 0)
+  assert.equal(queryAuditLog(db, { status: null }).total, 8, 'status=null → 全部(5 finalized + 3 started)')
 })

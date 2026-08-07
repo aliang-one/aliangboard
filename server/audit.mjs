@@ -80,3 +80,40 @@ export function verifyChain(db) {
   }
   return { valid: true, count: rows.length }
 }
+
+// 近 windowSec 秒、按 key 聚合(可选 source 过滤);label LEFT JOIN api_keys。给「最近活跃 key」面板。
+// ⚠️ 只计 status='finalized' 行(reserveAudit 另写 'started' 行;不计 finalized 会把每次调用算 2 次)。
+export function activeKeys(db, { windowSec = 900, source = null } = {}) {
+  const since = Date.now() - Math.min(Math.max(Number(windowSec) || 900, 1), 86400) * 1000
+  const sql = `SELECT a.keyId, k.label, a.owner, a.clusterId, COUNT(*) AS count, MAX(a.ts) AS lastTs,
+      SUM(CASE WHEN a.result='ok' THEN 1 ELSE 0 END) AS ok,
+      SUM(CASE WHEN a.result='denied' THEN 1 ELSE 0 END) AS denied,
+      SUM(CASE WHEN a.result='error' THEN 1 ELSE 0 END) AS error
+    FROM audit_log a LEFT JOIN api_keys k ON k.id = a.keyId
+    WHERE a.ts > ? AND a.keyId IS NOT NULL AND a.status='finalized' ${source ? 'AND a.source = ?' : ''}
+    GROUP BY a.keyId ORDER BY lastTs DESC`
+  const rows = source ? db.prepare(sql).all(since, source) : db.prepare(sql).all(since)
+  return rows.map(r => ({ keyId: r.keyId, label: r.label, owner: r.owner, clusterId: r.clusterId,
+    count: Number(r.count) || 0, lastTs: Number(r.lastTs), ok: Number(r.ok) || 0, denied: Number(r.denied) || 0, error: Number(r.error) || 0 }))
+}
+
+// 分页调用流水(多过滤器可选,size 钳 1..200,ts DESC)。⚠️ 默认只列 status='finalized'(结果行);
+// 每次 call 另有一条 'started' 行(reserveAudit),不计入 → 避免每调用显示 2 行。传 status=null/'' → 不过滤(全部)。
+export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, source, since, until, page = 1, size = 50, status = 'finalized' } = {}) {
+  size = Math.min(Math.max(Number(size) || 50, 1), 200)
+  page = Math.max(Number(page) || 1, 1)
+  const where = []; const params = []
+  if (status) { where.push('status = ?'); params.push(status) }   // 默认 'finalized';传 null/'' → 不过滤(全部)
+  if (keyId) { where.push('keyId = ?'); params.push(keyId) }
+  if (owner) { where.push('owner = ?'); params.push(owner) }
+  if (clusterId) { where.push('clusterId = ?'); params.push(clusterId) }
+  if (tool) { where.push('tool = ?'); params.push(tool) }
+  if (result) { where.push('result = ?'); params.push(result) }
+  if (source) { where.push('source = ?'); params.push(source) }
+  if (since != null) { where.push('ts >= ?'); params.push(Number(since)) }
+  if (until != null) { where.push('ts <= ?'); params.push(Number(until)) }
+  const clause = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  const total = Number(db.prepare(`SELECT COUNT(*) AS c FROM audit_log ${clause}`).get(...params).c) || 0
+  const items = db.prepare(`SELECT * FROM audit_log ${clause} ORDER BY ts DESC LIMIT ? OFFSET ?`).all(...params, size, (page - 1) * size)
+  return { items, total, page, size }
+}
