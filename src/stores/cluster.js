@@ -2400,8 +2400,6 @@ export const useClusterStore = defineStore('cluster', () => {
       try { await hydrateExtendedResources() } catch (e) { console.warn('[hydrate] 扩展资源部分失败:', e?.message || e) }
     }
     if (!opts.silent) connectionState.value = 'connected'
-    // CRD 及其实例可能较多，异步拉取不阻塞首屏
-    hydrateCRDs().catch(e => console.warn('[hydrate] CRD 拉取失败:', e?.message || e))
     // nodeList 与 podList 均已水合，按 pod.node 回填 podCount
     recountNodePods()
     return { failed: requests.filter(r => r.status === 'rejected').length }
@@ -2456,50 +2454,6 @@ export const useClusterStore = defineStore('cluster', () => {
     pdbList.value = out.poddisruptionbudgets.map(mapPDB)
     scList.value = out.storageclasses.map(mapStorageClass)
     return { failed }
-  }
-
-  // 拉取 CRD 列表，并对每个 CRD 并发拉取其实例（容忍失败）
-  async function hydrateCRDs() {
-    if (!remoteMode.value) return
-    let crdData
-    try {
-      crdData = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500')
-    } catch {
-      crdList.value = []
-      return
-    }
-    const crds = (crdData.items || []).map(item => {
-      const names = item.spec?.names || {}
-      const versions = item.spec?.versions || []
-      const served = versions.find(v => v.served && v.storage) || versions.find(v => v.served) || versions[0]
-      return {
-        name: item.metadata?.name,
-        group: item.spec?.group || '',
-        version: served?.name || '',
-        kind: names.kind || '',
-        scope: item.spec?.scope || 'Namespaced',
-        namespaced: item.spec?.scope === 'Namespaced',
-        description: names.list || names.kind || '',
-        instances: [],
-        _plural: names.plural || item.metadata?.name?.split('.')[0] || '',
-      }
-    })
-    const results = await Promise.allSettled(crds.map(c => api.k8s(`/apis/${c.group}/${c.version}/${c._plural}?limit=500`)))
-    crds.forEach((c, i) => {
-      if (results[i].status === 'fulfilled') {
-        c.instances = (results[i].value?.items || []).map(it => ({
-          name: it.metadata?.name,
-          namespace: it.metadata?.namespace || '',
-          status: it.status?.phase || it.status?.conditions?.find(x => x.type === 'Ready')?.status || 'Ready',
-          age: ageOf(it.metadata?.creationTimestamp),
-          spec: it.spec,
-          labels: it.metadata?.labels || {},
-          annotations: it.metadata?.annotations || {},
-        }))
-      }
-      delete c._plural
-    })
-    crdList.value = crds
   }
 
   function getCurrentCluster() {
