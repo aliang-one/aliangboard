@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -14,7 +15,23 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const role = computed(() => store.getRoleByName(route.params.name, route.params.namespace))
+// 主资源 role + 关联 rolebindings 走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const roleDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'roles', route.params.name],
+  fetcher: () => store.fetchRole(route.params.name, route.params.namespace),
+  mock: store.getRoleByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const role = computed(() => roleDetail.data.value ?? store.getRoleByName(route.params.name, route.params.namespace))
+const roleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'rolebindings'],
+  fetcher: () => store.fetchRoleBindings(),
+  mock: store.roleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/roles/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('role', role.value),
@@ -51,11 +68,11 @@ const defaultRules = computed(() => {
   ]
 })
 
-// RoleBindings referencing this role
+// RoleBindings referencing this role (filtered from rolebindings query by namespace + roleName)
 const roleBindings = computed(() => {
   if (!role.value) return []
-  return store.nsRoleBindings.filter(rb =>
-    rb.roleName === role.value.name
+  return (roleBindingsQuery.data.value || []).filter(rb =>
+    rb.namespace === route.params.namespace && rb.roleName === role.value.name
   )
 })
 
