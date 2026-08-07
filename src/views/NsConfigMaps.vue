@@ -34,7 +34,7 @@ const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return nsConfigMaps
-  return nsConfigMaps.filter(cm => {
+  return nsConfigMaps.value.filter(cm => {
     if (cm.name.toLowerCase().includes(q)) return true
     return Object.keys(cm.data || {}).some(k => k.toLowerCase().includes(q))
   })

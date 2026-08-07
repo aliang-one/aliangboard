@@ -1120,7 +1120,7 @@ function podStatusBorder(s) {
         <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
         <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
         <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
-        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.edit') }}</button>
+        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
         <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
         <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
       </div>
@@ -1298,7 +1298,7 @@ function podStatusBorder(s) {
               </PodCard>
             </div>
             <div v-else class="flex-1 py-md text-center text-body-sm text-on-surface-variant">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>
               <p class="mt-xs">{{ $t('workload.revision.noPods') }}</p>
             </div>
           </template>
@@ -1606,7 +1606,7 @@ function podStatusBorder(s) {
               <span class="text-[11px] shrink-0" :class="podHealth(p).text">{{ podHealth(p).label }}</span>
             </div>
             <div v-if="!managedPods.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">pod</span>{{ $t('workload.topology.noPods') }}
+              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>{{ $t('workload.topology.noPods') }}
             </div>
           </div>
         </div>
@@ -1696,7 +1696,7 @@ function podStatusBorder(s) {
 
       <!-- 空状态 -->
       <div v-else class="rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant/50 py-xl text-center">
-        <span class="material-symbols-outlined text-3xl text-surface-container-high">pod</span>
+        <span class="material-symbols-outlined text-3xl text-surface-container-high">deployed_code</span>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ managedPods.length ? $t('workload.podList.noPodsFiltered') : $t('workload.podList.noPodsAtAll') }}</p>
       </div>
     </div>

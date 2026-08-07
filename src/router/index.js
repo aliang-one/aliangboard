@@ -360,7 +360,7 @@ const routes = [
         path: 'ns/:namespace/networkpolicies',
         name: 'NsNetworkPolicies',
         component: () => import('@/views/NsNetworkPolicies.vue'),
-        meta: { title: 'NetworkPolicies', icon: 'firewall', scope: 'namespace' }
+        meta: { title: 'NetworkPolicies', icon: 'shield', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/networkpolicies/:name',
@@ -482,6 +482,12 @@ const routes = [
         name: 'AdminLlmConfig',
         component: () => import('@/views/admin/LlmConfig.vue'),
         meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true }
+      },
+      {
+        path: 'admin/audit-trail',
+        name: 'AdminAuditTrail',
+        component: () => import('@/views/admin/AuditTrail.vue'),
+        meta: { titleKey: 'nav.auditTrail', icon: 'shield', scope: 'global', requireAdmin: true }
       },
     ]
   }

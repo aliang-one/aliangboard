@@ -222,6 +222,12 @@ export const adminApi = {
     remove: id => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     updateOverrides: (id, tool_overrides) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/overrides`, { method: 'PATCH', body: JSON.stringify({ tool_overrides }) }),
   },
+  // 审计流水(Task 5):active/list/verify;GET,query params 直接透传。
+  auditTrail: {
+    active: (params = {}) => platformHttp.request(`/api/admin/audit-log/active?${new URLSearchParams(params)}`),
+    list: (params = {}) => platformHttp.request(`/api/admin/audit-log?${new URLSearchParams(params)}`),
+    verify: () => platformHttp.request('/api/admin/audit-log/verify'),
+  },
   // Agent 聊天(第二阶段切片 4):{ message, apiKeyId, history } → { content, steps, denied, truncated?, trace[] }
   agent: {
     chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),

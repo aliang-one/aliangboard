@@ -337,3 +337,20 @@ test('update_image: 不支持 kind / 容器不存在 → 报错;read 档 → pol
   await assert.rejects(tools.callTool(admin, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'nope', image: 'i' }), /不存在/)
   await assert.rejects(tools.callTool(read, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'c1', image: 'i' }), (e) => e.reason === 'policy')
 })
+
+// --- source 透传到 audit ---
+test('callTool source: 传入 mcp → audit 行 source=mcp', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' }, 'mcp')
+  const row = db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get()
+  assert.equal(row.source, 'mcp')
+})
+test('callTool source: 默认 direct', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
+  assert.equal(db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get().source, 'direct')
+})
