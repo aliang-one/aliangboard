@@ -57,6 +57,7 @@ export function useResourceDetail({ key, fetcher, mock = null, mockMode = false,
     queryFn: mockMode ? () => mock : fetcher,
     staleTime: mockMode ? Infinity : (options.staleTime ?? 15_000),
     retry: mockMode ? false : (options.retry ?? 1),
+    refetchInterval: mockMode ? false : (options.refetchInterval ?? false),
     enabled: options.enabled ?? true,
   })
 }
