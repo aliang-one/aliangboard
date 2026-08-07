@@ -429,3 +429,34 @@ test('get_resource_yaml: 缺 path → 报错', async () => {
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns' }), /缺 path/)
 })
+
+// --- list_resources(path 模式:任意 kind)---
+test('list_resources(path): 列任意 kind,slim 项含 path 便于 get_resource_yaml', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (/\/namespaces\/[^/]+\/ingresses$/.test(path)) return { body: { items: [
+      { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'foo' } },
+      { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'bar' } },
+    ] } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/ns/ingresses' })
+  assert.equal(out.kind, '(path)'); assert.equal(out.count, 2); assert.equal(out.returned, 2)
+  assert.equal(out.items[0].name, 'foo'); assert.equal(out.items[0].kind, 'Ingress')
+  assert.match(out.items[0].path, /\/namespaces\/ns\/ingresses\/foo$/)
+})
+test('list_resources(path): path ns 不符 → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/other/ingresses' }), (e) => e.reason === 'policy')
+})
+test('list_resources(kind): 既有 6-kind 快捷回归(pods)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
+  assert.equal(out.kind, 'pods'); assert.ok(out.count >= 1)
+})
