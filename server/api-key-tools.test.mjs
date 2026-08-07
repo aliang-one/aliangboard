@@ -6,7 +6,7 @@ import { _setAllowedHostsForTest } from './call-context.mjs'
 import { createApiKeysSchema, mintKey } from './auth-keys.mjs'
 import { createAuditSchema, verifyChain } from './audit.mjs'
 import { _clearSaTokenCacheForTest } from './sa-binding.mjs'
-import { resolveApiKey, createApiKeyTools, _clearIssuerCacheForTest } from './api-key-tools.mjs'
+import { resolveApiKey, createApiKeyTools, _clearIssuerCacheForTest, assertPathInNs } from './api-key-tools.mjs'
 
 _setAllowedHostsForTest(new Set())
 
@@ -353,4 +353,110 @@ test('callTool source: 默认 direct', async () => {
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
   assert.equal(db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get().source, 'direct')
+})
+
+// --- assertPathInNs(ns 作用域按 path 解析)---
+test('assertPathInNs: 集群级 path(无 /namespaces/<x>/)→ 拒', () => {
+  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
+})
+test('assertPathInNs: 他 ns path → 拒(超出绑定 ns)', () => {
+  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 other 超出绑定 ns/.test(e.detail))
+})
+test('assertPathInNs: 绑定 ns path → 通过', () => {
+  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', 'ns'))
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', 'ns'))
+})
+
+// --- delete_resource 收紧(path-ns 校验)---
+test('delete_resource: path ns ≠ 绑定 ns → policy 拒(assertPathInNs)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/namespaces/other/pods/p1' }),
+    (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy',
+  )
+})
+test('delete_resource: 集群级 path → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/persistentvolumes/pv1' }),
+    (e) => e.reason === 'policy',
+  )
+})
+
+// --- get_resource_yaml(path-based,任意 kind/CRD)---
+test('get_resource_yaml: path GET → YAML + managedFields 去噪;read 档可调', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (!init.method && /\/ingresses\/foo$/.test(path)) return { body: { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'foo', managedFields: [{ x: 1 }] }, spec: { rules: [] } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo' })
+  assert.equal(out.kind, 'Ingress'); assert.equal(out.name, 'foo'); assert.equal(out.apiVersion, 'networking.k8s.io/v1')
+  assert.match(out.yaml, /kind: Ingress/); assert.doesNotMatch(out.yaml, /managedFields/)
+  assert.equal(out.truncated, false)
+})
+test('get_resource_yaml: 大对象截 32KB + truncated + originalBytes', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const big = { kind: 'ConfigMap', apiVersion: 'v1', metadata: { name: 'big' }, data: { blob: 'x'.repeat(60000) } }
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (!init.method && /\/configmaps\/big$/.test(path)) return { body: big }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/namespaces/ns/configmaps/big' })
+  assert.equal(out.truncated, true)
+  assert.ok(out.originalBytes > 32768, 'originalBytes 记原始大小')
+  assert.ok(Buffer.byteLength(out.yaml, 'utf8') <= 32768 + 4, '截断后 yaml 不超上限')
+})
+test('get_resource_yaml: path ns 不符 / 集群级 → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/namespaces/other/pods/p1' }), (e) => e.reason === 'policy')
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/persistentvolumes/pv1' }), (e) => e.reason === 'policy')
+})
+test('get_resource_yaml: 缺 path → 报错', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns' }), /缺 path/)
+})
+
+// --- list_resources(path 模式:任意 kind)---
+test('list_resources(path): 列任意 kind,slim 项含 path 便于 get_resource_yaml', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (/\/namespaces\/[^/]+\/ingresses$/.test(path)) return { body: { items: [
+      { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'foo' } },
+      { kind: 'Ingress', apiVersion: 'networking.k8s.io/v1', metadata: { name: 'bar' } },
+    ] } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/ns/ingresses' })
+  assert.equal(out.kind, '(path)'); assert.equal(out.count, 2); assert.equal(out.returned, 2)
+  assert.equal(out.items[0].name, 'foo'); assert.equal(out.items[0].kind, 'Ingress')
+  assert.match(out.items[0].path, /\/namespaces\/ns\/ingresses\/foo$/)
+})
+test('list_resources(path): path ns 不符 → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', path: '/apis/networking.k8s.io/v1/namespaces/other/ingresses' }), (e) => e.reason === 'policy')
+})
+test('list_resources(kind): 既有 6-kind 快捷回归(pods)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
+  assert.equal(out.kind, 'pods'); assert.ok(out.count >= 1)
 })

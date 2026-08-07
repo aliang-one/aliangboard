@@ -212,7 +212,7 @@ export const adminApi = {
     assignClusters: (id, clusterIds) => platformHttp.request(`/api/admin/users/${encodeURIComponent(id)}/clusters`, { method: 'PUT', body: JSON.stringify({ clusterIds }) }),
   },
   clusters: {
-    list: () => platformHttp.request('/api/admin/clusters'),
+    list: (force = false) => platformHttp.request('/api/admin/clusters' + (force ? '?refresh=1' : '')),
     create: payload => platformHttp.request('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
