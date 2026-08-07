@@ -1334,7 +1334,13 @@
     "envMissingKey": "环境变量 #{idx}：缺少 KEY",
     "envCmMissing": "ConfigMap 环境变量 {name}：需 ENV 名 / ConfigMap / key",
     "envSecretMissing": "Secret 环境变量 {name}：需 ENV 名 / Secret / key",
-    "fixErrors": "请修正："
+    "fixErrors": "请修正：",
+    "portMustBeNumber": "端口号必须为正整数",
+    "duplicateServicePort": "Service 端口重复：同一 port+protocol 不能出现多次",
+    "svcPortRequired": "开启 Service 时至少填写一个端口",
+    "externalNameRequired": "ExternalName 类型需填写外部 DNS 名称",
+    "ingressHostRequired": "开启 Ingress 时至少填写一个 Host",
+    "partialApplied": "部分资源应用失败（主工作负载已创建），可稍后重试："
   },
   "workload": {
     "notFound": "工作负载未找到",

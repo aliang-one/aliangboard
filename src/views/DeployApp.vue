@@ -69,7 +69,7 @@ function makeForm() {
   cpuLimit: '500m',
   memoryRequest: '256Mi',
   memoryLimit: '512Mi',
-  envVars: [{ key: '', value: '' }],
+  envVars: [],
   envFromConfigMap: '',
   envFromSecret: '',
   envCMKeys: [],
@@ -82,7 +82,7 @@ function makeForm() {
   extraContainers: [],
   initContainers: [],
   // Storage & Network
-  ports: [{ containerPort: '', protocol: 'TCP' }],
+  ports: [],
   volumeMounts: [],
   // Service & Ingress
   createService: true,
@@ -197,31 +197,42 @@ function removeHostAlias(i) { form.value.hostAliases.splice(i, 1) }
 function nextStep() { if (currentStep.value < steps.length - 1) currentStep.value++ }
 function prevStep() { if (currentStep.value > 0) currentStep.value-- }
 
-const canProceed = computed(() => {
+// 当前步骤为何不能继续(返回提示文案;null=可继续)。既是「下一步」开关,也驱动按钮旁的内联提示,
+// 避免静默禁用让用户不知为何卡住(QA:勾选 Service 后端口没填,下一步无声禁用)。
+const stepBlockReason = computed(() => {
   const f = form.value
   if (currentStep.value === 0) {
     // K8s 资源名合规：小写字母/数字/横线，开头结尾须为字母数字
-    if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) return false
-    if (!f.namespace) return false
+    if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) return t('deploy.nameInvalid')
+    if (!f.namespace) return t('deploy.namespaceRequired')
   }
   if (currentStep.value === 1) {
-    if (!f.image) return false
+    if (!f.image) return t('deploy.imageRequired')
     // 已填写的端口必须是正整数
-    if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return false
+    if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return t('deploy.portMustBeNumber')
   }
   if (currentStep.value === 4) {
     if (f.createService) {
-      if (f.serviceType === 'ExternalName') { if (!f.externalName) return false }
+      if (f.serviceType === 'ExternalName') { if (!f.externalName) return t('deploy.externalNameRequired') }
       else {
         // service port 已填则必须为正整数
-        if (!f.servicePorts.some(p => p.port)) return false
-        if (f.servicePorts.some(p => p.port !== '' && !/^\d+$/.test(String(p.port)))) return false
+        if (!f.servicePorts.some(p => p.port)) return t('deploy.svcPortRequired')
+        if (f.servicePorts.some(p => p.port !== '' && !/^\d+$/.test(String(p.port)))) return t('deploy.portMustBeNumber')
+        // 同 port+protocol 不能重复(K8s apply 会拒 duplicate entries,这里提前拦;QA ISSUE-003)
+        const seen = new Set()
+        for (const p of f.servicePorts) {
+          if (p.port === '') continue
+          const key = `${p.port}/${p.protocol || 'TCP'}`
+          if (seen.has(key)) return t('deploy.duplicateServicePort')
+          seen.add(key)
+        }
       }
     }
-    if (f.createIngress && !f.ingressRules.some(r => r.host)) return false
+    if (f.createIngress && !f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
   }
-  return true
+  return null
 })
+const canProceed = computed(() => !stepBlockReason.value)
 
 // Available ConfigMaps/Secrets for envFrom
 const availableConfigMaps = computed(() => store.nsConfigMaps.map(c => c.name))
@@ -622,34 +633,41 @@ spec:`
 
 // Deploy action
 // 提交前校验：返回错误描述数组（空数组=通过）
+// 返回 [{ step, msg }]:step 用于部署校验失败时跳到首个出错步骤(QA ISSUE-004:原本只弹 toast,用户不知卡哪步)
 function validate() {
   const f = form.value, errs = []
-  if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push(t('deploy.nameInvalid'))
-  if (!f.namespace) errs.push(t('deploy.namespaceRequired'))
-  if (!f.image) errs.push(t('deploy.imageRequired'))
+  if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push({ step: 0, msg: t('deploy.nameInvalid') })
+  if (!f.namespace) errs.push({ step: 0, msg: t('deploy.namespaceRequired') })
+  if (!f.image) errs.push({ step: 1, msg: t('deploy.imageRequired') })
   f.volumeMounts.forEach((v, i) => {
     const w = v.name || '#' + (i + 1)
-    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(t('deploy.volumeEmptyMount', { name: w }))
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push({ step: 2, msg: t('deploy.volumeEmptyMount', { name: w }) })
     else {
-      if (!v.mountPath) errs.push(t('deploy.volumeMissingMountPath', { name: w }))
-      if (v.type === 'pvc' && !v.pvcName) errs.push(t('deploy.volumeMissingPvc', { name: w }))
-      if (v.type === 'hostPath' && !v.hostPath) errs.push(t('deploy.volumeMissingHostPath', { name: w }))
-      if (v.type === 'nfs' && !v.server) errs.push(t('deploy.volumeMissingNfs', { name: w }))
-      if (v.type === 'configMap' && !v.cmName) errs.push(t('deploy.volumeMissingConfigMap', { name: w }))
-      if (v.type === 'secret' && !v.secretName) errs.push(t('deploy.volumeMissingSecret', { name: w }))
+      if (!v.mountPath) errs.push({ step: 2, msg: t('deploy.volumeMissingMountPath', { name: w }) })
+      if (v.type === 'pvc' && !v.pvcName) errs.push({ step: 2, msg: t('deploy.volumeMissingPvc', { name: w }) })
+      if (v.type === 'hostPath' && !v.hostPath) errs.push({ step: 2, msg: t('deploy.volumeMissingHostPath', { name: w }) })
+      if (v.type === 'nfs' && !v.server) errs.push({ step: 2, msg: t('deploy.volumeMissingNfs', { name: w }) })
+      if (v.type === 'configMap' && !v.cmName) errs.push({ step: 2, msg: t('deploy.volumeMissingConfigMap', { name: w }) })
+      if (v.type === 'secret' && !v.secretName) errs.push({ step: 2, msg: t('deploy.volumeMissingSecret', { name: w }) })
     }
   })
-  f.initContainers.forEach((c, i) => { if (!c.image) errs.push(t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) })) })
-  f.extraContainers.forEach((c, i) => { if (!c.image) errs.push(t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) })) })
-  f.ports.forEach((p, i) => { if (!p.containerPort) errs.push(t('deploy.portMissing', { idx: i + 1 })) })
-  f.envVars.forEach((e, i) => { if (!e.key) errs.push(t('deploy.envMissingKey', { idx: i + 1 })) })
-  f.envCMKeys.forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(t('deploy.envCmMissing', { name: e.name || '—' })) })
-  f.envSecretKeys.forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(t('deploy.envSecretMissing', { name: e.name || '—' })) })
+  f.initContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) }) }) })
+  f.extraContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) }) }) })
+  f.ports.forEach((p, i) => { if (!p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
+  f.envVars.forEach((e, i) => { if (!e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
+  f.envCMKeys.forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
+  f.envSecretKeys.forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
   return errs
 }
 async function handleDeploy() {
   const errs = validate()
-  if (errs.length) { notify('error', t('deploy.fixErrors') + errs.join('；')); return }
+  if (errs.length) {
+    // 跳到首个出错步骤,并只列该步骤的错误(跨步骤消息会让用户混乱);QA ISSUE-004:原本只弹 toast 不跳转
+    const firstStep = Math.min(...errs.map(e => e.step))
+    currentStep.value = firstStep
+    notify('error', t('deploy.fixErrors') + errs.filter(e => e.step === firstStep).map(e => e.msg).join('；'))
+    return
+  }
   const f = form.value
   deployLoading.value = true
   deployError.value = ''
@@ -661,6 +679,8 @@ async function handleDeploy() {
       return
     }
     showDeploySuccess.value = true
+    // 部分成功:主工作负载已建,但有附属资源(如 Service)失败 —— 不阻断成功,仅 warning 告知(QA ISSUE-002)
+    if (result.partial) notify('warning', t('deploy.partialApplied') + result.warning)
     if (f.metaTags) recordTagUsage(ns.value, f.metaTags) // 记录标签使用
     return
   }
@@ -1513,6 +1533,7 @@ async function handleDeploy() {
           </button>
         </div>
       </div>
+      <p v-if="currentStep < steps.length - 1 && stepBlockReason" class="mt-sm flex items-center gap-xs text-xs text-on-surface-variant"><span class="material-symbols-outlined text-sm text-error">error_outline</span>{{ stepBlockReason }}</p>
       <p v-if="deployError" class="mt-sm rounded-lg border border-error/30 bg-error-container/10 px-md py-sm text-xs text-error">{{ deployError }}</p>
     </div>
   </div>

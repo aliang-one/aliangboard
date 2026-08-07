@@ -6,10 +6,12 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import { authApi } from '@/api/client'
+import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const clusterStore = useClusterStore()
+const { t } = useI18n()
 const clusters = ref([])
 const loading = ref(true)
 const connecting = ref('')

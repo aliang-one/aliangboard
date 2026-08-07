@@ -7,9 +7,11 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useI18n } from 'vue-i18n'
 
 const store = useClusterStore()
 const router = useRouter()
+const { t } = useI18n()
 
 const typeFilter = ref('All')
 const searchQuery = ref('')

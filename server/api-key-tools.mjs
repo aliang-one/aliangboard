@@ -6,6 +6,7 @@ import { authorize, PermissionDeniedError } from './authorize.mjs'
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
+import { dump as yamlDump } from 'js-yaml'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -63,6 +64,14 @@ function safePodPath(p) {
   return p
 }
 
+// path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> === 绑定 ns;集群级 path 或他 ns → policy 拒。
+// delete_resource 旧实现只校验 namespace arg、不校验 path 实际 ns —— 本 helper 补 policy 层闭环。
+export function assertPathInNs(path, ns) {
+  const m = String(path || '').match(/\/namespaces\/([^/]+)\//)
+  if (!m) throw new PermissionDeniedError('policy', { detail: `path 非命名空间资源(集群级),ns 绑定 key 不允许: ${String(path).slice(0, 80)}` })
+  if (m[1] !== ns) throw new PermissionDeniedError('policy', { detail: `path 命名空间 ${m[1]} 超出绑定 ns ${ns}` })
+}
+
 export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
   // 共用链:authorize → ns 作用域 → reserve 审计 → 现签 SA token → SA-token ctx → fn → finalize。
   // deny/error 各路径审计。fn 拿 saCtx(无原始 dispatcher 访问器,结构性 enforcement)。
@@ -104,9 +113,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     list_resources: async (keyRow, cluster, a, source) => {
+      if (a.path) {
+        return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
+          fn: async (saCtx) => {
+            assertPathInNs(a.path, keyRow.boundSA_namespace)
+            const { body } = await requestFn(saCtx, a.path)
+            const all = body?.items || []
+            const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
+            return { kind: '(path)', count: all.length, returned: items.length, items }
+          } })
+      }
       const kind = String(a.kind || 'pods').toLowerCase()
       const templ = LIST_PATH[kind]
-      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets)` })
+      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
@@ -126,6 +145,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { resource: body }
         } })
     },
+    get_resource_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'get_resource_yaml', source, namespace: a.namespace, verb: 'get', resource: a.path || '?', summary: `get ${(a.path || '').slice(0, 80)}`,
+      fn: async (saCtx) => {
+        if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
+        assertPathInNs(a.path, keyRow.boundSA_namespace)
+        const { body } = await requestFn(saCtx, a.path)
+        if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
+        const full = yamlDump(body)
+        const originalBytes = Buffer.byteLength(full, 'utf8')
+        const truncated = originalBytes > LOG_BYTE_MAX
+        const yaml = truncated ? Buffer.from(full, 'utf8').subarray(0, LOG_BYTE_MAX).toString('utf8') : full
+        return { kind: body?.kind, name: body?.metadata?.name, apiVersion: body?.apiVersion, yaml, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
+      } }),
     get_events: async (keyRow, cluster, a, source) => {
       return runBoundedTool({ keyRow, cluster, tool: 'get_events', source, namespace: a.namespace, verb: 'list', resource: 'events', summary: `for=${a.name || '(all)'}`,
         fn: async (saCtx) => {
@@ -253,6 +285,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
+        assertPathInNs(a.path, keyRow.boundSA_namespace)
         await requestFn(saCtx, a.path, { method: 'DELETE' })
         return { deleted: a.path }
       } }),

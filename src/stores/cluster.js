@@ -3137,15 +3137,30 @@ status:
       try {
         let object = null
         yamlLoadAll(yamlStr, document => { if (!object && document) object = document })
-        const result = await api.applyYaml(yamlStr)
-        const resource = result?.resources?.[0]
+        const result = await api.applyYaml(yamlStr) // { resources, applied, failed, total }
         await hydrateCoreResources()
-        return {
+        const resource = result?.resources?.[0]
+        const failed = result?.failed || []
+        // applied 缺省(旧后端只回 resources)时回退用 resources 计数,避免新版前端+旧后端误报失败
+        const appliedCount = result?.applied?.length ?? result?.resources?.length ?? 0
+        // 全失败(http 422 已抛错,理论不至此,防御):报失败
+        if (!appliedCount) {
+          return { ok: false, error: failed[0]?.error || i18n.global.t('store.applyYamlFailed') }
+        }
+        const out = {
           ok: true,
           kind: resource?.kind || object?.kind,
           name: resource?.metadata?.name || object?.metadata?.name,
           namespace: resource?.metadata?.namespace || object?.metadata?.namespace || '',
         }
+        // 部分成功:主资源已落,但有资源失败 —— 不阻断成功,以 warning 上报(QA ISSUE-002:旧实现整体报失败且残留资源)
+        if (failed.length) {
+          out.partial = true
+          out.applied = result.applied
+          out.failed = failed
+          out.warning = failed.map(f => `${f.kind}/${f.name}: ${f.error}`).join('; ')
+        }
+        return out
       } catch (error) {
         return { ok: false, error: error.message || i18n.global.t('store.applyYamlFailed') }
       }
