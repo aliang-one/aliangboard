@@ -113,9 +113,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     list_resources: async (keyRow, cluster, a, source) => {
+      if (a.path) {
+        return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
+          fn: async (saCtx) => {
+            assertPathInNs(a.path, keyRow.boundSA_namespace)
+            const { body } = await requestFn(saCtx, a.path)
+            const all = body?.items || []
+            const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
+            return { kind: '(path)', count: all.length, returned: items.length, items }
+          } })
+      }
       const kind = String(a.kind || 'pods').toLowerCase()
       const templ = LIST_PATH[kind]
-      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets)` })
+      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
