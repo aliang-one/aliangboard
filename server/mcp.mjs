@@ -33,7 +33,7 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
     const name = params?.name
     if (!cluster) return ok(id, { isError: true, content: [{ type: 'text', text: '集群不存在(API key 绑定的集群已删除?)' }] })
     try {
-      const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {})
+      const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {}, 'mcp')
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.message}`)
