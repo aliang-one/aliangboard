@@ -38,7 +38,7 @@ const typeOptions = ['All', 'ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalNa
 const searchQuery = ref('')
 
 const filtered = computed(() => {
-  let list = nsServices
+  let list = nsServices.value
   if (typeFilter.value !== 'All') list = list.filter(s => s.type === typeFilter.value)
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
@@ -49,9 +49,9 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, searchQuery] })
 
-const clusterIPCount = computed(() => nsServices.filter(s => s.type === 'ClusterIP').length)
-const nodePortCount = computed(() => nsServices.filter(s => s.type === 'NodePort').length)
-const lbCount = computed(() => nsServices.filter(s => s.type === 'LoadBalancer').length)
+const clusterIPCount = computed(() => nsServices.value.filter(s => s.type === 'ClusterIP').length)
+const nodePortCount = computed(() => nsServices.value.filter(s => s.type === 'NodePort').length)
+const lbCount = computed(() => nsServices.value.filter(s => s.type === 'LoadBalancer').length)
 
 // 类型 → 图标 / 配色（行图标 + 徽章 + 汇总卡）
 const TYPE_META = {

@@ -32,12 +32,12 @@ const nsSecrets = computed(() => (secretsQuery.data.value || []).filter(s => s.n
 const typeFilter = ref('All')
 const search = ref('')
 const typeOptions = computed(() => {
-  const types = new Set(nsSecrets.map(s => s.type))
+  const types = new Set(nsSecrets.value.map(s => s.type))
   return ['All', ...types]
 })
 
 const filtered = computed(() => {
-  let list = nsSecrets
+  let list = nsSecrets.value
   if (typeFilter.value !== 'All') {
     list = list.filter(s => s.type === typeFilter.value)
   }
