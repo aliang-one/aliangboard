@@ -32,6 +32,13 @@ const priorityClassesQuery = useResourceList({
   mockMode: !store.remoteMode,
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
+const serviceAccountsQuery = useResourceList({
+  key: ['cluster', cid.value, 'serviceaccounts'],
+  fetcher: () => store.fetchServiceAccounts(),
+  mock: store.saList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 
 const ns = computed(() => route.params.namespace)
 
@@ -228,7 +235,7 @@ const containerTargets = computed(() => {
 const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
 const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
 const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
-const availableServiceAccounts = computed(() => store.nsServiceAccounts.map(s => s.name))
+const availableServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
 
 // 部署向导：targetPort 候选 = 本步骤已填的容器端口（去重），引导用户选对后端端口
 const containerPortOptions = computed(() => {
