@@ -483,6 +483,12 @@ const routes = [
         component: () => import('@/views/admin/LlmConfig.vue'),
         meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true }
       },
+      {
+        path: 'admin/audit-trail',
+        name: 'AdminAuditTrail',
+        component: () => import('@/views/admin/AuditTrail.vue'),
+        meta: { titleKey: 'nav.auditTrail', icon: 'shield', scope: 'global', requireAdmin: true }
+      },
     ]
   }
 ]

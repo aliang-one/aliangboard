@@ -44,6 +44,7 @@ const platformAdminNav = [
   { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
   { icon: 'smart_toy', labelKey: 'nav.aiConsole', route: '/admin/agent' },
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
+  { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
 ]
 const clusterNavOpen = ref(false)
 
