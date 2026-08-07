@@ -82,3 +82,26 @@ test('rowHash 确定性: 相同输入(含固定 ts)→ 相同 hash;不同 prevHa
   assert.equal(rowHash(GENESIS_HASH, row), rowHash(GENESIS_HASH, row), '相同输入 → 相同 hash')
   assert.notEqual(rowHash(GENESIS_HASH, row), rowHash('00000000000000000000000000000000', row), '不同 prevHash → 不同 hash')
 })
+
+test('writeAudit: source 落库(source 列)', () => {
+  const db = makeDb()
+  writeAudit(db, { keyId: 'k1', owner: 'a', clusterId: 'c1', tool: 'get_pod_logs', result: 'ok', source: 'mcp' })
+  assert.equal(db.prepare('SELECT source FROM audit_log WHERE seq=1').get().source, 'mcp')
+})
+test('writeAudit: 缺 source → NULL', () => {
+  const db = makeDb()
+  writeAudit(db, { tool: 't', result: 'ok' })
+  assert.equal(db.prepare('SELECT source FROM audit_log WHERE seq=1').get().source, null)
+})
+test('迁移幂等: 二次 createAuditSchema 不报错', () => {
+  const db = makeDb()
+  assert.doesNotThrow(() => createAuditSchema(db))
+})
+test('verifyChain: source 与无 source 行混合仍 valid(source 不在 CORE_FIELDS)', () => {
+  const db = makeDb()
+  writeAudit(db, { tool: 't1', result: 'ok', source: null })
+  writeAudit(db, { tool: 't2', result: 'ok', source: 'mcp' })
+  writeAudit(db, { tool: 't3', result: 'ok', source: 'agent' })
+  const v = verifyChain(db)
+  assert.equal(v.valid, true)
+})
