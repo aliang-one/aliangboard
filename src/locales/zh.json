@@ -978,7 +978,11 @@
       "expandMiddleware": "中间件层 · {n} 个 · 点击展开",
       "emptyDeploy": "该命名空间暂无 Deployment",
       "deployApp": "部署应用",
-      "clickToDetail": "点击标签进入详情页"
+      "clickToDetail": "点击标签进入详情页",
+      "healthy": "健康",
+      "updating": "更新中",
+      "warning": "警告",
+      "failed": "失败"
     },
     "pdb": {
       "title": "中断预算",

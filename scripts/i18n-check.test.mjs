@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scanSource, parity, extractKeyRefs, missingKeys } from './i18n-check.mjs'
+import { scanSource, parity, extractKeyRefs, missingKeys, danglingKeyLiterals } from './i18n-check.mjs'
 
 test('scanSource 报告模板/脚本中文，排除注释与 console', () => {
   const hits = scanSource('src/__tests__/fixtures/i18n/sample.vue') // [{ file, line, text }]
@@ -36,4 +36,10 @@ test('missingKeys 返回数组（引用但 locale 缺失的键）', () => {
   const m = missingKeys()
   assert.ok(Array.isArray(m))
   assert.ok(m.every(x => x.key && x.file), '每项有 key+file')
+})
+
+test('danglingKeyLiterals 返回数组（对象/变量里的点分键、locale 缺失）', () => {
+  const d = danglingKeyLiterals()
+  assert.ok(Array.isArray(d))
+  assert.ok(d.every(x => x.key && x.file), '每项有 key+file')
 })

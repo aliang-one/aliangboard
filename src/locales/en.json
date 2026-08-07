@@ -978,7 +978,11 @@
       "expandMiddleware": "Middleware layer · {n} · Click to expand",
       "emptyDeploy": "No Deployment in this namespace",
       "deployApp": "Deploy application",
-      "clickToDetail": "Click a tag to open the detail page"
+      "clickToDetail": "Click a tag to open the detail page",
+      "healthy": "Healthy",
+      "updating": "Updating",
+      "warning": "Warning",
+      "failed": "Failed"
     },
     "pdb": {
       "title": "PodDisruptionBudgets",
