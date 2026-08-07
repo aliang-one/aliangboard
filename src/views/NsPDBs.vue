@@ -33,7 +33,7 @@ const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return nsPDBs
-  return nsPDBs.filter(p => p.name.toLowerCase().includes(q))
+  return nsPDBs.value.filter(p => p.name.toLowerCase().includes(q))
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })
