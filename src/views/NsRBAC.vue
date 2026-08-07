@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -14,6 +15,42 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
+
+const ns = computed(() => route.params.namespace)
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const rolesQuery = useResourceList({
+  key: ['cluster', cid.value, 'roles'],
+  fetcher: () => store.fetchRoles(),
+  mock: store.roleList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const roleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'rolebindings'],
+  fetcher: () => store.fetchRoleBindings(),
+  mock: store.roleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const clusterRoleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'clusterrolebindings'],
+  fetcher: () => store.fetchClusterRoleBindings(),
+  mock: store.clusterRoleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const serviceAccountsQuery = useResourceList({
+  key: ['cluster', cid.value, 'serviceaccounts'],
+  fetcher: () => store.fetchServiceAccounts(),
+  mock: store.saList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+// ns/scope 派生（替代 store.nsRoles / nsRoleBindings / nsServiceAccounts / clusterRoles）
+const nsRoles = computed(() => (rolesQuery.data.value || []).filter(r => r.scope === 'Namespace' && r.namespace === ns.value))
+const clusterRoles = computed(() => (rolesQuery.data.value || []).filter(r => r.scope === 'Cluster'))
+const nsRoleBindings = computed(() => (roleBindingsQuery.data.value || []).filter(rb => rb.namespace === ns.value))
+const nsServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === ns.value))
 
 const activeTab = ref('roles')
 
@@ -37,7 +74,7 @@ const bindingHeaders = [
   { key: 'actions', label: '', align: 'right' },
 ]
 
-const clusterRoleOptions = computed(() => store.clusterRoles.map(r => r.name))
+const clusterRoleOptions = computed(() => clusterRoles.value.map(r => r.name))
 
 // Create modals
 const showCreateRoleModal = ref(false)
@@ -111,11 +148,11 @@ function goToBinding(name) {
 
 // 按 tab 切换的当前列表
 const currentTabList = computed(() => ({
-  roles: store.nsRoles,
-  serviceaccounts: store.nsServiceAccounts,
-  rolebindings: store.nsRoleBindings,
-  clusterroles: store.clusterRoles,
-  clusterrolebindings: store.clusterRoleBindingList,
+  roles: nsRoles.value,
+  serviceaccounts: nsServiceAccounts.value,
+  rolebindings: nsRoleBindings.value,
+  clusterroles: clusterRoles.value,
+  clusterrolebindings: clusterRoleBindingsQuery.data.value || [],
 }[activeTab.value] || []))
 const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
