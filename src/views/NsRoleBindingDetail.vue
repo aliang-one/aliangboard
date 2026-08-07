@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -16,7 +17,23 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const rb = computed(() => store.getRoleBindingByName(route.params.name, route.params.namespace))
+// 主资源 rolebinding + 关联 role 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const rbDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'rolebindings', route.params.name],
+  fetcher: () => store.fetchRoleBinding(route.params.name, route.params.namespace),
+  mock: store.getRoleBindingByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const rb = computed(() => rbDetail.data.value ?? store.getRoleBindingByName(route.params.name, route.params.namespace))
+const rolesQuery = useResourceList({
+  key: ['cluster', cid.value, 'roles'],
+  fetcher: () => store.fetchRoles(),
+  mock: store.roleList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/rolebindings/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('rolebinding', rb.value),
@@ -25,10 +42,10 @@ const { yaml } = useLiveYaml({
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
-// The referenced role
+// The referenced role — find 镜像 getRoleByName 逻辑：name 匹配 + scope=Cluster 或同 namespace
 const referencedRole = computed(() => {
   if (!rb.value) return null
-  return store.getRoleByName(rb.value.roleName, rb.value.namespace)
+  return (rolesQuery.data.value || []).find(r => r.name === rb.value.roleName && (r.scope === 'Cluster' || r.namespace === rb.value.namespace)) || null
 })
 
 async function handleDelete() {
