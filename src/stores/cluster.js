@@ -3090,21 +3090,8 @@ status:
 
   // 重新拉取某个 CRD 的全部实例（CR 增删改后刷新局部，不必全量 hydrate）
   async function refreshCRDInstances(crdName) {
-    const c = crdList.value.find(x => x.name === crdName)
-    if (!c) return
-    const plural = c.name.split('.')[0]
-    try {
-      const data = await api.k8s(`/apis/${c.group}/${c.version}/${plural}?limit=500`)
-      c.instances = (data.items || []).map(it => ({
-        name: it.metadata?.name,
-        namespace: it.metadata?.namespace || '',
-        status: it.status?.phase || it.status?.conditions?.find(x => x.type === 'Ready')?.status || 'Ready',
-        age: ageOf(it.metadata?.creationTimestamp),
-        spec: it.spec,
-        labels: it.metadata?.labels || {},
-        annotations: it.metadata?.annotations || {},
-      }))
-    } catch { /* 无权限或不存在时静默 */ }
+    if (!remoteMode.value) return
+    queryClient.invalidateQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === 'crds' && q.queryKey[3] === crdName && q.queryKey[4] === 'instances' })
   }
 
   // 通用 CR apply（server-side apply，适用于任意 CRD kind）+ 局部刷新
