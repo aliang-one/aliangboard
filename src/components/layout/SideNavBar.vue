@@ -324,6 +324,11 @@ function nsStatusColor(status) {
         <span class="material-symbols-outlined text-lg">rocket_launch</span>
         {{ $t('nav.deploy') }}
       </button>
+      <button v-if="currentNs" @click="goNsRoute('events')"
+        class="w-full flex items-center justify-center gap-sm py-xs px-md text-body-sm text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors mb-sm">
+        <span class="material-symbols-outlined text-lg">notifications_active</span>
+        {{ $t('nav.events') }}
+      </button>
       <a @click="router.push('/settings')" class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container rounded-lg px-md py-sm transition-all duration-200 cursor-pointer">
         <span class="material-symbols-outlined text-lg">tune</span>
         <span class="text-body-sm">{{ $t('nav.settings') }}</span>
