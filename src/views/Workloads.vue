@@ -10,10 +10,12 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
+import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
+const { t } = useI18n()
 
 const namespaceFilter = ref('All Namespaces')
 const typeFilter = ref('All Types')

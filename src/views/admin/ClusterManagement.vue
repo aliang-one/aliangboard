@@ -16,9 +16,9 @@ const loading = ref(true)
 const showAddModal = ref(false)
 const addForm = ref({ name: '', authMethod: 'kubeconfig', apiServer: '', token: '', username: '', password: '', kubeconfig: '', insecure: false })
 
-async function load() {
+async function load(force = false) {
   loading.value = true
-  try { const res = await adminApi.clusters.list(); clusters.value = res.clusters || [] }
+  try { const res = await adminApi.clusters.list(force); clusters.value = res.clusters || [] }
   catch (e) { notify('error', e.message || t('admin.clusters.loadFailed')) }
   finally { loading.value = false }
 }
@@ -44,9 +44,15 @@ async function doRemove(c) {
   <section class="animate-fade-in p-md">
     <div class="flex items-center justify-between mb-md">
       <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('admin.clusters.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.clusters.subtitle') }}</p></div>
-      <button @click="showAddModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
-        <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.clusters.addCluster') }}
-      </button>
+      <div class="flex items-center gap-sm">
+        <button @click="load(true)" :disabled="loading" :title="$t('common.sync')" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="material-symbols-outlined text-sm" :class="loading ? 'animate-spin' : ''">{{ loading ? 'progress_activity' : 'refresh' }}</span>
+          <span class="hidden md:inline">{{ $t('common.sync') }}</span>
+        </button>
+        <button @click="showAddModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+          <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.clusters.addCluster') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>

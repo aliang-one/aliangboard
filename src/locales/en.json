@@ -1334,7 +1334,13 @@
     "envMissingKey": "Environment variable #{idx}: missing KEY",
     "envCmMissing": "ConfigMap env {name}: needs ENV name / ConfigMap / key",
     "envSecretMissing": "Secret env {name}: needs ENV name / Secret / key",
-    "fixErrors": "Please fix: "
+    "fixErrors": "Please fix: ",
+    "portMustBeNumber": "Port must be a positive integer",
+    "duplicateServicePort": "Duplicate Service port: the same port+protocol cannot appear more than once",
+    "svcPortRequired": "Fill in at least one port when Service is enabled",
+    "externalNameRequired": "ExternalName type requires an external DNS name",
+    "ingressHostRequired": "Fill in at least one host when Ingress is enabled",
+    "partialApplied": "Some resources failed to apply (main workload created); you can retry later: "
   },
   "workload": {
     "notFound": "Workload Not Found",
