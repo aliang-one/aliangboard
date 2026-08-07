@@ -34,6 +34,7 @@ const rolesQuery = useResourceList({
   mockMode: !store.remoteMode,
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
+const allRoles = computed(() => rolesQuery.data.value || [])
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/rolebindings/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('rolebinding', rb.value),
@@ -284,7 +285,7 @@ function saveEdit() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleBindingDetail.nameLabel') }}</label>
             <input v-model="editRoleName" list="rb-role-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.roleBindingDetail.namePlaceholder')" />
             <datalist id="rb-role-list">
-              <option v-for="r in store.roleList" :key="r.name" :value="r.name" />
+              <option v-for="r in allRoles" :key="r.name" :value="r.name" />
             </datalist>
           </div>
         </div>
