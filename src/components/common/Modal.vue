@@ -1,6 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useEscClose } from '@/composables/useEscClose'
 
 const { t } = useI18n()
 
@@ -16,6 +17,10 @@ function close() {
   emit('update:modelValue', false)
   emit('cancel')
 }
+
+// ESC 关闭:行为同 Cancel/X/点遮罩;层叠时只关栈顶(见 useEscClose)。
+const isOpen = computed(() => props.modelValue)
+useEscClose(isOpen, close)
 
 function confirm() {
   emit('confirm')
