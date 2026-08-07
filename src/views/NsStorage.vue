@@ -38,7 +38,7 @@ const pendingCount = computed(() => nsPVCs.value.filter(p => p.status === 'Pendi
 const searchQuery = ref('')
 const filteredPVCs = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return nsPVCs
+  if (!q) return nsPVCs.value
   return nsPVCs.value.filter(p => p.name.toLowerCase().includes(q) || (p.storageClass || '').toLowerCase().includes(q))
 })
 

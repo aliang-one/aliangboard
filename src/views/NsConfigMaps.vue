@@ -33,7 +33,7 @@ const nsConfigMaps = computed(() => (configmapsQuery.data.value || []).filter(c 
 const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return nsConfigMaps
+  if (!q) return nsConfigMaps.value
   return nsConfigMaps.value.filter(cm => {
     if (cm.name.toLowerCase().includes(q)) return true
     return Object.keys(cm.data || {}).some(k => k.toLowerCase().includes(q))

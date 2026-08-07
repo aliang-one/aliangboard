@@ -53,7 +53,7 @@ function flattenRules(row) {
 const searchQuery = ref('')
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return nsIngress
+  if (!q) return nsIngress.value
   return nsIngress.value.filter(i => {
     if (i.name.toLowerCase().includes(q) || (i.hosts || '').toLowerCase().includes(q)) return true
     return flattenRules(i).some(r => (r.host + ' ' + r.backend).toLowerCase().includes(q))
