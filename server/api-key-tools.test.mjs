@@ -6,7 +6,7 @@ import { _setAllowedHostsForTest } from './call-context.mjs'
 import { createApiKeysSchema, mintKey } from './auth-keys.mjs'
 import { createAuditSchema, verifyChain } from './audit.mjs'
 import { _clearSaTokenCacheForTest } from './sa-binding.mjs'
-import { resolveApiKey, createApiKeyTools, _clearIssuerCacheForTest } from './api-key-tools.mjs'
+import { resolveApiKey, createApiKeyTools, _clearIssuerCacheForTest, assertPathInNs } from './api-key-tools.mjs'
 
 _setAllowedHostsForTest(new Set())
 
@@ -353,4 +353,37 @@ test('callTool source: 默认 direct', async () => {
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'ns' })
   assert.equal(db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get().source, 'direct')
+})
+
+// --- assertPathInNs(ns 作用域按 path 解析)---
+test('assertPathInNs: 集群级 path(无 /namespaces/<x>/)→ 拒', () => {
+  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
+})
+test('assertPathInNs: 他 ns path → 拒(超出绑定 ns)', () => {
+  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 other 超出绑定 ns/.test(e.detail))
+})
+test('assertPathInNs: 绑定 ns path → 通过', () => {
+  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', 'ns'))
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', 'ns'))
+})
+
+// --- delete_resource 收紧(path-ns 校验)---
+test('delete_resource: path ns ≠ 绑定 ns → policy 拒(assertPathInNs)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/namespaces/other/pods/p1' }),
+    (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy',
+  )
+})
+test('delete_resource: 集群级 path → policy 拒', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(
+    tools.callTool(k, cluster, 'delete_resource', { namespace: 'ns', path: '/api/v1/persistentvolumes/pv1' }),
+    (e) => e.reason === 'policy',
+  )
 })
