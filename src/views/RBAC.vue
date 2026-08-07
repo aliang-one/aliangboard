@@ -8,11 +8,35 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('roles')
+
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const rolesQuery = useResourceList({
+  key: ['cluster', cid.value, 'roles'],
+  fetcher: () => store.fetchRoles(),
+  mock: store.roleList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const clusterRoleBindingsQuery = useResourceList({
+  key: ['cluster', cid.value, 'clusterrolebindings'],
+  fetcher: () => store.fetchClusterRoleBindings(),
+  mock: store.clusterRoleBindingList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const serviceAccountsQuery = useResourceList({
+  key: ['cluster', cid.value, 'serviceaccounts'],
+  fetcher: () => store.fetchServiceAccounts(),
+  mock: store.saList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 
 const tabs = computed(() => [
   { key: 'roles', label: t('rbac.rolesTab') },
@@ -55,9 +79,9 @@ function openSA(row) {
 
 // 按 tab 切换的当前列表
 const currentTabList = computed(() => ({
-  roles: store.roleList,
-  clusterrolebindings: store.clusterRoleBindingList,
-  serviceaccounts: store.saList,
+  roles: rolesQuery.data.value || [],
+  clusterrolebindings: clusterRoleBindingsQuery.data.value || [],
+  serviceaccounts: serviceAccountsQuery.data.value || [],
 }[activeTab.value] || []))
 const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 
