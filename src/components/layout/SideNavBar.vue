@@ -51,18 +51,10 @@ const clusterNavOpen = ref(false)
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
   {
-    labelKey: 'nav.overview',
-    icon: 'grid_view',
-    items: [
-      { icon: 'dashboard', label: 'Namespace Overview', routeKey: 'overview' },
-      { icon: 'notifications_active', label: 'Events', routeKey: 'events' },
-    ]
-  },
-  {
     labelKey: 'nav.workloads',
     icon: 'work',
     items: [
-      { icon: 'apps', label: 'Workloads', routeKey: 'workloads' },
+      { icon: 'apps', labelKey: 'nav.workloadsList', routeKey: 'workloads' },
       { icon: 'view_in_ar', label: 'Pods', routeKey: 'pods' },
       { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
     ]
@@ -274,7 +266,7 @@ function nsStatusColor(status) {
               : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
           >
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.label }}</span>
+            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
         </div>
       </div>
