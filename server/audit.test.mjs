@@ -150,3 +150,17 @@ test('queryAuditLog: 默认只列 finalized(排除 started) + 过滤 + 分页 + 
   assert.equal(queryAuditLog(db, { result: 'denied' }).total, 0)
   assert.equal(queryAuditLog(db, { status: null }).total, 8, 'status=null → 全部(5 finalized + 3 started)')
 })
+
+test('queryAuditLog: 同 ts 行按 seq DESC tiebreaker(分页列表稳定排序)', () => {
+  const db = makeAudDb()
+  // 两行 ts 完全相同(5000),distinct content;先插 A 后 B → seq A < seq B。
+  // 不传 status → writeAudit 默认 'finalized',默认查询(status='finalized')会命中。
+  writeAudit(db, { keyId: 'k1', tool: 't-A', result: 'ok', ts: 5000 })  // seq 1(A)
+  writeAudit(db, { keyId: 'k1', tool: 't-B', result: 'ok', ts: 5000 })  // seq 2(B)
+  const { items } = queryAuditLog(db, { size: 50 })
+  assert.equal(items.length, 2)
+  // ts DESC, seq DESC tiebreaker:后插的 B(seq 2)应在前,A(seq 1)在后。
+  assert.ok(items[0].seq > items[1].seq, '同 ts 行 seq DESC(后插在前)')
+  assert.equal(items[0].tool, 't-B')
+  assert.equal(items[1].tool, 't-A')
+})

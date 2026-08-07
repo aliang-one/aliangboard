@@ -114,6 +114,6 @@ export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, sourc
   if (until != null) { where.push('ts <= ?'); params.push(Number(until)) }
   const clause = where.length ? 'WHERE ' + where.join(' AND ') : ''
   const total = Number(db.prepare(`SELECT COUNT(*) AS c FROM audit_log ${clause}`).get(...params).c) || 0
-  const items = db.prepare(`SELECT * FROM audit_log ${clause} ORDER BY ts DESC LIMIT ? OFFSET ?`).all(...params, size, (page - 1) * size)
+  const items = db.prepare(`SELECT * FROM audit_log ${clause} ORDER BY ts DESC, seq DESC LIMIT ? OFFSET ?`).all(...params, size, (page - 1) * size)
   return { items, total, page, size }
 }
