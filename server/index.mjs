@@ -1065,7 +1065,7 @@ async function handle(req, res) {
         namespace, pod,
         container: url.searchParams.get('container'),
         tail: url.searchParams.get('tail'),
-      })
+      }, 'direct')
       return sendJson(res, 200, out)
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
@@ -1086,7 +1086,7 @@ async function handle(req, res) {
     if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
     try {
       const input = await readBody(req)
-      const out = await apiKeyTools.callTool(keyRow, cluster, input.tool, input.args || {})
+      const out = await apiKeyTools.callTool(keyRow, cluster, input.tool, input.args || {}, 'direct')
       return sendJson(res, 200, out)
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
