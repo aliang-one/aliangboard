@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
+import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
 import { normalizeToolOverrides } from './authorize.mjs'
 import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './audit.mjs'
@@ -381,6 +382,10 @@ async function requestKubernetes(session, path, init = {}) {
 
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
 const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: execCapture, applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
+
+// 集群列表实时探测(/api/admin/clusters GET 用):注入 requestKubernetes → 并行探每个集群
+// 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
+const clusterProber = createClusterProber({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
 const mcpHandler = createMcpServer({ db, apiKeyTools })
 
@@ -404,27 +409,33 @@ async function applyYaml(session, yaml) {
   const objects = []
   yamlLoadAll(yaml, object => { if (object) objects.push(object) })
   if (!objects.length) throw new Error('YAML 中没有可应用的资源')
-  const results = []
+  // 逐资源 server-side apply,各自 try/catch:多文档时先建的不被后建的失败连累(QA ISSUE-002:
+  //   Deployment 建成功、Service 失败 → 旧 throw-on-first 整体 500,Deployment 残留且 UI 报失败)。
+  //   /api/apply 据 applied.length 判 200(部分或全成功)/422(全失败),保留单资源失败→throw 的旧语义。
+  const resources = [], applied = [], failed = []
   for (const object of objects) {
-    if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
-    const { group, version, resource } = await discoverResource(session, object)
-    const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
-    const namespacePart = resource.namespaced
-      ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}`
-      : ''
-    const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
-    const document = JSON.stringify(object)
-    const result = await requestKubernetes(session, path, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/apply-patch+yaml' },
-      body: document,
-    })
-    results.push(result.body)
+    const label = { kind: object?.kind, name: object?.metadata?.name, namespace: object?.metadata?.namespace }
+    try {
+      if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
+      const { group, version, resource } = await discoverResource(session, object)
+      const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
+      const namespacePart = resource.namespaced
+        ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}`
+        : ''
+      const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
+      const result = await requestKubernetes(session, path, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/apply-patch+yaml' },
+        body: JSON.stringify(object),
+      })
+      resources.push(result.body)
+      applied.push(label)
+    } catch (e) { failed.push({ ...label, error: e.message }) }
   }
-  return results
+  return { resources, applied, failed, total: objects.length }
 }
 
-// 工作台用(W5):逐资源 try/catch,部分失败上报。applyYaml(throw-on-first)不动,保留给 /api/apply。
+// 工作台用(W5):逐资源 try/catch,部分失败上报(只回 label,不要 body)。applyYaml 同样逐资源但回 body 给 /api/apply。
 async function applyYamlPartial(session, yaml) {
   const objects = []
   yamlLoadAll(yaml, o => { if (o) objects.push(o) })
@@ -1161,8 +1172,13 @@ async function handle(req, res) {
     if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
     try {
       const input = await readBody(req)
-      const resources = await applyYaml(session, String(input.yaml || ''))
-      return sendJson(res, 200, { resources })
+      const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''))
+      // 全失败 → 422:保留单资源「失败即抛错」语义(remoteCreate/remoteUpdate/CRD 等走 catch 回滚)
+      if (!applied.length) {
+        return sendJson(res, 422, { message: failed[0]?.error || '应用 YAML 失败', details: { failed, total } })
+      }
+      // 部分或全成功 → 200 + 每资源明细(resources 向后兼容单资源调用方;applied/failed 供前端识别部分成功)
+      return sendJson(res, 200, { resources, applied, failed, total })
     } catch (error) {
       return sendJson(res, error.status || 422, { message: error.message || '应用 YAML 失败', details: error.details })
     }
@@ -1566,8 +1582,17 @@ async function handle(req, res) {
   // ====== Admin: 集群管理 ======
   if (url.pathname === '/api/admin/clusters' && req.method === 'GET') {
     const ps = requireAdmin(req, res); if (!ps) return
-    const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,createdBy,createdAt FROM clusters ORDER BY createdAt DESC').all()
-    return sendJson(res, 200, { clusters: rows })
+    // 取凭据列(authHeader/ca/cert/key/insecure)仅用于探测,绝不回传前端(见下方白名单 map)。
+    const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,createdBy,createdAt,authHeader,ca,cert,key FROM clusters ORDER BY createdAt DESC').all()
+    const force = url.searchParams.get('refresh') === '1'
+    const probed = await clusterProber.probeAll(
+      rows,
+      r => buildCallContext({ apiServer: r.apiServer, authHeader: r.authHeader, ca: r.ca, cert: r.cert, key: r.key, insecure: !!r.insecure }),
+      { force },
+    )
+    // 白名单回传:前端需要的字段 + 实时探测的 status/nodeCount/podCount(凭据不入列)。
+    const clusters = probed.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }))
+    return sendJson(res, 200, { clusters })
   }
   if (url.pathname === '/api/admin/clusters' && req.method === 'POST') {
     const ps = requireAdmin(req, res); if (!ps) return
@@ -1613,6 +1638,7 @@ async function handle(req, res) {
     const id = decodeURIComponent(url.pathname.slice('/api/admin/clusters/'.length))
     db.prepare('DELETE FROM clusters WHERE id=?').run(id)
     db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
+    clusterProber.invalidate(id)
     return sendJson(res, 200, { ok: true })
   }
 

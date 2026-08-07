@@ -5,9 +5,11 @@ import { useRouter } from 'vue-router'
 import MiniChart from '@/components/common/MiniChart.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import { useI18n } from 'vue-i18n'
 
 const store = useClusterStore()
 const router = useRouter()
+const { t } = useI18n()
 
 // 实时轮询：每 10s 刷新 metrics + 收集集群 CPU/内存到 30 样本滚动窗口（≈5min）喂 MiniChart
 const cpuSeries = ref([])

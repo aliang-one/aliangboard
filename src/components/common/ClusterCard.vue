@@ -10,7 +10,7 @@ const { t } = useI18n()
 
 // 公共集群卡片：/clusters 与 /admin/clusters 共用。
 // 点击卡片 → 切换到该集群 + 进入集群管理(/cluster)；「切换」按钮仅切换；删除 emit('remove')。
-// 字段缺失（如 admin 列表无 nodeCount）优雅降级为 —。
+// admin 列表由 /api/admin/clusters 实时探测补 status/nodeCount/podCount；断连集群计数缺失优雅降级为 —。
 const props = defineProps({
   cluster: { type: Object, required: true },
   active: { type: Boolean, default: false },
@@ -21,10 +21,10 @@ const router = useRouter()
 const store = useClusterStore()
 const c = computed(() => props.cluster)
 
-// 集群状态映射到 StatusChip 现有值
+// 集群状态映射到 StatusChip 现有值（StatusChip 只识 Ready/Failed/Unknown 等，无 Disconnected）
 function mapStatus(status) {
   if (status === 'Healthy') return 'Ready'
-  if (status === 'Degraded') return 'Failed'
+  if (status === 'Degraded' || status === 'Disconnected') return 'Failed'
   return status || 'Unknown'
 }
 async function open() {

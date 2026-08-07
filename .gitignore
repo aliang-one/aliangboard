@@ -25,7 +25,11 @@ data/
 *.njsproj
 *.sln
 *.sw?
-.playwright-mcp.claude/
+
+# 本地 Agent/工具产物（浏览器快照、QA 报告、Claude 本地配置），勿入库
+.playwright-mcp/
+.claude/
+.gstack/
 
 # Superpowers SDD 工作区（账本/报告等 scratch，勿入库）
 .superpowers/
