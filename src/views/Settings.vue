@@ -18,6 +18,7 @@ const tabs = computed(() => [
   { key: 'components', label: t('settings.tabs.components'), icon: 'extension' },
   { key: 'api', label: t('settings.tabs.api'), icon: 'api' },
   { key: 'customcols', label: t('settings.tabs.customcols'), icon: 'view_column' },
+  ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
 ])
 
 // Static components for demo data mode (shown when no backend connection, to avoid blank display)
@@ -146,29 +147,6 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.pods') }}</span>
               <span class="font-medium">{{ store.cluster.podCount }}</span>
             </div>
-            <!-- MCP Service (admin only) -->
-            <div v-if="auth.isAdmin" class="flex flex-col gap-sm py-sm border-b border-outline-variant/50">
-              <div class="flex justify-between items-center">
-                <span class="text-body-sm text-on-surface-variant">{{ t('settings.mcpTitle') }}</span>
-                <button @click="toggleMcp" :disabled="mcpLoading" class="text-xs px-sm py-xs rounded-md transition-colors"
-                  :class="mcpEnabled ? 'bg-status-running/15 text-status-running' : 'bg-surface-container-low text-on-surface-variant'">
-                  {{ mcpEnabled ? '🟢 ' + t('settings.mcpEnabled') : '🔴 ' + t('settings.mcpDisabled') }}
-                </button>
-              </div>
-              <div v-if="mcpEnabled" class="bg-surface-container-low rounded-lg p-sm space-y-xs">
-                <p class="text-body-xs font-semibold text-on-surface-variant">{{ t('settings.mcpUsageTitle') }}</p>
-                <div class="flex justify-between items-center">
-                  <span class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageUrl') }}</span>
-                  <code class="text-body-xs font-mono text-primary">{{ mcpUrl }}</code>
-                </div>
-                <div class="flex justify-between items-center">
-                  <span class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageAuth') }}</span>
-                  <code class="text-body-xs font-mono text-primary">Authorization: Bearer &lt;API key&gt;</code>
-                </div>
-                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageNote') }}</p>
-              </div>
-              <p v-else class="text-body-xs text-on-surface-variant">{{ t('settings.mcpDisabledHint') }}</p>
-            </div>
           </div>
         </div>
 
@@ -278,22 +256,66 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
           </div>
           <div class="p-md space-y-sm">
             <p class="text-xs text-on-surface-variant">{{ t('settings.customDisplayDesc') }}</p>
-            <div v-for="t in catalog" :key="t.key" class="border border-outline-variant/60 rounded-lg p-md">
+            <div v-for="tbl in catalog" :key="tbl.key" class="border border-outline-variant/60 rounded-lg p-md">
               <div class="flex items-center justify-between mb-sm">
                 <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-primary text-sm">{{ t.icon }}</span>
-                  <span class="text-body-sm font-semibold">{{ t.label }}</span>
+                  <span class="material-symbols-outlined text-primary text-sm">{{ tbl.icon }}</span>
+                  <span class="text-body-sm font-semibold">{{ tbl.label }}</span>
                 </div>
-                <button @click="resetTable(t.key)" class="text-xs text-on-surface-variant hover:text-primary">{{ t('settings.reset') }}</button>
+                <button @click="resetTable(tbl.key)" class="text-xs text-on-surface-variant hover:text-primary">{{ t('settings.reset') }}</button>
               </div>
               <div class="flex flex-wrap gap-xs">
-                <label v-for="col in t.columns" :key="col.key"
+                <label v-for="col in tbl.columns" :key="col.key"
                   class="flex items-center gap-xs px-md py-xs rounded-lg border cursor-pointer transition-colors"
-                  :class="isHidden(t.key, col.key) ? 'border-outline-variant text-on-surface-variant bg-surface-container-low' : 'border-primary/40 text-primary bg-primary-container/10'">
-                  <input type="checkbox" :checked="!isHidden(t.key, col.key)" @change="toggle(t.key, col.key)" class="accent-[var(--md-sys-color-primary)]" />
+                  :class="isHidden(tbl.key, col.key) ? 'border-outline-variant text-on-surface-variant bg-surface-container-low' : 'border-primary/40 text-primary bg-primary-container/10'">
+                  <input type="checkbox" :checked="!isHidden(tbl.key, col.key)" @change="toggle(tbl.key, col.key)" class="accent-[var(--md-sys-color-primary)]" />
                   <span class="text-xs">{{ col.label }}</span>
                 </label>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MCP Service tab (admin only) -->
+        <div v-if="activeTab === 'mcp'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">hub</span>
+            <span class="text-body-sm font-semibold">{{ t('settings.mcpTitle') }}</span>
+          </div>
+          <div class="p-md space-y-md">
+            <!-- Toggle + Status card -->
+            <div class="flex items-center justify-between p-md rounded-lg border transition-colors"
+              :class="mcpEnabled ? 'border-status-running/30 bg-status-running/5' : 'border-outline-variant bg-surface-container-low'">
+              <div class="flex items-center gap-md">
+                <span class="w-3 h-3 rounded-full transition-colors" :class="mcpEnabled ? 'bg-status-running' : 'bg-on-surface-variant/30'"></span>
+                <div>
+                  <p class="text-body-sm font-semibold transition-colors" :class="mcpEnabled ? 'text-status-running' : 'text-on-surface-variant'">
+                    {{ mcpEnabled ? t('settings.mcpEnabled') : t('settings.mcpDisabled') }}
+                  </p>
+                  <p class="text-body-xs text-on-surface-variant">{{ mcpEnabled ? t('settings.mcpRunningHint') : t('settings.mcpDisabledHint') }}</p>
+                </div>
+              </div>
+              <button @click="toggleMcp" :disabled="mcpLoading"
+                class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0"
+                :class="mcpEnabled ? 'bg-status-running' : 'bg-outline-variant'">
+                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
+                  :class="mcpEnabled ? 'translate-x-6' : 'translate-x-0'"></span>
+              </button>
+            </div>
+            <!-- Usage hint (when enabled) -->
+            <div v-if="mcpEnabled" class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.mcpUsageTitle') }}</p>
+              <div class="space-y-xs">
+                <div class="flex items-center justify-between gap-md">
+                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ t('settings.mcpUsageUrl') }}</span>
+                  <code class="text-body-xs font-mono text-primary bg-primary/5 px-sm py-xs rounded">{{ mcpUrl }}</code>
+                </div>
+                <div class="flex items-center justify-between gap-md">
+                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ t('settings.mcpUsageAuth') }}</span>
+                  <code class="text-body-xs font-mono text-primary bg-primary/5 px-sm py-xs rounded">Authorization: Bearer &lt;API key&gt;</code>
+                </div>
+              </div>
+              <p class="text-body-xs text-on-surface-variant pt-xs">{{ t('settings.mcpUsageNote') }}</p>
             </div>
           </div>
         </div>

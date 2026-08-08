@@ -1796,7 +1796,8 @@
       "general": "General",
       "components": "Components",
       "api": "API Server",
-      "customcols": "Custom Columns"
+      "customcols": "Custom Columns",
+      "mcp": "MCP Service"
     },
     "clusterInfo": "Cluster Information",
     "clusterName": "Cluster Name",
@@ -1835,7 +1836,8 @@
     "mcpUsageUrl": "Endpoint URL",
     "mcpUsageAuth": "Auth header",
     "mcpUsageNote": "Mint a key at API Keys management; the key's tier + namespace + tool_overrides determine available tools/scope.",
-    "mcpDisabledHint": "MCP service is disabled; external AI clients cannot connect."
+    "mcpDisabledHint": "MCP service is disabled; external AI clients cannot connect.",
+    "mcpRunningHint": "External AI clients can connect via /mcp"
   },
   "storage": {
     "title": "Storage",
@@ -1913,7 +1915,88 @@
     "setDefaultStorageClass": "Set as default StorageClass",
     "createPVCTitle": "Create PVC",
     "createPVTitle": "Create PersistentVolume",
-    "createSCTitle": "Create StorageClass"
+    "createSCTitle": "Create StorageClass",
+    "presetScheme": "Preset scheme",
+    "presetCustom": "Custom (no preset)",
+    "familyLocal": "Local / single-node",
+    "familyDistributed": "Distributed block storage",
+    "familyNfs": "NFS",
+    "familyCloud": "Cloud provider block storage",
+    "volumeBindingMode": "Volume binding mode",
+    "bindingImmediate": "Immediate",
+    "bindingWaitForFirstConsumer": "WaitForFirstConsumer",
+    "allowVolumeExpansion": "Allow volume expansion",
+    "yamlPreview": "YAML preview (read-only)",
+    "requiredParamWarn": "Required parameter still has a <…> placeholder — replace it before creating",
+    "addParam": "Add parameter",
+    "key": "Key",
+    "value": "Value",
+    "presets": {
+      "local-path": {
+        "label": "Local Path (Rancher/k3s)",
+        "hint": "Node-local path; ideal for single-node / homelab. Install local-path-provisioner first (helm)."
+      },
+      "no-provisioner": {
+        "label": "No provisioner (static PV)",
+        "hint": "Does not auto-create PVs; you must pre-create them. volumeBindingMode forced to WaitForFirstConsumer."
+      },
+      "host-path": {
+        "label": "Host path (deprecated)",
+        "hint": "In-tree host-path; deprecated, legacy clusters only."
+      },
+      "longhorn": {
+        "label": "Longhorn",
+        "hint": "Rancher distributed storage, 3 replicas by default. Install Longhorn first."
+      },
+      "ceph-rbd": {
+        "label": "Ceph RBD (Rook)",
+        "hint": "Rook-provisioned Ceph RBD. clusterID is usually the rook-ceph namespace; edit pool to match."
+      },
+      "cephfs": {
+        "label": "CephFS (Rook)",
+        "hint": "Rook-provisioned CephFS. Fill clusterID and fsName."
+      },
+      "openebs-localpv": {
+        "label": "OpenEBS Local PV",
+        "hint": "OpenEBS local PV (hostpath / device). Install OpenEBS first."
+      },
+      "topolvm": {
+        "label": "TopoLVM",
+        "hint": "LVM thin provisioning, expansion supported. Install TopoLVM first."
+      },
+      "nfs-csi": {
+        "label": "NFS (CSI driver, recommended)",
+        "hint": "NFS CSI driver. server (IP/host) and share (export path) are required. Install nfs-csi-driver first."
+      },
+      "nfs-in-tree": {
+        "label": "NFS (in-tree, deprecated)",
+        "hint": "In-tree NFS; deprecated — prefer nfs.csi.k8s.io. server and path required."
+      },
+      "aws-ebs": {
+        "label": "AWS EBS (CSI)",
+        "hint": "AWS EBS CSI, defaults to gp3. Install aws-ebs-csi-driver first."
+      },
+      "gce-pd": {
+        "label": "GCE PD (CSI)",
+        "hint": "GCE Persistent Disk CSI; preinstalled on GKE. type: pd-standard/pd-balanced/pd-ssd/pd-extreme."
+      },
+      "azure-disk": {
+        "label": "Azure Disk (CSI)",
+        "hint": "Azure Disk CSI. skuName: Standard_LRS/StandardSSD_LRS/Premium_LRS."
+      },
+      "aliyun-disk": {
+        "label": "Alibaba Cloud Disk (CSI)",
+        "hint": "Alibaba ACK CSI, defaults to ESSD. type: cloud_efficiency/cloud_ssd/cloud_essd."
+      },
+      "tencent-cbs": {
+        "label": "Tencent Cloud CBS (CSI)",
+        "hint": "Tencent Cloud CBS CSI. type: CLOUD_PREMIUM/CLOUD_SSD/CLOUD_HSSD."
+      },
+      "huawei-evs": {
+        "label": "Huawei Cloud EVS (CSI)",
+        "hint": "Huawei CCE EVS CSI. Volume type set via StorageClass params or console."
+      }
+    }
   },
   "monitoring": {
     "title": "Monitoring",
