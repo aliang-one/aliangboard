@@ -64,9 +64,15 @@ async function create() {
     return
   }
   applying.value = true
-  const res = await applyYaml(yaml.value)
-  applying.value = false
-  if (res.ok) { emit('applied'); close() }
+  try {
+    const res = await applyYaml(yaml.value)
+    if (res.ok) { emit('applied'); close() }
+    else { parseError.value = res.error || t('component.createFromYaml.parseError') }
+  } catch (e) {
+    parseError.value = String(e?.message || e)
+  } finally {
+    applying.value = false
+  }
 }
 </script>
 

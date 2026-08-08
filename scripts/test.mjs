@@ -448,7 +448,7 @@ test('workloadToForm: 完整 Deployment 映射主容器/副本/标签/节点选�
   assert.equal(f.liveness.httpPath, '/health'); assert.equal(f.liveness.port, 8080)
   assert.equal(f.liveness.initialDelaySeconds, 5)
   assert.deepEqual(f.nodeSelectors, [{ key: 'disk', value: 'ssd' }])
-  assert.deepEqual(f.tolerations, [{ key: 'k', value: 'v', effect: 'NoSchedule' }])
+  assert.deepEqual(f.tolerations, [{ key: 'k', operator: 'Equal', value: 'v', effect: 'NoSchedule' }])
   assert.equal(f.volumeMounts.length, 1); assert.equal(f.volumeMounts[0].name, 'data')
   assert.equal(f.extraContainers.length, 0); assert.equal(f.initContainers.length, 0)
 })
@@ -493,6 +493,18 @@ test('workloadToForm: NFS volume 映射 type/server/nfsPath', () => {
   assert.equal(f.volumeMounts[0].type, 'nfs')
   assert.equal(f.volumeMounts[0].server, '10.0.0.1')
   assert.equal(f.volumeMounts[0].nfsPath, '/export')
+})
+
+test('workloadToForm: toleration 带 operator Equal + value 原样保留', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 't', namespace: 'n' }, spec: { template: { spec: { tolerations: [{ key: 'k', operator: 'Equal', value: 'v', effect: 'NoSchedule' }] } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.deepEqual(f.tolerations, [{ key: 'k', operator: 'Equal', value: 'v', effect: 'NoSchedule' }])
+})
+test('workloadToForm: toleration 缺 operator 时按 value 推断(Equal/Exists)', () => {
+  const withVal = { kind: 'Deployment', metadata: { name: 'a', namespace: 'n' }, spec: { template: { spec: { tolerations: [{ key: 'k', value: 'v', effect: 'NoSchedule' }] } } } }
+  assert.equal(workloadToForm(withVal, 'Deployment').tolerations[0].operator, 'Equal')
+  const noVal = { kind: 'Deployment', metadata: { name: 'b', namespace: 'n' }, spec: { template: { spec: { tolerations: [{ key: 'k', effect: 'NoSchedule' }] } } } }
+  assert.equal(workloadToForm(noVal, 'Deployment').tolerations[0].operator, 'Exists')
 })
 
 // --- 汇总 ---

@@ -84,6 +84,7 @@ function confirmCopy() {
   if (!selected.value) return
   const partial = workloadToForm(selected.value.raw, selected.value.type)
   if (!partial) return
+  if (props.targetNamespace) partial.namespace = props.targetNamespace
   setSeed({ form: partial, type: selected.value.type, source: `${sourceNs.value}/${selected.value.name}` })
   close()
   if (props.targetRouteName === 'NsDeploy') {

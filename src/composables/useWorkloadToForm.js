@@ -118,7 +118,12 @@ export function workloadToForm(obj, kind) {
   out.extraContainers = containers.slice(1).map(mapSidecar)
   out.initContainers = (pod.initContainers || []).map(mapInit)
   out.nodeSelectors = Object.entries(pod.nodeSelector || {}).map(([k, v]) => ({ key: k, value: String(v) }))
-  out.tolerations = (pod.tolerations || []).map(tl => ({ key: tl.key || '', value: tl.value || '', effect: tl.effect || '' }))
+  out.tolerations = (pod.tolerations || []).map(tl => ({
+    key: tl.key || '',
+    operator: tl.operator || (tl.value ? 'Equal' : 'Exists'),
+    value: tl.value || '',
+    effect: tl.effect || '',
+  }))
   out.volumeMounts = mapVolumeMounts(containers[0], pod.volumes)
   return out
 }
