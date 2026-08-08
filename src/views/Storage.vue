@@ -119,6 +119,7 @@ function resetCreateSC() {
 }
 function onScPresetChange(id) {
   scPresetId.value = id
+  if (!id) { resetCreateSC(); return }
   const preset = STORAGE_CLASS_PRESETS.find(p => p.id === id)
   if (preset) createSCForm.value = presetToFormState(preset)
 }
@@ -127,10 +128,14 @@ function removeScParamRow(i) { createSCForm.value.parameters.splice(i, 1) }
 function handleCreateSC() {
   const f = createSCForm.value
   if (!scCanCreate.value) return
+  const parameters = f.parameters
+    .map(r => (r.key || '').trim() ? `${r.key.trim()}=${r.value}` : '')
+    .filter(Boolean)
+    .join(',')
   store.addStorageClass({
     name: f.name,
     provisioner: f.provisioner,
-    parameters: f.parameters,
+    parameters,
     reclaimPolicy: f.reclaimPolicy,
     volumeBindingMode: f.volumeBindingMode,
     allowVolumeExpansion: f.allowVolumeExpansion,

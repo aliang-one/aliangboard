@@ -545,6 +545,17 @@ test('buildStorageClassYaml: mountOptions 仅在非空数组时输出', () => {
   assert.ok(!noMount.includes('mountOptions:'))
 })
 
+test('buildStorageClassYaml: default=true 输出 is-default-class 注解;false/缺省不输出', () => {
+  const yamlTrue = buildStorageClassYaml({ name: 'x', provisioner: 'p', default: true, parameters: [] })
+  assert.ok(yamlTrue.includes('annotations:'), 'default=true 时应输出 annotations 块')
+  assert.ok(yamlTrue.includes('storageclass.kubernetes.io/is-default-class: "true"'), '应含 is-default-class 注解')
+  const yamlFalse = buildStorageClassYaml({ name: 'x', provisioner: 'p', default: false, parameters: [] })
+  assert.ok(!yamlFalse.includes('annotations:'), 'default=false 时不应输出 annotations')
+  assert.ok(!yamlFalse.includes('is-default-class'), 'default=false 时不应含 is-default-class')
+  const yamlUnset = buildStorageClassYaml({ name: 'x', provisioner: 'p', parameters: [] })
+  assert.ok(!yamlUnset.includes('annotations:'), '缺省 default 时不应输出 annotations')
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

@@ -18,10 +18,16 @@ export function buildStorageClassYaml(resource = {}) {
     'kind: StorageClass',
     'metadata:',
     `  name: ${name}`,
+  ]
+  if (resource.default === true) {
+    lines.push('  annotations:')
+    lines.push('    storageclass.kubernetes.io/is-default-class: "true"')
+  }
+  lines.push(
     `provisioner: ${provisioner}`,
     `reclaimPolicy: ${reclaimPolicy}`,
     `volumeBindingMode: ${volumeBindingMode}`,
-  ]
+  )
   if (resource.allowVolumeExpansion === true) lines.push('allowVolumeExpansion: true')
   if (Array.isArray(resource.mountOptions) && resource.mountOptions.length) {
     lines.push('mountOptions:')
