@@ -2458,6 +2458,41 @@ export const useClusterStore = defineStore('cluster', () => {
     return { failed: requests.filter(r => r.status === 'rejected').length }
   }
 
+  // 关键路径水合：仅 namespaces + nodes（2 请求），替代原 12 路全量 hydrateCoreResources。
+  // clusterHealth 只需 nodeList（Ready/controlPlane），不需 metrics。
+  // pods/workloads/services/ingresses/events 等由各页面 Vue Query 自取。
+  async function hydrateCriticalResources(opts = {}) {
+    if (!remoteMode.value) return
+    if (!opts.silent) connectionState.value = 'loading'
+    const requests = await Promise.allSettled([
+      api.k8s('/api/v1/namespaces'),
+      api.k8s('/api/v1/nodes'),
+    ])
+    const namespaceData = requests[0].status === 'fulfilled' ? requests[0].value : null
+    const nodeData = requests[1].status === 'fulfilled' ? requests[1].value : null
+    if (!nodeData && remoteMode.value) notify('error', i18n.global.t('store.nodeFetchFailed'))
+    if (!namespaceData) {
+      if (!opts.silent) connectionState.value = 'error'
+      throw new Error(i18n.global.t('store.namespaceReadFailed'))
+    }
+    if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, null))
+    if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
+      name: item.metadata?.name,
+      status: item.status?.phase || 'Unknown',
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+    }))
+    if (currentNamespace.value && namespaceList.value.length
+        && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
+      setNamespace(namespaceList.value[0].name)
+    }
+    if (!opts.lite) {
+      try { await hydrateExtendedResources() } catch (e) { console.warn('[hydrate] 扩展资源部分失败:', e?.message || e) }
+    }
+    if (!opts.silent) connectionState.value = 'connected'
+    return { failed: requests.filter(r => r.status === 'rejected').length }
+  }
+
   // 拉取所有非核心资源（集群范围 list，容忍 RBAC 403）。对应列表会被真实数据覆盖。
   // hydrate 后把已拉取的 store 列表预填进 Vue Query 缓存（canonical 列表 key），
   // 让迁移页挂载时命中缓存、不重复请求 hydrate 已拉过的数据（消除「hydrate 一遍 + query 一遍」双取）。
@@ -3576,6 +3611,7 @@ status:
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
+    hydrateCriticalResources,
     invalidateAllClusterQueries,
     // Pod 列表轻量刷新（删 Pod 后看重建）
     refreshPods,
