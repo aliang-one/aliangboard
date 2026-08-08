@@ -12,6 +12,9 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import SplitButton from '@/components/common/SplitButton.vue'
+import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
+import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const { t } = useI18n()
 
@@ -20,6 +23,9 @@ const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
+
+const showYamlDialog = ref(false)
+const showCopyDialog = ref(false)
 
 // Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -117,9 +123,17 @@ function handleDelete() {
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: nsWorkloads.length, ns: route.params.namespace }) }}</p>
       </div>
-      <router-link :to="{ name: 'NsDeploy', params: { namespace: route.params.namespace } }" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">rocket_launch</span> {{ t('ns.workloads.new') }}
-      </router-link>
+      <SplitButton
+        :label="t('ns.workloads.new')"
+        icon="rocket_launch"
+        :main-action="() => router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })"
+        :items="[
+          { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
+          { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
+        ]"
+      />
+      <CreateFromYamlDialog v-model="showYamlDialog" :namespace="route.params.namespace" @applied="workloadsQuery.refetch()" />
+      <CopyWorkloadDialog v-model="showCopyDialog" target-route-name="NsDeploy" :default-target-namespace="route.params.namespace" :target-namespace="route.params.namespace" />
     </div>
 
     <!-- Type Summary -->
