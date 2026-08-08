@@ -218,6 +218,19 @@
       "addData": "+ Add",
       "optionalSuffix": " (optional)",
       "serviceEmptyHint": "No workload in this namespace exposes container ports; you can type directly"
+    },
+    "copyWorkload": {
+      "title": "Copy Workload",
+      "sourceNamespace": "Source namespace",
+      "selectPrompt": "Select a workload to copy",
+      "loading": "Loading…",
+      "empty": "No workloads in this namespace",
+      "fetchError": "Failed to load workloads",
+      "confirm": "Copy & edit",
+      "thName": "Name",
+      "thType": "Type",
+      "thReplicas": "Replicas",
+      "thImage": "Image"
     }
   },
   "nav": {
