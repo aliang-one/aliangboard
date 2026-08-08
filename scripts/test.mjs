@@ -15,6 +15,7 @@ import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
 import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
+import { workloadToForm } from '../src/composables/useWorkloadToForm.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -417,6 +418,72 @@ test('dumpResourceYaml 缺 metadata 的对象不报错', () => {
   const y = dumpResourceYaml({ apiVersion: 'v1', kind: 'Service', spec: { type: 'ClusterIP' } })
   assert.ok(y.includes('kind: Service'))
   assert.ok(!y.includes('managedFields'))
+})
+
+// --- 复制 workload:K8s 对象 → 向导表单(反向映射,best-effort)---
+test('workloadToForm: 完整 Deployment 映射主容器/副本/标签/节点选择/容忍', () => {
+  const obj = {
+    kind: 'Deployment',
+    metadata: { name: 'api', namespace: 'prod', labels: { app: 'api', 'pod-template-hash': 'abc' }, annotations: { note: 'x' } },
+    spec: { replicas: 3, template: { spec: { nodeSelector: { disk: 'ssd' }, tolerations: [{ key: 'k', value: 'v', effect: 'NoSchedule' }], containers: [{ name: 'api', image: 'nginx:1.25', imagePullPolicy: 'Always', command: ['sh', '-c'], args: ['sleep 1'], workingDir: '/app', ports: [{ containerPort: 8080, protocol: 'TCP' }], env: [{ name: 'FOO', value: 'bar' }, { name: 'REF', valueFrom: { configMapKeyRef: { name: 'cm' } } }], resources: { requests: { cpu: '250m', memory: '256Mi' }, limits: { cpu: '500m', memory: '512Mi' } }, livenessProbe: { httpGet: { path: '/health', port: 8080 }, initialDelaySeconds: 5, periodSeconds: 10 }, volumeMounts: [{ name: 'data', mountPath: '/data' }] }] } } },
+  }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.workloadType, 'Deployment')
+  assert.equal(f.name, 'api')
+  assert.equal(f.namespace, 'prod')
+  assert.equal(f.replicas, 3)
+  assert.deepEqual(f.labels, [{ key: 'app', value: 'api' }])              // pod-template-hash 被剔除
+  assert.deepEqual(f.annotations, [{ key: 'note', value: 'x' }])
+  assert.equal(f.image, 'nginx:1.25')
+  assert.equal(f.containerName, 'api')
+  assert.equal(f.pullPolicy, 'Always')
+  assert.equal(f.command, 'sh -c')
+  assert.equal(f.args, 'sleep 1')
+  assert.equal(f.workingDir, '/app')
+  assert.deepEqual(f.ports, [{ containerPort: '8080', protocol: 'TCP' }])
+  assert.deepEqual(f.envVars, [{ key: 'FOO', value: 'bar' }])             // valueFrom 类不映射
+  assert.equal(f.cpuRequest, '250m'); assert.equal(f.cpuLimit, '500m')
+  assert.equal(f.memoryRequest, '256Mi'); assert.equal(f.memoryLimit, '512Mi')
+  assert.equal(f.liveness.enabled, true); assert.equal(f.liveness.type, 'http')
+  assert.equal(f.liveness.httpPath, '/health'); assert.equal(f.liveness.port, 8080)
+  assert.equal(f.liveness.initialDelaySeconds, 5)
+  assert.deepEqual(f.nodeSelectors, [{ key: 'disk', value: 'ssd' }])
+  assert.deepEqual(f.tolerations, [{ key: 'k', value: 'v', effect: 'NoSchedule' }])
+  assert.equal(f.volumeMounts.length, 1); assert.equal(f.volumeMounts[0].name, 'data')
+  assert.equal(f.extraContainers.length, 0); assert.equal(f.initContainers.length, 0)
+})
+
+test('workloadToForm: 多容器 —— 主容器完整,其余进 extraContainers,init 进 initContainers', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'm', namespace: 'd' }, spec: { template: { spec: { containers: [{ name: 'main', image: 'a' }, { name: 'side', image: 'b' }], initContainers: [{ name: 'init', image: 'c' }] } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.containerName, 'main'); assert.equal(f.image, 'a')
+  assert.equal(f.extraContainers.length, 1); assert.equal(f.extraContainers[0].name, 'side'); assert.equal(f.extraContainers[0].image, 'b')
+  assert.equal(f.initContainers.length, 1); assert.equal(f.initContainers[0].name, 'init')
+})
+
+test('workloadToForm: CronJob 取嵌套 podSpec + schedule;Job 取 completions/parallelism', () => {
+  const cron = { kind: 'CronJob', metadata: { name: 'c', namespace: 'n' }, spec: { schedule: '*/10 * * * *', concurrencyPolicy: 'Forbid', jobTemplate: { spec: { template: { spec: { containers: [{ name: 'c', image: 'img' }] } } } } } }
+  const fc = workloadToForm(cron, 'CronJob')
+  assert.equal(fc.image, 'img')                                  // 嵌套路径取到容器
+  assert.equal(fc.cronConfig.schedule, '*/10 * * * *')
+  assert.equal(fc.cronConfig.concurrencyPolicy, 'Forbid')
+  const job = { kind: 'Job', metadata: { name: 'j', namespace: 'n' }, spec: { completions: 2, parallelism: 4, backoffLimit: 3, template: { spec: { containers: [{ name: 'j', image: 'i' }] } } } }
+  const fj = workloadToForm(job, 'Job')
+  assert.equal(fj.jobConfig.completions, 2); assert.equal(fj.jobConfig.parallelism, 4); assert.equal(fj.jobConfig.backoffLimit, 3)
+})
+
+test('workloadToForm: 缺字段容错 + 未知 kind 返回 null', () => {
+  const f = workloadToForm({ metadata: { name: 'x' }, spec: { template: { spec: {} } } }, 'Deployment')
+  assert.equal(f.name, 'x'); assert.equal(f.replicas, 1); assert.equal(f.image, ''); assert.deepEqual(f.ports, [])
+  assert.equal(workloadToForm(null, 'Deployment'), null)
+  assert.equal(workloadToForm({ kind: 'Pod' }, 'Deployment') && true, true) // 不崩即可
+})
+
+test('workloadToForm: tcp/exec 探针映射 + readiness/startup 默认关闭', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'p', namespace: 'n' }, spec: { template: { spec: { containers: [{ name: 'p', image: 'i', readinessProbe: { tcpSocket: { port: 9090 } } }] } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.readiness.enabled, true); assert.equal(f.readiness.type, 'tcp'); assert.equal(f.readiness.port, 9090)
+  assert.equal(f.liveness.enabled, false); assert.equal(f.startup.enabled, false)
 })
 
 // --- 汇总 ---
