@@ -392,6 +392,7 @@
       "namespaceLabel": "Namespace",
       "syncing": "Syncing…",
       "sync": "Sync",
+      "enterNamespace": "Enter namespace",
       "resourceQuotas": "Resource Quotas",
       "cpuUsage": "CPU Usage",
       "memoryUsage": "Memory Usage",
