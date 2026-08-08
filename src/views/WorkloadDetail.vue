@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import LabelChips from '@/components/common/LabelChips.vue'
@@ -19,6 +20,25 @@ const workload = computed(() => store.workloadList.find(
 ))
 const pod = computed(() => store.podList.find((p) => p.name === route.params.name))
 const displayData = computed(() => pod.value || workload.value)
+
+// 管理 pods / events：服务端状态归 Vue Query（ns 过滤），与 NsPods/NsEvents 同源缓存。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  mock: store.podList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(p => p.namespace === route.params.namespace),
+})
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(e => e.namespace === route.params.namespace),
+})
+const nsPods = computed(() => podsQuery.data.value || [])
+const nsEvents = computed(() => eventsQuery.data.value || [])
 
 async function handleDelete() {
   if (!workload.value) { notify('error', t('workloadDetail.deleteSuccess')); return }
@@ -110,7 +130,7 @@ async function handleRestart() {
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="(p, idx) in store.podList.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push({ name: 'NsPodDetail', params: { namespace: p.namespace, name: p.name } })">
+              <tr v-for="(p, idx) in nsPods.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push({ name: 'NsPodDetail', params: { namespace: p.namespace, name: p.name } })">
                 <td class="px-lg py-md">
                   <span class="font-mono text-code-sm font-medium text-on-surface">{{ p.name }}</span>
                 </td>
@@ -135,7 +155,7 @@ async function handleRestart() {
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
           <h3 class="text-headline-sm mb-md">{{ t('workloadDetail.events') }}</h3>
           <div class="flex flex-col gap-md">
-            <EventList :events="store.eventList" :max="4" compact />
+            <EventList :events="nsEvents" :max="4" compact />
           </div>
         </div>
       </div>
