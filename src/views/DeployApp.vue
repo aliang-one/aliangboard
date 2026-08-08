@@ -16,6 +16,7 @@ import PortSelect from '@/components/common/PortSelect.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
+import { useCopySeed } from '@/composables/useCopySeed'
 
 const { t } = useI18n()
 
@@ -136,6 +137,15 @@ function makeForm() {
   }
 }
 const form = ref(makeForm())
+
+// 复制 workload:若有 seed(来自 CopyWorkloadDialog),用源数据初始化表单
+const { consumeSeed } = useCopySeed()
+const copySeed = consumeSeed()
+const copyHint = ref('')
+if (copySeed?.form) {
+  form.value = { ...makeForm(), ...copySeed.form }
+  copyHint.value = copySeed.source || ''
+}
 
 // 整体重置表单（保留当前命名空间）—— 用于「Deploy Another」避免残留脏数据
 function resetForm() {
@@ -762,6 +772,12 @@ async function handleDeploy() {
       ]" />
       <h2 class="text-headline-md text-on-surface font-bold" :class="route.params.namespace ? 'mt-sm' : ''">{{ $t('deploy.title') }}</h2>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('deploy.deployTo') }} <span class="text-primary font-medium">{{ route.params.namespace || form.namespace }}</span></p>
+    </div>
+
+    <!-- Copy Workload Hint -->
+    <div v-if="copyHint && !showDeploySuccess" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary-container rounded-lg text-body-sm mb-md">
+      <span class="material-symbols-outlined text-lg">content_copy</span>
+      {{ t('deploy.copyHint', { source: copyHint }) }}
     </div>
 
     <!-- Deploy Success -->

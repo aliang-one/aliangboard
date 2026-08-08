@@ -1186,6 +1186,7 @@
     "viewWorkloads": "View Workloads",
     "viewPods": "View Pods",
     "deployAnother": "Deploy Another",
+    "copyHint": "Copied from {source} — verify name and namespace",
     "step1": "Basic Information",
     "step2": "Container Config",
     "step3": "Volumes",

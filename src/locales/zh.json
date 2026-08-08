@@ -1186,6 +1186,7 @@
     "viewWorkloads": "查看工作负载",
     "viewPods": "查看 Pod",
     "deployAnother": "再部署一个",
+    "copyHint": "已从 {source} 复制，请确认名称与命名空间",
     "step1": "基本信息",
     "step2": "容器配置",
     "step3": "数据卷",
