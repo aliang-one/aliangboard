@@ -1,12 +1,36 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const router = useRouter()
 const store = useClusterStore()
 const timeRange = ref('24h')
+
+// Cluster ID (demo for mock, cluster name for remote)
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+
+// Nodes query (Vue Query)
+const nodesQuery = useResourceList({
+  key: ['cluster', cid.value, 'nodes'],
+  fetcher: () => store.fetchNodes(),
+  mock: store.nodeList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false }
+})
+const nodeList = computed(() => nodesQuery.data.value || [])
+
+// Events query (Vue Query)
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false }
+})
+const eventList = computed(() => eventsQuery.data.value || [])
 
 // CPU 环形表盘颜色（阈值与 ProgressBar.barColor 一致）
 function gaugeClass(cpu) {
@@ -146,7 +170,7 @@ function hasPressure(node) {
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-sm">
             <router-link
-              v-for="node in store.nodeList.slice(0, 6)"
+              v-for="node in nodeList.slice(0, 6)"
               :key="node.name"
               :to="`/nodes/${node.name}`"
               class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant hover:border-primary hover:shadow-card-hover transition-all flex gap-md"
@@ -216,11 +240,11 @@ function hasPressure(node) {
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">notifications</span>
             <span class="text-body-sm font-semibold">{{ $t('cluster.recentEvents') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ store.eventList.length }}</span>
+            <span class="text-xs text-on-surface-variant ml-auto">{{ eventList.length }}</span>
           </div>
           <div class="flex flex-col gap-sm p-md">
             <div
-              v-for="(event, idx) in store.eventList"
+              v-for="(event, idx) in eventList"
               :key="idx"
               class="flex gap-sm border-b border-outline-variant/30 pb-sm last:border-0 last:pb-0"
             >
