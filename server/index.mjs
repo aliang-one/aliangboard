@@ -604,8 +604,11 @@ async function execCapture(session, namespace, pod, container, command) {
     // tty 下输出会带 ANSI/CR，统一剔除后再解析
     conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true)
   } catch (e) {
-    console.error(`[exec] 失败 ns=${namespace} pod=${pod} c=${container} cmd=${JSON.stringify(command)} :: ${e?.message || e}`)
-    throw e
+    const raw = e?.message || String(e)
+    // 500 通常=目标容器已终止(Succeeded/Failed),exec 无法进入;给出可读提示而非裸 ws 报错
+    const hint = /Unexpected server response:\s*500/i.test(raw) ? `${raw}（目标容器可能未运行/已终止,exec 无法进入;请确认 Pod 为 Running）` : raw
+    console.error(`[exec] 失败 ns=${namespace} pod=${pod} c=${container} cmd=${JSON.stringify(command)} :: ${hint}`)
+    throw Object.assign(new Error(hint), { status: 502 })
   }
   // 命令（ls/head/cat）自行退出 → kubelet 关闭 → conn close；不主动关 stdin
   await new Promise(resolve => conn.on('close', resolve))
@@ -623,30 +626,39 @@ async function ensurePvcBrowser(session, ns, pvc) {
   const safe = String(pvc).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
   const podName = `aliang-pvc-${safe || 'x'}`.slice(0, 63)
   const podPath = `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(podName)}`
-  try { await requestKubernetes(session, podPath); return podName }   // 已存在 → 复用
-  catch (e) {
+  // 复用前确认 Running:helper 的 sleep(24h) 到期或被驱逐后会变 Succeeded/Failed,
+  // 直接复用会让后续 exec 500(exec 无法进入已终止容器)。非 Running → 删除并等其消失后重建。
+  try {
+    const existing = (await requestKubernetes(session, podPath)).body
+    if (existing?.status?.phase === 'Running') return podName
+    try { await requestKubernetes(session, podPath, { method: 'DELETE' }) } catch { /* 删除失败不阻断,下面重建若冲突再报 */ }
+    for (let i = 0; i < 20; i++) {                       // 等待旧 Pod 真正消失,避免重建 POST 409
+      try { await requestKubernetes(session, podPath) } catch (e) { if (e.status === 404) break }
+      await new Promise(r => setTimeout(r, 500))
+    }
+  } catch (e) {
     if (e.status !== 404) throw e
-    const body = {
-      apiVersion: 'v1', kind: 'Pod',
-      metadata: { name: podName, namespace: ns, labels: { app: 'aliang-pvc-browser' }, annotations: { 'aliangboard.io/purpose': 'pvc-file-browser' } },
-      spec: {
-        restartPolicy: 'Never', terminationGracePeriodSeconds: 1,
-        containers: [{ name: 'browser', image: 'busybox:1.36', command: ['sh', '-c', 'sleep 86400'], volumeMounts: [{ name: 'data', mountPath: '/data', readOnly: true }], resources: { requests: { cpu: '10m', memory: '16Mi' }, limits: { memory: '64Mi' } } }],
-        volumes: [{ name: 'data', persistentVolumeClaim: { claimName: pvc } }],
-      },
-    }
-    try { await requestKubernetes(session, `/api/v1/namespaces/${encodeURIComponent(ns)}/pods`, { method: 'POST', body: JSON.stringify(body) }) }
-    catch (err) { throw Object.assign(new Error(`创建 PVC 浏览器 Pod 失败：${err.message}（需 create pods 权限）`), { status: err.status || 403 }) }
-    for (let i = 0; i < 40; i++) {
-      await new Promise(r => setTimeout(r, 1000))
-      try {
-        const p = (await requestKubernetes(session, podPath)).body
-        if (p.status?.phase === 'Running') return podName
-        if (p.status?.phase === 'Failed') throw Object.assign(new Error('PVC 浏览器 Pod 启动失败（PVC 可能未绑定或挂载失败）'), { status: 502 })
-      } catch (waitErr) { if (waitErr.status === 502) throw waitErr }
-    }
-    throw Object.assign(new Error('PVC 浏览器 Pod 启动超时（镜像拉取中？请稍后重试）'), { status: 502 })
   }
+  const body = {
+    apiVersion: 'v1', kind: 'Pod',
+    metadata: { name: podName, namespace: ns, labels: { app: 'aliang-pvc-browser' }, annotations: { 'aliangboard.io/purpose': 'pvc-file-browser' } },
+    spec: {
+      restartPolicy: 'Never', terminationGracePeriodSeconds: 1,
+      containers: [{ name: 'browser', image: 'busybox:1.36', command: ['sh', '-c', 'sleep 86400'], volumeMounts: [{ name: 'data', mountPath: '/data', readOnly: true }], resources: { requests: { cpu: '10m', memory: '16Mi' }, limits: { memory: '64Mi' } } }],
+      volumes: [{ name: 'data', persistentVolumeClaim: { claimName: pvc } }],
+    },
+  }
+  try { await requestKubernetes(session, `/api/v1/namespaces/${encodeURIComponent(ns)}/pods`, { method: 'POST', body: JSON.stringify(body) }) }
+  catch (err) { throw Object.assign(new Error(`创建 PVC 浏览器 Pod 失败：${err.message}（需 create pods 权限）`), { status: err.status || 403 }) }
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 1000))
+    try {
+      const p = (await requestKubernetes(session, podPath)).body
+      if (p.status?.phase === 'Running') return podName
+      if (p.status?.phase === 'Failed') throw Object.assign(new Error('PVC 浏览器 Pod 启动失败（PVC 可能未绑定或挂载失败）'), { status: 502 })
+    } catch (waitErr) { if (waitErr.status === 502) throw waitErr }
+  }
+  throw Object.assign(new Error('PVC 浏览器 Pod 启动超时（镜像拉取中？请稍后重试）'), { status: 502 })
 }
 
 const PODFILE_PREVIEW_LIMIT = 256 * 1024   // 预览最多 256KB
