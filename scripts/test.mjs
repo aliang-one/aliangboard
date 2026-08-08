@@ -15,6 +15,7 @@ import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
 import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
+import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -417,6 +418,71 @@ test('dumpResourceYaml 缺 metadata 的对象不报错', () => {
   const y = dumpResourceYaml({ apiVersion: 'v1', kind: 'Service', spec: { type: 'ClusterIP' } })
   assert.ok(y.includes('kind: Service'))
   assert.ok(!y.includes('managedFields'))
+})
+
+// --- StorageClass 预设目录完整性 ---
+test('StorageClass 预设恰好 16 个,4 family 全覆盖', () => {
+  assert.equal(STORAGE_CLASS_PRESETS.length, 16)
+  const families = new Set(STORAGE_CLASS_PRESETS.map(p => p.family))
+  for (const f of ['local', 'distributed', 'nfs', 'cloud']) assert.ok(families.has(f), `missing family ${f}`)
+})
+
+test('每个 StorageClass 预设字段完整且 requiredParams ⊆ parameters', () => {
+  const validBinding = new Set(['Immediate', 'WaitForFirstConsumer'])
+  const ids = new Set()
+  for (const p of STORAGE_CLASS_PRESETS) {
+    assert.ok(p.id, `preset missing id: ${JSON.stringify(p)}`)
+    assert.ok(!ids.has(p.id), `dup preset id: ${p.id}`); ids.add(p.id)
+    assert.ok(p.provisioner, `preset ${p.id} missing provisioner`)
+    assert.ok(validBinding.has(p.volumeBindingMode), `preset ${p.id} bad volumeBindingMode ${p.volumeBindingMode}`)
+    assert.ok(typeof p.allowVolumeExpansion === 'boolean', `preset ${p.id} allowVolumeExpansion not bool`)
+    for (const rk of (p.requiredParams || [])) {
+      assert.ok((p.parameters || {}).hasOwnProperty(rk), `preset ${p.id} requiredParams "${rk}" 不在 parameters 中`)
+    }
+  }
+})
+
+test('STORAGE_CLASS_PRESET_FAMILIES 4 项且 labelKey 与预设 family 对应', () => {
+  assert.deepEqual(STORAGE_CLASS_PRESET_FAMILIES.map(f => f.key), ['local', 'distributed', 'nfs', 'cloud'])
+})
+
+// --- 参数纯函数 ---
+test('paramsMapToRows / paramsRowsToMap 无损往返(保序、空键跳过)', () => {
+  const rows = paramsMapToRows({ server: '10.0.0.1', share: '/data', type: 'nfs' })
+  assert.deepEqual(rows, [
+    { key: 'server', value: '10.0.0.1' },
+    { key: 'share', value: '/data' },
+    { key: 'type', value: 'nfs' },
+  ])
+  assert.deepEqual(paramsRowsToMap(rows), { server: '10.0.0.1', share: '/data', type: 'nfs' })
+  assert.deepEqual(paramsRowsToMap([{ key: '  ', value: 'x' }, { key: 'k', value: 'v' }]), { k: 'v' })
+})
+
+test('normalizeParamsToMap 接受 rows / map / 逗号串三态', () => {
+  assert.deepEqual(normalizeParamsToMap([{ key: 'a', value: '1' }]), { a: '1' })
+  assert.deepEqual(normalizeParamsToMap({ a: '1', b: '2' }), { a: '1', b: '2' })
+  assert.deepEqual(normalizeParamsToMap('a=1,b=2'), { a: '1', b: '2' })
+  // 值含 '=' 时按首个 '=' 切分,其余属值
+  assert.deepEqual(normalizeParamsToMap('conn=a=b'), { conn: 'a=b' })
+  assert.deepEqual(normalizeParamsToMap(null), {})
+  assert.deepEqual(normalizeParamsToMap(''), {})
+})
+
+test('hasPlaceholderParam 命中 <...> 占位符', () => {
+  const rows = paramsMapToRows({ server: '<IP>', share: '/real' })
+  assert.equal(hasPlaceholderParam(rows, ['server']), true)
+  assert.equal(hasPlaceholderParam(rows, ['share']), false)
+  assert.equal(hasPlaceholderParam(rows, []), false)
+})
+
+test('presetToFormState 把预设铺成表单状态(parameters 转 KV 行)', () => {
+  const nfs = STORAGE_CLASS_PRESETS.find(p => p.id === 'nfs-csi')
+  const form = presetToFormState(nfs)
+  assert.equal(form.provisioner, 'nfs.csi.k8s.io')
+  assert.equal(form.volumeBindingMode, 'Immediate')
+  assert.equal(form.allowVolumeExpansion, true)
+  assert.equal(form.default, false)
+  assert.ok(Array.isArray(form.parameters) && form.parameters.length === 3)
 })
 
 // --- 汇总 ---
