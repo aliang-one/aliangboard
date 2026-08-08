@@ -2,12 +2,16 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _nsQ = useResourceList({ key: ['cluster', _cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
 
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
@@ -98,9 +102,9 @@ const nsNavGroups = [
 const currentNs = computed(() => store.currentNamespace)
 
 const filteredNamespaces = computed(() => {
-  if (!nsSearch.value) return store.namespaceList
+  if (!nsSearch.value) return allNamespaces.value
   const q = nsSearch.value.toLowerCase()
-  return store.namespaceList.filter(ns => ns.name.toLowerCase().includes(q))
+  return allNamespaces.value.filter(ns => ns.name.toLowerCase().includes(q))
 })
 
 const nsRouteMap = {

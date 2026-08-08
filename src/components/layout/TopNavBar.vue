@@ -25,6 +25,9 @@ const ingressesQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], f
 const configmapsQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
 const secretsQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
 const pvcsQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+// namespaces 常驻 Query（选择器需要，非搜索惰性）— 替代 hydrateCriticalResources 的 namespaces 拉取
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 
 // 刷新当前页：重拉集群核心资源（列表型页面）+ 重新挂载当前视图（详情页 onMounted 定点拉取）
 const refreshing = ref(false)
@@ -46,9 +49,9 @@ const nsSearch = ref('')
 const currentClusterObj = computed(() => store.getCurrentCluster())
 const currentNs = computed(() => store.currentNamespace)
 const filteredNamespaces = computed(() => {
-  if (!nsSearch.value) return store.namespaceList
+  if (!nsSearch.value) return allNamespaces.value
   const q = nsSearch.value.toLowerCase()
-  return store.namespaceList.filter(ns => ns.name.toLowerCase().includes(q))
+  return allNamespaces.value.filter(ns => ns.name.toLowerCase().includes(q))
 })
 function selectNs(ns) {
   showNsDropdown.value = false
@@ -76,7 +79,7 @@ function buildSearchIndex() {
   for (const sec of (secretsQ.data.value || [])) push('Secret', sec.name, sec.namespace)
   for (const pvc of (pvcsQ.data.value || [])) push('PVC', pvc.name, pvc.namespace)
   for (const n of (store.nodeList || [])) push('Node', n.name, '')
-  for (const ns of (store.namespaceList || [])) push('Namespace', ns.name, '')
+  for (const ns of (allNamespaces.value || [])) push('Namespace', ns.name, '')
   return items
 }
 const searchResults = computed(() => {
