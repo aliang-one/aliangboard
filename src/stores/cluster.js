@@ -10,6 +10,7 @@ import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
@@ -2034,6 +2035,7 @@ export const useClusterStore = defineStore('cluster', () => {
       provisioner: item.provisioner || '',
       parameters: Object.entries(item.parameters || {}).map(([k, v]) => `${k}=${v}`).join(','),
       reclaimPolicy: item.reclaimPolicy || 'Delete',
+      volumeBindingMode: item.volumeBindingMode || 'WaitForFirstConsumer',
       default: isDefault,
       labels: item.metadata?.labels || {},
       annotations: ann,
@@ -2678,21 +2680,7 @@ spec:
     }
 
     if (type === 'storageclass') {
-      const paramMap = Object.fromEntries(
-        String(resource.parameters || '').split(',').map(kv => kv.split('=')).filter(([k]) => k).map(([k, v]) => [k.trim(), (v || '').trim()])
-      )
-      const paramsYaml = Object.keys(paramMap).length
-        ? Object.entries(paramMap).map(([k, v]) => `    ${k}: ${v}`).join('\n')
-        : '    {}'
-      return `apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: ${name}
-provisioner: ${resource.provisioner || 'kubernetes.io/no-provisioner'}
-reclaimPolicy: ${resource.reclaimPolicy || 'Delete'}
-volumeBindingMode: WaitForFirstConsumer
-parameters:
-${paramsYaml}`
+      return buildStorageClassYaml(resource)
     }
 
     if (type === 'deployment') {

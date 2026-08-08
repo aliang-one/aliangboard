@@ -16,6 +16,7 @@ import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
 import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
+import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -483,6 +484,65 @@ test('presetToFormState 把预设铺成表单状态(parameters 转 KV 行)', () 
   assert.equal(form.allowVolumeExpansion, true)
   assert.equal(form.default, false)
   assert.ok(Array.isArray(form.parameters) && form.parameters.length === 3)
+})
+
+// --- StorageClass YAML 构造 ---
+test('buildStorageClassYaml: 基本字段 + volumeBindingMode + 占位符原样保留(nfs-csi)', () => {
+  const yaml = buildStorageClassYaml({
+    name: 'nfs-client', provisioner: 'nfs.csi.k8s.io', reclaimPolicy: 'Delete',
+    volumeBindingMode: 'Immediate', allowVolumeExpansion: true,
+    parameters: [{ key: 'server', value: '<IP>' }, { key: 'share', value: '/data' }, { key: 'csi.storage.k8s.io/fstype', value: 'nfs' }],
+  })
+  const lines = yaml.split('\n')
+  assert.equal(lines[0], 'apiVersion: storage.k8s.io/v1')
+  assert.equal(lines[1], 'kind: StorageClass')
+  assert.ok(lines.includes('metadata:'))
+  assert.ok(lines.includes('  name: nfs-client'))
+  assert.ok(lines.includes('provisioner: nfs.csi.k8s.io'))
+  assert.ok(lines.includes('reclaimPolicy: Delete'))
+  assert.ok(lines.includes('volumeBindingMode: Immediate'))
+  assert.ok(lines.includes('allowVolumeExpansion: true'))
+  assert.ok(lines.includes('parameters:'))
+  assert.ok(lines.includes('    server: <IP>'), '占位符必须原样保留')
+  assert.ok(lines.includes('    share: /data'))
+})
+
+test('buildStorageClassYaml: 多参数(Ceph RBD 11 项)全输出', () => {
+  const yaml = buildStorageClassYaml({
+    name: 'rook-ceph-block', provisioner: 'rook-ceph.rbd.csi.ceph.com', reclaimPolicy: 'Delete',
+    volumeBindingMode: 'Immediate', allowVolumeExpansion: true,
+    parameters: { clusterID: 'rook-ceph', pool: 'replicapool', imageFormat: '2', imageFeatures: 'layering' },
+  })
+  for (const frag of ['    clusterID: rook-ceph', '    pool: replicapool', '    imageFormat: 2', '    imageFeatures: layering']) {
+    assert.ok(yaml.includes(frag), `missing param line: ${frag}`)
+  }
+})
+
+test('buildStorageClassYaml: allowVolumeExpansion=false 不输出该行;空参数输出 {}', () => {
+  const yaml = buildStorageClassYaml({
+    name: 'local-path', provisioner: 'rancher.io/local-path', reclaimPolicy: 'Delete',
+    volumeBindingMode: 'WaitForFirstConsumer', allowVolumeExpansion: false, parameters: [],
+  })
+  assert.ok(!yaml.includes('allowVolumeExpansion'), 'false 时不应输出 allowVolumeExpansion')
+  assert.ok(yaml.includes('parameters:\n    {}'), '空参数应输出 {}')
+})
+
+test('buildStorageClassYaml: 旧逗号串参数仍兼容(normalizeParamsToMap)', () => {
+  const yaml = buildStorageClassYaml({
+    name: 'sc', provisioner: 'ebs.csi.aws.com', parameters: 'type=gp3',
+  })
+  assert.ok(yaml.includes('volumeBindingMode: WaitForFirstConsumer'), '缺省 binding=WaitForFirstConsumer')
+  assert.ok(yaml.includes('    type: gp3'))
+  assert.ok(yaml.includes('provisioner: kubernetes.io/no-provisioner') === false)
+})
+
+test('buildStorageClassYaml: mountOptions 仅在非空数组时输出', () => {
+  const withMount = buildStorageClassYaml({ name: 'nfs', provisioner: 'nfs.csi.k8s.io', mountOptions: ['hard', 'nfsvers=4.1'], parameters: [] })
+  assert.ok(withMount.includes('mountOptions:'))
+  assert.ok(withMount.includes('  - hard'))
+  assert.ok(withMount.includes('  - nfsvers=4.1'))
+  const noMount = buildStorageClassYaml({ name: 'x', provisioner: 'p', parameters: [] })
+  assert.ok(!noMount.includes('mountOptions:'))
 })
 
 // --- 汇总 ---
