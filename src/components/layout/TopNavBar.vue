@@ -4,12 +4,27 @@ import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession } from '@/api/client'
 
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
 const { bump: bumpRefresh } = usePageRefresh()
+
+// === 全局搜索：惰性 Query 消费者 ===
+// TopNavBar 常驻挂载，7 个资源查询仅在搜索框打开时 enabled（避免无谓请求）。
+// nodes/namespaces 已由 hydrateCriticalResources 预载入 store，直接读 store。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const searchOpen = ref(false)
+const searchEnabled = computed(() => searchOpen.value && store.remoteMode)
+const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), mock: store.podList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const workloadsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const servicesQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const ingressesQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], fetcher: () => store.fetchIngresses(), mock: store.ingressList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const configmapsQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const secretsQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const pvcsQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
 
 // 刷新当前页：重拉集群核心资源（列表型页面）+ 重新挂载当前视图（详情页 onMounted 定点拉取）
 const refreshing = ref(false)
@@ -47,26 +62,27 @@ function closeNsDropdown() {
 }
 
 // === 全局搜索：聚合已同步资源，按名称跨命名空间匹配，点击跳转详情 ===
+// 7 类资源读 Vue Query 缓存（搜索框打开时才补取）；nodes/namespaces 读 store（hydrateCritical 已预载）。
 const WL_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
 const ICON_FOR = { Pod: 'deployed_code', Deployment: 'work', StatefulSet: 'work', DaemonSet: 'work', Job: 'work', CronJob: 'work', Service: 'share', Ingress: 'alt_route', ConfigMap: 'description', Secret: 'lock', PVC: 'storage', Node: 'dns', Namespace: 'folder' }
-function searchIndex() {
-  const push = (kind, name, namespace) => name && items.push({ kind, name, namespace })
+function buildSearchIndex() {
   const items = []
-  for (const p of store.podList || []) push('Pod', p.name, p.namespace)
-  for (const w of store.workloadList || []) push(w.type, w.name, w.namespace)
-  for (const s of store.serviceList || []) push('Service', s.name, s.namespace)
-  for (const ing of store.ingressList || []) push('Ingress', ing.name, ing.namespace)
-  for (const cm of store.configMapList || []) push('ConfigMap', cm.name, cm.namespace)
-  for (const sec of store.secretList || []) push('Secret', sec.name, sec.namespace)
-  for (const pvc of store.pvcList || []) push('PVC', pvc.name, pvc.namespace)
-  for (const n of store.nodeList || []) push('Node', n.name, '')
-  for (const ns of store.namespaceList || []) push('Namespace', ns.name, '')
+  const push = (kind, name, namespace) => name && items.push({ kind, name, namespace })
+  for (const p of (podsQ.data.value || [])) push('Pod', p.name, p.namespace)
+  for (const w of (workloadsQ.data.value || [])) push(w.type || 'Workload', w.name, w.namespace)
+  for (const s of (servicesQ.data.value || [])) push('Service', s.name, s.namespace)
+  for (const ing of (ingressesQ.data.value || [])) push('Ingress', ing.name, ing.namespace)
+  for (const cm of (configmapsQ.data.value || [])) push('ConfigMap', cm.name, cm.namespace)
+  for (const sec of (secretsQ.data.value || [])) push('Secret', sec.name, sec.namespace)
+  for (const pvc of (pvcsQ.data.value || [])) push('PVC', pvc.name, pvc.namespace)
+  for (const n of (store.nodeList || [])) push('Node', n.name, '')
+  for (const ns of (store.namespaceList || [])) push('Namespace', ns.name, '')
   return items
 }
 const searchResults = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  return searchIndex().filter(it => it.name.toLowerCase().includes(q)).slice(0, 12)
+  return buildSearchIndex().filter(it => it.name.toLowerCase().includes(q)).slice(0, 12)
 })
 function goResult(it) {
   if (!it) return
@@ -124,6 +140,8 @@ async function logout() {
         <input
           v-model="searchQuery"
           @keydown="onSearchKeydown"
+          @focus="searchOpen = true"
+          @blur="searchOpen = false"
           class="w-full bg-surface-container-low border border-outline-variant rounded-full py-1.5 pl-10 pr-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
           :placeholder="$t('nav.searchPlaceholder')"
           :aria-label="$t('common.search')"
