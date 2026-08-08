@@ -786,7 +786,10 @@ async function handle(req, res) {
   }
 
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
-  if (url.pathname === '/mcp') return mcpHandler(req, res)
+  if (url.pathname === '/mcp') {
+    if (req.method !== 'OPTIONS' && getSetting('mcp_enabled') === 'false') return sendJson(res, 503, { jsonrpc: '2.0', error: { code: -32000, message: 'MCP service disabled by admin' } })
+    return mcpHandler(req, res)
+  }
 
   // === Agent 聊天(第二阶段切片 3+3b:写操作走 checkpoint/resume 人审,agent 用调用者选的 API key)===
   // 请求:{ apiKeyId, message?, history?, resume? };resume = { runContext, queue, denied, steps, toolCallId, approved }
@@ -912,6 +915,18 @@ async function handle(req, res) {
       const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
       return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
     } catch (e) { return sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }) }
+  }
+  if (url.pathname === '/api/admin/mcp-config' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    return sendJson(res, 200, { enabled: getSetting('mcp_enabled') !== 'false' })
+  }
+  if (url.pathname === '/api/admin/mcp-config' && req.method === 'PUT') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const input = await readBody(req)
+      setSetting('mcp_enabled', input.enabled === false ? 'false' : 'true')
+      return sendJson(res, 200, { ok: true, enabled: input.enabled !== false })
+    } catch (e) { return sendJson(res, 400, { message: e.message }) }
   }
 
   // ====== 工作台:项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
