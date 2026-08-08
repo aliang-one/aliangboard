@@ -1885,6 +1885,9 @@ export const useClusterStore = defineStore('cluster', () => {
           const evt = JSON.parse(line)
           if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
           applyPodWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsPods 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
         } catch { /* 忽略非 JSON 心跳行 */ }
       },
       onError: stopPodWatch,
@@ -1918,6 +1921,9 @@ export const useClusterStore = defineStore('cluster', () => {
           const evt = JSON.parse(line)
           if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
           applyEventWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsEvents 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
         } catch { /* 忽略非 JSON 心跳行 */ }
       },
       onError: stopEventWatch,
