@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -15,6 +16,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _pvcQ = useResourceList({ key: ['cluster', _cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 
 const pv = computed(() => store.getPVByName(route.params.name))
 const { yaml } = useLiveYaml({
@@ -26,7 +29,7 @@ const activeTab = ref('overview')
 const claimParts = computed(() => (pv.value?.claim || '').split('/'))
 const pvc = computed(() => {
   const [ns, nm] = claimParts.value
-  return nm ? store.pvcList.find(p => p.name === nm && (!ns || p.namespace === ns)) : null
+  return nm ? (_pvcQ.data.value || []).find(p => p.name === nm && (!ns || p.namespace === ns)) : null
 })
 const sc = computed(() => pv.value?.storageClass ? store.getSCByName(pv.value.storageClass) : null)
 const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }

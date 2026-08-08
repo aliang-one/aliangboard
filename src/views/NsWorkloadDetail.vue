@@ -835,9 +835,12 @@ const containerTargets = computed(() => {
   ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
-const availablePVCs = computed(() => (store.pvcList || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
-const availableConfigMaps = computed(() => (store.configMapList || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
-const availableSecrets = computed(() => (store.secretList || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
+const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _cmQ2 = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _secQ2 = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
+const availableConfigMaps = computed(() => (_cmQ2.data.value || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
+const availableSecrets = computed(() => (_secQ2.data.value || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
 function addVolumeMount() {
   editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] })
 }

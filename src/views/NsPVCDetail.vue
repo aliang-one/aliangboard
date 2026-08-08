@@ -34,8 +34,10 @@ const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('pvc', pvc.value),
 })
-const pv = computed(() => pvc.value?.volume ? store.pvList.find(p => p.name === pvc.value.volume) : null)
-const sc = computed(() => pvc.value?.storageClass ? store.scList.find(s => s.name === pvc.value.storageClass) : null)
+const pvListQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), mock: store.pvList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const scListQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const pv = computed(() => pvc.value?.volume ? (pvListQ.data.value || []).find(p => p.name === pvc.value.volume) : null)
+const sc = computed(() => pvc.value?.storageClass ? (scListQ.data.value || []).find(s => s.name === pvc.value.storageClass) : null)
 
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)

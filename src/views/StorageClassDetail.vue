@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -14,6 +15,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _pvcQ = useResourceList({ key: ['cluster', _cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 
 const sc = computed(() => store.getSCByName(route.params.name))
 const { yaml } = useLiveYaml({
@@ -25,7 +28,7 @@ const activeTab = ref('overview')
 const paramMap = computed(() => Object.fromEntries(
   String(sc.value?.parameters || '').split(',').map(kv => kv.split('=')).filter(([k]) => k).map(([k, v]) => [k.trim(), (v || '').trim()])
 ))
-const boundPVCs = computed(() => store.pvcList.filter(p => p.storageClass === sc.value?.name))
+const boundPVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.storageClass === sc.value?.name))
 
 // Structured edit (only mutable fields: default + labels/annotations) + delete
 const showEditModal = ref(false)

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 // 环境变量来源选择器（ConfigMap / Secret）：资源名 + key 均为「可选可输」的自定义 combobox。
 // 用自定义下拉面板（而非原生 <datalist>）：原生 datalist 弹层由浏览器渲染，暗色模式下是纯黑、无法用应用主题染色。
@@ -21,8 +22,11 @@ const name = defineModel('name', { default: '' })
 const dataKey = defineModel('dataKey', { default: '' })
 
 const store = useClusterStore()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 
-const list = computed(() => (props.kind === 'secret' ? store.secretList : store.configMapList) || [])
+const list = computed(() => (props.kind === 'secret' ? (_secQ.data.value || []) : (_cmQ.data.value || [])))
 const resourceOptions = computed(() => list.value.filter(r => r.namespace === props.namespace).map(r => r.name))
 const selected = computed(() => list.value.find(r => r.name === name.value && r.namespace === props.namespace))
 const keyOptions = computed(() => Object.keys(selected.value?.data || {}))
