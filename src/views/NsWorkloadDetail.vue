@@ -62,8 +62,44 @@ const eventsQuery = useResourceList({
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])
 
-const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
-const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
+// 服务端状态归 Vue Query：workloads/pods 两查询，与列表页/WorkloadDetail 同源缓存。
+// Plan 3 移除 hydrateCoreResources 后 store.workloadList/podList 在远端为空，
+// workload/managedPods/configRefs 直读 store → 整页空白；改读 query.data。
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  mock: store.podList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const workload = computed(() => (workloadsQuery.data.value || []).find(
+  w => w.name === route.params.name && w.namespace === route.params.namespace
+))
+// 受管 Pod：复刻 store.getWorkloadPods 的选择器逻辑（selector.matchLabels → template labels.app
+// → workload labels.app → 名称前缀），数据源改为 podsQuery.data（远端不再依赖 store.podList）。
+const managedPods = computed(() => {
+  const wl = workload.value
+  if (!wl) return []
+  const ns = route.params.namespace
+  const inNs = (podsQuery.data.value || []).filter(p => p.namespace === ns)
+  const selector = wl.raw?.spec?.selector?.matchLabels
+  if (selector && Object.keys(selector).length) {
+    return inNs.filter(p => Object.entries(selector).every(([k, v]) => p.labels?.[k] === v))
+  }
+  const tpl = wl.raw?.spec?.template || wl.raw?.spec?.jobTemplate?.spec?.template
+  const tplApp = tpl?.metadata?.labels?.app
+  if (tplApp) return inNs.filter(p => p.labels?.app === tplApp)
+  const appLabel = wl.labels?.app
+  if (appLabel) return inNs.filter(p => p.labels?.app === appLabel)
+  return inNs.filter(p => p.name.startsWith(wl.name))
+})
 
 // Pods Tab：状态过滤 + 计数
 const podFilter = ref('All')
@@ -87,7 +123,44 @@ function goPodDetail(p) {
   router.push({ name: 'NsPodDetail', params: { namespace: p.namespace || route.params.namespace, name: p.name } })
 }
 
-const configRefs = computed(() => store.getWorkloadReferences(route.params.name, route.params.namespace))
+// workload 引用的 ConfigMap/Secret：复刻 store.extractWorkloadReferences 逻辑（该函数未导出），
+// 直接从 workload.value.raw 提取，不依赖 store.workloadList（远端为空）。
+const configRefs = computed(() => {
+  const wl = workload.value
+  if (!wl?.raw?.spec) return []
+  const type = wl.type
+  const podSpec = type === 'CronJob'
+    ? wl.raw.spec?.jobTemplate?.spec?.template?.spec
+    : wl.raw.spec?.template?.spec
+  if (!podSpec) return []
+  const refs = []
+  const seen = new Set()
+  const add = (kind, name) => {
+    if (!name) return
+    const key = `${kind}/${name}`
+    if (!seen.has(key)) { seen.add(key); refs.push({ kind, name }) }
+  }
+  for (const vol of (podSpec.volumes || [])) {
+    if (vol.configMap?.name) add('ConfigMap', vol.configMap.name)
+    if (vol.secret?.secretName) add('Secret', vol.secret.secretName)
+    for (const src of (vol.projected?.sources || [])) {
+      if (src.configMap?.name) add('ConfigMap', src.configMap.name)
+      if (src.secret?.name) add('Secret', src.secret.name)
+    }
+  }
+  const allContainers = [...(podSpec.containers || []), ...(podSpec.initContainers || [])]
+  for (const c of allContainers) {
+    for (const ef of (c.envFrom || [])) {
+      if (ef.configMapRef?.name) add('ConfigMap', ef.configMapRef.name)
+      if (ef.secretRef?.name) add('Secret', ef.secretRef.name)
+    }
+    for (const env of (c.env || [])) {
+      if (env.valueFrom?.configMapKeyRef?.name) add('ConfigMap', env.valueFrom.configMapKeyRef.name)
+      if (env.valueFrom?.secretKeyRef?.name) add('Secret', env.valueFrom.secretKeyRef.name)
+    }
+  }
+  return refs
+})
 const meta = computed(() => readMeta(workload.value))
 
 // === RBAC：按 can-i(SSAR) 真值控制操作按钮（默认允许，SSAR 失败/不可用时不锁死）===
