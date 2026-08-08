@@ -11,11 +11,17 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
+import SplitButton from '@/components/common/SplitButton.vue'
+import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
+import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 const { t } = useI18n()
+
+const showYamlDialog = ref(false)
+const showCopyDialog = ref(false)
 
 const namespaceFilter = ref('All Namespaces')
 const typeFilter = ref('All Types')
@@ -112,9 +118,17 @@ const nodeHealthPct = computed(() => {
           <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
             <span class="material-symbols-outlined">file_download</span> Export
           </button>
-          <router-link to="/deploy" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90">
-            <span class="material-symbols-outlined">rocket_launch</span> New Workload
-          </router-link>
+          <SplitButton
+            :label="t('ns.workloads.new')"
+            icon="rocket_launch"
+            :main-action="() => router.push('/deploy')"
+            :items="[
+              { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
+              { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
+            ]"
+          />
+          <CreateFromYamlDialog v-model="showYamlDialog" />
+          <CopyWorkloadDialog v-model="showCopyDialog" target-route-name="Deploy" />
         </div>
       </div>
 

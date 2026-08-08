@@ -58,6 +58,10 @@
       "create": "Create",
       "parseError": "YAML parse failed"
     },
+    "splitButton": {
+      "createFromYaml": "Create from YAML",
+      "copyWorkload": "Copy workload"
+    },
     "pagination": {
       "perPage": "{n} / page",
       "rangeSummary": "{start}-{end} of {total}",

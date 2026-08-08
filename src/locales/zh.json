@@ -58,6 +58,10 @@
       "create": "创建",
       "parseError": "YAML 解析失败"
     },
+    "splitButton": {
+      "createFromYaml": "从 YAML 创建",
+      "copyWorkload": "复制工作负载"
+    },
     "pagination": {
       "perPage": "{n} / 页",
       "rangeSummary": "{start}-{end} / 共 {total}",
