@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -32,6 +33,34 @@ const store = useClusterStore()
 const termStore = useTerminalStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
+
+// 关联资源走 Vue Query（services/ingresses/events 集群级单 key + ns select），
+// 与 Network/NsEvents 列表同源缓存——远端不再依赖 hydrate 填充的 store.serviceList/ingressList/nsEvents。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const servicesQuery = useResourceList({
+  key: ['cluster', cid.value, 'services'],
+  fetcher: () => store.fetchServices(),
+  mock: store.serviceList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(s => s.namespace === route.params.namespace),
+})
+const serviceList = computed(() => servicesQuery.data.value || [])
+const ingressesQuery = useResourceList({
+  key: ['cluster', cid.value, 'ingresses'],
+  fetcher: () => store.fetchIngresses(),
+  mock: store.ingressList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(i => i.namespace === route.params.namespace),
+})
+const ingressList = computed(() => ingressesQuery.data.value || [])
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(e => e.namespace === route.params.namespace),
+})
+const nsEvents = computed(() => eventsQuery.data.value || [])
 
 const workload = computed(() => store.getWorkloadByName(route.params.name, route.params.namespace))
 const managedPods = computed(() => store.getWorkloadPods(route.params.name, route.params.namespace))
@@ -231,7 +260,7 @@ function revImgBase(img) {
 }
 function revEvents(rev) {
   const names = new Set([rev.rsName, route.params.name].filter(Boolean))
-  return (store.nsEvents || []).filter(e => names.has(e.relatedName)).slice(0, 5)
+  return (nsEvents.value || []).filter(e => names.has(e.relatedName)).slice(0, 5)
 }
 const showRevYamlModal = ref(false)
 const revYamlContent = ref('')
@@ -586,7 +615,7 @@ const workloadEvents = computed(() => {
   const wlName = route.params.name
   const rsNames = new Set((revisions.value || []).map(r => r.rsName).filter(Boolean))
   const podNames = new Set((managedPods.value || []).map(p => p.name))
-  return (store.nsEvents || [])
+  return (nsEvents.value || [])
     .filter(e => e.relatedName === wlName || rsNames.has(e.relatedName) || podNames.has(e.relatedName))
     .sort((a, b) => (b._ts || 0) - (a._ts || 0))
 })
@@ -614,14 +643,12 @@ const containerPorts = computed(() => {
 })
 const podLabels = computed(() => workload.value?.raw?.spec?.template?.metadata?.labels || workload.value?.labels || {})
 const relatedServices = computed(() => {
-  const ns = route.params.namespace
   const sel = podLabels.value
-  return (store.serviceList || []).filter(s => s.namespace === ns && s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
+  return (serviceList.value || []).filter(s => s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
 })
 const relatedServiceNames = computed(() => new Set(relatedServices.value.map(s => s.name)))
 const relatedIngresses = computed(() => {
-  const ns = route.params.namespace
-  return (store.ingressList || []).filter(ing => ing.namespace === ns && (ing.rules || []).some(r => (r.http?.paths || []).some(p => { const be = p.backend?.service || p.backend; return relatedServiceNames.value.has(be?.name) })))
+  return (ingressList.value || []).filter(ing => (ing.rules || []).some(r => (r.http?.paths || []).some(p => { const be = p.backend?.service || p.backend; return relatedServiceNames.value.has(be?.name) })))
 })
 // 拓扑用：把关联 Ingress 的规则拍平成 {ingress, host, path, serviceName, port}
 const topoIngressRules = computed(() => {

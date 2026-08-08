@@ -36,12 +36,10 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery, typeFilter] })
 
-// 远端模式：无初始快照（且非水合中）时先拉一次 events 避免空表闪，再叠 watch；离开停止
-onMounted(async () => {
-  if (!store.remoteMode) return
-  if (!store.eventList.length && store.connectionState !== 'loading') await store.refreshEvents()
-  store.startEventWatch()
-})
+// eventsQuery 挂载即自取（Vue Query enabled 默认 true）；watch 桥接已写回 Query 缓存，
+// 此处只负责启停 live watch（不再手动 refreshEvents——store.eventList 在远端不再被填充）。
+onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>
 

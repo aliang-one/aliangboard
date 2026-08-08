@@ -8,16 +8,28 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useI18n } from 'vue-i18n'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const store = useClusterStore()
 const router = useRouter()
 const { t } = useI18n()
 
+// 集群级 Events 走 Vue Query（远端 30s 轮询 + 聚焦重拉 + watch live 桥接）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const eventList = computed(() => eventsQuery.data.value || [])
+
 const typeFilter = ref('All')
 const searchQuery = ref('')
 
 const filtered = computed(() => {
-  let list = store.eventList
+  let list = eventList.value
   if (typeFilter.value !== 'All') list = list.filter(e => e.type === typeFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
   if (q) list = list.filter(e =>
@@ -30,7 +42,7 @@ const filtered = computed(() => {
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, searchQuery] })
 
 const stats = computed(() => {
-  const list = store.eventList
+  const list = eventList.value
   return {
     total: list.length,
     normal: list.filter(e => e.type !== 'warning').length,
@@ -48,11 +60,9 @@ function goToRelated(e) {
   else if (e.relatedKind === 'Node') router.push(`/nodes/${e.relatedName}`)
 }
 
-onMounted(async () => {
-  if (!store.remoteMode) return
-  if (!store.eventList.length && store.connectionState !== 'loading') await store.refreshEvents()
-  store.startEventWatch()
-})
+// 远端 watch 桥接已写回 Query 缓存，列表自动 live；此处只管启停 watch。
+onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>
 
