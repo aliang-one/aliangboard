@@ -2943,5 +2943,20 @@
     "prev": "Previous",
     "next": "Next",
     "noData": "No records"
+  },
+  "nsAllowlist": {
+    "title": "Namespace allowlist",
+    "boundAlways": "Bound (always allowed)",
+    "addPlaceholder": "+ extra namespace (press Enter to add)",
+    "invalid": "Invalid namespace name (dns-label, ≤63)",
+    "dup": "Already added",
+    "summary": "Allowed ns",
+    "colHeader": "Allowed ns",
+    "editNs": "Edit namespace allowlist",
+    "editNsTitle": "Edit namespace allowlist · {prefix}…",
+    "nsMeta": "SA={ns}/{name}; extra namespace list (bound ns always included)",
+    "updated": "ns allowlist updated",
+    "updateFailed": "Failed to update",
+    "advanced": "Advanced: namespace allowlist (add beyond bound ns)"
   }
 }
