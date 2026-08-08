@@ -12,6 +12,7 @@ import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
+import { applyWatchEvent } from '@/composables/useK8sQuery'
 import { i18n } from '@/i18n'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
@@ -2269,6 +2270,31 @@ export const useClusterStore = defineStore('cluster', () => {
     const d = await api.k8s(`/apis/${crd.group}/${crd.version}/${crd._plural}?limit=500`)
     return (d?.items || []).map(mapCRInstance)
   }
+  async function fetchPods() {
+    const [podData, metricsData] = await Promise.all([
+      api.k8s('/api/v1/pods?limit=1000'),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/pods').catch(() => null),
+    ])
+    const metricsAvailable = Boolean(metricsData)
+    const podMetricMap = new Map()
+    for (const it of (metricsData?.items || [])) {
+      let cpuMilli = 0, memKi = 0
+      for (const c of (it.containers || [])) { cpuMilli += cpuToMilli(c.usage?.cpu); memKi += memToKi(c.usage?.memory) }
+      podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
+    }
+    const podMetric = (ns, name) => (metricsAvailable ? (podMetricMap.get(`${ns}/${name}`) || null) : null)
+    return (podData?.items || []).map(item => mapPod(item, podMetric(item.metadata?.namespace, item.metadata?.name)))
+  }
+  async function fetchPod(name, ns) {
+    const [data, metricsData] = await Promise.all([
+      api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`),
+      api.k8s('/apis/metrics.k8s.io/v1beta1/pods').catch(() => null),
+    ])
+    if (!data) return null
+    const m = (metricsData?.items || []).find(it => it.metadata?.namespace === ns && it.metadata?.name === name)
+    return mapPod(data, m ? { cpuMilli: m.containers?.reduce((s, c) => s + cpuToMilli(c.usage?.cpu), 0), memKi: m.containers?.reduce((s, c) => s + memToKi(c.usage?.memory), 0) } : null)
+  }
+  async function fetchEvents() { const d = await api.k8s('/api/v1/events?limit=1000'); return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0)) }
 
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
   // 入参 metricsAvailable：调用前 nodeList/podList 的 metric 字段须已就绪
@@ -3540,6 +3566,7 @@ status:
     fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
     fetchCRDs, fetchCRD, fetchCRInstances,
+    fetchPods, fetchPod, fetchEvents,
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
