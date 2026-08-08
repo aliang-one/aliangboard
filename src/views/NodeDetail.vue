@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { formatCpu, formatMem } from '@/composables/useResourceFormat'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -26,6 +26,15 @@ const nodeDetail = useResourceDetail({
   options: { refetchInterval: store.remoteMode ? 15000 : false },
 })
 const node = computed(() => nodeDetail.data.value ?? store.getNodeByName(route.params.name))
+// Pods 走 Vue Query（集群范围）+ select 按节点过滤：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  mock: store.podList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(p => p.node === route.params.name),
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/nodes/${encodeURIComponent(route.params.name)}`,
   mockFn: () => store.generateYAML('node', node.value),
@@ -36,7 +45,7 @@ const showCordonModal = ref(false)
 const showDrainModal = ref(false)
 const drainResult = ref(null)
 
-const nodePods = computed(() => store.podList.filter(p => p.node === route.params.name))
+const nodePods = computed(() => podsQuery.data.value || [])
 const isCordoned = computed(() => node.value?.unschedulable === true)
 
 async function handleCordon() {

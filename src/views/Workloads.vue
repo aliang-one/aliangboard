@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -19,6 +20,17 @@ const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 const { t } = useI18n()
+
+// Workloads 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const workloadList = computed(() => workloadsQuery.data.value || [])
 
 const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
@@ -42,7 +54,7 @@ function onFilterChange({ key, value }) {
 }
 
 const filteredWorkloads = computed(() => {
-  let list = store.workloadList
+  let list = workloadList.value
   if (namespaceFilter.value !== 'All Namespaces') {
     list = list.filter(w => w.namespace === namespaceFilter.value)
   }
@@ -207,7 +219,7 @@ const nodeHealthPct = computed(() => {
           <span class="material-symbols-outlined text-secondary">workspaces</span>
           <span class="text-label-caps text-on-surface-variant">Workloads</span>
         </div>
-        <h3 class="text-headline-sm font-bold text-on-surface">{{ store.workloadList.length }}</h3>
+        <h3 class="text-headline-sm font-bold text-on-surface">{{ workloadList.length }}</h3>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ store.cluster.podCount }} pods across cluster</p>
       </div>
     </div>

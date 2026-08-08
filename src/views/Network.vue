@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -15,6 +16,25 @@ const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 const activeTab = ref('services')
+
+// Services/Ingresses 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const servicesQuery = useResourceList({
+  key: ['cluster', cid.value, 'services'],
+  fetcher: () => store.fetchServices(),
+  mock: store.serviceList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const serviceList = computed(() => servicesQuery.data.value || [])
+const ingressesQuery = useResourceList({
+  key: ['cluster', cid.value, 'ingresses'],
+  fetcher: () => store.fetchIngresses(),
+  mock: store.ingressList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const ingressList = computed(() => ingressesQuery.data.value || [])
 
 // 全局页无命名空间上下文：New Service/Ingress 走部署向导；NetworkPolicy 进命名空间作用域页创建
 function newServiceOrIngress() { router.push('/deploy') }
@@ -35,8 +55,8 @@ const ingressHeaders = computed(() => tableColumns('ingress'))
 
 // 按 tab 切换的当前列表（services / ingress 有 DataTable；endpoints / networkpolicies 为占位）
 const currentTabList = computed(() => ({
-  services: store.serviceList,
-  ingress: store.ingressList,
+  services: serviceList.value,
+  ingress: ingressList.value,
 }[activeTab.value] || []))
 const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
@@ -67,8 +87,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </button>
     </div>
 
-    <EmptyState v-if="activeTab === 'services' && !store.serviceList.length" icon="share" :title="$t('network.noServices')" />
-    <DataTable v-if="activeTab === 'services' && store.serviceList.length" :headers="svcHeaders" :rows="paginated">
+    <EmptyState v-if="activeTab === 'services' && !serviceList.length" icon="share" :title="$t('network.noServices')" />
+    <DataTable v-if="activeTab === 'services' && serviceList.length" :headers="svcHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -89,8 +109,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </template>
     </DataTable>
 
-    <EmptyState v-if="activeTab === 'ingress' && !store.ingressList.length" icon="router" :title="$t('network.noIngressRules')" />
-    <DataTable v-if="activeTab === 'ingress' && store.ingressList.length" :headers="ingressHeaders" :rows="paginated">
+    <EmptyState v-if="activeTab === 'ingress' && !ingressList.length" icon="router" :title="$t('network.noIngressRules')" />
+    <DataTable v-if="activeTab === 'ingress' && ingressList.length" :headers="ingressHeaders" :rows="paginated">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
