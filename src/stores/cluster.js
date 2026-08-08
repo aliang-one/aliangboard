@@ -2395,9 +2395,9 @@ export const useClusterStore = defineStore('cluster', () => {
         && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
       setNamespace(namespaceList.value[0].name)
     }
-    if (!opts.lite) {
-      try { await hydrateExtendedResources() } catch (e) { console.warn('[hydrate] 扩展资源部分失败:', e?.message || e) }
-    }
+    // hydrateExtendedResources 已停用：11 个 extended 资源全部迁 Vue Query（零直接 store 读者），
+    // 各页面按需拉取 + 同 key 去重。首屏从 2+11=13 请求降至 2（namespaces+nodes）。
+    // if (!opts.lite) { try { await hydrateExtendedResources() } catch (e) { ... } }
     if (!opts.silent) connectionState.value = 'connected'
     return { failed: requests.filter(r => r.status === 'rejected').length }
   }
