@@ -12,8 +12,8 @@ dist
 dist-ssr
 *.local
 
-# 运行时数据（Gateway 会话持久化的 SQLite 库，含凭据，勿入库）
-data/
+# 运行时数据（Gateway 会话持久化的 SQLite 库，含凭据，勿入库）——锚定根目录,避免误伤 src/data/ 源码
+/data/
 
 # Editor directories and files
 .vscode/*
