@@ -1198,18 +1198,21 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchHPAs() { const d = await api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'); return (d?.items || []).map(mapHPA) }
   async function fetchHPA(name, ns) { const d = await api.k8s(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`); return d ? mapHPA(d) : null }
   async function fetchEndpoints() { const d = await api.k8s('/api/v1/endpoints?limit=5000'); return (d?.items || []).map(mapEndpoints) }
-  // 工作负载列表（deploy+sts+ds 三类合一；remote 模式与 hydrate 一致不含 job/cronjob，那些按需在详情页补）
+  // 工作负载列表（deploy+sts+ds 三类合一 + replicasets 用于回滚历史；remote 模式不含 job/cronjob，按需在详情页补）
   async function fetchWorkloads() {
-    const [dep, sts, ds] = await Promise.all([
+    const [dep, sts, ds, rs] = await Promise.all([
       api.k8s('/apis/apps/v1/deployments?limit=1000'),
       api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
       api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
+      api.k8s('/apis/apps/v1/replicasets?limit=5000'),
     ])
-    return [
+    const list = [
       ...((dep?.items || []).map(i => mapWorkload(i, 'Deployment'))),
       ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
       ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
     ]
+    attachRolloutHistory(list, dep, rs)
+    return list
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
   async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
