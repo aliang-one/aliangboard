@@ -6,17 +6,28 @@ import { useClusterStore } from '@/stores/cluster'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const route = useRoute()
 const store = useClusterStore()
 const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(e => e.namespace === route.params.namespace),
+})
+const nsEvents = computed(() => eventsQuery.data.value || [])
+
 const searchQuery = ref('')
 const typeFilter = ref('All')
 
 const filtered = computed(() => {
-  let list = store.nsEvents
+  let list = nsEvents.value
   if (typeFilter.value !== 'All') list = list.filter(e => e.type === typeFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
   if (q) list = list.filter(e => (e.reason || '').toLowerCase().includes(q) || (e.message || '').toLowerCase().includes(q))
@@ -58,7 +69,7 @@ onUnmounted(() => store.stopEventWatch())
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.events.searchPlaceholder')" />
       </div>
-      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ store.nsEvents.length }}</span>
+      <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsEvents.length }}</span>
       <span v-if="store.eventWatchLive" class="flex items-center gap-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="t('ns.events.liveTitle')">
         <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ t('ns.events.liveStream') }}
       </span>
