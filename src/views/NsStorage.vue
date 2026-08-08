@@ -19,7 +19,9 @@ const queryClient = useQueryClient()
 const { t } = useI18n()
 
 // PVCs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-// StorageClasses 仍读 store.scList（集群级，变化少，留 store）。
+// StorageClasses 走 Vue Query（cluster-wide）
+const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allSCs = computed(() => scQ.data.value || [])
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const pvcsKey = ['cluster', cid.value, 'pvcs']
 const pvcsQuery = useResourceList({
@@ -67,7 +69,7 @@ function handleCreatePVC() {
     status: 'Pending',
     capacity: f.capacity,
     accessModes: f.accessModes,
-    storageClass: f.storageClass || store.scList.find(s => s.default)?.name || 'standard',
+    storageClass: f.storageClass || allSCs.value.find(s => s.default)?.name || 'standard',
     volume: '',
     age: 'Just now',
   })
@@ -109,7 +111,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         <span v-if="activeTab === 'pvc'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
       <button @click="activeTab = 'storageclass'" class="px-lg py-2 text-body-sm font-medium transition-colors relative" :class="activeTab === 'storageclass' ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-on-surface'">
-        {{ t('ns.storage.storageClassTab') }} ({{ store.scList.length }})
+        {{ t('ns.storage.storageClassTab') }} ({{ allSCs.length }})
         <span v-if="activeTab === 'storageclass'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
     </div>
@@ -225,7 +227,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="sc in store.scList" :key="sc.name" class="hover:bg-surface-container-low/40 transition-colors cursor-pointer" @click="router.push({ name: 'StorageClassDetail', params: { name: sc.name } })">
+            <tr v-for="sc in allSCs" :key="sc.name" class="hover:bg-surface-container-low/40 transition-colors cursor-pointer" @click="router.push({ name: 'StorageClassDetail', params: { name: sc.name } })">
               <td class="px-md py-2">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-secondary text-lg">database</span>
@@ -243,7 +245,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
               </td>
               <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ sc.age }}</td>
             </tr>
-            <tr v-if="!store.scList.length">
+            <tr v-if="!allSCs.length">
               <td :colspan="6" class="px-md py-md text-center">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
                 <p class="text-body-sm text-on-surface-variant">{{ t('ns.storage.noData') }}</p>
@@ -280,7 +282,7 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.storageClass') }}</label>
         <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
           <option value="">{{ t('ns.storage.defaultOption') }}</option>
-          <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
+          <option v-for="sc in allSCs" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
         </select>
       </div>
     </div>

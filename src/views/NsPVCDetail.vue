@@ -36,6 +36,7 @@ const { yaml } = useLiveYaml({
 })
 const pvListQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), mock: store.pvList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const scListQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allSCs = computed(() => scListQ.data.value || [])
 const pv = computed(() => pvc.value?.volume ? (pvListQ.data.value || []).find(p => p.name === pvc.value.volume) : null)
 const sc = computed(() => pvc.value?.storageClass ? (scListQ.data.value || []).find(s => s.name === pvc.value.storageClass) : null)
 
@@ -286,7 +287,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.storageClassLabel') }}</label>
         <input v-model="editStorageClass" list="pvc-sc-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pvcDetail.storageClassPlaceholder')" />
         <datalist id="pvc-sc-list">
-          <option v-for="s in store.scList" :key="s.name" :value="s.name" />
+          <option v-for="s in allSCs" :key="s.name" :value="s.name" />
         </datalist>
       </div>
     </div>

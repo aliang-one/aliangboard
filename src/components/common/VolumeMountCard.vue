@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
 
@@ -18,6 +19,9 @@ const props = defineProps({
 const entry = defineModel({ required: true })
 const emit = defineEmits(['remove'])
 const store = useClusterStore()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 
 const TYPES = [
   { value: 'emptyDir', label: 'emptyDir', icon: 'folder' },
@@ -38,7 +42,7 @@ if (!entry.value.target) entry.value.target = 'main'
 // 所选 configMap/secret 的 data 键（用于 items 的 key 下拉）
 const selectedKeys = computed(() => {
   const isSecret = entry.value.type === 'secret'
-  const list = isSecret ? store.secretList : store.configMapList
+  const list = isSecret ? (_secQ.data.value || []) : (_cmQ.data.value || [])
   const name = isSecret ? entry.value.secretName : entry.value.cmName
   const res = (list || []).find(r => r.name === name && r.namespace === props.namespace)
   return Object.keys(res?.data || {})
