@@ -3,6 +3,7 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -16,18 +17,28 @@ const store = useClusterStore()
 const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  mock: store.podList,
+  mockMode: !store.remoteMode,
+  select: list => list.filter(p => p.namespace === route.params.namespace),
+})
+const nsPods = computed(() => podsQuery.data.value || [])
+
 const searchQuery = ref('')
 const statusFilter = ref('All')
 const nodeFilter = ref('All Nodes')
 
 const statusOptions = ['All', 'Running', 'Pending', 'Failed', 'Succeeded']
 const nodeOptions = computed(() => {
-  const nodes = [...new Set(store.nsPods.map(p => p.node).filter(Boolean))]
+  const nodes = [...new Set(nsPods.value.map(p => p.node).filter(Boolean))]
   return ['All Nodes', ...nodes.sort()]
 })
 
 const filtered = computed(() => {
-  let list = store.nsPods
+  let list = nsPods.value
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(p => p.name.toLowerCase().includes(q) || p.ip.includes(q))
@@ -37,9 +48,9 @@ const filtered = computed(() => {
   return list
 })
 
-const runningCount = computed(() => store.nsPods.filter(p => p.status === 'Running').length)
-const pendingCount = computed(() => store.nsPods.filter(p => p.status === 'Pending').length)
-const failedCount = computed(() => store.nsPods.filter(p => p.status === 'Failed').length)
+const runningCount = computed(() => nsPods.value.filter(p => p.status === 'Running').length)
+const pendingCount = computed(() => nsPods.value.filter(p => p.status === 'Pending').length)
+const failedCount = computed(() => nsPods.value.filter(p => p.status === 'Failed').length)
 
 // 分页
 const currentPage = ref(1)
@@ -109,7 +120,7 @@ function handleCreate() {
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.pods.title') }}</h2>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: store.nsPods.length, ns: route.params.namespace }) }}</p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
         <button v-if="store.remoteMode" @click="toggleLive"
@@ -132,7 +143,7 @@ function handleCreate() {
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
         <span class="w-2.5 h-2.5 rounded-full bg-on-surface-variant"></span>
         <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.total') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ store.nsPods.length }}</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto">{{ nsPods.length }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
         <span class="w-2.5 h-2.5 rounded-full bg-primary"></span>
