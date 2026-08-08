@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert'
 import {
   BOUNDED_TOOLS, DANGEROUS_TOOLS, tierTools,
   effectiveTools, normalizeToolOverrides,
+  effectiveNamespaces, normalizeAllowedNamespaces,
   authorize, PermissionDeniedError, canIDecision, withPolicy,
 } from './authorize.mjs'
 
@@ -132,4 +133,36 @@ test('normalizeToolOverrides: 校验未知名 / allow∩deny / 坏形状 → 抛
   assert.throws(() => normalizeToolOverrides({ allow: ['exec_pod'], deny: ['exec_pod'] }), /不能同时/)
   assert.throws(() => normalizeToolOverrides('not json'))
   assert.throws(() => normalizeToolOverrides({ allow: 'exec_pod' }), /字符串数组/)  // 非数组
+})
+
+// --- effectiveNamespaces: 运行时有效 namespace 集(boundSA ∪ allowed,lenient) ---
+test('effectiveNamespaces: 无 allowed → [boundSA]', () => {
+  const s = effectiveNamespaces({ boundSA_namespace: 'anydoor' })
+  assert.ok(s.has('anydoor')); assert.equal(s.size, 1)
+})
+test('effectiveNamespaces: boundSA ∪ 额外 ns', () => {
+  const s = effectiveNamespaces({ boundSA_namespace: 'anydoor', allowed_namespaces: JSON.stringify(['dev', 'staging']) })
+  assert.ok(s.has('anydoor') && s.has('dev') && s.has('staging')); assert.equal(s.size, 3)
+})
+test('effectiveNamespaces: 损坏 JSON → 回退 [boundSA](fail-open,不锁死)', () => {
+  const s = effectiveNamespaces({ boundSA_namespace: 'anydoor', allowed_namespaces: '{bad' })
+  assert.ok(s.has('anydoor')); assert.equal(s.size, 1, '损坏回退到单 ns')
+})
+test('effectiveNamespaces: 数组含非字符串 → 跳过', () => {
+  const s = effectiveNamespaces({ boundSA_namespace: 'anydoor', allowed_namespaces: JSON.stringify(['dev', 123]) })
+  assert.ok(s.has('dev') && s.has('anydoor') && !s.has('123'))
+})
+test('normalizeAllowedNamespaces: null → null;valid 额外 ns → JSON 串(不含 boundNS)', () => {
+  assert.equal(normalizeAllowedNamespaces(null, 'anydoor'), null)
+  assert.equal(normalizeAllowedNamespaces(['dev', 'staging'], 'anydoor'), JSON.stringify(['dev', 'staging']))
+})
+test('normalizeAllowedNamespaces: boundNS 在输入里 → 剔除(运行时自动并入);dedup', () => {
+  assert.equal(normalizeAllowedNamespaces(['anydoor', 'dev'], 'anydoor'), JSON.stringify(['dev']), 'boundNS 不重复存')
+  assert.equal(normalizeAllowedNamespaces(['dev', 'dev'], 'anydoor'), JSON.stringify(['dev']), 'dedup')
+})
+test('normalizeAllowedNamespaces: 非法 ns 名 / 坏形状 → 抛', () => {
+  assert.throws(() => normalizeAllowedNamespaces(['Bad_NS'], 'anydoor'), /非法 namespace/)
+  assert.throws(() => normalizeAllowedNamespaces(['dev' .repeat(64).slice(0,64)], 'anydoor'), /非法 namespace/, '>63 拒')
+  assert.throws(() => normalizeAllowedNamespaces('notarray', 'anydoor'))
+  assert.throws(() => normalizeAllowedNamespaces([123], 'anydoor'), /字符串数组/)
 })
