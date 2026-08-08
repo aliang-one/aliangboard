@@ -19,6 +19,8 @@ const activeTab = ref('services')
 
 // Services/Ingresses 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const servicesQuery = useResourceList({
   key: ['cluster', cid.value, 'services'],
   fetcher: () => store.fetchServices(),
@@ -39,7 +41,7 @@ const ingressList = computed(() => ingressesQuery.data.value || [])
 // 全局页无命名空间上下文：New Service/Ingress 走部署向导；NetworkPolicy 进命名空间作用域页创建
 function newServiceOrIngress() { router.push('/deploy') }
 function newNetworkPolicy() {
-  const ns = store.currentNamespace || store.namespaceList?.[0]?.name || 'default'
+  const ns = store.currentNamespace || allNamespaces.value?.[0]?.name || 'default'
   router.push({ name: 'NsNetworkPolicies', params: { namespace: ns } })
 }
 

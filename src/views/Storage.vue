@@ -20,6 +20,8 @@ const activeTab = ref('pvc')
 
 // PVC/PV/SC cluster-wide 走 Vue Query
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const pvQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), mock: store.pvList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
@@ -274,7 +276,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.namespaceRequired') }} *</label>
             <select v-model="createForm.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-              <option v-for="ns in store.namespaceList" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
+              <option v-for="ns in allNamespaces" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
             </select>
           </div>
         </div>

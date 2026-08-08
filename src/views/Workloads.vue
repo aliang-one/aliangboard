@@ -23,6 +23,8 @@ const { t } = useI18n()
 
 // Workloads 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
@@ -40,7 +42,7 @@ const typeFilter = ref('All Types')
 const statusFilter = ref('All Statuses')
 
 const filters = [
-  { key: 'namespace', label: 'Namespace', options: ['All Namespaces', ...store.namespaceList.map(n => n.name)] },
+  { key: 'namespace', label: 'Namespace', options: ['All Namespaces', ...allNamespaces.value.map(n => n.name)] },
   { key: 'type', label: 'Workload Type', options: ['All Types', 'Deployment', 'Pod', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'] },
   { key: 'status', label: 'Status', options: ['All Statuses', 'Running', 'Pending', 'Failed', 'Succeeded'] },
 ]

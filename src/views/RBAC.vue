@@ -16,6 +16,8 @@ const store = useClusterStore()
 const activeTab = ref('roles')
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
@@ -87,7 +89,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
 // 新建：跳转到当前（或首个）命名空间的 RBAC 页，那里已有 Create Role / SA / ClusterRoleBinding 表单
 function createRole() {
-  const ns = store.currentNamespace || store.namespaceList?.[0]?.name || 'default'
+  const ns = store.currentNamespace || allNamespaces.value?.[0]?.name || 'default'
   router.push({ name: 'NsRBAC', params: { namespace: ns } })
 }
 

@@ -16,6 +16,8 @@ const activeTab = ref('configmaps')
 
 // 5 资源 cluster-wide 走 Vue Query（与 ns 页面共享 key 去重）
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const rqQ = useResourceList({ key: ['cluster', cid.value, 'resourcequotas'], fetcher: () => store.fetchResourceQuotas(), mock: store.resourceQuotaList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
@@ -101,7 +103,7 @@ const deleteFn = {
 
 // 新建：跳转到当前命名空间（或首个命名空间）对应列表页，那里已有创建表单
 function createNew() {
-  const ns = store.currentNamespace || store.namespaceList?.[0]?.name || 'default'
+  const ns = store.currentNamespace || allNamespaces.value?.[0]?.name || 'default'
   router.push({ name: createRouteName[activeTab.value], params: { namespace: ns } })
 }
 // 编辑：跳转到命名空间级详情页（复用既有结构化编辑 UI）

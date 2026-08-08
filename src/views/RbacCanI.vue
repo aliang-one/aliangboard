@@ -10,6 +10,8 @@ const { t } = useI18n()
 const store = useClusterStore()
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const roleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
@@ -128,7 +130,7 @@ async function runServerCheck() {
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('rbac.canI.namespaceLabel') }}</label>
               <input v-model="namespace" list="cani-ns" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('rbac.canI.namespacePlaceholder')" />
               <datalist id="cani-ns">
-                <option v-for="n in store.namespaceList" :key="n.name" :value="n.name" />
+                <option v-for="n in allNamespaces" :key="n.name" :value="n.name" />
               </datalist>
             </div>
           </div>

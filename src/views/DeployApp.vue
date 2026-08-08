@@ -26,6 +26,8 @@ const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const priorityClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
@@ -849,7 +851,7 @@ async function handleDeploy() {
               <span class="material-symbols-outlined text-xs align-middle mr-1">lock</span>{{ route.params.namespace }}
             </div>
             <select v-else v-model="form.namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-primary focus:border-primary">
-              <option v-for="ns in store.namespaceList" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
+              <option v-for="ns in allNamespaces" :key="ns.name" :value="ns.name">{{ ns.name }}</option>
             </select>
           </div>
           <div>
