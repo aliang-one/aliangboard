@@ -1227,6 +1227,19 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchIngressClasses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'); return (d?.items || []).map(mapIngressClass) }
   async function fetchPriorityClasses() { const d = await api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'); return (d?.items || []).map(mapPriorityClass) }
   async function fetchPriorityClass(name) { const d = await api.k8s(`/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`); return d ? mapPriorityClass(d) : null }
+  async function fetchNamespaces() {
+    const d = await api.k8s('/api/v1/namespaces')
+    return (d?.items || []).map(item => ({
+      name: item.metadata?.name,
+      status: item.status?.phase || 'Unknown',
+      age: ageOf(item.metadata?.creationTimestamp),
+      labels: item.metadata?.labels || {},
+    }))
+  }
+  async function fetchNamespace(name) {
+    const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(name)}`)
+    return d ? { name: d.metadata?.name, status: d.status?.phase || 'Unknown', age: ageOf(d.metadata?.creationTimestamp), labels: d.metadata?.labels || {} } : null
+  }
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
@@ -3572,6 +3585,7 @@ status:
     fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
     fetchCRDs, fetchCRD, fetchCRInstances,
+    fetchNamespaces, fetchNamespace,
     fetchPods, fetchPod, fetchEvents,
     refreshMetrics,
     // Pod Watch（实时监听）
