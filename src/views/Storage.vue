@@ -7,6 +7,8 @@ import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import CodeViewer from '@/components/common/CodeViewer.vue'
+import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, presetToFormState, hasPlaceholderParam } from '@/data/storageClassPresets'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
@@ -95,20 +97,43 @@ function handleCreatePV() {
   resetCreatePV()
 }
 
-// Create StorageClass
+// Create StorageClass（预设方案 + KV 参数 + binding/expand + 只读 YAML 预览 + 阻断校验）
 const showCreateSC = ref(false)
-const createSCForm = ref({ name: '', provisioner: '', parameters: '', reclaimPolicy: 'Retain', default: false })
+const scPresetId = ref('')
+const createSCForm = ref({
+  name: '', provisioner: '', parameters: [{ key: '', value: '' }],
+  reclaimPolicy: 'Delete', volumeBindingMode: 'WaitForFirstConsumer',
+  allowVolumeExpansion: false, default: false,
+})
+const currentScPreset = computed(() => STORAGE_CLASS_PRESETS.find(p => p.id === scPresetId.value))
+const scHasPlaceholder = computed(() => hasPlaceholderParam(createSCForm.value.parameters, currentScPreset.value?.requiredParams || []))
+const scCanCreate = computed(() => !!createSCForm.value.name && !scHasPlaceholder.value)
+const scPreviewYaml = computed(() => store.generateYAML('storageclass', createSCForm.value))
 function resetCreateSC() {
-  createSCForm.value = { name: '', provisioner: '', parameters: '', reclaimPolicy: 'Retain', default: false }
+  scPresetId.value = ''
+  createSCForm.value = {
+    name: '', provisioner: '', parameters: [{ key: '', value: '' }],
+    reclaimPolicy: 'Delete', volumeBindingMode: 'WaitForFirstConsumer',
+    allowVolumeExpansion: false, default: false,
+  }
 }
+function onScPresetChange(id) {
+  scPresetId.value = id
+  const preset = STORAGE_CLASS_PRESETS.find(p => p.id === id)
+  if (preset) createSCForm.value = presetToFormState(preset)
+}
+function addScParamRow() { createSCForm.value.parameters.push({ key: '', value: '' }) }
+function removeScParamRow(i) { createSCForm.value.parameters.splice(i, 1) }
 function handleCreateSC() {
   const f = createSCForm.value
-  if (!f.name) return
+  if (!scCanCreate.value) return
   store.addStorageClass({
     name: f.name,
     provisioner: f.provisioner,
     parameters: f.parameters,
     reclaimPolicy: f.reclaimPolicy,
+    volumeBindingMode: f.volumeBindingMode,
+    allowVolumeExpansion: f.allowVolumeExpansion,
     default: f.default,
   })
   showCreateSC.value = false
@@ -310,20 +335,48 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </Modal>
 
     <!-- Create StorageClass Modal -->
-    <Modal v-model="showCreateSC" :title="t('storage.createSCTitle')" width="max-w-lg">
+    <Modal v-model="showCreateSC" :title="t('storage.createSCTitle')" width="max-w-2xl">
       <div class="flex flex-col gap-md">
+        <!-- 预设方案 -->
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.scName') }} *</label>
-          <input v-model="createSCForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.scPlaceholder')" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.presetScheme') }}</label>
+          <select :value="scPresetId" @change="onScPresetChange($event.target.value)" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+            <option value="">{{ t('storage.presetCustom') }}</option>
+            <optgroup v-for="fam in STORAGE_CLASS_PRESET_FAMILIES" :key="fam.key" :label="t(fam.labelKey)">
+              <option v-for="p in STORAGE_CLASS_PRESETS.filter(p => p.family === fam.key)" :key="p.id" :value="p.id">{{ t(p.label) }}</option>
+            </optgroup>
+          </select>
+          <p v-if="currentScPreset?.hint" class="text-on-surface-variant text-xs mt-xs">{{ t(currentScPreset.hint) }}</p>
         </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.provisionerLabel') }}</label>
-          <input v-model="createSCForm.provisioner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.provisionerPlaceholder')" />
+
+        <!-- name + provisioner -->
+        <div class="grid grid-cols-2 gap-md">
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.scName') }}</label>
+            <input v-model="createSCForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.scPlaceholder')" />
+          </div>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.provisionerLabel') }}</label>
+            <input v-model="createSCForm.provisioner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary font-mono text-code-sm" placeholder="rancher.io/local-path" />
+          </div>
         </div>
+
+        <!-- parameters KV 行 -->
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.parametersLabel') }}</label>
-          <input v-model="createSCForm.parameters" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" :placeholder="t('storage.parametersPlaceholder')" />
+          <div v-for="(row, i) in createSCForm.parameters" :key="i" class="flex items-center gap-xs mb-xs">
+            <input v-model="row.key" :placeholder="t('storage.key')" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
+            <input v-model="row.value" :placeholder="t('storage.value')" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
+            <button @click="removeScParamRow(i)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
+              <span class="material-symbols-outlined text-lg">delete</span>
+            </button>
+          </div>
+          <button @click="addScParamRow" class="flex items-center gap-xs text-body-sm text-primary hover:opacity-80">
+            <span class="material-symbols-outlined text-base">add</span>{{ t('storage.addParam') }}
+          </button>
         </div>
+
+        <!-- reclaim / binding / expand / default -->
         <div class="grid grid-cols-2 gap-md">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.reclaimPolicy') }}</label>
@@ -332,15 +385,39 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
               <option value="Delete">{{ t('storage.delete') }}</option>
             </select>
           </div>
-          <div class="flex items-center gap-sm pt-lg">
-            <input type="checkbox" id="sc-default" v-model="createSCForm.default" class="w-4 h-4 accent-primary" />
-            <label for="sc-default" class="text-body-md text-on-surface cursor-pointer">{{ t('storage.setDefaultStorageClass') }}</label>
+          <div>
+            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.volumeBindingMode') }}</label>
+            <select v-model="createSCForm.volumeBindingMode" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+              <option value="Immediate">{{ t('storage.bindingImmediate') }}</option>
+              <option value="WaitForFirstConsumer">{{ t('storage.bindingWaitForFirstConsumer') }}</option>
+            </select>
           </div>
+        </div>
+        <div class="flex items-center gap-lg">
+          <label class="flex items-center gap-sm cursor-pointer">
+            <input type="checkbox" v-model="createSCForm.allowVolumeExpansion" class="w-4 h-4 accent-primary" />
+            <span class="text-body-md text-on-surface">{{ t('storage.allowVolumeExpansion') }}</span>
+          </label>
+          <label class="flex items-center gap-sm cursor-pointer">
+            <input type="checkbox" v-model="createSCForm.default" class="w-4 h-4 accent-primary" />
+            <span class="text-body-md text-on-surface">{{ t('storage.setDefaultStorageClass') }}</span>
+          </label>
+        </div>
+
+        <!-- 占位符阻断告警 -->
+        <p v-if="scHasPlaceholder" class="text-error text-xs flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base">warning</span>{{ t('storage.requiredParamWarn') }}
+        </p>
+
+        <!-- 只读 YAML 预览 -->
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.yamlPreview') }}</label>
+          <CodeViewer :code="scPreviewYaml" lang="yaml" max-height="35vh" />
         </div>
       </div>
       <template #actions>
         <button @click="showCreateSC = false; resetCreateSC()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
-        <button @click="handleCreateSC" :disabled="!createSCForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
+        <button @click="handleCreateSC" :disabled="!scCanCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
   </section>
