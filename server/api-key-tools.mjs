@@ -64,12 +64,12 @@ function safePodPath(p) {
   return p
 }
 
-// path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> === 绑定 ns;集群级 path 或他 ns → policy 拒。
+// path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> ∈ allowedNs(来自 effectiveNamespaces);集群级 path 或他 ns → policy 拒。
 // delete_resource 旧实现只校验 namespace arg、不校验 path 实际 ns —— 本 helper 补 policy 层闭环。
-export function assertPathInNs(path, ns) {
+export function assertPathInNs(path, allowedNs) {
   const m = String(path || '').match(/\/namespaces\/([^/]+)\//)
   if (!m) throw new PermissionDeniedError('policy', { detail: `path 非命名空间资源(集群级),ns 绑定 key 不允许: ${String(path).slice(0, 80)}` })
-  if (m[1] !== ns) throw new PermissionDeniedError('policy', { detail: `path 命名空间 ${m[1]} 超出绑定 ns ${ns}` })
+  if (!allowedNs.has(m[1])) throw new PermissionDeniedError('policy', { detail: `path 命名空间 '${m[1]}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}])` })
 }
 
 export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemeralFn }) {
@@ -117,7 +117,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       if (a.path) {
         return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
           fn: async (saCtx) => {
-            assertPathInNs(a.path, keyRow.boundSA_namespace)
+            assertPathInNs(a.path, effectiveNamespaces(keyRow))
             const { body } = await requestFn(saCtx, a.path)
             const all = body?.items || []
             const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
@@ -150,7 +150,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'get_resource_yaml', source, namespace: a.namespace, verb: 'get', resource: a.path || '?', summary: `get ${(a.path || '').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
-        assertPathInNs(a.path, keyRow.boundSA_namespace)
+        assertPathInNs(a.path, effectiveNamespaces(keyRow))
         const { body } = await requestFn(saCtx, a.path)
         if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
         const full = yamlDump(body)
@@ -312,7 +312,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
-        assertPathInNs(a.path, keyRow.boundSA_namespace)
+        assertPathInNs(a.path, effectiveNamespaces(keyRow))
         await requestFn(saCtx, a.path, { method: 'DELETE' })
         return { deleted: a.path }
       } }),

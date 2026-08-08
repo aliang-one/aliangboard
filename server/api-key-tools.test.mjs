@@ -364,17 +364,19 @@ test('callTool source: 默认 direct', async () => {
   assert.equal(db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get().source, 'direct')
 })
 
-// --- assertPathInNs(ns 作用域按 path 解析)---
+// --- assertPathInNs(ns 作用域按 path 解析;allowedNs 为 Set 来自 effectiveNamespaces)---
 test('assertPathInNs: 集群级 path(无 /namespaces/<x>/)→ 拒', () => {
-  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
-  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
 })
-test('assertPathInNs: 他 ns path → 拒(超出绑定 ns)', () => {
-  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 other 超出绑定 ns/.test(e.detail))
+test('assertPathInNs: 他 ns path → 拒(不在允许集)', () => {
+  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 'other' 不在该 key 允许的 namespace 集/.test(e.detail))
 })
-test('assertPathInNs: 绑定 ns path → 通过', () => {
-  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', 'ns'))
-  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', 'ns'))
+test('assertPathInNs: 允许集内 ns path → 通过', () => {
+  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', new Set(['ns'])))
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', new Set(['ns'])))
+  // 跨 ns:多元素 Set 中任意 ns 均放行
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/dev/pods/p1', new Set(['ns', 'dev'])))
 })
 
 // --- delete_resource 收紧(path-ns 校验)---
