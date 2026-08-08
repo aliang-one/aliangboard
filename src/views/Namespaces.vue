@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -17,19 +18,30 @@ const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 
-const syncing = ref(false)
+// Namespaces 走 Vue Query：远端按需重拉（staleTime 控制新鲜度）；mock 模式返回种子（不重拉）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const namespacesQuery = useResourceList({
+  key: ['cluster', cid.value, 'namespaces'],
+  fetcher: () => store.fetchNamespaces(),
+  mock: store.namespaceList,
+  mockMode: !store.remoteMode,
+})
+const namespaces = computed(() => namespacesQuery.data.value || [])
+
+const syncing = computed(() => namespacesQuery.isFetching.value)
 async function sync() {
-  if (syncing.value) return
   if (!store.remoteMode) { notify('info', t('ns.namespaces.noSyncNeeded')); return }
-  syncing.value = true
-  try { await store.hydrateCoreResources(); notify('success', t('ns.namespaces.synced')) }
+  try {
+    store.invalidateAllClusterQueries()
+    await namespacesQuery.refetch()
+    notify('success', t('ns.namespaces.synced'))
+  }
   catch (e) { notify('error', t('ns.namespaces.syncFailed', { error: e.message || '' })) }
-  finally { syncing.value = false }
 }
 
 const headers = computed(() => tableColumns('namespaces'))
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => store.namespaceList))
+const { currentPage, pageSize, paginated, total } = usePagination(namespaces)
 
 // 受保护的系统命名空间，禁止t('common.delete')
 const PROTECTED_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease', 'default']
@@ -134,7 +146,7 @@ function submitDelete() {
       </div>
     </div>
 
-    <EmptyState v-if="!store.namespaceList.length" icon="folder_open" title="No namespaces" description="No namespaces in the cluster." />
+    <EmptyState v-if="!namespaces.length" icon="folder_open" title="No namespaces" description="No namespaces in the cluster." />
     <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">

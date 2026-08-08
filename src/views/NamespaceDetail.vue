@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -13,18 +14,44 @@ const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
 
-const ns = computed(() => store.getNamespaceByName(route.params.name))
-const nsWorkloads = computed(() => store.workloadList.filter(w => w.namespace === route.params.name))
-const nsServices = computed(() => store.serviceList.filter(s => s.namespace === route.params.name))
+// Namespace 详情 + 关联 services/workloads 走 Vue Query。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nsName = computed(() => route.params.name)
+const nsDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'namespaces', nsName.value],
+  fetcher: () => store.fetchNamespace(nsName.value),
+  mock: store.getNamespaceByName(nsName.value),
+  mockMode: !store.remoteMode,
+  options: { enabled: Boolean(nsName.value) },
+})
+const ns = computed(() => nsDetail.data.value ?? store.getNamespaceByName(nsName.value))
 
-const syncing = ref(false)
+const servicesQuery = useResourceList({
+  key: ['cluster', cid.value, 'services'],
+  fetcher: () => store.fetchServices(),
+  mock: store.serviceList,
+  mockMode: !store.remoteMode,
+  select: (list) => (list || []).filter(s => s.namespace === nsName.value),
+})
+const nsServices = computed(() => servicesQuery.data.value || [])
+
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  select: (list) => (list || []).filter(w => w.namespace === nsName.value),
+})
+const nsWorkloads = computed(() => workloadsQuery.data.value || [])
+
+const syncing = computed(() => nsDetail.isFetching.value || servicesQuery.isFetching.value || workloadsQuery.isFetching.value)
 async function sync() {
-  if (syncing.value) return
   if (!store.remoteMode) { notify('info', t('ns.nsDetail.noSyncNeeded')); return }
-  syncing.value = true
-  try { await store.hydrateCoreResources(); notify('success', t('ns.nsDetail.syncSuccess')) }
+  try {
+    store.invalidateAllClusterQueries()
+    notify('success', t('ns.nsDetail.syncSuccess'))
+  }
   catch (e) { notify('error', t('ns.nsDetail.syncFailed', { error: e.message || '' })) }
-  finally { syncing.value = false }
 }
 </script>
 

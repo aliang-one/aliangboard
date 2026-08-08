@@ -33,6 +33,14 @@ function invalidateResource(resource) {
   })
 }
 
+// 失效所有 cluster query（跨 cid、跨资源）。供 Namespaces/NamespaceDetail 的「Sync」按钮调用，
+// 取代旧的 hydrateCoreResources 手动全量同步——让 Vue Query 按需重拉（stale 的才会刷新）。
+function invalidateAllClusterQueries() {
+  queryClient.invalidateQueries({
+    predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster',
+  })
+}
+
 export const useClusterStore = defineStore('cluster', () => {
   // === Base64（Secret data 编解码，UTF-8 安全）===
   // K8s 的 Secret.data 一律 base64 编码；mock 里以明文（stringData）书写，
@@ -3568,6 +3576,7 @@ status:
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
+    invalidateAllClusterQueries,
     // Pod 列表轻量刷新（删 Pod 后看重建）
     refreshPods,
     refreshEvents,
