@@ -239,6 +239,11 @@ export const adminApi = {
     save: payload => platformHttp.request('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
     test: payload => platformHttp.request('/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(payload || {}) }),
   },
+  // MCP 服务开关(Task 2):GET → {enabled};PUT ← {enabled} → {ok, enabled}
+  mcpConfig: {
+    get: () => platformHttp.request('/api/admin/mcp-config'),
+    update: enabled => platformHttp.request('/api/admin/mcp-config', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。

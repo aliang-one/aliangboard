@@ -2,13 +2,15 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { api } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+import { api, adminApi } from '@/api/client'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { i18n, setLocale } from '@/i18n'
 
 const { t } = useI18n()
 
 const store = useClusterStore()
+const auth = useAuthStore()
 const activeTab = ref('general')
 
 const tabs = computed(() => [
@@ -57,7 +59,22 @@ async function loadComponents() {
 }
 
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
-onMounted(() => { if (activeTab.value === 'components') loadComponents() })
+onMounted(() => {
+  if (activeTab.value === 'components') loadComponents()
+  if (auth.isAdmin) loadMcpConfig()
+})
+
+// === MCP Service toggle (admin only) ===
+const mcpEnabled = ref(true)
+const mcpLoading = ref(false)
+const mcpUrl = computed(() => window.location.origin + '/mcp')
+async function loadMcpConfig() {
+  try { const r = await adminApi.mcpConfig.get(); mcpEnabled.value = r.enabled } catch { /* 非 admin 或无权限→静默 */ }
+}
+async function toggleMcp() {
+  mcpLoading.value = true
+  try { const r = await adminApi.mcpConfig.update(!mcpEnabled.value); mcpEnabled.value = r.enabled } catch { /* notify or silent */ } finally { mcpLoading.value = false }
+}
 
 // === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
 const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
@@ -128,6 +145,29 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
             <div class="flex justify-between py-sm">
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.pods') }}</span>
               <span class="font-medium">{{ store.cluster.podCount }}</span>
+            </div>
+            <!-- MCP Service (admin only) -->
+            <div v-if="auth.isAdmin" class="flex flex-col gap-sm py-sm border-b border-outline-variant/50">
+              <div class="flex justify-between items-center">
+                <span class="text-body-sm text-on-surface-variant">{{ t('settings.mcpTitle') }}</span>
+                <button @click="toggleMcp" :disabled="mcpLoading" class="text-xs px-sm py-xs rounded-md transition-colors"
+                  :class="mcpEnabled ? 'bg-status-running/15 text-status-running' : 'bg-surface-container-low text-on-surface-variant'">
+                  {{ mcpEnabled ? '🟢 ' + t('settings.mcpEnabled') : '🔴 ' + t('settings.mcpDisabled') }}
+                </button>
+              </div>
+              <div v-if="mcpEnabled" class="bg-surface-container-low rounded-lg p-sm space-y-xs">
+                <p class="text-body-xs font-semibold text-on-surface-variant">{{ t('settings.mcpUsageTitle') }}</p>
+                <div class="flex justify-between items-center">
+                  <span class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageUrl') }}</span>
+                  <code class="text-body-xs font-mono text-primary">{{ mcpUrl }}</code>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageAuth') }}</span>
+                  <code class="text-body-xs font-mono text-primary">Authorization: Bearer &lt;API key&gt;</code>
+                </div>
+                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageNote') }}</p>
+              </div>
+              <p v-else class="text-body-xs text-on-surface-variant">{{ t('settings.mcpDisabledHint') }}</p>
             </div>
           </div>
         </div>

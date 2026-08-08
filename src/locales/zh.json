@@ -1827,7 +1827,15 @@
     "resetAll": "Reset All",
     "reset": "Reset",
     "language": "语言",
-    "zhName": "中文"
+    "zhName": "中文",
+    "mcpTitle": "MCP 服务",
+    "mcpEnabled": "运行中",
+    "mcpDisabled": "已关闭",
+    "mcpUsageTitle": "客户端连接方式",
+    "mcpUsageUrl": "连接地址",
+    "mcpUsageAuth": "认证头",
+    "mcpUsageNote": "在「平台管理 → API Keys」签发 key；key 的权限档（tier）+ namespace + 工具覆盖决定可用工具/范围。",
+    "mcpDisabledHint": "MCP 服务已关闭，外部 AI 客户端无法连接。"
   },
   "storage": {
     "title": "存储",
