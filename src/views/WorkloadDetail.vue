@@ -15,14 +15,15 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 
-const workload = computed(() => store.workloadList.find(
-  (w) => w.name === route.params.name && w.type?.toLowerCase() === route.params.type
-))
-const pod = computed(() => store.podList.find((p) => p.name === route.params.name))
-const displayData = computed(() => pod.value || workload.value)
-
-// 管理 pods / events：服务端状态归 Vue Query（ns 过滤），与 NsPods/NsEvents 同源缓存。
+// 服务端状态归 Vue Query：workloads/pods/events 三查询，与列表页同源缓存。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
@@ -30,6 +31,11 @@ const podsQuery = useResourceList({
   mockMode: !store.remoteMode,
   select: list => list.filter(p => p.namespace === route.params.namespace),
 })
+const workload = computed(() => (workloadsQuery.data.value || []).find(
+  (w) => w.name === route.params.name && w.type?.toLowerCase() === route.params.type
+))
+const pod = computed(() => (podsQuery.data.value || []).find((p) => p.name === route.params.name))
+const displayData = computed(() => pod.value || workload.value)
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
