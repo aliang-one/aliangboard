@@ -18,6 +18,7 @@ import EventList from '@/components/common/EventList.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
+import { useResourceDetail } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
 	const route = useRoute()
@@ -25,7 +26,16 @@ const router = useRouter()
 const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
-const pod = computed(() => store.getPodByName(route.params.name, route.params.namespace))
+// 主资源走 Vue Query（单资源 + 15s 轮询）；pod = query 优先、store 兜底（首屏 query 未就绪时用 hydrate 值，避免闪空）。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const podDetail = useResourceDetail({
+  key: ['cluster', cid.value, 'pods', route.params.name],
+  fetcher: () => store.fetchPod(route.params.name, route.params.namespace),
+  mock: store.getPodByName(route.params.name, route.params.namespace),
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 15000 : false },
+})
+const pod = computed(() => podDetail.data.value ?? store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
 
 // 支持 hash 直达 tab：PodCard 等快速入口跳转到 PodDetail 时带 #terminal/#files/#exec/#logs
