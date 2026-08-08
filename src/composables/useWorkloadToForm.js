@@ -78,6 +78,7 @@ function detectVolume(vol) {
   if (vol?.hostPath) return { type: 'hostPath', hostPath: vol.hostPath.path || '' }
   if (vol?.configMap) return { type: 'configMap', cmName: vol.configMap.name || '' }
   if (vol?.secret) return { type: 'secret', secretName: vol.secret.secretName || '' }
+  if (vol?.nfs) return { type: 'nfs', server: vol.nfs.server || '', nfsPath: vol.nfs.path || '' }
   return { type: 'emptyDir' } // 未知类型降级为 emptyDir(仅保留 name/mountPath)
 }
 

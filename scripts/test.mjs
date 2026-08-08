@@ -486,6 +486,15 @@ test('workloadToForm: tcp/exec 探针映射 + readiness/startup 默认关闭', (
   assert.equal(f.liveness.enabled, false); assert.equal(f.startup.enabled, false)
 })
 
+test('workloadToForm: NFS volume 映射 type/server/nfsPath', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'n', namespace: 'd' }, spec: { template: { spec: { volumes: [{ name: 'data', nfs: { server: '10.0.0.1', path: '/export' } }], containers: [{ name: 'c', image: 'i', volumeMounts: [{ name: 'data', mountPath: '/data' }] }] } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.volumeMounts.length, 1)
+  assert.equal(f.volumeMounts[0].type, 'nfs')
+  assert.equal(f.volumeMounts[0].server, '10.0.0.1')
+  assert.equal(f.volumeMounts[0].nfsPath, '/export')
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
