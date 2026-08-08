@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -12,6 +13,19 @@ const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('configmaps')
+
+// 5 资源 cluster-wide 走 Vue Query（与 ns 页面共享 key 去重）
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const rqQ = useResourceList({ key: ['cluster', cid.value, 'resourcequotas'], fetcher: () => store.fetchResourceQuotas(), mock: store.resourceQuotaList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const lrQ = useResourceList({ key: ['cluster', cid.value, 'limitranges'], fetcher: () => store.fetchLimitRanges(), mock: store.limitRangeList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const hpaQ = useResourceList({ key: ['cluster', cid.value, 'hpas'], fetcher: () => store.fetchHPAs(), mock: store.hpaList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allConfigMaps = computed(() => cmQ.data.value || [])
+const allSecrets = computed(() => secQ.data.value || [])
+const allResourceQuotas = computed(() => rqQ.data.value || [])
+const allLimitRanges = computed(() => lrQ.data.value || [])
+const allHPAs = computed(() => hpaQ.data.value || [])
 
 const tabs = [
   { key: 'configmaps', label: t('config.configmapsTab') },
@@ -121,11 +135,11 @@ const rqLimitsCount = rq => Object.keys(rq.hard || {}).length
 
 // 按 tab 切换的当前列表（ConfigMaps / Secrets / ResourceQuotas / LimitRanges / HPA）
 const currentTabList = computed(() => ({
-  configmaps: store.configMapList,
-  secrets: store.secretList,
-  resourcequotas: store.resourceQuotaList,
-  limitranges: store.limitRangeList,
-  hpas: store.hpaList,
+  configmaps: allConfigMaps.value,
+  secrets: allSecrets.value,
+  resourcequotas: allResourceQuotas.value,
+  limitranges: allLimitRanges.value,
+  hpas: allHPAs.value,
 }[activeTab.value] || []))
 const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
@@ -198,7 +212,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- ResourceQuotas -->
-    <DataTable v-if="activeTab === 'resourcequotas' && store.resourceQuotaList.length" :headers="rqHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'resourcequotas' && allResourceQuotas.length" :headers="rqHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">pie_chart</span>
@@ -223,7 +237,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- LimitRanges -->
-    <DataTable v-if="activeTab === 'limitranges' && store.limitRangeList.length" :headers="lrHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'limitranges' && allLimitRanges.length" :headers="lrHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">tune</span>
@@ -249,7 +263,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- HPA -->
-    <DataTable v-if="activeTab === 'hpas' && store.hpaList.length" :headers="hpaHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'hpas' && allHPAs.length" :headers="hpaHeaders" :rows="paginated" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">timeline</span>

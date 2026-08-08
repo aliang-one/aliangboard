@@ -1216,6 +1216,8 @@ export const useClusterStore = defineStore('cluster', () => {
     return list
   }
   async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
+  async function fetchPVs() { const d = await api.k8s('/api/v1/persistentvolumes'); return (d?.items || []).map(mapPV) }
+  async function fetchStorageClasses() { const d = await api.k8s('/apis/storage.k8s.io/v1/storageclasses'); return (d?.items || []).map(mapStorageClass) }
   async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
   async function fetchRoles() {
     const [roles, clusterRoles] = await Promise.all([
@@ -3499,6 +3501,7 @@ status:
     fetchService,
     fetchIngress,
     fetchNetworkPolicy, fetchPVC,
+    fetchPVs, fetchStorageClasses,
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -16,6 +17,15 @@ const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('pvc')
+
+// PVC/PV/SC cluster-wide 走 Vue Query
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const pvQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), mock: store.pvList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allPVCs = computed(() => pvcQ.data.value || [])
+const allPVs = computed(() => pvQ.data.value || [])
+const allStorageClasses = computed(() => scQ.data.value || [])
 
 const tabs = computed(() => [
   { key: 'pvc', label: t('storage.tabs.pvc') },
@@ -68,7 +78,7 @@ function handleCreatePVC() {
     status: 'Pending',
     capacity: f.capacity,
     accessModes: f.accessModes,
-    storageClass: f.storageClass || store.scList.find(s => s.default)?.name || 'standard',
+    storageClass: f.storageClass || allStorageClasses.value.find(s => s.default)?.name || 'standard',
     volume: '',
     age: 'Just now',
   })
@@ -157,9 +167,9 @@ function openSC(row) {
 
 // 按 tab 切换的当前列表
 const currentTabList = computed(() => ({
-  pvc: store.pvcList,
-  pv: store.pvList,
-  sc: store.scList,
+  pvc: allPVCs.value,
+  pv: allPVs.value,
+  sc: allStorageClasses.value,
 }[activeTab.value] || []))
 const { currentPage, pageSize, paginated, total } = usePagination(currentTabList, { resetDeps: [activeTab] })
 </script>
@@ -286,7 +296,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.storageClassLabel') }}</label>
           <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option value="">{{ t('storage.defaultOption') }}</option>
-            <option v-for="sc in store.scList" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ` (${t('storage.default')})` : '' }}</option>
+            <option v-for="sc in allStorageClasses" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ` (${t('storage.default')})` : '' }}</option>
           </select>
         </div>
       </div>
