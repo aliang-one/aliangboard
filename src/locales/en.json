@@ -52,6 +52,12 @@
       "cancel": "Cancel",
       "confirm": "Confirm"
     },
+    "createFromYaml": {
+      "title": "Create from YAML",
+      "hint": "Paste or edit YAML then create. Namespace follows metadata.namespace in the YAML.",
+      "create": "Create",
+      "parseError": "YAML parse failed"
+    },
     "pagination": {
       "perPage": "{n} / page",
       "rangeSummary": "{start}-{end} of {total}",

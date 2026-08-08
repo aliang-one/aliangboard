@@ -52,6 +52,12 @@
       "cancel": "取消",
       "confirm": "确认"
     },
+    "createFromYaml": {
+      "title": "从 YAML 创建",
+      "hint": "粘贴或编辑 YAML 后创建。namespace 以 YAML 内 metadata.namespace 为准。",
+      "create": "创建",
+      "parseError": "YAML 解析失败"
+    },
     "pagination": {
       "perPage": "{n} / 页",
       "rangeSummary": "{start}-{end} / 共 {total}",
