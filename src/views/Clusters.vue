@@ -20,7 +20,7 @@ async function sync() {
   if (!store.remoteMode) { notify('info', t('clusters.demoModeNoSync')); return }
   syncing.value = true
   try {
-    await store.hydrateCoreResources()
+    await store.invalidateAllClusterQueries()
     notify('success', t('clusters.synced', { cluster: store.currentCluster }))
   } catch (e) {
     notify('error', t('clusters.syncFailed', { error: e.message || t('clusters.unknownError') }))

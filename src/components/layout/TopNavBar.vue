@@ -18,7 +18,7 @@ function refreshPage() {
   if (refreshing.value) return
   refreshing.value = true
   bumpRefresh() // 触发 router-view 重新挂载（重跑当前页 onMounted）
-  if (store.remoteMode) store.hydrateCoreResources({ silent: true }) // 后台重拉列表，静默不打断
+  if (store.remoteMode) store.invalidateAllClusterQueries() // 后台重拉列表，静默不打断
   clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => { refreshing.value = false }, 700)
 }

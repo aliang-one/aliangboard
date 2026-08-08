@@ -278,12 +278,12 @@ function handleRestart() { store.restartWorkload(route.params.name, route.params
 const refreshing = ref(false)
 async function refresh() {
   refreshing.value = true
-  try { await store.hydrateCoreResources() } catch (e) { notify('error', e.message || t('workload.notify.refreshFailed')) }
+  try { await store.invalidateAllClusterQueries() } catch (e) { notify('error', e.message || t('workload.notify.refreshFailed')) }
   finally { refreshing.value = false }
 }
 // 模板变更（镜像/回滚/重启/深编辑）后延时静默刷新：等控制器创建新 ReplicaSet，再重取 workloads + replicasets(历史版本) + pods，
 // 否则 Overview 与 Revisions 仍停留在旧版本
-function refreshSoon() { setTimeout(() => { store.hydrateCoreResources({ silent: true }).catch(() => {}) }, 1500) }
+function refreshSoon() { setTimeout(() => { store.invalidateAllClusterQueries().catch(() => {}) }, 1500) }
 
 // 部署中自动刷新：rollout 非健康时每 5s 静默轻量刷新（不闪加载条），恢复健康后停止
 let autoTimer = null
@@ -291,7 +291,7 @@ function stopAutoRefresh() { if (autoTimer) { clearTimeout(autoTimer); autoTimer
 function startAutoRefresh() {
   if (autoTimer || !store.remoteMode) return
   const tick = async () => {
-    try { await store.hydrateCoreResources({ silent: true, lite: true }) } catch { /* 忽略 */ }
+    try { await store.invalidateAllClusterQueries() } catch { /* 忽略 */ }
   }
   // 自重排 setTimeout：部署中 5s 看进度；稳定后 10s 保新鲜（消除「健康即变旧」的迟钝感）。离开页面停止。
   const schedule = () => {
