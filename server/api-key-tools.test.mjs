@@ -74,12 +74,12 @@ test('deny: bogus tier → policy 拒 + 审计 denied', async () => {
   assert.equal(db.prepare('SELECT result FROM audit_log').get().result, 'denied')
 })
 
-test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒,detail 命名两个 ns + 指向配置', async () => {
+test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒,detail 命名请求 ns + 允许集 + 指向配置', async () => {
   const db = makeDb()
   const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(() => tools.getPodLogs(k, cluster, { namespace: 'other', pod: 'p1' }), (e) =>
-    e.reason === 'policy' && /'other'/.test(e.detail) && /'ns'/.test(e.detail) && /API Keys/.test(e.detail))
+    e.reason === 'policy' && /'other'/.test(e.detail) && /ns/.test(e.detail) && /API Keys/.test(e.detail))
 })
 
 test('deny(tier): 工具不在 tier 允许集 → policy 拒,detail 指出工具 + 配置位置', async () => {
@@ -364,17 +364,19 @@ test('callTool source: 默认 direct', async () => {
   assert.equal(db.prepare('SELECT source FROM audit_log ORDER BY seq DESC LIMIT 1').get().source, 'direct')
 })
 
-// --- assertPathInNs(ns 作用域按 path 解析)---
+// --- assertPathInNs(ns 作用域按 path 解析;allowedNs 为 Set 来自 effectiveNamespaces)---
 test('assertPathInNs: 集群级 path(无 /namespaces/<x>/)→ 拒', () => {
-  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
-  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/api/v1/persistentvolumes/pv1', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail))
+  assert.throws(() => assertPathInNs('/apis/rbac.authorization.k8s.io/v1/clusterroles/admin', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && /集群级/.test(e.detail))
 })
-test('assertPathInNs: 他 ns path → 拒(超出绑定 ns)', () => {
-  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', 'ns'), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 other 超出绑定 ns/.test(e.detail))
+test('assertPathInNs: 他 ns path → 拒(不在允许集)', () => {
+  assert.throws(() => assertPathInNs('/api/v1/namespaces/other/pods/p1', new Set(['ns'])), (e) => e.code === 'PERMISSION_DENIED' && /命名空间 'other' 不在该 key 允许的 namespace 集/.test(e.detail))
 })
-test('assertPathInNs: 绑定 ns path → 通过', () => {
-  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', 'ns'))
-  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', 'ns'))
+test('assertPathInNs: 允许集内 ns path → 通过', () => {
+  assert.doesNotThrow(() => assertPathInNs('/apis/networking.k8s.io/v1/namespaces/ns/ingresses/foo', new Set(['ns'])))
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/ns/pods/p1', new Set(['ns'])))
+  // 跨 ns:多元素 Set 中任意 ns 均放行
+  assert.doesNotThrow(() => assertPathInNs('/api/v1/namespaces/dev/pods/p1', new Set(['ns', 'dev'])))
 })
 
 // --- delete_resource 收紧(path-ns 校验)---
@@ -538,4 +540,26 @@ test('can_i: 缺 verb/resource → 报错', async () => {
   const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(tools.callTool(k, cluster, 'can_i', { namespace: 'ns', resource: 'pods' }), /缺 verb/)
+})
+
+// --- ns allowlist(effectiveNamespaces)---
+test('ns allowlist: 额外 ns 在 allowlist → 放行(read key,跨 ns)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read', allowed_namespaces: ['dev'] })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'dev' })  // dev 在 [anydoor,dev]
+  assert.equal(out.kind, 'pods')  // 走通(ns 校验过 + fn 跑)
+})
+test('ns allowlist: ns 不在 allowlist → policy 拒(detail 命名请求 ns + 允许集)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read', allowed_namespaces: ['dev'] })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'other' }), (e) =>
+    e.reason === 'policy' && /'other'/.test(e.detail) && /anydoor/.test(e.detail) && /dev/.test(e.detail))
+})
+test('ns allowlist: 无 allowed_namespaces → 单 ns(向后兼容,他 ns 拒)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read' })  // 无 allowed
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'other' }), (e) => e.reason === 'policy')
 })

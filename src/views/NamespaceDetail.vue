@@ -17,6 +17,12 @@ const { t } = useI18n()
 // Namespace 详情 + 关联 services/workloads 走 Vue Query。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const nsName = computed(() => route.params.name)
+
+// 进入该命名空间：切换 currentNamespace 并跳转其 overview（复用 SideNavBar 切换模式）
+function enterNamespace() {
+  store.setNamespace(nsName.value)
+  router.push({ name: 'NamespaceOverview', params: { namespace: nsName.value } })
+}
 const nsDetail = useResourceDetail({
   key: ['cluster', cid.value, 'namespaces', nsName.value],
   fetcher: () => store.fetchNamespace(nsName.value),
@@ -70,6 +76,9 @@ async function sync() {
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.nsDetail.namespaceLabel') }}: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
+        <button @click="enterNamespace" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base">login</span> {{ t('ns.nsDetail.enterNamespace') }}
+        </button>
         <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50">
           <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.nsDetail.syncing') : t('ns.nsDetail.sync') }}
         </button>
