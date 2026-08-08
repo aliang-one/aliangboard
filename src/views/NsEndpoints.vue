@@ -28,6 +28,9 @@ const endpointsQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const nsEndpoints = computed(() => (endpointsQuery.data.value || []).filter(e => e.namespace === route.params.namespace))
+// Service 名查询（svcByName 在 remote 下孤立）
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 
 const search = ref('')
 const expanded = ref(new Set())
@@ -44,7 +47,7 @@ function toggleExpand(name) {
   expanded.value = s
 }
 const yamlOf = (e) => store.generateYAML('endpoints', e)
-const svcOf = (e) => store.getServiceByName(e.name, e.namespace)
+const svcOf = (e) => svcByName(e.name, e.namespace)
 </script>
 
 <template>

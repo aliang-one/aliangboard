@@ -19,7 +19,7 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 // HPAs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-// targetOptions 仍读 store.nsWorkloads（不同资源，下拉用，保留 store 读）。
+// targetOptions 仍读 nsWorkloads.value（不同资源，下拉用，保留 store 读）。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const hpasKey = ['cluster', cid.value, 'hpas']
 const hpasQuery = useResourceList({
@@ -30,6 +30,9 @@ const hpasQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const nsHPAs = computed(() => (hpasQuery.data.value || []).filter(h => h.namespace === route.params.namespace))
+// 目标 Workload 下拉源走 Vue Query（nsWorkloads.value 在 remote 下孤立）
+const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 
 const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsHPAs))
 
@@ -38,7 +41,7 @@ const showCreateModal = ref(false)
 const createForm = ref({ name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80, memoryTarget: 80 })
 
 // 可选目标工作负载（按 targetKind 过滤）
-const targetOptions = computed(() => store.nsWorkloads.filter(w => w.type === createForm.value.targetKind).map(w => w.name))
+const targetOptions = computed(() => nsWorkloads.value.filter(w => w.type === createForm.value.targetKind).map(w => w.name))
 
 function resetCreate() {
   createForm.value = { name: '', targetName: '', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 10, cpuTarget: 80, memoryTarget: 80 }

@@ -3,6 +3,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { groupByLayer, LAYER_TAXONOMY, TIER_OPTIONS, classifyResource } from '@/composables/useLayering'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
@@ -17,11 +18,20 @@ const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 // 聚合本命名空间下可归类的资源（带 _kind 用于跳转与默认归类）
+// workloads + services + ingresses 走 Vue Query（远端模式 store 已清空，必须走 Query）
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const wlQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const ingQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], fetcher: () => store.fetchIngresses(), mock: store.ingressList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsWorkloads = computed(() => (wlQ.data.value || []).filter(w => w.namespace === route.params.namespace))
+const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
+const nsIngress = computed(() => (ingQ.data.value || []).filter(i => i.namespace === route.params.namespace))
+
 const items = computed(() => {
   const list = []
-  for (const w of store.nsWorkloads) list.push({ _kind: 'workload', kind: w.type, type: w.type, name: w.name, namespace: w.namespace, image: w.image, status: w.status, labels: w.labels, annotations: w.annotations })
-  for (const s of store.nsServices) list.push({ _kind: 'service', kind: 'Service', name: s.name, namespace: s.namespace, status: s.status, labels: s.labels, annotations: s.annotations })
-  for (const ing of store.nsIngress) list.push({ _kind: 'ingress', kind: 'Ingress', name: ing.name, namespace: ing.namespace, labels: ing.labels, annotations: ing.annotations })
+  for (const w of nsWorkloads.value) list.push({ _kind: 'workload', kind: w.type, type: w.type, name: w.name, namespace: w.namespace, image: w.image, status: w.status, labels: w.labels, annotations: w.annotations })
+  for (const s of nsServices.value) list.push({ _kind: 'service', kind: 'Service', name: s.name, namespace: s.namespace, status: s.status, labels: s.labels, annotations: s.annotations })
+  for (const ing of nsIngress.value) list.push({ _kind: 'ingress', kind: 'Ingress', name: ing.name, namespace: ing.namespace, labels: ing.labels, annotations: ing.annotations })
   return list
 })
 

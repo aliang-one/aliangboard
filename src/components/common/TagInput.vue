@@ -4,6 +4,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import { syncTagHistory, getTagSuggestions } from '@/composables/useTagHistory'
 
 const { t } = useI18n()
@@ -16,6 +17,10 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const store = useClusterStore()
+// 标签历史源走 Vue Query（store.nsWorkloads 在 remote 下孤立）
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _wlsQ = useResourceList({ key: ['cluster', _cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsWorkloads = computed(() => (_wlsQ.data.value || []).filter(w => w.namespace === props.namespace))
 const input = ref('')
 const focused = ref(false)
 const suggestions = ref([])
@@ -29,7 +34,7 @@ const atMax = computed(() => tags.value.length >= props.max)
 // 刷新建议：同步历史（从同 ns 的 workload 收集）+ 按输入过滤 + 排除已选
 function refresh() {
   if (props.namespace && store.remoteMode) {
-    syncTagHistory(props.namespace, store.nsWorkloads)
+    syncTagHistory(props.namespace, nsWorkloads.value)
   }
   const chosen = new Set(tags.value.map(t => t.toLowerCase()))
   suggestions.value = getTagSuggestions(props.namespace, input.value)

@@ -40,6 +40,10 @@ const ingressClassesQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
+// Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
+const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 
 const showDeleteModal = ref(false)
 
@@ -88,10 +92,10 @@ const backendServices = computed(() => {
 const showRulesModal = ref(false)
 const pathTypeOptions = ['Prefix', 'Exact', 'ImplementationSpecific']
 // 当前 ns Service 名候选（serviceName 下拉）
-const nsServiceNames = computed(() => store.nsServices.map(s => s.name))
+const nsServiceNames = computed(() => nsServices.value.map(s => s.name))
 // 按行 serviceName 取其暴露端口（servicePort 下拉）
 function portsFor(serviceName) {
-  const svc = store.getServiceByName(serviceName, route.params.namespace)
+  const svc = svcByName(serviceName, route.params.namespace)
   return (svc?.portList || []).map(p => p.port)
 }
 // 编辑模型：host 分组 + defaultBackend（告别平铺 editRules）

@@ -31,6 +31,10 @@ const ingressesQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
+// Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
+const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 
 // 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索
 function flattenRules(row) {
@@ -70,10 +74,10 @@ const createForm = ref({
   enableTLS: true, tlsSecret: '', className: 'nginx',
 })
 // 当前 ns Service 名候选（serviceName 下拉）
-const nsServiceNames = computed(() => store.nsServices.map(s => s.name))
+const nsServiceNames = computed(() => nsServices.value.map(s => s.name))
 // 选中 Service 暴露的端口候选（servicePort 下拉）；service 不存在/未选时为空，允许手输兜底
 const selectedServicePorts = computed(() => {
-  const svc = store.getServiceByName(createForm.value.serviceName, route.params.namespace)
+  const svc = svcByName(createForm.value.serviceName, route.params.namespace)
   return (svc?.portList || []).map(p => p.port)
 })
 // 性能调优参数（→ nginx.ingress.kubernetes.io/<key> 注解，空值不写入）

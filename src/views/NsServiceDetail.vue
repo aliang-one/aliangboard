@@ -39,6 +39,13 @@ const svcDetail = useResourceDetail({
 })
 const svc = computed(() => svcDetail.data.value ?? store.getServiceByName(route.params.name, route.params.namespace))
 
+// pods + workloads + events 走 Vue Query（store ref 在 remote 下孤立）
+const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), mock: store.podList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const eventsQ = useResourceList({ key: ['cluster', cid.value, 'events'], fetcher: () => store.fetchEvents(), mock: store.eventList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsPods = computed(() => (podsQ.data.value || []).filter(p => p.namespace === route.params.namespace))
+const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
+
 const showEditModal = ref(false)
 const showYamlModal = ref(false)
 const showDeleteModal = ref(false)
@@ -62,12 +69,12 @@ const ep = computed(() => store.getEndpointsByName(route.params.name, route.para
 const epTargets = computed(() => ep.value?.targets || {})
 const podByIp = computed(() => {
   const m = {}
-  for (const p of store.nsPods) if (p.ip) m[p.ip] = p
+  for (const p of nsPods.value) if (p.ip) m[p.ip] = p
   return m
 })
 const podByName = computed(() => {
   const m = {}
-  for (const p of store.nsPods) if (p.name) m[p.name] = p
+  for (const p of nsPods.value) if (p.name) m[p.name] = p
   return m
 })
 // 解析端点对应的 backing pod：优先 targetRef 的 pod 名（K8s 权威关联），回退 IP 匹配
@@ -83,7 +90,7 @@ const hasEndpoints = computed(() => !!ep.value)
 const selectorPods = computed(() => {
   if (!svc.value?.selector) return []
   const sel = svc.value.selector
-  return store.nsPods.filter(p => Object.entries(sel).every(([k, v]) => p.labels?.[k] === v))
+  return nsPods.value.filter(p => Object.entries(sel).every(([k, v]) => p.labels?.[k] === v))
 })
 const readyCount = computed(() => hasEndpoints.value ? readyAddrs.value.length : selectorPods.value.filter(p => p.status === 'Running').length)
 const totalCount = computed(() => hasEndpoints.value ? (readyAddrs.value.length + notReadyAddrs.value.length) : selectorPods.value.length)
@@ -95,7 +102,7 @@ const isExternalName = computed(() => svc.value?.type === 'ExternalName')
 const boundWorkloads = computed(() => {
   const sel = svc.value?.selector
   if (!sel || !Object.keys(sel).length) return []
-  return store.nsWorkloads.filter(w => {
+  return nsWorkloads.value.filter(w => {
     const tpl = w.raw?.spec?.template?.metadata?.labels || {}
     return Object.entries(sel).every(([k, v]) => tpl[k] === v)
   })
@@ -112,11 +119,11 @@ const tplLabels = w => w?.raw?.spec?.template?.metadata?.labels || {}
 const showAddBackendModal = ref(false)
 const pickedBackend = ref('')
 const unmatchedWorkloads = computed(() =>
-  store.nsWorkloads.filter(w => !boundWorkloadNames.value.includes(w.name)))
+  nsWorkloads.value.filter(w => !boundWorkloadNames.value.includes(w.name)))
 // 把指定 workload 并入后端后的新 selector = (当前绑定 ∪ 该 workload) 的 template label 交集
 function mergedSelectorFor(name) {
   if (!name) return null
-  const picked = store.nsWorkloads.find(w => w.name === name)
+  const picked = nsWorkloads.value.find(w => w.name === name)
   if (!picked) return null
   const targets = [...boundWorkloads.value, picked]
   if (!targets.length) return {}
@@ -130,7 +137,7 @@ function mergedSelectorFor(name) {
 function alsoMatchFor(ms, desiredNames) {
   if (!ms || !Object.keys(ms).length) return []
   const desired = new Set(desiredNames)
-  return store.nsWorkloads
+  return nsWorkloads.value
     .filter(w => !desired.has(w.name) && Object.entries(ms).every(([k, v]) => tplLabels(w)[k] === v))
     .map(w => w.name)
 }
@@ -204,7 +211,11 @@ async function loadPerms() {
 watch(svc, s => { if (s && !permsLoaded) { permsLoaded = true; loadPerms() } }, { immediate: true })
 
 // === Events：按 involvedObject 过滤该 Service 的事件（mock 回退全量 ns 事件）===
-const svcEvents = computed(() => store.remoteMode ? store.eventsFor('Service', svc.value?.name, svc.value?.namespace) : store.nsEvents)
+const svcEvents = computed(() => {
+  if (!store.remoteMode) return store.nsEvents
+  const name = svc.value?.name, ns = svc.value?.namespace
+  return (eventsQ.data.value || []).filter(e => e.relatedKind === 'Service' && e.relatedName === name && (!ns || e.relatedNamespace === ns))
+})
 function goToRelated(event) {
   if (!event.relatedKind || !event.relatedName) return
   const ns = event.relatedNamespace || route.params.namespace
