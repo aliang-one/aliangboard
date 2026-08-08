@@ -52,6 +52,16 @@
       "cancel": "取消",
       "confirm": "确认"
     },
+    "createFromYaml": {
+      "title": "从 YAML 创建",
+      "hint": "粘贴或编辑 YAML 后创建。namespace 以 YAML 内 metadata.namespace 为准。",
+      "create": "创建",
+      "parseError": "YAML 解析失败"
+    },
+    "splitButton": {
+      "createFromYaml": "从 YAML 创建",
+      "copyWorkload": "复制工作负载"
+    },
     "pagination": {
       "perPage": "{n} / 页",
       "rangeSummary": "{start}-{end} / 共 {total}",
@@ -212,6 +222,19 @@
       "addData": "+ 添加",
       "optionalSuffix": "（可选）",
       "serviceEmptyHint": "当前命名空间暂无工作负载暴露容器端口，可直接输入"
+    },
+    "copyWorkload": {
+      "title": "复制工作负载",
+      "sourceNamespace": "源命名空间",
+      "selectPrompt": "选择要复制的工作负载",
+      "loading": "加载中…",
+      "empty": "该命名空间下没有工作负载",
+      "fetchError": "加载工作负载失败",
+      "confirm": "复制并编辑",
+      "thName": "名称",
+      "thType": "类型",
+      "thReplicas": "副本",
+      "thImage": "镜像"
     }
   },
   "nav": {
@@ -1163,6 +1186,7 @@
     "viewWorkloads": "查看工作负载",
     "viewPods": "查看 Pod",
     "deployAnother": "再部署一个",
+    "copyHint": "已从 {source} 复制，请确认名称与命名空间",
     "step1": "基本信息",
     "step2": "容器配置",
     "step3": "数据卷",

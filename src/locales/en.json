@@ -52,6 +52,16 @@
       "cancel": "Cancel",
       "confirm": "Confirm"
     },
+    "createFromYaml": {
+      "title": "Create from YAML",
+      "hint": "Paste or edit YAML then create. Namespace follows metadata.namespace in the YAML.",
+      "create": "Create",
+      "parseError": "YAML parse failed"
+    },
+    "splitButton": {
+      "createFromYaml": "Create from YAML",
+      "copyWorkload": "Copy workload"
+    },
     "pagination": {
       "perPage": "{n} / page",
       "rangeSummary": "{start}-{end} of {total}",
@@ -212,6 +222,19 @@
       "addData": "+ Add",
       "optionalSuffix": " (optional)",
       "serviceEmptyHint": "No workload in this namespace exposes container ports; you can type directly"
+    },
+    "copyWorkload": {
+      "title": "Copy Workload",
+      "sourceNamespace": "Source namespace",
+      "selectPrompt": "Select a workload to copy",
+      "loading": "Loading…",
+      "empty": "No workloads in this namespace",
+      "fetchError": "Failed to load workloads",
+      "confirm": "Copy & edit",
+      "thName": "Name",
+      "thType": "Type",
+      "thReplicas": "Replicas",
+      "thImage": "Image"
     }
   },
   "nav": {
@@ -1163,6 +1186,7 @@
     "viewWorkloads": "View Workloads",
     "viewPods": "View Pods",
     "deployAnother": "Deploy Another",
+    "copyHint": "Copied from {source} — verify name and namespace",
     "step1": "Basic Information",
     "step2": "Container Config",
     "step3": "Volumes",
