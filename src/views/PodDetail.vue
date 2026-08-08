@@ -18,7 +18,7 @@ import EventList from '@/components/common/EventList.vue'
 import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
 	const route = useRoute()
@@ -37,6 +37,25 @@ const podDetail = useResourceDetail({
 })
 const pod = computed(() => podDetail.data.value ?? store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
+
+// 归属 workload 查询（远端用 Vue Query；演示模式回退 store.workloadList）
+// 用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配（Plan 3 后 store.workloadList 在远端为空）
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+// 事件查询（远端用 Vue Query；演示模式回退 store.eventList）
+// podEvents 计算属性按 involvedObject 过滤该 Pod 的事件
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
 
 // 支持 hash 直达 tab：PodCard 等快速入口跳转到 PodDetail 时带 #terminal/#files/#exec/#logs
 const HASH_TAB = { '#logs': 'logs', '#log': 'logs', '#files': 'files', '#file': 'files', '#terminal': 'terminal', '#exec': 'terminal', '#term': 'terminal', '#yaml': 'yaml', '#events': 'events', '#event': 'events' }
@@ -283,8 +302,8 @@ async function doAttachDebug() {
 }
 watch(() => pod.value?.name, () => { debugContainers.value = [] })   // t('podDetail.clearSessionDebugContainers') when switching Pod
 
-// === 事件：远端按 involvedObject 过滤该 Pod 的事件；演示模式回退全量 nsEvents ===
-const podEvents = computed(() => store.remoteMode ? store.eventsFor('Pod', pod.value?.name, pod.value?.namespace) : store.nsEvents)
+// === 事件：按 involvedObject 过滤该 Pod 的事件（远端/演示均从 Vue Query 缓存取，统一数据源）===
+const podEvents = computed(() => (eventsQuery.data.value || []).filter(e => e.relatedKind === 'Pod' && e.relatedName === pod.value?.name && e.relatedNamespace === pod.value?.namespace))
 
 // === 所属工作负载：pod → ownerReferences（Deployment 通常经 ReplicaSet 间接拥有）===
 const owningWorkload = computed(() => {
@@ -298,7 +317,7 @@ const owningWorkload = computed(() => {
   if (ctrl.kind === 'ReplicaSet') {
     // ReplicaSet 名 = <deployment>-<templatehash>；在已加载的工作负载里找最长前缀匹配的 Deployment
     const rs = ctrl.name
-    const deps = (store.workloadList || []).filter(w => w.namespace === ns && w.type === 'Deployment' && (rs === w.name || rs.startsWith(w.name + '-')))
+    const deps = (workloadsQuery.data.value || []).filter(w => w.namespace === ns && w.type === 'Deployment' && (rs === w.name || rs.startsWith(w.name + '-')))
     if (deps.length) {
       const best = deps.reduce((a, b) => (b.name.length > a.name.length ? b : a))
       return { kind: 'Deployment', type: 'deployment', name: best.name, ns }
