@@ -2,7 +2,7 @@
 // 接线:index.mjs 注入 { db, requestFn(= requestKubernetes) },路由 /api/key/<cluster>/call(POST {tool,args})。
 // callTool 是 T12(MCP server)的复用点:MCP tools/call → callTool;tools/list → listTools()。
 import { lookupKey, isActive } from './auth-keys.mjs'
-import { authorize, PermissionDeniedError } from './authorize.mjs'
+import { authorize, PermissionDeniedError, effectiveNamespaces } from './authorize.mjs'
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
@@ -79,7 +79,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     const intent = { keyId: keyRow.id, owner: keyRow.owner, clusterId: keyRow.clusterId, namespace, verb, resource, tool, source, requestSummary: summary }
     const decision = authorize(keyRow, tool)
     if (!decision.allowed) { finalizeAudit(db, intent, { result: 'denied', reason: decision.reason }); throw new PermissionDeniedError(decision.reason, { tool, detail: `工具 '${tool}' 不在当前 API key 的允许工具集(tier='${keyRow.tier}'${keyRow.tool_overrides ? ' + tool_overrides 覆盖' : ''} 决定;在 平台管理 → API Keys 配置)` }) }
-    if (namespace !== keyRow.boundSA_namespace) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: `namespace '${namespace}' 超出该 API key 绑定作用域 '${keyRow.boundSA_namespace}'(绑定 ns 在 平台管理 → API Keys 配置)` }) }
+    const allowedNs = effectiveNamespaces(keyRow)
+    if (!allowedNs.has(namespace)) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: `namespace '${namespace}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}]);绑定 ns + 额外 ns 在 平台管理 → API Keys 配置,SA 的各 ns RoleBinding 自建` }) }
     reserveAudit(db, intent)
     try {
       const bootstrapCtx = buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })

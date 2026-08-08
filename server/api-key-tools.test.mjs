@@ -74,12 +74,12 @@ test('deny: bogus tier → policy 拒 + 审计 denied', async () => {
   assert.equal(db.prepare('SELECT result FROM audit_log').get().result, 'denied')
 })
 
-test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒,detail 命名两个 ns + 指向配置', async () => {
+test('deny(ns): 请求 ns ≠ 绑定 ns → policy 拒,detail 命名请求 ns + 允许集 + 指向配置', async () => {
   const db = makeDb()
   const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(() => tools.getPodLogs(k, cluster, { namespace: 'other', pod: 'p1' }), (e) =>
-    e.reason === 'policy' && /'other'/.test(e.detail) && /'ns'/.test(e.detail) && /API Keys/.test(e.detail))
+    e.reason === 'policy' && /'other'/.test(e.detail) && /ns/.test(e.detail) && /API Keys/.test(e.detail))
 })
 
 test('deny(tier): 工具不在 tier 允许集 → policy 拒,detail 指出工具 + 配置位置', async () => {
@@ -538,4 +538,26 @@ test('can_i: 缺 verb/resource → 报错', async () => {
   const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(tools.callTool(k, cluster, 'can_i', { namespace: 'ns', resource: 'pods' }), /缺 verb/)
+})
+
+// --- ns allowlist(effectiveNamespaces)---
+test('ns allowlist: 额外 ns 在 allowlist → 放行(read key,跨 ns)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read', allowed_namespaces: ['dev'] })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'dev' })  // dev 在 [anydoor,dev]
+  assert.equal(out.kind, 'pods')  // 走通(ns 校验过 + fn 跑)
+})
+test('ns allowlist: ns 不在 allowlist → policy 拒(detail 命名请求 ns + 允许集)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read', allowed_namespaces: ['dev'] })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'other' }), (e) =>
+    e.reason === 'policy' && /'other'/.test(e.detail) && /anydoor/.test(e.detail) && /dev/.test(e.detail))
+})
+test('ns allowlist: 无 allowed_namespaces → 单 ns(向后兼容,他 ns 拒)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', tier: 'read' })  // 无 allowed
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  await assert.rejects(tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'other' }), (e) => e.reason === 'policy')
 })
