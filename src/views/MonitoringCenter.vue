@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useRouter } from 'vue-router'
+import { useResourceList } from '@/composables/useK8sQuery'
 import MiniChart from '@/components/common/MiniChart.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -10,6 +11,41 @@ import { useI18n } from 'vue-i18n'
 const store = useClusterStore()
 const router = useRouter()
 const { t } = useI18n()
+
+// 集群级聚合查询（Vue Query，cluster-wide 单 key；eventWatch 桥接仍写同一缓存）
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const nodesQuery = useResourceList({
+  key: ['cluster', cid.value, 'nodes'],
+  fetcher: () => store.fetchNodes(),
+  mock: store.nodeList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  mock: store.podList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid.value, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const eventsQuery = useResourceList({
+  key: ['cluster', cid.value, 'events'],
+  fetcher: () => store.fetchEvents(),
+  mock: store.eventList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nodeList = computed(() => nodesQuery.data.value || [])
+const podList = computed(() => podsQuery.data.value || [])
+const workloadList = computed(() => workloadsQuery.data.value || [])
+const eventList = computed(() => eventsQuery.data.value || [])
 
 // 实时轮询：每 10s 刷新 metrics + 收集集群 CPU/内存到 30 样本滚动窗口（≈5min）喂 MiniChart
 const cpuSeries = ref([])
@@ -33,15 +69,15 @@ onMounted(() => { tick(); timer = setInterval(tick, 10000); store.startEventWatc
 onUnmounted(() => { if (timer) clearInterval(timer); store.stopEventWatch() })
 
 // KPI 派生
-const readyNodes = computed(() => store.nodeList.filter(n => n.status === 'Ready').length)
-const failedPods = computed(() => store.podList.filter(p => p.status === 'Failed').length)
-const warningEvents = computed(() => store.eventList.filter(e => e.type === 'warning').length)   // mapEvent 把 type 小写化为 normal|warning
+const readyNodes = computed(() => nodeList.value.filter(n => n.status === 'Ready').length)
+const failedPods = computed(() => podList.value.filter(p => p.status === 'Failed').length)
+const warningEvents = computed(() => eventList.value.filter(e => e.type === 'warning').length)   // mapEvent 把 type 小写化为 normal|warning
 
 // Top Pods（tab 切换 CPU/内存）
 const topMetric = ref('cpu')
 const topPods = computed(() => {
   const key = topMetric.value === 'cpu' ? 'usedCpu' : 'usedMem'
-  return [...store.podList]
+  return [...podList.value]
     .filter(p => p[key] != null && p[key] > 0)
     .sort((a, b) => b[key] - a[key])
     .slice(0, 10)
@@ -50,13 +86,13 @@ const topPods = computed(() => {
 // 事件流（集群级，warning 过滤）
 const eventFilter = ref('all')   // all | warning
 const recentEvents = computed(() => {
-  const list = store.eventList
+  const list = eventList.value
   const filtered = eventFilter.value === 'warning' ? list.filter(e => e.type === 'warning') : list   // type 小写
   return filtered.slice(0, 50)
 })
 // 告警面板
-const highCpuNodes = computed(() => store.nodeList.filter(n => n.cpu != null && n.cpu >= 80))
-const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status !== 'Running'))
+const highCpuNodes = computed(() => nodeList.value.filter(n => n.cpu != null && n.cpu >= 80))
+const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status !== 'Running'))
 </script>
 
 <template>
@@ -105,7 +141,7 @@ const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
         <p class="text-label-caps text-on-surface-variant">{{ t('monitoring.nodeHealth') }}</p>
         <div class="flex items-end gap-xs mt-xs">
-          <span class="text-display-md font-bold" :class="readyNodes === store.nodeList.length ? 'text-tertiary-container' : 'text-error'">{{ readyNodes }}/{{ store.nodeList.length }}</span>
+          <span class="text-display-md font-bold" :class="readyNodes === nodeList.length ? 'text-tertiary-container' : 'text-error'">{{ readyNodes }}/{{ nodeList.length }}</span>
         </div>
         <p class="text-xs text-on-surface-variant mt-sm">{{ t('monitoring.readyNodes') }}</p>
       </div>
@@ -123,7 +159,7 @@ const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status
     <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md mb-md">
       <h3 class="text-body-sm font-semibold mb-sm flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-base">dns</span> {{ t('monitoring.nodeHealth') }}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-sm">
-        <button v-for="n in store.nodeList" :key="n.name" @click="router.push({ name: 'NodeDetail', params: { name: n.name } })" class="text-left rounded-lg border border-outline-variant/60 p-sm hover:border-primary hover:bg-primary-container/5 transition-colors">
+        <button v-for="n in nodeList" :key="n.name" @click="router.push({ name: 'NodeDetail', params: { name: n.name } })" class="text-left rounded-lg border border-outline-variant/60 p-sm hover:border-primary hover:bg-primary-container/5 transition-colors">
           <div class="flex items-center justify-between gap-xs mb-xs">
             <span class="font-mono text-body-sm text-on-surface truncate">{{ n.name }}</span>
             <StatusChip :status="n.status" size="sm" />
@@ -132,7 +168,7 @@ const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status
           <div class="flex items-center gap-xs text-xs text-on-surface-variant"><span class="w-10">Mem</span><ProgressBar :value="n.memory || 0" class="flex-1" /></div>
         </button>
       </div>
-      <p v-if="!store.nodeList.length" class="text-center text-on-surface-variant text-body-sm py-md">{{ t('monitoring.noNodes') }}</p>
+      <p v-if="!nodeList.length" class="text-center text-on-surface-variant text-body-sm py-md">{{ t('monitoring.noNodes') }}</p>
     </div>
 
     <!-- Top Pods -->
@@ -190,7 +226,7 @@ const notReadyWorkloads = computed(() => store.workloadList.filter(w => w.status
           </div>
           <div v-if="failedPods">
             <p class="text-xs text-on-surface-variant mb-xs">{{ t('monitoring.failedPodsLabel') }}（{{ failedPods }}）</p>
-            <button v-for="p in store.podList.filter(p => p.status === 'Failed').slice(0, 5)" :key="p.namespace + '/' + p.name" @click="router.push({ name: 'PodDetail', params: { namespace: p.namespace, name: p.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
+            <button v-for="p in podList.filter(p => p.status === 'Failed').slice(0, 5)" :key="p.namespace + '/' + p.name" @click="router.push({ name: 'PodDetail', params: { namespace: p.namespace, name: p.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
               <span class="font-mono text-body-sm text-on-surface truncate">{{ p.name }}</span><span class="text-xs text-on-surface-variant">{{ p.namespace }}</span>
             </button>
           </div>
