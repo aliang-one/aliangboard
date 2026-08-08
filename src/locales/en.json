@@ -1826,7 +1826,15 @@
     "resetAll": "Reset All",
     "reset": "Reset",
     "language": "Language",
-    "zhName": "中文"
+    "zhName": "中文",
+    "mcpTitle": "MCP Service",
+    "mcpEnabled": "Running",
+    "mcpDisabled": "Disabled",
+    "mcpUsageTitle": "Client connection",
+    "mcpUsageUrl": "Endpoint URL",
+    "mcpUsageAuth": "Auth header",
+    "mcpUsageNote": "Mint a key at API Keys management; the key's tier + namespace + tool_overrides determine available tools/scope.",
+    "mcpDisabledHint": "MCP service is disabled; external AI clients cannot connect."
   },
   "storage": {
     "title": "Storage",
