@@ -113,3 +113,25 @@ test('schema 幂等: 重复 createApiKeysSchema 不报错(tool_overrides 列已�
   const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tool_overrides: { allow: ['scale'] } })
   assert.ok(k.id)
 })
+
+// --- Task 2: allowed_namespaces 承载(跨 ns allowlist)---
+test('mintKey: allowed_namespaces 合法 → 存 JSON 串;listKeys 回带', () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'anydoor', boundSA_name: 'sa', allowed_namespaces: ['dev', 'staging'] })
+  assert.equal(k.allowed_namespaces, JSON.stringify(['dev', 'staging']))
+  assert.equal(listKeys(db)[0].allowed_namespaces, JSON.stringify(['dev', 'staging']))
+})
+test('mintKey: 无 allowed_namespaces → 列为 null(向后兼容)', () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  assert.equal(k.allowed_namespaces, null); assert.equal(listKeys(db)[0].allowed_namespaces, null)
+})
+test('mintKey: 非法 ns 名 → 抛,不建 key', () => {
+  const db = makeDb()
+  assert.throws(() => mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', allowed_namespaces: ['BAD_ns'] }), /非法 namespace/)
+  assert.equal(listKeys(db).length, 0, '失败不建 key')
+})
+test('schema 幂等: 二次 createApiKeysSchema 不报错', () => {
+  const db = makeDb()
+  assert.doesNotThrow(() => createApiKeysSchema(db))
+})

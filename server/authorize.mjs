@@ -53,6 +53,33 @@ export function normalizeToolOverrides(raw) {
   return Object.keys(out).length ? JSON.stringify(out) : null
 }
 
+// 运行时有效 namespace 集:lenient。损坏/缺 → 回退 [boundSA_namespace](fail-open,不锁死)。
+// boundSA_namespace 永远在;allowed_namespaces 只存额外 ns。
+export function effectiveNamespaces(keyRow) {
+  const set = new Set([keyRow?.boundSA_namespace])
+  const raw = keyRow?.allowed_namespaces
+  if (!raw) return set
+  let arr
+  try { arr = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return set }
+  if (Array.isArray(arr)) for (const ns of arr) if (typeof ns === 'string' && ns) set.add(ns)
+  return set
+}
+
+// mint/PATCH 用:strict。ns 名 dns-label 校验;boundNS 运行时自动并入 → 不重复存。坏→抛。返 JSON 串或 null。
+const NS_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/  // K8s RFC1123 label
+export function normalizeAllowedNamespaces(raw, boundNs) {
+  if (raw == null) return null
+  const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' ? JSON.parse(raw) : null)  // 坏串让 JSON.parse 抛
+  if (!arr) throw new Error('allowed_namespaces 必须是字符串数组')
+  const out = []
+  for (const ns of arr) {
+    if (typeof ns !== 'string') throw new Error('allowed_namespaces 必须是字符串数组')
+    if (!NS_NAME.test(ns) || ns.length > 63) throw new Error(`非法 namespace 名(需 dns-label,≤63): ${ns}`)
+    if (ns !== boundNs && !out.includes(ns)) out.push(ns)  // boundNS 运行时自动并入,不重复存;dedup
+  }
+  return out.length ? JSON.stringify(out) : null
+}
+
 // 策略决策:(keyRow, tool) → { allowed, reason? }。纯函数,无副作用。
 // reason: 'revoked'(无 key 或已吊销)| 'policy'(tier 不含该工具)。
 export function authorize(keyRow, tool) {

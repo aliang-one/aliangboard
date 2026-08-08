@@ -10,7 +10,7 @@ import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
-import { normalizeToolOverrides } from './authorize.mjs'
+import { normalizeToolOverrides, normalizeAllowedNamespaces } from './authorize.mjs'
 import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1658,6 +1658,7 @@ async function handle(req, res) {
         boundSA_name: input.boundSA_name,
         tier: input.tier || 'read',
         tool_overrides: input.tool_overrides ?? null,
+        allowed_namespaces: input.allowed_namespaces ?? null,
         label: input.label || null,
         createdBy: ps.username,
       })
@@ -1675,6 +1676,18 @@ async function handle(req, res) {
       if (!changes) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
       return sendJson(res, 200, { ok: true, id, tool_overrides: json })
     } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '更新覆盖失败' }) }
+  }
+  if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/namespaces$/)) {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const id = decodeURIComponent(url.pathname.split('/')[4])
+      const input = await readBody(req)
+      const key = db.prepare('SELECT boundSA_namespace FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
+      if (!key) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
+      const json = normalizeAllowedNamespaces(input.allowed_namespaces, key.boundSA_namespace)  // strict: 坏→抛
+      db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ?').run(json, id)
+      return sendJson(res, 200, { ok: true, id, allowed_namespaces: json })
+    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '更新 ns allowlist 失败' }) }
   }
   if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
     const ps = requireAdmin(req, res); if (!ps) return

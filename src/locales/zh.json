@@ -2967,5 +2967,20 @@
     "prev": "上一页",
     "next": "下一页",
     "noData": "无记录"
+  },
+  "nsAllowlist": {
+    "title": "namespace 允许集",
+    "boundAlways": "绑定(始终允许)",
+    "addPlaceholder": "+ 额外 namespace(回车追加)",
+    "invalid": "namespace 名非法(dns-label,≤63)",
+    "dup": "已添加",
+    "summary": "允许 ns",
+    "colHeader": "允许 ns",
+    "editNs": "编辑 namespace 允许集",
+    "editNsTitle": "编辑 namespace 允许集 · {prefix}…",
+    "nsMeta": "SA={ns}/{name};额外 namespace 列表(始终含绑定 ns)",
+    "updated": "ns allowlist 已更新",
+    "updateFailed": "更新失败",
+    "advanced": "高级:namespace 允许集(在绑定 ns 之外追加)"
   }
 }

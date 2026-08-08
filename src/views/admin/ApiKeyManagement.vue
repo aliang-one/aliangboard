@@ -9,6 +9,7 @@ import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import ToolOverrideEditor from '@/components/common/ToolOverrideEditor.vue'
+import NsAllowlistEditor from '@/components/common/NsAllowlistEditor.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -23,6 +24,10 @@ const mintOverrides = ref({ allow: [], deny: [] })        // mint 用
 const editOverrides = ref({ allow: [], deny: [] })        // edit 用
 const showOverrideModal = ref(false)
 const editingKey = ref(null)
+
+const mintExtraNs = ref([])        // mint ns allowlist 用
+const editExtraNs = ref([])        // edit ns allowlist 用
+const showNsModal = ref(false)
 
 // 列表展示:把 DB 的 tool_overrides 串解析成摘要
 const overrideSummary = k => {
@@ -48,6 +53,28 @@ async function saveOverrides() {
   } catch (e) { notify('error', e.message || t('admin.apiKeys.updateFailed')) }
 }
 
+// 列表展示:把 DB 的 allowed_namespaces 串解析成额外 ns 摘要
+const nsSummary = k => {
+  let extra = []
+  if (k.allowed_namespaces) { try { extra = JSON.parse(k.allowed_namespaces) } catch { extra = [] } }
+  if (!Array.isArray(extra)) extra = []
+  return extra.length ? `+ ${extra.join(', ')}` : ''
+}
+function openNsEditor(k) {
+  editingKey.value = k
+  let extra = []
+  if (k.allowed_namespaces) { try { extra = JSON.parse(k.allowed_namespaces) } catch { extra = [] } }
+  if (!Array.isArray(extra)) extra = []
+  editExtraNs.value = extra
+  showNsModal.value = true
+}
+async function saveNamespaces() {
+  try {
+    await adminApi.apikeys.updateNamespaces(editingKey.value.id, editExtraNs.value)
+    notify('success', t('nsAllowlist.updated')); showNsModal.value = false; load()
+  } catch (e) { notify('error', e.message || t('nsAllowlist.updateFailed')) }
+}
+
 const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 const TIER_STYLE = { read: 'bg-status-running/10 text-status-running', operator: 'bg-status-warning/10 text-status-warning', admin: 'bg-error/10 text-error' }
@@ -55,6 +82,7 @@ const headers = computed(() => [
   { key: 'prefix', label: 'Key' },
   { key: 'tier', label: t('admin.apiKeys.colTier') },
   { key: 'overrides', label: t('admin.apiKeys.colOverrides') },
+  { key: 'nsAllowlist', label: t('nsAllowlist.colHeader') },
   { key: 'owner', label: t('admin.apiKeys.colOwner') },
   { key: 'boundSA', label: t('admin.apiKeys.colBoundSA') },
   { key: 'cluster', label: t('admin.apiKeys.colCluster') },
@@ -76,11 +104,13 @@ onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load() })
 
 async function doMint() {
   try {
-    const payload = { ...mintForm.value, tool_overrides: overridesPayload(mintOverrides.value) }
+    const payload = { ...mintForm.value, tool_overrides: overridesPayload(mintOverrides.value), allowed_namespaces: mintExtraNs.value.length ? mintExtraNs.value : null }
     const res = await adminApi.apikeys.create(payload)
     newKey.value = res.apikey
     showMintModal.value = false
     mintForm.value = { owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
+    mintOverrides.value = { allow: [], deny: [] }
+    mintExtraNs.value = []
     notify('success', t('admin.apiKeys.minted'))
     load()
   } catch (e) { notify('error', e.message || t('admin.apiKeys.mintFailed')) }
@@ -100,7 +130,7 @@ async function doRevoke(k) {
   <section class="animate-fade-in p-md">
     <div class="flex items-center justify-between mb-md">
       <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('admin.apiKeys.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.apiKeys.subtitle') }}</p></div>
-      <button @click="mintOverrides = { allow: [], deny: [] }; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+      <button @click="mintOverrides = { allow: [], deny: [] }; mintExtraNs = []; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
         <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.apiKeys.mintKey') }}
       </button>
     </div>
@@ -114,6 +144,10 @@ async function doRevoke(k) {
         <span v-if="overrideSummary(row)" class="font-mono text-body-xs text-on-surface-variant">{{ overrideSummary(row) }}</span>
         <span v-else class="text-body-xs text-on-surface-variant/50">—</span>
       </template>
+      <template #nsAllowlist="{ row }">
+        <span v-if="nsSummary(row)" class="font-mono text-body-xs text-on-surface-variant">{{ nsSummary(row) }}</span>
+        <span v-else class="text-body-xs text-on-surface-variant/50">—</span>
+      </template>
       <template #boundSA="{ row }"><span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span></template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
       <template #state="{ row }">
@@ -122,6 +156,7 @@ async function doRevoke(k) {
       </template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
+        <button v-if="!row.revokedAt" @click.stop="openNsEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('nsAllowlist.editNs')"><span class="material-symbols-outlined text-base">filter_alt</span></button>
         <button v-if="!row.revokedAt" @click.stop="openOverrideEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('admin.apiKeys.editOverrides')"><span class="material-symbols-outlined text-base">tune</span></button>
         <button v-if="!row.revokedAt" @click.stop="doRevoke(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('admin.apiKeys.revoke')"><span class="material-symbols-outlined text-base">block</span></button>
       </template>
@@ -154,6 +189,10 @@ async function doRevoke(k) {
         <div>
           <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.advancedOverrides') }}</label>
           <ToolOverrideEditor :tier="mintForm.tier" v-model="mintOverrides" />
+        </div>
+        <div>
+          <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('nsAllowlist.advanced') }}</label>
+          <NsAllowlistEditor :bound-ns="mintForm.boundSA_namespace" v-model="mintExtraNs" />
         </div>
         <p class="text-body-xs text-on-surface-variant bg-surface-container-low rounded-lg p-sm">{{ $t('admin.apiKeys.saMustExist') }}</p>
       </div>
@@ -196,6 +235,18 @@ async function doRevoke(k) {
       <template #actions>
         <button @click="showOverrideModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
         <button @click="saveOverrides" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('common.save') }}</button>
+      </template>
+    </Modal>
+
+    <!-- 编辑 namespace 允许集 Modal -->
+    <Modal v-model="showNsModal" :title="$t('nsAllowlist.editNsTitle', { prefix: editingKey?.prefix })" width="max-w-xl">
+      <div v-if="editingKey" class="flex flex-col gap-md">
+        <p class="text-body-xs text-on-surface-variant">{{ $t('nsAllowlist.nsMeta', { ns: editingKey.boundSA_namespace, name: editingKey.boundSA_name }) }}</p>
+        <NsAllowlistEditor :bound-ns="editingKey.boundSA_namespace" v-model="editExtraNs" />
+      </div>
+      <template #actions>
+        <button @click="showNsModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+        <button @click="saveNamespaces" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('common.save') }}</button>
       </template>
     </Modal>
   </section>
