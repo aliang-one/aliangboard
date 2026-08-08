@@ -5,6 +5,7 @@ import { computed, ref, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -16,7 +17,39 @@ const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
-const deployments = computed(() => store.nsWorkloads.filter(w => w.type === 'Deployment'))
+// Workloads/Services/Ingresses 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const workloadsKey = ['cluster', cid.value, 'workloads']
+const workloadsQuery = useResourceList({
+  key: workloadsKey,
+  fetcher: () => store.fetchWorkloads(),
+  mock: store.workloadList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
+
+const servicesKey = ['cluster', cid.value, 'services']
+const servicesQuery = useResourceList({
+  key: servicesKey,
+  fetcher: () => store.fetchServices(),
+  mock: store.serviceList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
+
+const ingressesKey = ['cluster', cid.value, 'ingresses']
+const ingressesQuery = useResourceList({
+  key: ingressesKey,
+  fetcher: () => store.fetchIngresses(),
+  mock: store.ingressList,
+  mockMode: !store.remoteMode,
+  options: { refetchInterval: store.remoteMode ? 30000 : false },
+})
+const nsIngresses = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
+
+const deployments = computed(() => nsWorkloads.value.filter(w => w.type === 'Deployment'))
 
 const COLLAPSIBLE = new Set(['monitoring', 'middleware', 'persistence'])
 const COLLAPSE_PREF_KEY = 'aliangboard.nsOverview.layerCollapse'
@@ -38,12 +71,12 @@ function toggleLayer(section) {
 function associations(dep) {
   const ns = route.params.namespace
   const labels = dep?.raw?.spec?.template?.metadata?.labels || dep?.labels || {}
-  const services = (store.serviceList || []).filter(s =>
+  const services = nsServices.value.filter(s =>
     s.namespace === ns && s.selector && Object.keys(s.selector).length &&
     Object.entries(s.selector).every(([k, v]) => labels[k] === v))
   const svcNames = new Set(services.map(s => s.name))
   const ingressRules = []
-  for (const ing of (store.ingressList || [])) {
+  for (const ing of nsIngresses.value) {
     if (ing.namespace !== ns) continue
     for (const r of (ing.rules || [])) {
       for (const p of (r.http?.paths || [])) {
