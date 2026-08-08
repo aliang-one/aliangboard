@@ -2360,105 +2360,6 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
-  async function hydrateCoreResources(opts = {}) {
-    if (!remoteMode.value) return
-    if (!opts.silent) connectionState.value = 'loading'
-    const requests = await Promise.allSettled([
-      api.k8s('/api/v1/nodes'),
-      api.k8s('/api/v1/pods?limit=1000'),
-      api.k8s('/api/v1/namespaces'),
-      api.k8s('/apis/apps/v1/deployments?limit=1000'),
-      api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
-      api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
-      api.k8s('/apis/apps/v1/replicasets?limit=5000'),                    // 回滚历史：revision 注解
-      api.k8s('/api/v1/services?limit=1000'),
-      api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'),
-      api.k8s('/api/v1/events?limit=1000'),
-      api.k8s('/apis/metrics.k8s.io/v1beta1/nodes'),                      // 真实节点用量
-      api.k8s('/apis/metrics.k8s.io/v1beta1/pods'),                       // 真实 Pod 用量
-    ])
-    const valueAt = index => requests[index].status === 'fulfilled' ? requests[index].value : null
-    const nodeData = valueAt(0)
-    if (!nodeData && remoteMode.value) notify('error', i18n.global.t('store.nodeFetchFailed'))
-    const podData = valueAt(1)
-    const namespaceData = valueAt(2)
-    const deploymentData = valueAt(3)
-    const statefulSetData = valueAt(4)
-    const daemonSetData = valueAt(5)
-    const replicaSetData = valueAt(6)
-    const serviceData = valueAt(7)
-    const ingressData = valueAt(8)
-    const eventData = valueAt(9)
-    const nodeMetricsData = valueAt(10)
-    const podMetricsData = valueAt(11)
-
-    // 指标（metrics-server）可能未安装或无 RBAC 权限——任一失败即整体降级为「不可用」
-    const metricsAvailable = Boolean(nodeMetricsData && podMetricsData)
-    const nodeMetricMap = new Map()
-    for (const it of (nodeMetricsData?.items || [])) {
-      nodeMetricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
-    }
-    const podMetricMap = new Map()
-    for (const it of (podMetricsData?.items || [])) {
-      let cpuMilli = 0, memKi = 0
-      for (const c of (it.containers || [])) { cpuMilli += cpuToMilli(c.usage?.cpu); memKi += memToKi(c.usage?.memory) }
-      podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
-    }
-    const nodeMetric = name => (metricsAvailable ? (nodeMetricMap.get(name) || null) : null)
-    const podMetric = (ns, name) => (metricsAvailable ? (podMetricMap.get(`${ns}/${name}`) || null) : null)
-
-    if (!namespaceData) {
-      if (!opts.silent) connectionState.value = 'error'
-      const failure = requests[2].status === 'rejected' ? requests[2].reason : null
-      throw new Error(failure?.message || i18n.global.t('store.namespaceReadFailed'))
-    }
-    if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, nodeMetric(item.metadata?.name)))
-    if (podData?.items) {
-      podList.value = podData.items.map(item => mapPod(item, podMetric(item.metadata?.namespace, item.metadata?.name)))
-      // 记录 list 的 resourceVersion，供 Pod Watch 续接（只收此后变更）
-      if (podData.metadata?.resourceVersion) podWatchRv = podData.metadata.resourceVersion
-    }
-    if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
-      name: item.metadata?.name,
-      status: item.status?.phase || 'Unknown',
-      pods: podList.value.filter(p => p.namespace === item.metadata?.name).length,
-      services: serviceData?.items?.filter(s => s.metadata?.namespace === item.metadata?.name).length || 0,
-      age: ageOf(item.metadata?.creationTimestamp),
-      labels: item.metadata?.labels || {},
-    }))
-    // 校验持久化的 currentNamespace：集群侧已删则回退到第一个存在的，避免空列表无提示
-    if (currentNamespace.value && namespaceList.value.length
-        && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
-      setNamespace(namespaceList.value[0].name)
-    }
-    if (deploymentData || statefulSetData || daemonSetData) {
-      workloadList.value = [
-        ...(deploymentData?.items || []).map(item => mapWorkload(item, 'Deployment')),
-        ...(statefulSetData?.items || []).map(item => mapWorkload(item, 'StatefulSet')),
-        ...(daemonSetData?.items || []).map(item => mapWorkload(item, 'DaemonSet')),
-      ]
-      // 真实回滚历史：按 ReplicaSet 的 revision 注解还原
-      attachRolloutHistory(workloadList.value, deploymentData, replicaSetData)
-    }
-    if (serviceData?.items) serviceList.value = serviceData.items.map(mapService)
-    if (ingressData?.items) ingressList.value = ingressData.items.map(mapIngress)
-    if (eventData?.items) {
-      eventList.value = eventData.items.map(mapEvent).sort((a, b) => (b._ts || 0) - (a._ts || 0))
-      if (eventData.metadata?.resourceVersion) eventWatchRv = eventData.metadata.resourceVersion
-    }
-    // 集群级 CPU/内存：按节点用量 / allocatable 汇总；与上次水合对比得出趋势
-    computeClusterMetrics(metricsAvailable)
-    // 扩展资源（ConfigMap/Secret/PVC/PV/SC/RBAC/NetworkPolicy/HPA 等）拉取失败不应阻断登录
-    // lite 模式（滚动发布自动刷新）：跳过较重的扩展资源（ConfigMap/Secret/RBAC 等），只更新运行态
-    if (!opts.lite) {
-      try { await hydrateExtendedResources() } catch (e) { console.warn('[hydrate] 扩展资源部分失败:', e?.message || e) }
-    }
-    if (!opts.silent) connectionState.value = 'connected'
-    // nodeList 与 podList 均已水合，按 pod.node 回填 podCount
-    recountNodePods()
-    return { failed: requests.filter(r => r.status === 'rejected').length }
-  }
-
   // 关键路径水合：仅 namespaces + nodes（2 请求），替代原 12 路全量 hydrateCoreResources。
   // clusterHealth 只需 nodeList（Ready/controlPlane），不需 metrics。
   // pods/workloads/services/ingresses/events 等由各页面 Vue Query 自取。
@@ -3594,7 +3495,7 @@ status:
     // CRUD: Namespaces
     addNamespace, updateNamespace, deleteNamespace,
     // 多集群
-    switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore, hydrateCoreResources,
+    switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore,
     hydrateCriticalResources,
     invalidateAllClusterQueries,
     // Pod 列表轻量刷新（删 Pod 后看重建）
