@@ -11,7 +11,7 @@ const props = defineProps({
   originalValue: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:modelValue', 'save', 'discard'])
+const emit = defineEmits(['update:modelValue', 'save', 'discard', 'edit-start'])
 
 const editableContent = ref(props.modelValue)
 const hasChanges = ref(false)
@@ -37,6 +37,7 @@ async function copy() {
 function startEdit() {
   editableContent.value = props.modelValue
   isEditing.value = true
+  emit('edit-start')
 }
 
 function handleSave() {
