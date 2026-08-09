@@ -133,9 +133,9 @@ function confirmDelete(ing) {
   deleteTarget.value = ing
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteIngress(deleteTarget.value.name, route.params.namespace)
+    await store.deleteIngress(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: ingressesKey })
   }
   showDeleteModal.value = false

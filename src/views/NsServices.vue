@@ -185,9 +185,9 @@ function confirmDelete(svc) {
   deleteTarget.value = svc
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteService(deleteTarget.value.name, route.params.namespace)
+    await store.deleteService(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: servicesKey })
   }
   showDeleteModal.value = false

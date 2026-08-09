@@ -62,9 +62,9 @@ function resetCreate() {
   createForm.value = { name: '', capacity: '10Gi', accessModes: 'RWO', storageClass: '' }
 }
 
-function handleCreatePVC() {
+async function handleCreatePVC() {
   const f = createForm.value
-  store.addPVC({
+  await store.addPVC({
     name: f.name,
     namespace: route.params.namespace,
     status: 'Pending',
@@ -86,9 +86,9 @@ function confirmDelete(pvc) {
   deleteTarget.value = pvc
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deletePVC(deleteTarget.value.name, route.params.namespace)
+    await store.deletePVC(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: pvcsKey })
   }
   showDeleteModal.value = false

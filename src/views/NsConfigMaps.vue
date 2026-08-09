@@ -80,9 +80,9 @@ function confirmDelete(cm) {
   deleteTarget.value = cm
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteConfigMap(deleteTarget.value.name, route.params.namespace)
+    await store.deleteConfigMap(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: configmapsKey })
   }
   showDeleteModal.value = false

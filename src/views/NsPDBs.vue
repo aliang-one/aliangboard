@@ -60,12 +60,12 @@ function resetCreate() {
   }
 }
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
   const minAvailable = f.constraintType === 'minAvailable' ? String(f.minAvailable) : ''
   const maxUnavailable = f.constraintType === 'maxUnavailable' ? String(f.maxUnavailable) : ''
   const desiredHealthy = Number(f.desiredHealthy) || 0
-  store.addPDB({
+  await store.addPDB({
     name: f.name,
     namespace: route.params.namespace,
     minAvailable,
@@ -88,9 +88,9 @@ function confirmDelete(pdb) {
   deleteTarget.value = pdb
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deletePDB(deleteTarget.value.name, route.params.namespace)
+    await store.deletePDB(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: pdbsKey })
   }
   showDeleteModal.value = false

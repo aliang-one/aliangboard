@@ -131,9 +131,9 @@ function confirmDelete(sec) {
   deleteTarget.value = sec
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteSecret(deleteTarget.value.name, route.params.namespace)
+    await store.deleteSecret(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: secretsKey })
   }
   showDeleteModal.value = false

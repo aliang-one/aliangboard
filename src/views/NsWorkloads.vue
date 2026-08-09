@@ -101,9 +101,9 @@ function confirmDelete(row) {
   deleteTarget.value = row
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteWorkload(deleteTarget.value.name, route.params.namespace)
+    await store.deleteWorkload(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: workloadsKey })
   }
   showDeleteModal.value = false

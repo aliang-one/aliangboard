@@ -70,9 +70,9 @@ function confirmDelete(np) {
   deleteTarget.value = np
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteNetworkPolicy(deleteTarget.value.name, route.params.namespace)
+    await store.deleteNetworkPolicy(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: networkpoliciesKey })
   }
   showDeleteModal.value = false
