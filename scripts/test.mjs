@@ -309,23 +309,21 @@ test('computeClusterHealth：控制面优先分级', () => {
   const cp = st => ({ isControlPlane: true, status: st })
   const w = st => ({ isControlPlane: false, status: st })
   // Healthy：控制面全 Ready + worker 全 Ready
-  let h = computeClusterHealth({ nodeList: [cp('Ready'), cp('Ready'), w('Ready')], apiReachable: true, remoteMode: true })
+  let h = computeClusterHealth({ nodeList: [cp('Ready'), cp('Ready'), w('Ready')], apiReachable: true })
   assert.equal(h.status, 'Healthy'); assert.equal(h.severity, 'ok')
   assert.equal(h.controlPlane.total, 2); assert.equal(h.controlPlane.ready, 2); assert.equal(h.workers.total, 1)
   // 控制面有 NotReady → Critical
-  h = computeClusterHealth({ nodeList: [cp('Ready'), cp('NotReady'), w('Ready')], apiReachable: true, remoteMode: true })
+  h = computeClusterHealth({ nodeList: [cp('Ready'), cp('NotReady'), w('Ready')], apiReachable: true })
   assert.equal(h.status, 'Critical'); assert.equal(h.severity, 'crit'); assert.equal(h.controlPlane.ready, 1)
   // worker NotReady（控制面全 Ready）→ Degraded
-  h = computeClusterHealth({ nodeList: [cp('Ready'), w('Ready'), w('NotReady')], apiReachable: true, remoteMode: true })
+  h = computeClusterHealth({ nodeList: [cp('Ready'), w('Ready'), w('NotReady')], apiReachable: true })
   assert.equal(h.status, 'Degraded'); assert.equal(h.severity, 'warn'); assert.equal(h.workers.ready, 1)
   // apiReachable=false → Disconnected（即使节点全 Ready）
-  assert.equal(computeClusterHealth({ nodeList: [cp('Ready')], apiReachable: false, remoteMode: true }).status, 'Disconnected')
-  // !remoteMode → Disconnected
-  assert.equal(computeClusterHealth({ nodeList: [cp('Ready')], apiReachable: true, remoteMode: false }).status, 'Disconnected')
+  assert.equal(computeClusterHealth({ nodeList: [cp('Ready')], apiReachable: false }).status, 'Disconnected')
   // 空 nodeList → Disconnected
-  assert.equal(computeClusterHealth({ nodeList: [], apiReachable: true, remoteMode: true }).status, 'Disconnected')
+  assert.equal(computeClusterHealth({ nodeList: [], apiReachable: true }).status, 'Disconnected')
   // 无控制面（role 标签缺失，isControlPlane 全 false）→ 按 worker 判定 Degraded
-  h = computeClusterHealth({ nodeList: [w('Ready'), w('NotReady')], apiReachable: true, remoteMode: true })
+  h = computeClusterHealth({ nodeList: [w('Ready'), w('NotReady')], apiReachable: true })
   assert.equal(h.status, 'Degraded'); assert.equal(h.controlPlane.total, 0)
 })
 

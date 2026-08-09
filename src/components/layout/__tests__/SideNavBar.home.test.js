@@ -8,7 +8,6 @@ vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
     currentNamespace: 'default',
     namespaceList: [],
-    remoteMode: false,
     fetchNamespaces: vi.fn(),
     cluster: { name: 'test', version: 'v1' },
     setNamespace: vi.fn(),

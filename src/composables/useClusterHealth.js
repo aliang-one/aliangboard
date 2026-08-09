@@ -5,13 +5,13 @@
 // reasons 存 i18n key（非翻译串）——保持模块纯净（不引 @/i18n，scripts/test.mjs 可直 import）；
 // 消费方（AppLayout/TopNavBar）渲染时 $t(r) 翻译。ready/total 数值由 controlPlane/workers 字段携带，
 // 渲染处的消息（layout.controlPlaneAbnormal 等）已含 {ready}/{total}，故 reason 串只存类别。
-export function computeClusterHealth({ nodeList = [], apiReachable = true, remoteMode = true } = {}) {
+export function computeClusterHealth({ nodeList = [], apiReachable = true } = {}) {
   const cp = nodeList.filter(n => n.isControlPlane)
   const cpReady = cp.filter(n => n.status === 'Ready')
   const workers = nodeList.filter(n => !n.isControlPlane)
   const wReady = workers.filter(n => n.status === 'Ready')
   const base = { controlPlane: { ready: cpReady.length, total: cp.length }, workers: { ready: wReady.length, total: workers.length } }
-  if (!remoteMode || !apiReachable || !nodeList.length) {
+  if (!apiReachable || !nodeList.length) {
     return { status: 'Disconnected', severity: 'crit', reasons: ['clusterHealth.reasonApiUnreachable'], ...base }
   }
   if (cp.length && cpReady.length < cp.length) {

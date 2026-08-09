@@ -25,7 +25,7 @@ vi.mock('@/api/client', () => {
   const api = new Proxy({}, { get: () => () => Promise.resolve({}) })
   return {
     api,
-    k8sStream: () => ({ close: noop }),
+    k8sStream: () => ({ close: noop, abort: noop }),
     portForwardApi: new Proxy({}, { get: () => () => Promise.resolve([]) }),
     registryApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
     terminalApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
