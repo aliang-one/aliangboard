@@ -28,7 +28,6 @@ const namespaces = computed(() => namespacesQuery.data.value || [])
 
 const syncing = computed(() => namespacesQuery.isFetching.value)
 async function sync() {
-  if (!store.remoteMode) { notify('info', t('ns.namespaces.noSyncNeeded')); return }
   try {
     store.invalidateAllClusterQueries()
     await namespacesQuery.refetch()

@@ -36,15 +36,13 @@ const podDetail = useResourceDetail({
 const pod = computed(() => podDetail.data.value ?? store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
 
-// 归属 workload 查询（远端用 Vue Query；演示模式回退 store.workloadList）
-// 用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配（Plan 3 后 store.workloadList 在远端为空）
+// 归属 workload 查询（Vue Query；用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配）
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })
-// 事件查询（远端用 Vue Query；演示模式回退 store.eventList）
-// podEvents 计算属性按 involvedObject 过滤该 Pod 的事件
+// 事件查询（Vue Query；podEvents 计算属性按 involvedObject 过滤该 Pod 的事件）
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
@@ -100,7 +98,6 @@ async function copyLogs() {
 // === 日志实时流（Follow）===
 const followLog = ref(true)
 const liveLogs = ref([])
-let logTimer = null
 let logStream = null    // t('podDetail.realLogStream') handle, abort on stopFollow
 // 日志查询选项（kubectl logs 语义：--tail / --since / --previous）
 const logLines = ref(500)
@@ -114,22 +111,6 @@ const sinceOptions = [
   { label: t('podDetail.since1hour'), value: '3600' },
   { label: t('podDetail.since6hours'), value: '21600' },
 ]
-const sampleLogMessages = [
-  { level: 'INFO', message: 'GET /api/v1/health - 200 OK (8ms)' },
-  { level: 'INFO', message: 'GET /api/v1/metrics - 200 OK (24ms)' },
-  { level: 'INFO', message: 'POST /api/v1/orders - 201 Created (142ms)' },
-  { level: 'INFO', message: 'Cache hit ratio: 95.3%' },
-  { level: 'WARN', message: 'Slow query detected on /api/v1/search (210ms)' },
-  { level: 'INFO', message: 'GET /api/v1/users - 200 OK (18ms)' },
-  { level: 'INFO', message: 'Scheduled task completed: cleanup-sessions' },
-  { level: 'INFO', message: 'WS heartbeat acknowledged: client-ok' },
-  { level: 'INFO', message: 'DB connection pool: 8/10 active' },
-]
-function pushLog() {
-  const sample = sampleLogMessages[Math.floor(Math.random() * sampleLogMessages.length)]
-  liveLogs.value.push({ timestamp: new Date().toISOString().substr(11, 12), level: sample.level, message: sample.message })
-  if (liveLogs.value.length > 80) liveLogs.value.shift()
-}
 function logQuery(follow = false) {
   const container = selectedContainer.value || pod.value.containers?.[0]
   const query = new URLSearchParams({ timestamps: 'true', tailLines: String(logLines.value) })
@@ -160,38 +141,32 @@ async function loadRemoteLogs() {
   }
 }
 function startFollow() {
+  if (!pod.value) return
   stopFollow()
-  if (store.remoteMode) {
-    // 真流式：log?follow=true，逐行增量追加（Gateway 已对 follow 请求 pipe 透传）
-    const path = `/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery(true)}`
-    liveLogs.value = []
-    logStream = k8sStream(path, {
-      onMessage: pushParsed,
-      onError: e => { liveLogs.value.push({ timestamp: new Date().toISOString(), level: 'ERROR', message: e.message || t('podDetail.logStreamInterrupted') }) },
-    })
-  } else {
-    logTimer = setInterval(pushLog, 1800)
-  }
+  // 真流式：log?follow=true，逐行增量追加（Gateway 已对 follow 请求 pipe 透传）
+  const path = `/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery(true)}`
+  liveLogs.value = []
+  logStream = k8sStream(path, {
+    onMessage: pushParsed,
+    onError: e => { liveLogs.value.push({ timestamp: new Date().toISOString(), level: 'ERROR', message: e.message || t('podDetail.logStreamInterrupted') }) },
+  })
 }
 function stopFollow() {
-  if (logTimer) { clearInterval(logTimer); logTimer = null }
   if (logStream) { logStream.abort(); logStream = null }
 }
 watch(followLog, (v) => { v ? startFollow() : stopFollow() })
-// 切换容器时，远程模式重新拉取该容器日志（follow 开则重启流）
+// 切换容器时，重新拉取该容器日志（follow 开则重启流）
 watch(selectedContainer, () => {
-  if (!store.remoteMode) return
   if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
 })
 // 切换 tail / since / previous 时重启流或重拉；previous 为崩溃前静态日志，开启时关闭 follow
 watch([logLines, logSince, logPrevious], () => {
   if (logPrevious.value) followLog.value = false
-  if (!store.remoteMode) return
   if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
 })
-onMounted(() => { if (followLog.value) startFollow(); else if (store.remoteMode) loadRemoteLogs() })
+onMounted(() => { if (followLog.value) startFollow(); else loadRemoteLogs() })
 onUnmounted(stopFollow)
-const allLogs = computed(() => store.remoteMode ? liveLogs.value : [...store.logEntries, ...liveLogs.value])
+const allLogs = computed(() => liveLogs.value)
 
 // 资源用量百分比：优先用远端数值字段，缺失时回退解析 "used/total" 字符串（兼容 mock）
 function pctFromRatio(str) {
@@ -244,14 +219,6 @@ const podYaml = ref('')
 const yamlLoading = ref(false)
 async function loadYaml() {
   if (!pod.value) return
-  if (!store.remoteMode) {
-    podYaml.value = yamlDump({
-      apiVersion: 'v1', kind: 'Pod',
-      metadata: { name: pod.value.name, namespace: pod.value.namespace, labels: pod.value.labels || {} },
-      spec: { containers: [{ name: pod.value.containers?.[0] || 'main', image: pod.value.image }] },
-    })
-    return
-  }
   yamlLoading.value = true
   try {
     // pod.raw 已是完整 server 对象（mapPod 携带），无需再 api.k8s 拉取第二遍
@@ -367,7 +334,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           <span class="font-medium text-body-md">{{ owningWorkload.kind }}</span>
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </button>
-        <button v-if="store.remoteMode" @click="exportPod" :title="$t('podDetail.exportRealYaml')" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button @click="exportPod" :title="$t('podDetail.exportRealYaml')" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">download</span>
           <span class="font-medium text-body-md">Export</span>
         </button>
@@ -430,8 +397,8 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
               <div class="flex items-center gap-2">
                 <input v-model="followLog" type="checkbox" :disabled="logPrevious" class="rounded text-primary focus:ring-primary h-4 w-4" />
                 <span class="text-body-sm" :class="logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant'">Follow</span>
-                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="store.remoteMode ? $t('podDetail.liveStreamHint') : $t('podDetail.simulatedRealTime')">
-                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ store.remoteMode ? $t('podDetail.liveStreamText') : 'LIVE' }}
+                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="$t('podDetail.liveStreamHint')">
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ $t('podDetail.liveStreamText') }}
                 </span>
               </div>
             </div>
@@ -466,11 +433,11 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
               </select>
             </div>
             <span class="text-xs text-on-surface-variant">{{ termMode === 'attach' ? $t('podDetail.attachModeDesc') : $t('podDetail.execModeDesc') }}</span>
-            <div v-if="store.remoteMode" class="flex items-center gap-xs">
+            <div class="flex items-center gap-xs">
               <button @click="termMode = 'exec'" :class="termMode === 'exec' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors">Exec</button>
               <button @click="termMode = 'attach'" :class="termMode === 'attach' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors" :title="$t('podDetail.attachModeTitle')">Attach</button>
             </div>
-            <button v-if="store.remoteMode" @click="openDebug" :title="$t('podDetail.injectDebugContainer')" class="ml-auto flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-low transition-colors">
+            <button @click="openDebug" :title="$t('podDetail.injectDebugContainer')" class="ml-auto flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-low transition-colors">
               <span class="material-symbols-outlined text-body-md">bug_report</span> kubectl debug
             </button>
           </div>
@@ -482,7 +449,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         <!-- Files View（文件浏览器 / kubectl cp）-->
         <div v-if="activeTab === 'files'" class="flex-1 min-h-0 flex flex-col">
           <!-- 容器选择（多容器时可切换浏览哪个容器的文件系统） -->
-          <div v-if="store.remoteMode && containers.length > 1" class="flex items-center gap-sm pb-sm shrink-0">
+          <div v-if="containers.length > 1" class="flex items-center gap-sm pb-sm shrink-0">
             <span class="text-body-xs text-on-surface-variant">{{ $t('podDetail.container') }}</span>
             <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-xs font-mono focus:ring-2 focus:ring-primary">
               <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
@@ -527,11 +494,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
             </div>
             <div>
               <h4 class="text-label-caps text-on-surface-variant mb-2">OWNER REFERENCES</h4>
-              <ResourceTopology v-if="store.remoteMode" :namespace="pod.namespace" kind="Pod" :name="pod.name" api-version="v1" />
-              <div v-else class="flex items-center gap-2 p-sm bg-surface-container-low rounded border border-outline-variant">
-                <span class="material-symbols-outlined text-primary">account_tree</span>
-                <span class="text-body-sm font-medium">ReplicaSet/{{ pod.name }}</span>
-              </div>
+              <ResourceTopology :namespace="pod.namespace" kind="Pod" :name="pod.name" api-version="v1" />
             </div>
           </div>
         </div>

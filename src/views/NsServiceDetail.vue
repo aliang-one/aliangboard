@@ -201,7 +201,7 @@ const canMutate = ref(true)
 const canDelete = ref(true)
 let permsLoaded = false
 async function loadPerms() {
-  if (!store.remoteMode || !svc.value) return
+  if (!svc.value) return
   const ns = route.params.namespace
   const [u, d] = await Promise.all([
     store.checkAccessServer({ verb: 'update', resource: 'services', namespace: ns }),
@@ -232,7 +232,6 @@ const svcYaml = ref('')
 const yamlLoading = ref(false)
 async function loadYaml() {
   if (!svc.value) return
-  if (!store.remoteMode) { svcYaml.value = store.generateYAML('service', svc.value); return }
   yamlLoading.value = true
   try {
     // 从缓存的完整 server 对象生成 YAML（去 managedFields/status）；不再二次 api.k8s 拉取。
@@ -402,7 +401,7 @@ function actionItems() {
     { label: 'Port Forward', icon: 'cable', action: () => { showPortForward.value = true } },
     { label: t('ns.svcDetail.viewEditYaml'), icon: 'description', action: openYaml },
   ]
-  if (store.remoteMode) items.push({ label: t('ns.svcDetail.exportYaml'), icon: 'download', action: exportSvc })
+  items.push({ label: t('ns.svcDetail.exportYaml'), icon: 'download', action: exportSvc })
   items.push({ label: 'Delete Service', icon: 'delete', danger: true, disabled: !canDelete.value, action: () => { showDeleteModal.value = true } })
   return items
 }

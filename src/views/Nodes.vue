@@ -30,12 +30,11 @@ const nodesQuery = useResourceList({
 })
 const nodes = computed(() => nodesQuery.data.value || [])
 const healthyCount = computed(() => nodes.value.filter(n => n.status === 'Ready').length)
-const loading = computed(() => nodesQuery.isLoading.value && store.remoteMode)
+const loading = computed(() => nodesQuery.isLoading.value)
 
 const searchQuery = ref('')
 const syncing = computed(() => nodesQuery.isFetching.value)
 async function sync() {
-  if (!store.remoteMode) { notify('info', t('nodes.noSyncNeeded')); return }
   try { await nodesQuery.refetch(); notify('success', t('nodes.synced')) }
   catch (e) { notify('error', `${t('nodes.syncFailed')}：${e.message || ''}`) }
 }

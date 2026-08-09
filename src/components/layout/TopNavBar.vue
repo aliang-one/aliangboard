@@ -17,7 +17,7 @@ const { bump: bumpRefresh } = usePageRefresh()
 // nodes/namespaces 已由 hydrateCriticalResources 预载入 store，直接读 store。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const searchOpen = ref(false)
-const searchEnabled = computed(() => searchOpen.value && store.remoteMode)
+const searchEnabled = computed(() => searchOpen.value)
 const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: false, enabled: searchEnabled } })
 const workloadsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: false, enabled: searchEnabled } })
 const servicesQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: false, enabled: searchEnabled } })
@@ -36,7 +36,7 @@ function refreshPage() {
   if (refreshing.value) return
   refreshing.value = true
   bumpRefresh() // 触发 router-view 重新挂载（重跑当前页 onMounted）
-  if (store.remoteMode) store.invalidateAllClusterQueries() // 后台重拉列表，静默不打断
+  store.invalidateAllClusterQueries() // 后台重拉列表，静默不打断
   clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => { refreshing.value = false }, 700)
 }

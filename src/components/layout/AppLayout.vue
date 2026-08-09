@@ -24,7 +24,7 @@ onMounted(() => {
   tick(); timer = setInterval(tick, 1000)
   termStore.loadPersisted() // 恢复持久化的终端会话（刷新不掉线）
   // 进入主界面后后台水合集群资源（不阻塞页面渲染，用户先看到框架再逐步加载）
-  if (store.remoteMode) store.hydrateCriticalResources({ silent: true }).catch(() => {})
+  store.hydrateCriticalResources({ silent: true }).catch(() => {})
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>

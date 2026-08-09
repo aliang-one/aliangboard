@@ -75,7 +75,6 @@ const ferror = ref('')
 const fInited = ref(false)
 const joinPath = (base, name) => (base.replace(/\/$/, '') + '/' + name).replace(/\/+/g, '/')
 async function browsePvc(p) {
-  if (!store.remoteMode) { ferror.value = t('ns.pvcDetail.browseFailed'); return }
   floading.value = true; ferror.value = ''; ffile.value = null
   try {
     const r = await pvcFileApi.list({ namespace: route.params.namespace, pvc: route.params.name, path: p || '/' })

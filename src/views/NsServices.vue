@@ -119,7 +119,7 @@ const decorated = computed(() => paginated.value.map(row => ({
 // 行操作菜单
 function menuItems(row) {
   const items = [{ label: t('ns.services.menuDetail'), icon: 'open_in_new', action: () => router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } }) }]
-  if (store.remoteMode) items.push({ label: t('ns.services.menuExport'), icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
+  items.push({ label: t('ns.services.menuExport'), icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
   items.push({ label: t('ns.services.menuDelete'), icon: 'delete', danger: true, action: () => confirmDelete(row) })
   return items
 }

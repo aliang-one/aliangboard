@@ -46,7 +46,6 @@ const nsWorkloads = computed(() => workloadsQuery.data.value || [])
 
 const syncing = computed(() => nsDetail.isFetching.value || servicesQuery.isFetching.value || workloadsQuery.isFetching.value)
 async function sync() {
-  if (!store.remoteMode) { notify('info', t('ns.nsDetail.noSyncNeeded')); return }
   try {
     store.invalidateAllClusterQueries()
     notify('success', t('ns.nsDetail.syncSuccess'))

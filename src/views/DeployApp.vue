@@ -682,85 +682,16 @@ async function handleDeploy() {
   const f = form.value
   deployLoading.value = true
   deployError.value = ''
-  if (store.remoteMode) {
-    const result = await store.applyResourceYaml(previewYAML.value)
-    deployLoading.value = false
-    if (!result.ok) {
-      deployError.value = result.error || 'Deployment failed'
-      return
-    }
-    showDeploySuccess.value = true
-    // 部分成功:主工作负载已建,但有附属资源(如 Service)失败 —— 不阻断成功,仅 warning 告知(QA ISSUE-002)
-    if (result.partial) notify('warning', t('deploy.partialApplied') + result.warning)
-    if (f.metaTags) recordTagUsage(ns.value, f.metaTags) // 记录标签使用
+  const result = await store.applyResourceYaml(previewYAML.value)
+  deployLoading.value = false
+  if (!result.ok) {
+    deployError.value = result.error || 'Deployment failed'
     return
   }
-  // Add workload to mock data
-  store.addWorkload({
-    name: f.name,
-    type: f.workloadType,
-    namespace: f.namespace,
-    status: 'Running',
-    replicas: f.replicas + '/' + f.replicas,
-    image: f.image,
-    sha: 'sha:' + Math.random().toString(16).slice(2, 8),
-    labels: Object.assign(
-      { app: f.name, 'aliangboard.io/layer': f.tier },
-      f.metaTitle && { 'aliangboard.io/title': f.metaTitle }, // mock 模式 labels 允许中文（不走 K8s API 校验）
-      f.metaOwner && { 'aliangboard.io/owner': f.metaOwner },
-      f.metaVersion && { 'aliangboard.io/version': f.metaVersion },
-      f.metaTags && { 'aliangboard.io/tags': f.metaTags },
-    ),
-    annotations: f.metaDescription ? { 'aliangboard.io/description': f.metaDescription } : {},
-    tier: f.tier,
-    strategy: f.strategy,
-    nodeSelectors: f.nodeSelectors.filter(n => n.key),
-    priorityClassName: f.priorityClassName,
-    serviceAccountName: f.serviceAccountName,
-  })
-
-  // Add service if requested
-  if (f.createService) {
-    const isExt = f.serviceType === 'ExternalName'
-    const validPorts = f.servicePorts.filter(p => p.port)
-    if (isExt ? f.externalName : validPorts.length) {
-      const portsStr = isExt ? '-' : validPorts.map(p => `${p.port}:${p.targetPort || p.port}/${p.protocol}` + (f.serviceType === 'NodePort' && p.nodePort ? `:${p.nodePort}` : '')).join(', ')
-      store.addService({
-        name: f.name + '-svc',
-        namespace: f.namespace,
-        type: f.serviceType,
-        clusterIP: isExt ? '-' : '10.96.' + Math.floor(Math.random() * 255) + '.' + Math.floor(Math.random() * 255),
-        externalIP: '-',
-        ports: portsStr,
-        externalName: isExt ? f.externalName : '',
-        selector: isExt ? {} : { app: f.name },
-      })
-    }
-  }
-
-  // Add ingress if requested
-  if (f.createIngress && f.ingressRules.filter(r => r.host).length) {
-    const validRules = f.ingressRules.filter(r => r.host)
-    const firstRule = validRules[0]
-    store.addIngress({
-      name: f.name + '-ingress',
-      namespace: f.namespace,
-      hosts: validRules.map(r => r.host).join(','),
-      path: firstRule.paths[0]?.path || '/',
-      backend: f.name + '-svc:' + (f.servicePorts[0]?.port || 80),
-      tls: validRules.some(r => r.tls),
-      tlsSecret: validRules.find(r => r.tls)?.tlsSecret || (f.name + '-tls'),
-      className: f.ingressClassName,
-      annotations: buildIngressAnnotations(f.ingressAdv, f.ingressCustomAnnotations),
-      rules: validRules.map(r => ({
-        host: r.host,
-        http: { paths: r.paths.filter(p => p.path).map(p => ({ path: p.path, pathType: p.pathType, backend: { serviceName: f.name + '-svc', servicePort: parseInt(f.servicePorts[0]?.port) || 80 } })) }
-      })),
-    })
-  }
-
   showDeploySuccess.value = true
-  deployLoading.value = false
+  // 部分成功:主工作负载已建,但有附属资源(如 Service)失败 —— 不阻断成功,仅 warning 告知(QA ISSUE-002)
+  if (result.partial) notify('warning', t('deploy.partialApplied') + result.warning)
+  if (f.metaTags) recordTagUsage(ns.value, f.metaTags) // 记录标签使用
 }
 </script>
 

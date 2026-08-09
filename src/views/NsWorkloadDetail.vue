@@ -159,7 +159,7 @@ const canMutate = ref(true)
 const canDelete = ref(true)
 let permsLoaded = false
 async function loadPerms() {
-  if (!store.remoteMode || !workload.value) return
+  if (!workload.value) return
   const resource = RES_PLURAL[workload.value.type]
   if (!resource) return
   const ns = route.params.namespace
@@ -381,7 +381,7 @@ function refreshSoon() { setTimeout(() => { store.invalidateAllClusterQueries().
 let autoTimer = null
 function stopAutoRefresh() { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null } }
 function startAutoRefresh() {
-  if (autoTimer || !store.remoteMode) return
+  if (autoTimer) return
   const tick = async () => {
     try { await store.invalidateAllClusterQueries() } catch { /* 忽略 */ }
   }
@@ -641,14 +641,14 @@ const { cpuSeries: podCpuSeries, memSeries: podMemSeries, current: podMetricsNow
 // 按需装载：Job/CronJob 不在批量 hydrate 的 workloadList 里，直接进入详情页时拉取补齐
 const KIND_FROM_TYPE = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet', job: 'Job', cronjob: 'CronJob' }
 async function ensureWorkload() {
-  if (!store.remoteMode || workload.value) return
+  if (workload.value) return
   const kind = KIND_FROM_TYPE[route.params.type]
   if (!kind) return
   try { await store.fetchWorkload(kind, route.params.name, route.params.namespace) }
   catch { /* 找不到则静默，页面 v-if=workload 自然显示空 */ }
 }
 watch(() => [route.params.type, route.params.name, route.params.namespace], () => ensureWorkload())
-onMounted(() => { if (store.remoteMode) { startMetrics(); startPodMetrics(); ensureWorkload(); startAutoRefresh() } })
+onMounted(() => { startMetrics(); startPodMetrics(); ensureWorkload(); startAutoRefresh() })
 // 注意：模板会把 ref 自动解包成数组再传入，所以参数是数组本身（不是 ref）
 function windowed(series) {
   const w = METRIC_WINDOWS.find(x => x.key === metricsWindow.value) || METRIC_WINDOWS[1]

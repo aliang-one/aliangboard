@@ -36,7 +36,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 
 // eventsQuery 挂载即自取（Vue Query enabled 默认 true）；watch 桥接已写回 Query 缓存，
 // 此处只负责启停 live watch（不再手动 refreshEvents——store.eventList 在远端不再被填充）。
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onMounted(() => store.startEventWatch())
 onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>

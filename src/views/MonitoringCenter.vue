@@ -103,9 +103,8 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
       </button>
     </div>
 
-    <!-- 未连接 / 指标不可用 提示 -->
-    <div v-if="!store.remoteMode" class="rounded-lg border border-outline-variant bg-surface-container-low p-md text-on-surface-variant text-body-sm mb-md">{{ t('monitoring.notConnected') }}</div>
-    <div v-else-if="!store.cluster.metricsAvailable" class="rounded-lg border border-tertiary-container/40 bg-tertiary-container/10 p-md text-on-surface-variant text-body-sm mb-md flex items-center gap-sm">
+    <!-- 指标不可用提示 -->
+    <div v-if="!store.cluster.metricsAvailable" class="rounded-lg border border-tertiary-container/40 bg-tertiary-container/10 p-md text-on-surface-variant text-body-sm mb-md flex items-center gap-sm">
       <span class="material-symbols-outlined text-base">warning</span> {{ t('monitoring.metricsNotReady') }}
     </div>
 

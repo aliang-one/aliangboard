@@ -33,7 +33,7 @@ const atMax = computed(() => tags.value.length >= props.max)
 
 // 刷新建议：同步历史（从同 ns 的 workload 收集）+ 按输入过滤 + 排除已选
 function refresh() {
-  if (props.namespace && store.remoteMode) {
+  if (props.namespace) {
     syncTagHistory(props.namespace, nsWorkloads.value)
   }
   const chosen = new Set(tags.value.map(t => t.toLowerCase()))

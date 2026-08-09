@@ -18,7 +18,7 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 const { t } = useI18n()
 
-// cluster id（远端取 currentCluster，mock 取 'demo'）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
+// cluster id（取 currentCluster）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
 const cid = computed(() => (store.currentCluster || 'cluster'))
 // PVCs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // StorageClasses 走 Vue Query（cluster-wide）

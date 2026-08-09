@@ -59,7 +59,7 @@ function goToRelated(e) {
 }
 
 // 远端 watch 桥接已写回 Query 缓存，列表自动 live；此处只管启停 watch。
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onMounted(() => store.startEventWatch())
 onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>
