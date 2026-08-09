@@ -2692,7 +2692,9 @@
       "reconcileFailed": "reconcile 失败",
       "lastReconcile": "上次 reconcile {ts}",
       "reconcileSkipped": "跳过({reason})",
-      "hasFailures": "有失败"
+      "hasFailures": "有失败",
+      "conversationHistory": "对话历史",
+      "noConversations": "暂无对话"
     },
     "ide": {
       "collapseFiles": "折叠文件树",
@@ -2728,7 +2730,13 @@
       "approve": "批准",
       "atMentionHint": "输入 @kind: 搜索资源（如 @pod:nginx）",
       "atMentionNoResults": "无匹配资源",
-      "atMentionSearching": "搜索中…"
+      "atMentionSearching": "搜索中…",
+      "convStatus": {
+        "running": "执行中",
+        "paused": "待审批",
+        "done": "完成",
+        "failed": "失败"
+      }
     },
     "shell": {
       "title": "工作台",

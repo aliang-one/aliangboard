@@ -2692,7 +2692,9 @@
       "reconcileFailed": "reconcile failed",
       "lastReconcile": "Last reconcile {ts}",
       "reconcileSkipped": "Skipped ({reason})",
-      "hasFailures": "has failures"
+      "hasFailures": "has failures",
+      "conversationHistory": "Conversation History",
+      "noConversations": "No conversations"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",
@@ -2728,7 +2730,13 @@
       "approve": "Approve",
       "atMentionHint": "Type @kind: to search resources (e.g. @pod:nginx)",
       "atMentionNoResults": "No matching resources",
-      "atMentionSearching": "Searching..."
+      "atMentionSearching": "Searching...",
+      "convStatus": {
+        "running": "Running",
+        "paused": "Awaiting Approval",
+        "done": "Done",
+        "failed": "Failed"
+      }
     },
     "shell": {
       "title": "Workbench",

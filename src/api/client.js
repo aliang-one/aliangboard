@@ -193,6 +193,14 @@ export const workbenchApi = {
   reconcile: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/reconcile`, { method: 'POST' }),
   // 项目集群资源搜索(P3 @-mention):{ projectId, kind, q } → { items:[{name,namespace,kind}] }(capped 50)
   search: (projectId, kind, q) => platformHttp.request(`/api/workbench/search?projectId=${encodeURIComponent(projectId)}&kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(q || '')}`),
+  // 有状态对话(P5):服务端持久化 + 后台执行 + 轮询
+  conversations: {
+    create: (payload) => platformHttp.request('/api/workbench/conversations', { method: 'POST', body: JSON.stringify(payload) }),
+    get: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`),
+    list: (projectId) => platformHttp.request(`/api/workbench/conversations?projectId=${encodeURIComponent(projectId)}`),
+    approve: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
+    deny: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/deny`, { method: 'POST' }),
+  },
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===

@@ -27,6 +27,14 @@ const lastReconcile = ref(null)
 const reconciling = ref(false)
 const showFileTree = ref(true)
 const showChat = ref(true)
+const conversations = ref([])
+
+const convStatusStyle = {
+  running: 'bg-status-running/10 text-status-running',
+  paused: 'bg-status-warning/10 text-status-warning',
+  done: 'bg-surface-container-high text-on-surface-variant',
+  failed: 'bg-error/10 text-error',
+}
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -41,6 +49,12 @@ async function load() {
   } catch (e) { notify('error', e.message || t('workbench.detail.loadFailed')) }
   finally { loading.value = false }
 }
+async function loadConversations() {
+  try {
+    const r = await workbenchApi.conversations.list(id)
+    conversations.value = r.conversations || []
+  } catch { /* best-effort: history panel non-critical */ }
+}
 async function reconcile() {
   reconciling.value = true
   try {
@@ -51,7 +65,7 @@ async function reconcile() {
   } catch (e) { notify('error', e.message || t('workbench.detail.reconcileFailed')) }
   finally { reconciling.value = false }
 }
-onMounted(load)
+onMounted(async () => { await load(); loadConversations() })
 
 async function openFile(path) {
   if (dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return
@@ -172,6 +186,22 @@ function addFile() {
               <span class="text-on-surface-variant ml-auto shrink-0">{{ fmt(c.ts) }}</span>
             </div>
             <p v-if="!commits.length" class="text-body-xs text-on-surface-variant">{{ t('workbench.detail.noCommits') }}</p>
+          </div>
+        </details>
+
+        <details class="bg-surface-container-low border border-outline-variant rounded-lg">
+          <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant select-none flex items-center gap-xs">
+            <span class="material-symbols-outlined text-sm">forum</span>
+            {{ t('workbench.detail.conversationHistory') }} ({{ conversations.length }})
+          </summary>
+          <div class="px-md pb-md flex flex-col gap-xs">
+            <div v-for="c in conversations" :key="c.id" class="flex items-center gap-sm py-xs border-b border-outline-variant/30 last:border-0">
+              <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="convStatusStyle[c.status] || convStatusStyle.done">{{ c.status }}</span>
+              <span class="text-body-sm text-on-surface truncate flex-1">{{ c.userMessage }}</span>
+              <span class="text-body-xs text-on-surface-variant shrink-0">{{ c.steps }} steps</span>
+              <span class="text-body-xs text-on-surface-variant shrink-0">{{ fmt(c.updatedAt) }}</span>
+            </div>
+            <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant">{{ t('workbench.detail.noConversations') }}</p>
           </div>
         </details>
       </div>
