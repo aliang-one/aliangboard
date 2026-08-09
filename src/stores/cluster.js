@@ -14,6 +14,11 @@ import { queryClient } from '@/queryClient'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
 import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchStorageClasses, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
+
+// YAML 强制双引号序列化：metadata.name/namespace/标签值/容器名等必须是字符串,
+// 裸 ${name} 在 name 形如数字(如 123)时会被 YAML 解析成 int → K8s "expected string"。
+// generateYAML/generateExtraYAML 的 name/namespace 插值统一用它包一层。
+const yamlQ = v => JSON.stringify(String(v ?? ''))
 import { i18n } from '@/i18n'
 import {
   clusterInfo, nodes, workloads, pods, namespaces, events,
@@ -1736,7 +1741,7 @@ export const useClusterStore = defineStore('cluster', () => {
       const selObj = resource.selector || {}
       const selEntries = Object.keys(selObj).length
         ? Object.entries(selObj).map(([k, v]) => `    ${k}: ${v}`).join('\n')
-        : (!isExtName ? `    app: ${name}` : '')
+        : (!isExtName ? `    app: ${yamlQ(name)}` : '')
       const selBlock = selEntries ? `\n  selector:\n${selEntries}` : ''
       const portsBlock = portSrc.length ? `\n  ports:\n${portsYaml}` : ''
       // 可选 spec 字段：仅在有值 / 非默认时输出，保持无损且不污染默认服务
@@ -1753,8 +1758,8 @@ export const useClusterStore = defineStore('cluster', () => {
       return `apiVersion: v1
 kind: Service
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 spec:
   type: ${resource.type || 'ClusterIP'}${selBlock}${portsBlock}${extraYaml}`
     }
@@ -1796,8 +1801,8 @@ ${pathsYaml}`
       return `apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${name}
-  namespace: ${ns}${labelsYaml}${annYaml}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}${labelsYaml}${annYaml}
 spec:${classNameLine}${tlsBlock}
   rules:
 ${rulesYaml}`
@@ -1818,8 +1823,8 @@ ${rulesYaml}`
       return `apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${name}
-  namespace: ${ns}${metaExtra ? '\n' + metaExtra : ''}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}${metaExtra ? '\n' + metaExtra : ''}
 data:
 ${dataEntries || '  {}'}`
     }
@@ -1832,8 +1837,8 @@ ${dataEntries || '  {}'}`
       return `apiVersion: v1
 kind: Secret
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 type: ${resource.type || 'Opaque'}
 stringData:
 ${dataEntries || '  {}'}`
@@ -1846,8 +1851,8 @@ ${dataEntries || '  {}'}`
       return `apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 spec:
   accessModes:
     - ${accessMode}
@@ -1865,7 +1870,7 @@ spec:
       return `apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: ${name}
+  name: ${yamlQ(name)}
 spec:
   capacity:
     storage: ${resource.capacity || '10Gi'}
@@ -1886,10 +1891,10 @@ spec:
       // Pod 模板（各工作负载共用）
       const podTemplate = `    metadata:
       labels:
-        app: ${name}
+        app: ${yamlQ(name)}
     spec:
       containers:
-      - name: ${resource.name}
+      - name: ${yamlQ(resource.name)}
         image: ${img}
         resources:
           requests:
@@ -1905,10 +1910,10 @@ spec:
         return `apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
   labels:
-    app: ${name}
+    app: ${yamlQ(name)}
 spec:
   schedule: "${resource.schedule || '*/5 * * * *'}"
   jobTemplate:
@@ -1922,10 +1927,10 @@ ${tpl}`
         return `apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
   labels:
-    app: ${name}
+    app: ${yamlQ(name)}
 spec:
   backoffLimit: 6
   completions: ${resource.completions || 1}
@@ -1939,14 +1944,14 @@ ${podTemplate}`
         return `apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
   labels:
-    app: ${name}
+    app: ${yamlQ(name)}
 spec:
   selector:
     matchLabels:
-      app: ${name}
+      app: ${yamlQ(name)}
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -1959,15 +1964,15 @@ ${podTemplate}`
       return `apiVersion: apps/v1
 kind: ${kind}
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
   labels:
-    app: ${name}
+    app: ${yamlQ(name)}
 spec:
   replicas: ${desired}
   selector:
     matchLabels:
-      app: ${name}
+      app: ${yamlQ(name)}
   template:
 ${podTemplate}`
     }
@@ -1991,8 +1996,8 @@ ${entries.map(([k, v]) => `            ${k}: ${v}`).join('\n')}`
       return `apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 spec:
   podSelector:
     matchLabels:
@@ -2009,8 +2014,8 @@ ${egressRules}`
       return `apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -2074,8 +2079,8 @@ spec:
       return `apiVersion: rbac.authorization.k8s.io/v1
 kind: ${resource.scope === 'Cluster' ? 'ClusterRole' : 'Role'}
 metadata:
-  name: ${name}
-${resource.scope !== 'Cluster' ? `  namespace: ${ns}` : ''}
+  name: ${yamlQ(name)}
+${resource.scope !== 'Cluster' ? `  namespace: ${yamlQ(ns)}` : ''}
 rules:
 ${resource.rules?.map(r => `- apiGroups: [${(r.apiGroups || ['']).map(g => `"${g}"`).join(', ')}]
   resources: [${(r.resources || []).map(r => `"${r}"`).join(', ')}]
@@ -2086,16 +2091,16 @@ ${resource.rules?.map(r => `- apiGroups: [${(r.apiGroups || ['']).map(g => `"${g
       return `apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: ${name}
-  namespace: ${ns}`
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}`
     }
 
     if (type === 'rolebinding') {
       return `apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 subjects:
 ${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
   name: ${s.name}
@@ -2110,7 +2115,7 @@ roleRef:
       return `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: ${name}
+  name: ${yamlQ(name)}
 subjects:
 ${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
   name: ${s.name}${s.namespace ? `\n  namespace: ${s.namespace}` : ''}`).join('\n') || '- kind: User\n  name: default'}
@@ -2125,7 +2130,7 @@ roleRef:
       return `apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
-  name: ${name}${def}
+  name: ${yamlQ(name)}${def}
 spec:
   controller: ${resource.controller || 'k8s.io/ingress-nginx'}`
     }
@@ -2134,7 +2139,7 @@ spec:
       return `apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: ${name}
+  name: ${yamlQ(name)}
 spec:
   handler: ${resource.handler || 'runc'}`
     }
@@ -2143,26 +2148,24 @@ spec:
       const addresses = resource.addresses || []
       const notReady = resource.notReadyAddresses || []
       const ports = resource.ports || []
-      const addrYaml = addresses.length ? addresses.map(a => `  - ip: ${a}`).join('\n') : '  []'
+      const addrYaml = addresses.length ? '\n' + addresses.map(a => `  - ip: ${a}`).join('\n') : ' []'
       const notReadyYaml = notReady.length ? `\n  notReadyAddresses:\n${notReady.map(a => `  - ip: ${a}`).join('\n')}` : ''
-      const portsYaml = ports.length ? ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : '  []'
+      const portsYaml = ports.length ? '\n' + ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : ' []'
       return `apiVersion: v1
 kind: Endpoints
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: ${yamlQ(name)}
+  namespace: ${yamlQ(ns)}
 subsets:
-- addresses:
-${addrYaml}${notReadyYaml}
-  ports:
-${portsYaml}`
+- addresses:${addrYaml}${notReadyYaml}
+  ports:${portsYaml}`
     }
 
     if (type === 'node') {
       return `apiVersion: v1
 kind: Node
 metadata:
-  name: ${name}
+  name: ${yamlQ(name)}
   labels:
     kubernetes.io/role: ${resource.roles || 'worker'}
     kubernetes.io/os: linux
@@ -2174,7 +2177,7 @@ status:
 ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n    status: "${v}"`).join('\n')}`
     }
 
-    return `# YAML for ${type}/${name}`
+    return `# YAML for ${type}/${yamlQ(name)}`
   }
 
   // 单独的 YAML 生成（PDB / PriorityClass），避免破坏上面的逻辑
@@ -2197,7 +2200,7 @@ ${sel}`
       return `apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: ${resource.name}
+  name: ${yamlQ(resource.name)}
 value: ${resource.value}
 globalDefault: ${resource.globalDefault}
 description: "${resource.description || ''}"`
