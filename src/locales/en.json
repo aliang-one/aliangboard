@@ -1862,6 +1862,10 @@
     "customDisplayDesc": "Select columns to display in list views. Settings are saved locally and take effect immediately.",
     "resetAll": "Reset All",
     "reset": "Reset",
+    "columnManager": "Column Manager",
+    "dragHint": "Drag to reorder",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
     "language": "Language",
     "zhName": "中文",
     "mcpTitle": "MCP Service",
@@ -3109,5 +3113,22 @@
     "updated": "ns allowlist updated",
     "updateFailed": "Failed to update",
     "advanced": "Advanced: namespace allowlist (add beyond bound ns)"
+  },
+  "cols": {
+    "_c": {
+      "name": "Name",
+      "status": "Status",
+      "age": "Age",
+      "actions": "Actions",
+      "namespace": "Namespace",
+      "type": "Type",
+      "pods": "Pods",
+      "services": "Services"
+    },
+    "nodes": { "_t": "Nodes", "roles": "Role", "system": "System", "cpu": "CPU", "memory": "Memory" },
+    "workloads": { "_t": "Workloads", "replicas": "Replicas" },
+    "namespaces": { "_t": "Namespaces" },
+    "services": { "_t": "Services", "clusterIP": "Cluster IP", "externalIP": "External IP", "ports": "Ports" },
+    "ingress": { "_t": "Ingress", "hosts": "Hosts", "path": "Path", "backend": "Backend", "tls": "TLS" }
   }
 }

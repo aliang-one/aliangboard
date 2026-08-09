@@ -1862,6 +1862,10 @@
     "customDisplayDesc": "勾选要在各列表视图中显示的列，配置保存在浏览器本地并即时生效。",
     "resetAll": "Reset All",
     "reset": "Reset",
+    "columnManager": "列管理",
+    "dragHint": "拖拽排序",
+    "moveUp": "上移",
+    "moveDown": "下移",
     "language": "语言",
     "zhName": "中文",
     "mcpTitle": "MCP 服务",
@@ -3109,5 +3113,22 @@
     "updated": "ns allowlist 已更新",
     "updateFailed": "更新失败",
     "advanced": "高级:namespace 允许集(在绑定 ns 之外追加)"
+  },
+  "cols": {
+    "_c": {
+      "name": "名称",
+      "status": "状态",
+      "age": "年龄",
+      "actions": "操作",
+      "namespace": "命名空间",
+      "type": "类型",
+      "pods": "Pod 数",
+      "services": "服务数"
+    },
+    "nodes": { "_t": "节点", "roles": "角色", "system": "系统", "cpu": "CPU", "memory": "内存" },
+    "workloads": { "_t": "工作负载", "replicas": "副本数" },
+    "namespaces": { "_t": "命名空间" },
+    "services": { "_t": "服务", "clusterIP": "集群 IP", "externalIP": "外部 IP", "ports": "端口" },
+    "ingress": { "_t": "路由", "hosts": "主机", "path": "路径", "backend": "后端", "tls": "TLS" }
   }
 }
