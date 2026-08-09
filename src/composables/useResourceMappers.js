@@ -55,16 +55,6 @@ export function mapNode(item, metric) {
   }
 }
 
-// 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（mock 种子与真实水合后都调用）
-export function recountNodePods() {
-  const counts = {}
-  for (const p of podList.value) {
-    const n = p.node
-    if (n) counts[n] = (counts[n] || 0) + 1
-  }
-  nodeList.value = nodeList.value.map(n => ({ ...n, podCount: counts[n.name] || 0 }))
-}
-
 export function mapPod(item, metric) {
   const statuses = item.status?.containerStatuses || []
   // request 取自容器 resources.requests（分母），用量取自 metrics.k8s.io（分子）
@@ -117,128 +107,6 @@ export function mapWorkload(item, type) {
     annotations,
     raw: item,
   }
-}
-
-// 还原 Deployment 的滚动发布历史：每个 ReplicaSet 携带 deployment.kubernetes.io/revision 注解，
-// 其 pod template 即该 revision 的镜像/配置；当前 revision 取 Deployment 自身注解。
-// _template 保留完整模板，供 rollbackWorkload 执行真正的 rollout undo PATCH。
-export function attachRolloutHistory(workloads, deploymentData, replicaSetData) {
-  const rsByDeploy = new Map()
-  for (const rs of (replicaSetData?.items || [])) {
-    const owner = (rs.metadata?.ownerReferences || []).find(o => o.kind === 'Deployment' && o.controller)
-    if (!owner) continue
-    const key = `${rs.metadata.namespace}/${owner.name}`
-    if (!rsByDeploy.has(key)) rsByDeploy.set(key, [])
-    rsByDeploy.get(key).push(rs)
-  }
-  const findDeploy = (name, ns) => (deploymentData?.items || []).find(d => d.metadata?.name === name && d.metadata?.namespace === ns)
-  for (const wl of workloads) {
-    if (wl.type !== 'Deployment') {
-      // StatefulSet/DaemonSet 历史走 ControllerRevision（暂未接入），仅展示当前版本
-      wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
-      continue
-    }
-    const deploy = findDeploy(wl.name, wl.namespace)
-    const curRev = deploy?.metadata?.annotations?.['deployment.kubernetes.io/revision'] || ''
-    const rss = rsByDeploy.get(`${wl.namespace}/${wl.name}`) || []
-    const revs = rss.map(rs => {
-      const rev = Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision']) || 0
-      return {
-        rev,
-        image: rs.spec?.template?.spec?.containers?.[0]?.image || wl.image,
-        sha: String(rs.metadata?.uid || '').slice(0, 7) || String(rs.metadata?.name || '').split('-').pop() || '—',
-        age: ageOf(rs.metadata?.creationTimestamp),
-        reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
-        current: curRev ? String(rev) === String(curRev) : false,
-        replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
-        readyReplicas: rs.status?.readyReplicas ?? 0,
-        desiredReplicas: rs.spec?.replicas ?? rs.status?.replicas ?? 0,
-        rsName: rs.metadata?.name,
-        rsUid: rs.metadata?.uid,
-        _template: rs.spec?.template,
-      }
-    }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
-    wl.revisions = revs.length
-      ? revs
-      : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
-  }
-}
-
-// === Pod Watch：实时监听 Pod 变化（ADDED/MODIFIED/DELETED 增量更新 podList）===
-// 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
-// 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
-export function applyPodWatchEvent(evt) {
-  if (!evt?.object) return
-  const mapped = mapPod(evt.object, null)
-  const list = podList.value
-  const idx = list.findIndex(p => p.name === mapped.name && p.namespace === mapped.namespace)
-  if (evt.type === 'DELETED') { if (idx !== -1) list.splice(idx, 1) }
-  else if (idx !== -1) list[idx] = { ...list[idx], ...mapped }
-  else list.push(mapped)
-}
-export function startPodWatch() {
-  if (!remoteMode.value || podWatchHandle) return
-  const rv = podWatchRv || ''
-  const path = `/api/v1/pods?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`
-  podWatchLive.value = true
-  podWatchHandle = k8sStream(path, {
-    onMessage: line => {
-      try {
-        const evt = JSON.parse(line)
-        if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
-        applyPodWatchEvent(evt)
-        // 加法桥接：同步写 Query 缓存（NsPods 等 Query 消费者享 live）
-        const _cid = currentCluster.value || 'cluster'
-        queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
-      } catch { /* 忽略非 JSON 心跳行 */ }
-    },
-    onError: stopPodWatch,
-    onClose: stopPodWatch,
-  })
-}
-export function stopPodWatch() {
-  podWatchLive.value = false
-  if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
-}
-
-// === Events 实时监听（watch）+ 按对象过滤 ===
-let eventWatchHandle = null
-let eventWatchRv = ''
-export const eventWatchLive = ref(false)
-export function applyEventWatchEvent(evt) {
-  const mapped = mapEvent(evt.object)
-  if (!mapped.uid) return
-  const idx = eventList.value.findIndex(e => e.uid === mapped.uid)
-  if (evt.type === 'DELETED') { if (idx !== -1) eventList.value.splice(idx, 1) }
-  else if (idx !== -1) eventList.value[idx] = mapped
-  else { eventList.value.unshift(mapped); if (eventList.value.length > 1000) eventList.value.length = 1000 }
-}
-export function startEventWatch() {
-  if (!remoteMode.value || eventWatchHandle) return
-  const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
-  eventWatchLive.value = true
-  eventWatchHandle = k8sStream(path, {
-    onMessage: line => {
-      try {
-        const evt = JSON.parse(line)
-        if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
-        applyEventWatchEvent(evt)
-        // 加法桥接：同步写 Query 缓存（NsEvents 等 Query 消费者享 live）
-        const _cid = currentCluster.value || 'cluster'
-        queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
-      } catch { /* 忽略非 JSON 心跳行 */ }
-    },
-    onError: stopEventWatch,
-    onClose: stopEventWatch,
-  })
-}
-export function stopEventWatch() {
-  eventWatchLive.value = false
-  if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
-}
-// 详情页用：返回关联到指定资源（involvedObject）的事件
-export function eventsFor(kind, name, namespace) {
-  return eventList.value.filter(e => e.relatedKind === kind && e.relatedName === name && (!namespace || e.relatedNamespace === namespace))
 }
 
 // === 远端资源映射（K8s API 对象 → 前端扁平结构，字段与 mock 保持一致）===
@@ -573,4 +441,3 @@ export function mapCRInstance(it) {
     annotations: it.metadata?.annotations || {},
   }
 }
-async function fetchCRDs() { const d = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500'); return (d?.items || []).map(mapCRD) }

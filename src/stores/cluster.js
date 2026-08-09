@@ -109,6 +109,10 @@ export const useClusterStore = defineStore('cluster', () => {
   let podWatchRv = null
   let podWatchHandle = null
   const podWatchLive = ref(false)
+  // Event Watch 同款状态（refreshEvents 写 eventWatchRv 供 watch 续接）
+  let eventWatchRv = ''
+  let eventWatchHandle = null
+  const eventWatchLive = ref(false)
 
   // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
   const currentNamespace = ref(localStorage.getItem('aliangboard.namespace') || '')
@@ -1000,6 +1004,94 @@ export const useClusterStore = defineStore('cluster', () => {
     } catch { /* 静默：保留上次 eventList，watch 继续推增量 */ }
   }
 
+  // === Pod / Event Watch：实时监听（ADDED/MODIFIED/DELETED 增量更新）===
+  // 双写：① 直接更新 store ref（podList/eventList，供仍读 store 的视图与节点汇总）；
+  //       ② queryClient.setQueryData（供 NsPods/NsEvents 等 Vue Query 消费者享 live）。
+  // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
+  // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
+
+  // 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（mock 种子与真实水合后都调用）
+  function recountNodePods() {
+    const counts = {}
+    for (const p of podList.value) {
+      const n = p.node
+      if (n) counts[n] = (counts[n] || 0) + 1
+    }
+    nodeList.value = nodeList.value.map(n => ({ ...n, podCount: counts[n.name] || 0 }))
+  }
+
+  // --- Pod Watch ---
+  function applyPodWatchEvent(evt) {
+    if (!evt?.object) return
+    const mapped = mapPod(evt.object, null)
+    const list = podList.value
+    const idx = list.findIndex(p => p.name === mapped.name && p.namespace === mapped.namespace)
+    if (evt.type === 'DELETED') { if (idx !== -1) list.splice(idx, 1) }
+    else if (idx !== -1) list[idx] = { ...list[idx], ...mapped }
+    else list.push(mapped)
+  }
+  function startPodWatch() {
+    if (!remoteMode.value || podWatchHandle) return
+    const rv = podWatchRv || ''
+    const path = `/api/v1/pods?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`
+    podWatchLive.value = true
+    podWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
+          applyPodWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsPods 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopPodWatch,
+      onClose: stopPodWatch,
+    })
+  }
+  function stopPodWatch() {
+    podWatchLive.value = false
+    if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
+  }
+
+  // --- Event Watch ---
+  function applyEventWatchEvent(evt) {
+    const mapped = mapEvent(evt.object)
+    if (!mapped.uid) return
+    const idx = eventList.value.findIndex(e => e.uid === mapped.uid)
+    if (evt.type === 'DELETED') { if (idx !== -1) eventList.value.splice(idx, 1) }
+    else if (idx !== -1) eventList.value[idx] = mapped
+    else { eventList.value.unshift(mapped); if (eventList.value.length > 1000) eventList.value.length = 1000 }
+  }
+  function startEventWatch() {
+    if (!remoteMode.value || eventWatchHandle) return
+    const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
+    eventWatchLive.value = true
+    eventWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
+          applyEventWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsEvents 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopEventWatch,
+      onClose: stopEventWatch,
+    })
+  }
+  function stopEventWatch() {
+    eventWatchLive.value = false
+    if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
+  }
+  // 详情页用：返回关联到指定资源（involvedObject）的事件
+  function eventsFor(kind, name, namespace) {
+    return eventList.value.filter(e => e.relatedKind === kind && e.relatedName === name && (!namespace || e.relatedNamespace === namespace))
+  }
+
   // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
@@ -1491,6 +1583,7 @@ export const useClusterStore = defineStore('cluster', () => {
     startHealthCheck()
   }
 
+  async function fetchCRDs() { const d = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500'); return (d?.items || []).map(mapCRD) }
   async function fetchCRD(name) { const d = await api.k8s(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${encodeURIComponent(name)}`); return d ? mapCRD(d) : null }
   async function fetchCRInstances(crd) {
     const d = await api.k8s(`/apis/${crd.group}/${crd.version}/${crd._plural}?limit=500`)
@@ -2596,8 +2689,6 @@ status:
     clusterList, savedClusters, auditLogList, crdList, currentCluster, remoteMode, connectionState,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
-    // Namespace 作用域计算
-    nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, fetchWorkload, getPodByName, getNodeByName, getNamespaceByName,
     getServiceByName, getIngressByName, getConfigMapByName, getSecretByName, getPVCByName,

@@ -1,12 +1,59 @@
 // 资源 fetcher（K8s API → mapXxx）。从 cluster.js 抽出的纯数据拉取函数。
 import { api } from '@/api/client'
+import { i18n } from '@/i18n'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import {
   mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV,
   mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass,
   mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange,
-  mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance
+  mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf
 } from '@/composables/useResourceMappers'
+
+// 还原 Deployment 的滚动发布历史：每个 ReplicaSet 携带 deployment.kubernetes.io/revision 注解，
+// 其 pod template 即该 revision 的镜像/配置；当前 revision 取 Deployment 自身注解。
+// _template 保留完整模板，供 rollbackWorkload 执行真正的 rollout undo PATCH。
+function attachRolloutHistory(workloads, deploymentData, replicaSetData) {
+  const rsByDeploy = new Map()
+  for (const rs of (replicaSetData?.items || [])) {
+    const owner = (rs.metadata?.ownerReferences || []).find(o => o.kind === 'Deployment' && o.controller)
+    if (!owner) continue
+    const key = `${rs.metadata.namespace}/${owner.name}`
+    if (!rsByDeploy.has(key)) rsByDeploy.set(key, [])
+    rsByDeploy.get(key).push(rs)
+  }
+  const findDeploy = (name, ns) => (deploymentData?.items || []).find(d => d.metadata?.name === name && d.metadata?.namespace === ns)
+  for (const wl of workloads) {
+    if (wl.type !== 'Deployment') {
+      // StatefulSet/DaemonSet 历史走 ControllerRevision（暂未接入），仅展示当前版本
+      wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
+      continue
+    }
+    const deploy = findDeploy(wl.name, wl.namespace)
+    const curRev = deploy?.metadata?.annotations?.['deployment.kubernetes.io/revision'] || ''
+    const rss = rsByDeploy.get(`${wl.namespace}/${wl.name}`) || []
+    const revs = rss.map(rs => {
+      const rev = Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision']) || 0
+      return {
+        rev,
+        image: rs.spec?.template?.spec?.containers?.[0]?.image || wl.image,
+        sha: String(rs.metadata?.uid || '').slice(0, 7) || String(rs.metadata?.name || '').split('-').pop() || '—',
+        age: ageOf(rs.metadata?.creationTimestamp),
+        reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
+        current: curRev ? String(rev) === String(curRev) : false,
+        replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
+        readyReplicas: rs.status?.readyReplicas ?? 0,
+        desiredReplicas: rs.spec?.replicas ?? rs.status?.replicas ?? 0,
+        rsName: rs.metadata?.name,
+        rsUid: rs.metadata?.uid,
+        _template: rs.spec?.template,
+      }
+    }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
+    wl.revisions = revs.length
+      ? revs
+      : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
+  }
+}
+
 
 export async function fetchNodes() {
   const [nodeData, metricsData] = await Promise.all([
