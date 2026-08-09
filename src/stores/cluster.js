@@ -20,14 +20,6 @@ import { applyWatchEvent } from '@/composables/useK8sQuery'
 // generateYAML/generateExtraYAML 的 name/namespace 插值统一用它包一层。
 const yamlQ = v => JSON.stringify(String(v ?? ''))
 import { i18n } from '@/i18n'
-import {
-  clusterInfo, nodes, workloads, pods, namespaces, events,
-  services, ingresses, endpoints, configMaps, secrets, persistentVolumes,
-  pvcs, storageClasses, ingressClasses, runtimeClasses, roles, serviceAccounts, podLogs,
-  networkPolicies, hpas, resourceQuotas, limitRanges, roleBindings,
-  clusters, auditLogs, customResourceDefinitions, clusterRoleBindings,
-  podDisruptionBudgets, priorityClasses
-} from '@/mock/cluster'
 
 export { formatCpu, formatMem } from '@/composables/useResourceFormat'
 
@@ -54,9 +46,24 @@ export const useClusterStore = defineStore('cluster', () => {
   // 保持与真实 K8s 语义一致。
 
   // === 基础数据 ===
-  const cluster = ref(clusterInfo)
-  const nodeList = ref(nodes)
-  const workloadList = ref(workloads)
+  const cluster = ref({
+    name: 'Production-Cluster-01',
+    version: 'k8s v1.28.2',
+    apiServer: 'https://api.prod-cluster.kubezen.io:6443',
+    status: 'Healthy',
+    nodeCount: 8,
+    podCount: 247,
+    activeEvents: 18,
+    cpuUsage: 62,
+    cpuTrend: '+4.2%',
+    cpuTrendUp: true,
+    memoryUsage: 58,
+    memoryTrend: '-2.1%',
+    memoryTrendUp: false,
+    metricsAvailable: true,
+  })
+  const nodeList = ref([])
+  const workloadList = ref([])
   // 为每个工作负载播种「滚动发布历史」（revision history），支持一键回滚（kubectl rollout undo 语义）
   function bumpImageTag(img, delta) {
     const m = String(img || '').match(/^(.*:v?)(\d+)\.(\d+)\.(\d+)$/)
@@ -73,38 +80,40 @@ export const useClusterStore = defineStore('cluster', () => {
       { rev: 1, image: bumpImageTag(wl.image, -2), sha: randSha(), age: '1d ago', reason: i18n.global.t('store.imageUpdate') },
     ]
   })
-  const podList = ref(pods)
-  const namespaceList = ref(namespaces)
-  const eventList = ref(events)
-  const serviceList = ref(services)
-  const ingressList = ref(ingresses)
-  const endpointsList = ref(endpoints)
-  const configMapList = ref(configMaps)
-  const secretList = ref(secrets.map(s => ({ ...s, data: encodeSecretData(s.data) })))
-  const pvList = ref(persistentVolumes)
-  const pvcList = ref(pvcs)
-  const scList = ref(storageClasses)
-  const ingressClassList = ref(ingressClasses)
-  const runtimeClassList = ref(runtimeClasses)
-  const roleList = ref(roles)
-  const saList = ref(serviceAccounts)
-  const logEntries = ref(podLogs)
-  const networkPolicyList = ref(networkPolicies)
-  const hpaList = ref(hpas)
-  const resourceQuotaList = ref(resourceQuotas)
-  const limitRangeList = ref(limitRanges)
-  const roleBindingList = ref(roleBindings)
-  const clusterRoleBindingList = ref(clusterRoleBindings)
-  const pdbList = ref(podDisruptionBudgets)
-  const priorityClassList = ref(priorityClasses)
-  // 多集群：已保存集群来自 localStorage；clusterList 为其映射（无已保存时回退演示数据）
+  const podList = ref([])
+  const namespaceList = ref([])
+  const eventList = ref([])
+  const serviceList = ref([])
+  const ingressList = ref([])
+  const endpointsList = ref([])
+  const configMapList = ref([])
+  const secretList = ref([])
+  const pvList = ref([])
+  const pvcList = ref([])
+  const scList = ref([])
+  const ingressClassList = ref([])
+  const runtimeClassList = ref([])
+  const roleList = ref([])
+  const saList = ref([])
+  const logEntries = ref([])
+  const networkPolicyList = ref([])
+  const hpaList = ref([])
+  const resourceQuotaList = ref([])
+  const limitRangeList = ref([])
+  const roleBindingList = ref([])
+  const clusterRoleBindingList = ref([])
+  const pdbList = ref([])
+  const priorityClassList = ref([])
+  // 多集群：已保存集群来自 localStorage；clusterList 为其映射
   const savedClusters = ref(getSavedClusters())
   const activeApiServerRef = ref(activeApiServer())
+  // mock 种子已移除:无已保存集群时 clusterList 回退到空数组(生产环境 savedClusters 来自 localStorage)
+  const clusters = []
   const clusterList = computed(() => savedClusters.value.length
     ? savedClusters.value.map(c => ({ name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy', distribution: c.distribution || 'Kubernetes', context: c.name, current: c.apiServer === activeApiServerRef.value }))
     : clusters)
-  const auditLogList = ref(auditLogs)
-  const crdList = ref(customResourceDefinitions)
+  const auditLogList = ref([])
+  const crdList = ref([])
   const currentCluster = ref(clusters.find(c => c.current)?.name || clusters[0]?.name || '')
   const remoteMode = ref(false)
   const connectionState = ref('mock')
