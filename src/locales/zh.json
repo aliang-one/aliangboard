@@ -2697,7 +2697,12 @@
       "reconciled": "上次 reconcile",
       "neverReconciled": "未 reconcile",
       "openProject": "打开项目",
-      "create": "新建项目"
+      "create": "新建项目",
+      "nameLabel": "项目名称",
+      "selectCluster": "选择集群",
+      "loadFailed": "加载失败",
+      "createFailed": "创建失败",
+      "created": "创建成功"
     },
     "config": {
       "title": "工作台配置",

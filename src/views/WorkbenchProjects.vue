@@ -24,7 +24,7 @@ async function load() {
     const [pr, cr] = await Promise.all([workbenchApi.listProjects(), authApi.myClusters()])
     projects.value = pr.projects || []
     clusters.value = Array.isArray(cr) ? cr : (cr.clusters || [])
-  } catch (e) { notify('error', e.message || 'Load failed') }
+  } catch (e) { notify('error', e.message || t('workbench.card.loadFailed')) }
   finally { loading.value = false }
 }
 onMounted(load)
@@ -34,9 +34,9 @@ async function createProject() {
     await workbenchApi.createProject(form.value)
     showCreate.value = false
     form.value = { name: '', clusterId: '' }
-    notify('success', 'Created')
+    notify('success', t('workbench.card.created'))
     load()
-  } catch (e) { notify('error', e.message || 'Create failed') }
+  } catch (e) { notify('error', e.message || t('workbench.card.createFailed')) }
 }
 
 const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
@@ -95,20 +95,20 @@ const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? i
     <Modal v-model="showCreate" :title="t('workbench.card.create')" width="max-w-md">
       <div class="flex flex-col gap-md">
         <div>
-          <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.create') }}</label>
+          <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.nameLabel') }}</label>
           <input v-model="form.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="my-project" />
         </div>
         <div>
-          <label class="text-body-xs text-on-surface-variant block mb-xs">Cluster</label>
+          <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.selectCluster') }}</label>
           <select v-model="form.clusterId" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-            <option value="" disabled>Select cluster</option>
+            <option value="" disabled>{{ t('workbench.card.selectCluster') }}</option>
             <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </div>
       </div>
       <template #actions>
         <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
-        <button @click="createProject" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.confirm') }}</button>
+        <button @click="createProject" :disabled="!form.name.trim() || !form.clusterId" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
       </template>
     </Modal>
   </div>

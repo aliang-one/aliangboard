@@ -4,10 +4,8 @@
 import { ref, onMounted } from 'vue'
 import { authApi } from '@/api/client'
 import { useI18n } from 'vue-i18n'
-import { useClusterStore } from '@/stores/cluster'
 
 const { t } = useI18n()
-const store = useClusterStore()
 const clusters = ref([])
 
 onMounted(async () => {

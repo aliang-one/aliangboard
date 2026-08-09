@@ -2697,7 +2697,12 @@
       "reconciled": "Last reconcile",
       "neverReconciled": "Not reconciled",
       "openProject": "Open Project",
-      "create": "New Project"
+      "create": "New Project",
+      "nameLabel": "Project Name",
+      "selectCluster": "Select cluster",
+      "loadFailed": "Load failed",
+      "createFailed": "Create failed",
+      "created": "Created"
     },
     "config": {
       "title": "Workbench Configuration",
