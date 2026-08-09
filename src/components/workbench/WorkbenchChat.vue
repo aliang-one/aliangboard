@@ -135,6 +135,13 @@ const HINTS = computed(() => [
 function toolCount(trace) { return (trace || []).filter(e => e.type === 'tool' || e.type === 'denied').length }
 function fmtResult(v) { if (v == null) return ''; return typeof v === 'string' ? v : JSON.stringify(v, null, 2) }
 
+const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns' }
+function refIcon(kind) {
+  if (!kind) return 'label'
+  const k = kind.charAt(0).toUpperCase() + kind.slice(1).replace(/s$/, '')
+  return KIND_ICONS[k] || KIND_ICONS[kind] || 'extension'
+}
+
 function updateTurn(tid, patch) { const t = turns.value.find(x => x._id === tid); if (t) Object.assign(t, patch) }
 async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
 
@@ -191,7 +198,7 @@ async function send() {
   if (!msg || sending.value) return
   const userId = ++turnSeq
   const agentId = ++turnSeq
-  turns.value.push({ _id: userId, role: 'user', content: msg })
+  turns.value.push({ _id: userId, role: 'user', content: msg, refs: refs.value.length ? [...refs.value] : undefined })
   turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
   input.value = ''
   sending.value = true
@@ -239,124 +246,174 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
 </script>
 
 <template>
-  <section class="h-full flex flex-col gap-sm min-h-0">
-    <div class="shrink-0 flex items-center gap-xs">
-      <span class="material-symbols-outlined text-base text-on-surface-variant">smart_toy</span>
-      <span class="text-body-sm font-semibold text-on-surface truncate">{{ props.projectName || t('workbench.chat.title') }}</span>
-      <span v-if="convStatus" class="shrink-0 text-body-xs px-xs py-xs rounded-full font-mono" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
-      <button v-if="turns.length" @click="clearChat" class="ml-auto flex items-center gap-xs px-xs py-xs border border-outline-variant rounded-lg text-body-xs text-on-surface-variant hover:bg-surface-container"><span class="material-symbols-outlined text-sm">delete_sweep</span></button>
+  <section class="h-full flex flex-col min-h-0 bg-surface-container-lowest">
+    <!-- Status bar -->
+    <div v-if="convStatus" class="shrink-0 flex items-center justify-center gap-xs py-xs bg-surface-container-low border-b border-outline-variant">
+      <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' }"></span>
+      <span class="text-body-xs font-medium" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
     </div>
+    <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-sm"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
 
-    <div v-if="errorBanner" class="shrink-0 flex items-center gap-xs text-body-xs text-error bg-error/5 border border-error/20 rounded-lg px-sm py-xs"><span class="material-symbols-outlined text-sm">error</span> {{ errorBanner }}</div>
-
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-sm pr-xs">
-      <div v-if="!turns.length" class="flex-1 flex items-center justify-center">
-        <div class="text-center w-full px-sm">
-          <span class="material-symbols-outlined text-3xl text-on-surface-variant/40">smart_toy</span>
-          <p class="text-body-xs text-on-surface-variant mt-sm">{{ t('workbench.chat.hint') }}</p>
-          <div class="flex flex-col gap-xs mt-sm text-left">
-            <button v-for="h in HINTS" :key="h" @click="useHint(h)" class="text-body-xs text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg px-sm py-xs hover:border-primary/50 hover:text-primary transition-colors">{{ h }}</button>
-          </div>
+    <!-- Messages -->
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
+      <!-- Empty state -->
+      <div v-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
+        <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-md">
+          <span class="material-symbols-outlined text-2xl text-primary">smart_toy</span>
+        </div>
+        <p class="text-body-md font-semibold text-on-surface mb-xs">{{ t('workbench.chat.title') }}</p>
+        <p class="text-body-sm text-on-surface-variant text-center mb-md">{{ t('workbench.chat.hint') }}</p>
+        <div class="flex flex-col gap-xs w-full max-w-sm">
+          <button v-for="h in HINTS" :key="h" @click="useHint(h)" class="flex items-center gap-sm text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-xl px-md py-sm hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all">
+            <span class="material-symbols-outlined text-base text-primary/60">arrow_forward</span>{{ h }}
+          </button>
         </div>
       </div>
 
-      <div v-for="t in turns" :key="t._id" class="flex" :class="t.role === 'user' ? 'justify-end' : 'justify-start'">
-        <div v-if="t.role === 'user'" class="max-w-[85%] bg-primary-container text-on-primary-container rounded-2xl rounded-br-sm px-sm py-xs">
-          <p class="text-body-xs whitespace-pre-wrap break-words">{{ t.content }}</p>
+      <!-- Conversation -->
+      <div v-for="turn in turns" :key="turn._id" class="px-md py-sm">
+        <!-- User message -->
+        <div v-if="turn.role === 'user'" class="flex justify-end mb-sm">
+          <div class="max-w-[80%]">
+            <!-- Ref cards (resource previews) -->
+            <div v-if="turn.refs && turn.refs.length" class="flex flex-wrap gap-xs mb-xs justify-end">
+              <div v-for="(r, i) in turn.refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
+                <span class="material-symbols-outlined text-sm text-primary">{{ refIcon(r.kind) }}</span>
+                <div class="flex flex-col">
+                  <span class="text-body-xs font-mono font-semibold text-primary">{{ r.name }}</span>
+                  <span class="text-body-xs text-on-surface-variant">{{ r.kind }} · {{ r.namespace }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="bg-primary-container text-on-primary-container rounded-2xl rounded-br-md px-md py-sm">
+              <p class="text-body-sm whitespace-pre-wrap break-words leading-relaxed">{{ turn.content }}</p>
+            </div>
+          </div>
         </div>
-        <div v-else class="w-full flex flex-col gap-xs">
-          <details v-if="t.trace && t.trace.length" class="bg-surface-container-low border border-outline-variant rounded-lg">
-            <summary class="cursor-pointer px-sm py-xs text-body-xs text-on-surface-variant select-none flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm">account_tree</span> {{ t('workbench.chat.toolTrace', { n: toolCount(t.trace) }) }}
+
+        <!-- Assistant message -->
+        <div v-else class="flex flex-col gap-sm mb-sm">
+          <!-- Tool trace (compact, expandable) -->
+          <details v-if="turn.trace && turn.trace.length" class="group">
+            <summary class="cursor-pointer flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-on-surface py-xs select-none">
+              <span class="material-symbols-outlined text-sm group-open:rotate-90 transition-transform">chevron_right</span>
+              <span class="material-symbols-outlined text-sm text-primary/60">account_tree</span>
+              {{ toolCount(turn.trace) }} tool calls
             </summary>
-            <div class="px-sm pb-sm flex flex-col gap-xs">
-              <div v-for="(ev, j) in t.trace" :key="j" class="text-body-xs">
-                <div v-if="ev.type === 'assistant' && ev.message?.tool_calls?.length" class="flex items-center gap-xs text-on-surface-variant py-xs">
-                  <span class="material-symbols-outlined text-sm">psychology</span>
-                  <span>{{ t('workbench.chat.decideCalling') }}{{ ev.message.tool_calls.map(c => c.function?.name).filter(Boolean).join(', ') }}</span>
-                </div>
-                <div v-else-if="ev.type === 'tool'" class="border border-outline-variant rounded-lg overflow-hidden">
-                  <div class="flex items-center gap-xs px-xs py-xs bg-surface-container">
-                    <span class="material-symbols-outlined text-sm text-status-running">play_circle</span>
-                    <span class="font-mono font-semibold">{{ ev.name }}</span>
+            <div class="ml-md mt-xs flex flex-col gap-xs border-l-2 border-outline-variant pl-md">
+              <div v-for="(ev, j) in turn.trace" :key="j">
+                <div v-if="ev.type === 'tool'" class="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
+                  <div class="flex items-center gap-xs px-sm py-xs bg-surface-container/50">
+                    <span class="material-symbols-outlined text-sm text-status-running">play_arrow</span>
+                    <span class="text-body-xs font-mono font-semibold text-on-surface">{{ ev.name }}</span>
                   </div>
-                  <pre v-if="fmtResult(ev.result)" class="px-xs py-xs max-h-32 overflow-y-auto font-mono text-body-xs bg-surface-container-lowest whitespace-pre-wrap break-all">{{ fmtResult(ev.result) }}</pre>
+                  <pre v-if="fmtResult(ev.result)" class="px-sm py-xs max-h-28 overflow-y-auto font-mono text-body-xs text-on-surface-variant bg-surface-container-lowest whitespace-pre-wrap break-all">{{ fmtResult(ev.result) }}</pre>
                 </div>
-                <div v-else-if="ev.type === 'denied'" class="flex items-center gap-xs px-xs py-xs bg-status-warning/10 text-status-warning rounded-lg">
-                  <span class="material-symbols-outlined text-sm">block</span><span class="font-mono font-semibold">{{ ev.name }}</span><span>{{ t('workbench.chat.reject') }}</span>
+                <div v-else-if="ev.type === 'denied'" class="flex items-center gap-xs px-sm py-xs text-body-xs text-status-warning bg-status-warning/5 rounded-lg">
+                  <span class="material-symbols-outlined text-sm">block</span>
+                  <span class="font-mono font-semibold">{{ ev.name }}</span> rejected
                 </div>
               </div>
             </div>
           </details>
 
-          <div v-if="t.status === 'thinking' && !(t.trace && t.trace.length)" class="flex items-center gap-xs text-body-xs text-on-surface-variant bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-sm px-sm py-xs">
-            <span class="material-symbols-outlined animate-spin text-sm">progress_activity</span> {{ t('workbench.chat.thinking') }}
+          <!-- Thinking -->
+          <div v-if="turn.status === 'thinking' && !(turn.trace && turn.trace.length)" class="flex items-center gap-sm px-sm">
+            <div class="flex gap-0.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 0ms"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 150ms"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
+            </div>
+            <span class="text-body-sm text-on-surface-variant">Thinking...</span>
           </div>
-          <div v-else-if="t.status === 'pending_approval'" class="flex items-center gap-xs text-body-xs text-status-warning bg-status-warning/10 border border-status-warning/30 rounded-2xl rounded-tl-sm px-sm py-xs">
-            <span class="material-symbols-outlined text-sm">pending_actions</span> {{ t('workbench.chat.pendingApproval') }}
+
+          <!-- Pending approval -->
+          <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
+            <span class="material-symbols-outlined text-base text-status-warning">pending_actions</span>
+            <span class="text-body-sm text-status-warning font-medium">Waiting for approval...</span>
           </div>
-          <div v-else-if="t.status === 'error'" class="flex items-start gap-xs text-body-xs text-error bg-error/5 border border-error/20 rounded-2xl rounded-tl-sm px-sm py-xs">
-            <span class="material-symbols-outlined text-sm mt-0.5">error</span><span class="whitespace-pre-wrap break-words">{{ t.error }}</span>
+
+          <!-- Error -->
+          <div v-else-if="turn.status === 'error'" class="flex items-start gap-sm px-md py-sm bg-error/5 border border-error/20 rounded-xl">
+            <span class="material-symbols-outlined text-base text-error mt-0.5">error</span>
+            <span class="text-body-sm text-error whitespace-pre-wrap break-words">{{ turn.error }}</span>
           </div>
-          <template v-else-if="t.status === 'done'">
-            <div class="text-body-sm text-on-surface whitespace-pre-wrap break-words bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-sm px-sm py-xs">{{ t.content || t('workbench.chat.noAnswer') }}</div>
-            <div class="flex items-center gap-sm text-body-xs text-on-surface-variant px-xs"><span>{{ t('workbench.chat.stepsTaken', { n: t.steps }) }}</span><span v-if="t.truncated" class="text-status-warning">{{ t('workbench.chat.maxStepsWarning') }}</span></div>
+
+          <!-- Done (answer) -->
+          <template v-else-if="turn.status === 'done'">
+            <div class="bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-md px-md py-sm">
+              <p class="text-body-sm text-on-surface whitespace-pre-wrap break-words leading-relaxed">{{ turn.content || t('workbench.chat.noAnswer') }}</p>
+            </div>
+            <div class="flex items-center gap-sm text-body-xs text-on-surface-variant px-xs">
+              <span>{{ turn.steps }} steps</span>
+              <span v-if="turn.truncated" class="text-status-warning">⚠ truncated</span>
+            </div>
           </template>
         </div>
       </div>
     </div>
 
-    <div class="shrink-0 flex flex-col gap-xs">
-      <!-- refs chips 行 -->
-      <div v-if="refs.length" class="flex flex-wrap gap-xs">
-        <span v-for="(r, i) in refs" :key="i" class="inline-flex items-center gap-xs bg-primary-container text-on-primary-container rounded-full px-xs py-xs text-body-xs">
-          <span class="material-symbols-outlined text-sm">label</span>
-          <span class="font-mono">{{ r.kind }}/{{ r.namespace || '-' }}/{{ r.name }}</span>
-          <button @click="removeRef(i)" class="hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
-        </span>
+    <!-- Input area -->
+    <div class="shrink-0 border-t border-outline-variant p-md bg-surface-container-lowest">
+      <!-- @-ref chips -->
+      <div v-if="refs.length" class="flex flex-wrap gap-xs mb-sm">
+        <div v-for="(r, i) in refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
+          <span class="material-symbols-outlined text-sm text-primary">{{ refIcon(r.kind) }}</span>
+          <span class="text-body-xs font-mono font-semibold text-primary">{{ r.name }}</span>
+          <span class="text-body-xs text-on-surface-variant">{{ r.namespace }}</span>
+          <button @click="removeRef(i)" class="ml-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+        </div>
       </div>
 
-      <!-- 输入框 + 搜索下拉(relative 容器) -->
-      <div class="relative flex items-end gap-xs bg-surface-container-lowest border border-outline-variant rounded-xl p-xs">
-        <textarea v-model="input" @keydown="onKeydown" @blur="clearSearch" :disabled="sending || !!pendingApproval" rows="2" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-xs px-sm py-xs max-h-32"></textarea>
-        <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 flex items-center gap-xs px-sm py-xs bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40"><span class="material-symbols-outlined text-sm">send</span> {{ t('workbench.chat.send') }}</button>
+      <!-- Input + search dropdown -->
+      <div class="relative">
+        <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
+          <textarea v-model="input" @keydown="onKeydown" @blur="clearSearch" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
+            <span class="material-symbols-outlined text-base">send</span>
+          </button>
+        </div>
 
-        <!-- @-mention 搜索下拉 -->
-        <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-56 overflow-y-auto z-10">
-          <!-- kind 补全模式(@ 后无 :) -->
+        <!-- @-mention dropdown -->
+        <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-20">
           <template v-if="kindHints.length">
-            <div class="px-sm py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
-            <button v-for="k in kindHints" :key="k" @click="selectKind(k)" class="w-full text-left px-sm py-xs text-body-xs hover:bg-surface-container font-mono">{{ k }}</button>
+            <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
+            <button v-for="k in kindHints" :key="k" @click="selectKind(k)" class="w-full flex items-center gap-sm text-left px-md py-sm text-body-sm hover:bg-surface-container transition-colors">
+              <span class="material-symbols-outlined text-base text-primary/60">{{ refIcon(k) }}</span>
+              <span class="font-mono">{{ k }}</span>
+            </button>
           </template>
-          <!-- 搜索结果模式 -->
           <template v-else>
-            <div v-if="searching" class="px-sm py-xs text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined animate-spin text-sm">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}</div>
-            <div v-else-if="!searchResults.length" class="px-sm py-xs text-body-xs text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
-            <button v-for="(item, i) in searchResults" :key="i" @click="selectRef(item)" class="w-full text-left px-sm py-xs text-body-xs hover:bg-surface-container flex items-center gap-xs">
-              <span class="material-symbols-outlined text-sm text-on-surface-variant">label</span>
-              <span class="font-mono">{{ item.kind }}/{{ item.namespace || '-' }}/{{ item.name }}</span>
+            <div v-if="searching" class="px-md py-sm text-body-sm text-on-surface-variant flex items-center gap-sm">
+              <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}
+            </div>
+            <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
+            <button v-for="(item, i) in searchResults" :key="i" @click="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-surface-container transition-colors">
+              <span class="material-symbols-outlined text-base text-primary/60">{{ refIcon(item.kind) }}</span>
+              <div class="flex flex-col">
+                <span class="text-body-sm font-mono font-semibold text-on-surface">{{ item.name }}</span>
+                <span class="text-body-xs text-on-surface-variant">{{ item.kind }} · {{ item.namespace }}</span>
+              </div>
             </button>
           </template>
         </div>
       </div>
     </div>
 
-    <!-- 写文件审批 Modal -->
+    <!-- Approval Modal -->
     <Modal :modelValue="!!pendingApproval" :title="t('workbench.chat.writeFileApproval')" width="max-w-2xl">
       <div v-if="pendingApproval" class="flex flex-col gap-md">
-        <div class="bg-surface-container-low border border-outline-variant rounded-lg p-md flex flex-col gap-xs">
-          <div class="flex items-center gap-sm">
-            <span class="material-symbols-outlined text-status-warning">{{ pendingApproval.name === 'apply_project_manifests' ? 'rocket_launch' : 'edit_document' }}</span>
-            <span class="font-mono font-semibold">{{ pendingApproval.name }}</span>
-          </div>
-          <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm" v-html="t('workbench.chat.applyManifestsDesc')"></p>
-          <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm" v-html="t('workbench.chat.bootstrapLedgerDesc')"></p>
-          <template v-else-if="pendingApproval.args.path">
-            <p class="text-body-sm">{{ t('workbench.chat.path') }}<span class="font-mono">{{ pendingApproval.args.path }}</span></p>
-            <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
-          </template>
-          <pre v-else class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest rounded p-sm">{{ pendingApproval.args.content }}</pre>
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-status-warning">{{ pendingApproval.name === 'apply_project_manifests' ? 'rocket_launch' : 'edit_document' }}</span>
+          <span class="font-mono font-semibold text-body-sm">{{ pendingApproval.name }}</span>
         </div>
+        <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.applyManifestsDesc')"></p>
+        <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.bootstrapLedgerDesc')"></p>
+        <template v-if="pendingApproval.args?.path">
+          <p class="text-body-sm text-on-surface-variant">Path: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
+        </template>
+        <pre v-else-if="pendingApproval.args?.content" class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
       </div>
       <template #actions>
         <button @click="decideApproval(false)" :disabled="sending" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ t('workbench.chat.reject') }}</button>
