@@ -2685,7 +2685,10 @@
       "applyManifestsDesc": "The platform uses the cluster credentials to apply manifests to the target cluster, then refreshes the cluster ledger (read-only survey, does not modify other cluster resources).",
       "bootstrapLedgerDesc": "The platform surveys the cluster via its credentials and rewrites the cluster ledger (INDEX.md / learnings.md) — read-only, does not modify cluster resources.",
       "path": "Path: ",
-      "approve": "Approve"
+      "approve": "Approve",
+      "atMentionHint": "Type @kind: to search resources (e.g. @pod:nginx)",
+      "atMentionNoResults": "No matching resources",
+      "atMentionSearching": "Searching..."
     },
     "shell": {
       "title": "Workbench",

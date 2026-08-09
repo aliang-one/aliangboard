@@ -3,7 +3,7 @@
 // props: projectId / projectName。无路由依赖,适合侧栏嵌入。
 // → POST /api/agent/chat { projectId, message, resume? } → done(终答+trace)/ pending_approval(write_project_file 人审)。
 // 历史走服务端(workbench_history),客户端不传 history。审批 modal 展 path+content。
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
@@ -21,6 +21,70 @@ const errorBanner = ref('')
 const scrollEl = ref(null)
 const pendingApproval = ref(null)
 let turnSeq = 0
+
+// --- @-mention state ---
+const refs = ref([])
+const searchResults = ref([])
+const searching = ref(false)
+const searchOpen = ref(false)
+const kindHints = ref([])  // @ 后无 : → kind 补全
+const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets' }
+const MENTION_RE = /@(\w*):(\S*)$/
+
+let debounceTimer = null
+function clearSearch() { searchOpen.value = false; searchResults.value = []; kindHints.value = [] }
+
+async function doSearch(kind, q) {
+  searching.value = true
+  searchOpen.value = true
+  try {
+    const data = await workbenchApi.search(props.projectId, kind, q)
+    searchResults.value = (data && data.items) || []
+  } catch { searchResults.value = [] }
+  finally { searching.value = false }
+}
+
+watch(input, (val) => {
+  if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null }
+  if (!val) { clearSearch(); return }
+  const m = val.match(MENTION_RE)
+  if (m) {
+    const alias = m[1].toLowerCase()
+    const q = m[2]
+    const kind = KIND_ALIASES[alias]
+    if (!kind) { clearSearch(); return }
+    debounceTimer = setTimeout(() => doSearch(kind, q), 300)
+  } else {
+    // 检查 @ 后无 : → kind 补全
+    const atMatch = val.match(/@(\w*)$/)
+    if (atMatch) {
+      const typed = atMatch[1].toLowerCase()
+      kindHints.value = Object.keys(KIND_ALIASES).filter(k => k.startsWith(typed))
+      searchOpen.value = kindHints.value.length > 0
+      searchResults.value = []
+    } else {
+      clearSearch()
+    }
+  }
+})
+
+function selectRef(item) {
+  refs.value.push({ kind: item.kind, namespace: item.namespace, name: item.name })
+  // 从 input 删除 @kind:query token
+  input.value = input.value.replace(MENTION_RE, '').trimEnd()
+  clearSearch()
+}
+
+function selectKind(alias) {
+  // 把 @alias 补成 @alias:（光标位置不重要,replace 替换末尾）
+  input.value = input.value.replace(/@(\w*)$/, `@${alias}:`)
+  kindHints.value = []
+  searchOpen.value = false
+}
+
+function removeRef(idx) { refs.value.splice(idx, 1) }
+
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer) })
 
 const HINTS = computed(() => [
   t('workbench.chat.hintReadLedger'),
@@ -57,7 +121,12 @@ async function send() {
   sending.value = true
   await scrollToBottom()
   try {
-    const res = await workbenchApi.chat({ projectId: props.projectId, message: msg })
+    const payload = { projectId: props.projectId, message: msg }
+    if (refs.value.length) {
+      payload.references = refs.value.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
+      refs.value = []
+    }
+    const res = await workbenchApi.chat(payload)
     applyResponse(agentId, res)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
@@ -151,9 +220,39 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
       </div>
     </div>
 
-    <div class="shrink-0 flex items-end gap-xs bg-surface-container-lowest border border-outline-variant rounded-xl p-xs">
-      <textarea v-model="input" @keydown="onKeydown" :disabled="sending || !!pendingApproval" rows="2" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-xs px-sm py-xs max-h-32"></textarea>
-      <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 flex items-center gap-xs px-sm py-xs bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40"><span class="material-symbols-outlined text-sm">send</span> {{ t('workbench.chat.send') }}</button>
+    <div class="shrink-0 flex flex-col gap-xs">
+      <!-- refs chips 行 -->
+      <div v-if="refs.length" class="flex flex-wrap gap-xs">
+        <span v-for="(r, i) in refs" :key="i" class="inline-flex items-center gap-xs bg-primary-container text-on-primary-container rounded-full px-xs py-xs text-body-xs">
+          <span class="material-symbols-outlined text-sm">label</span>
+          <span class="font-mono">{{ r.kind }}/{{ r.namespace || '-' }}/{{ r.name }}</span>
+          <button @click="removeRef(i)" class="hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+        </span>
+      </div>
+
+      <!-- 输入框 + 搜索下拉(relative 容器) -->
+      <div class="relative flex items-end gap-xs bg-surface-container-lowest border border-outline-variant rounded-xl p-xs">
+        <textarea v-model="input" @keydown="onKeydown" @blur="clearSearch" :disabled="sending || !!pendingApproval" rows="2" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-xs px-sm py-xs max-h-32"></textarea>
+        <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 flex items-center gap-xs px-sm py-xs bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40"><span class="material-symbols-outlined text-sm">send</span> {{ t('workbench.chat.send') }}</button>
+
+        <!-- @-mention 搜索下拉 -->
+        <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-56 overflow-y-auto z-10">
+          <!-- kind 补全模式(@ 后无 :) -->
+          <template v-if="kindHints.length">
+            <div class="px-sm py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
+            <button v-for="k in kindHints" :key="k" @click="selectKind(k)" class="w-full text-left px-sm py-xs text-body-xs hover:bg-surface-container font-mono">{{ k }}</button>
+          </template>
+          <!-- 搜索结果模式 -->
+          <template v-else>
+            <div v-if="searching" class="px-sm py-xs text-body-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined animate-spin text-sm">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}</div>
+            <div v-else-if="!searchResults.length" class="px-sm py-xs text-body-xs text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
+            <button v-for="(item, i) in searchResults" :key="i" @click="selectRef(item)" class="w-full text-left px-sm py-xs text-body-xs hover:bg-surface-container flex items-center gap-xs">
+              <span class="material-symbols-outlined text-sm text-on-surface-variant">label</span>
+              <span class="font-mono">{{ item.kind }}/{{ item.namespace || '-' }}/{{ item.name }}</span>
+            </button>
+          </template>
+        </div>
+      </div>
     </div>
 
     <!-- 写文件审批 Modal -->
