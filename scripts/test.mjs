@@ -18,6 +18,7 @@ import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/us
 import { workloadToForm } from '../src/composables/useWorkloadToForm.js'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
+import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll } from '../src/logic/networkPolicy.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -642,6 +643,49 @@ test('buildStorageClassYaml: default=true 输出 is-default-class 注解;false/�
   assert.ok(!yamlFalse.includes('is-default-class'), 'default=false 时不应含 is-default-class')
   const yamlUnset = buildStorageClassYaml({ name: 'x', provisioner: 'p', parameters: [] })
   assert.ok(!yamlUnset.includes('annotations:'), '缺省 default 时不应输出 annotations')
+})
+
+// --- NetworkPolicy 创建向导:默认模型 / 后果 / denyAll ---
+test('defaultModel 放行起步:每方向一条未限定源规则 → allowAll', () => {
+  const m = defaultModel('default')
+  assert.equal(m.kind, 'NetworkPolicy')
+  assert.equal(m.apiVersion, 'networking.k8s.io/v1')
+  assert.equal(m.metadata.namespace, 'default')
+  assert.deepEqual(m.spec.policyTypes.sort(), ['Egress', 'Ingress'])
+  assert.equal(m.spec.ingress.length, 1)
+  assert.equal(m.spec.egress.length, 1)
+  assert.deepEqual(m.spec.ingress[0], { from: [], ports: [] })
+  assert.equal(consequence(m.spec, 'ingress').state, 'allowAll')
+  assert.equal(consequence(m.spec, 'egress').state, 'allowAll')
+  assert.equal(isDenyAll(m.spec), false)
+})
+
+test('consequence:四态判定', () => {
+  // none:policyTypes 不含该方向
+  const none = { policyTypes: ['Egress'], ingress: [], egress: [{ to: [{ podSelector: { matchLabels: {} } }], ports: [] }] }
+  assert.equal(consequence(none, 'ingress').state, 'none')
+  // denyAll:受管方向但无规则
+  const deny = { policyTypes: ['Ingress', 'Egress'], ingress: [], egress: [{ to: [], ports: [] }] }
+  assert.equal(consequence(deny, 'ingress').state, 'denyAll')
+  assert.equal(isDenyAll(deny), true)
+  // allowAll:存在「无 peer」的规则(from/to 为空)
+  const allow = { policyTypes: ['Ingress'], ingress: [{ from: [], ports: [] }], egress: [] }
+  assert.equal(consequence(allow, 'ingress').state, 'allowAll')
+  // scoped:所有规则都有具体 peer
+  const scoped = { policyTypes: ['Ingress'], ingress: [{ from: [{ podSelector: { matchLabels: { app: 'x' } } }], ports: [{ protocol: 'TCP', port: 80 }] }], egress: [] }
+  const c = consequence(scoped, 'ingress')
+  assert.equal(c.state, 'scoped')
+  assert.equal(c.peers, 1)
+  assert.equal(c.ports, 1)
+  assert.equal(isDenyAll(scoped), false)
+})
+
+test('工厂函数形状稳定', () => {
+  assert.deepEqual(emptySelector(), { matchLabels: {}, matchExpressions: [] })
+  assert.deepEqual(emptyPort(), { protocol: 'TCP', port: '' })
+  assert.deepEqual(emptyIngressRule(), { from: [], ports: [] })
+  assert.deepEqual(emptyEgressRule(), { to: [], ports: [] })
+  assert.deepEqual(emptyPeer(), { podSelector: { matchLabels: {}, matchExpressions: [] } })
 })
 
 // --- 汇总 ---
