@@ -757,7 +757,7 @@ export const useClusterStore = defineStore('cluster', () => {
     if (templateLabels) patch.spec = { template: { metadata: { labels: templateLabels } } }
 
     const before = JSON.parse(JSON.stringify(wl))
-    // 乐观本地更新（mock 模式亦生效）
+    // 乐观本地更新
     const liveLabels = { ...(wl.labels || {}) }
     Object.entries(labels).forEach(([k, v]) => { liveLabels[k] = v })
     removedLabels.forEach(k => { delete liveLabels[k] })
@@ -923,7 +923,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
   // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
 
-  // 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（mock 种子与真实水合后都调用）
+  // 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（水合后调用）
   function recountNodePods() {
     const counts = {}
     for (const p of podList.value) {
@@ -1982,12 +1982,12 @@ description: "${resource.description || ''}"`
   }
 
   // === 通用 YAML 应用（kubectl edit / apply 语义）===
-  // 解析编辑后的 YAML → 按 kind 转换为 mock 扁平字段 → 调用对应 updateXxx。
+  // 解析编辑后的 YAML → 按 kind 转换为扁平字段 → 调用对应 updateXxx。
   // 这样所有资源都具备与真实 K8s 一致的「编辑 YAML 即生效」能力。
   const ACCESS_MODE_TO_CODE = { ReadWriteOnce: 'RWO', ReadWriteMany: 'RWM', ReadOnlyMany: 'ROM', ReadWriteOncePod: 'RWOP' }
   const CODE_TO_ACCESS_MODE = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
 
-  // canonical NetworkPolicy peer → mock peer 结构
+  // canonical NetworkPolicy peer → 前端 peer 结构
   const toPeer = (p) => {
     if (p.podSelector) return { type: 'podSelector', matchLabels: p.podSelector.matchLabels || {} }
     if (p.namespaceSelector) return { type: 'namespaceSelector', matchLabels: p.namespaceSelector.matchLabels || {} }
@@ -2150,7 +2150,7 @@ status:
 
   // === RBAC 权限模拟（kubectl auth can-i 语义）===
   // 根据 subject 匹配的 RoleBinding/ClusterRoleBinding → Role/ClusterRole 的 rules，
-  // 判断该 subject 能否对指定 resource 执行指定 verb。纯前端基于 mock 数据推演。
+  // 判断该 subject 能否对指定 resource 执行指定 verb。纯前端基于本地缓存数据推演。
   const RESOURCE_TO_APIGROUP = {
     pods: '', services: '', configmaps: '', secrets: '', endpoints: '', namespaces: '', nodes: '',
     persistentvolumeclaims: '', persistentvolumes: '',
@@ -2198,7 +2198,7 @@ status:
     return { allowed: false, matchedBy: null, rule: null }
   }
 
-  // mock 种子：按 pod.node 回填 podCount（真实水合在 hydrateCoreResources 末尾再调一次）
+  // 初始化时按 pod.node 回填 podCount（真实水合在 hydrateCoreResources 末尾再调一次）
   recountNodePods()
 
   return {
