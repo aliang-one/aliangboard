@@ -9,11 +9,13 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useTableColumns } from '@/composables/useTableColumns'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 store.setNamespace(route.params.namespace)
 
 const ns = computed(() => route.params.namespace)
@@ -54,25 +56,11 @@ const nsServiceAccounts = computed(() => (serviceAccountsQuery.data.value || [])
 
 const activeTab = ref('roles')
 
-const roleHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Scope' },
-  { key: 'bindings', label: 'Bindings' },
-]
+const roleHeaders = computed(() => tableColumns('nsRbacRoles'))
 
-const saHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'namespace', label: 'Namespace' },
-  { key: 'age', label: 'Age' },
-]
+const saHeaders = computed(() => tableColumns('nsRbacSAs'))
 
-const bindingHeaders = [
-  { key: 'name', label: 'Name' },
-  { key: 'roleName', label: 'Role' },
-  { key: 'subjects', label: 'Subjects' },
-  { key: 'age', label: 'Age' },
-  { key: 'actions', label: '', align: 'right' },
-]
+const bindingHeaders = computed(() => tableColumns('nsRbacBindings'))
 
 const clusterRoleOptions = computed(() => clusterRoles.value.map(r => r.name))
 
@@ -187,7 +175,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- Roles Tab -->
-    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated">
+    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" column-key="nsRbacRoles">
       <template #name="{ row }">
         <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
           <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
@@ -207,7 +195,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- ServiceAccounts Tab -->
-    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated">
+    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" column-key="nsRbacSAs">
       <template #name="{ row }">
         <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToSA(row.name)">
           <span class="material-symbols-outlined text-tertiary-container">person</span>
@@ -226,7 +214,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-sm">add</span> Create RoleBinding
         </button>
       </div>
-      <DataTable :headers="bindingHeaders" :rows="paginated">
+      <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">
           <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
             <span class="material-symbols-outlined text-secondary">link</span>
@@ -263,7 +251,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBtn') }}
         </button>
       </div>
-      <DataTable :headers="roleHeaders" :rows="paginated">
+      <DataTable :headers="roleHeaders" :rows="paginated" column-key="nsRbacRoles">
         <template #name="{ row }">
           <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
             <span class="material-symbols-outlined text-primary">shield</span>
@@ -293,7 +281,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBindingBtn') }}
         </button>
       </div>
-      <DataTable :headers="bindingHeaders" :rows="paginated">
+      <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">
           <div class="flex items-center gap-md">
             <span class="material-symbols-outlined text-primary">link</span>

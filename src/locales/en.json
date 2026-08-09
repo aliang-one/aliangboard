@@ -3194,6 +3194,7 @@
     "workloads": { "_t": "Workloads", "replicas": "Replicas" },
     "namespaces": { "_t": "Namespaces" },
     "services": { "_t": "Services", "clusterIP": "Cluster IP", "externalIP": "External IP", "ports": "Ports" },
-    "ingress": { "_t": "Ingress", "hosts": "Hosts", "path": "Path", "backend": "Backend", "tls": "TLS" }
+    "ingress": { "_t": "Ingress", "hosts": "Hosts", "path": "Path", "backend": "Backend", "tls": "TLS" },
+    "rbac": { "_t": "RBAC", "bindings": "Bindings", "role": "Role", "subjects": "Subjects" }
   }
 }

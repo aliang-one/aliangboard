@@ -225,6 +225,32 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'rbac.thActions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'nsRbacRoles', labelKey: 'cols.rbac._t', label: 'Roles', icon: 'admin_panel_settings',
+    columns: [
+      { key: 'name', labelKey: 'cols._c.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'rbac.thScope', label: 'Scope' },
+      { key: 'bindings', labelKey: 'cols.rbac.bindings', label: 'Bindings' },
+    ],
+  },
+  {
+    key: 'nsRbacSAs', labelKey: 'cols.rbac._t', label: 'ServiceAccounts', icon: 'person',
+    columns: [
+      { key: 'name', labelKey: 'cols._c.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'cols._c.namespace', label: 'Namespace' },
+      { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
+    ],
+  },
+  {
+    key: 'nsRbacBindings', labelKey: 'cols.rbac._t', label: 'RoleBindings', icon: 'link',
+    columns: [
+      { key: 'name', labelKey: 'cols._c.name', label: 'Name' },
+      { key: 'roleName', labelKey: 'cols.rbac.role', label: 'Role' },
+      { key: 'subjects', labelKey: 'cols.rbac.subjects', label: 'Subjects' },
+      { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

@@ -3194,6 +3194,7 @@
     "workloads": { "_t": "工作负载", "replicas": "副本数" },
     "namespaces": { "_t": "命名空间" },
     "services": { "_t": "服务", "clusterIP": "集群 IP", "externalIP": "外部 IP", "ports": "端口" },
-    "ingress": { "_t": "路由", "hosts": "主机", "path": "路径", "backend": "后端", "tls": "TLS" }
+    "ingress": { "_t": "路由", "hosts": "主机", "path": "路径", "backend": "后端", "tls": "TLS" },
+    "rbac": { "_t": "RBAC", "bindings": "绑定数", "role": "角色", "subjects": "主体" }
   }
 }
