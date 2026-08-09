@@ -342,6 +342,17 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
     ],
   },
+  // —— 集群硬编码列表(Phase2 Task7)——
+  {
+    key: 'crds', labelKey: 'admin.crdList.title', label: 'Custom Resource Definitions', icon: 'extension',
+    columns: [
+      { key: 'name', labelKey: 'admin.crdList.thName', label: 'Name' },
+      { key: 'groupVersion', labelKey: 'admin.crdList.thGroupVersion', label: 'Group / Version' },
+      { key: 'kind', labelKey: 'admin.crdList.thKind', label: 'Kind' },
+      { key: 'scope', labelKey: 'admin.crdList.thScope', label: 'Scope' },
+      { key: 'description', labelKey: 'admin.crdList.thDescription', label: 'Description' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

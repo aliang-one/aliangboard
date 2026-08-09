@@ -2,12 +2,16 @@
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('crds'))
 const store = useClusterStore()
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -78,66 +82,39 @@ const { currentPage, pageSize, paginated, total } = usePagination(filteredCrds, 
     </div>
 
     <!-- 表格 -->
-    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full">
-        <thead>
-          <tr class="border-b border-outline-variant bg-surface-container-low/50">
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thName') }}</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thGroupVersion') }}</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thKind') }}</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thScope') }}</th>
-            <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('admin.crdList.thDescription') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="crd in paginated" :key="crd.name">
-            <!-- 主行 -->
-            <tr class="border-b border-outline-variant/15 hover:bg-surface-container-low/40 transition-colors">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-primary text-base">extension</span>
-                  <router-link :to="{ name: 'CrdDetail', params: { name: crd.name } }" class="font-mono text-code-sm text-on-surface font-semibold hover:text-primary transition-colors">{{ crd.name }}</router-link>
-                </div>
-              </td>
-              <td class="px-md py-2">
-                <span class="font-mono text-code-sm text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
-              </td>
-              <td class="px-md py-2">
-                <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded">{{ crd.kind }}</span>
-              </td>
-              <td class="px-md py-2">
-                <span
-                  v-if="crd.scope === 'Namespaced'"
-                  class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs font-semibold rounded inline-flex items-center gap-1"
-                >
-                  <span class="material-symbols-outlined text-xs">folder</span> {{ $t('admin.crdList.namespaced') }}
-                </span>
-                <span
-                  v-else
-                  class="px-2 py-0.5 bg-secondary-fixed/20 text-secondary text-xs font-semibold rounded inline-flex items-center gap-1"
-                >
-                  <span class="material-symbols-outlined text-xs">public</span> {{ $t('admin.crdList.cluster') }}
-                </span>
-              </td>
-              <td class="px-md py-2 max-w-xs">
-                <span class="text-xs text-on-surface-variant line-clamp-1">{{ crd.description || '-' }}</span>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="crds">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-base">extension</span>
+          <router-link :to="{ name: 'CrdDetail', params: { name: row.name } }" class="font-mono text-code-sm text-on-surface font-semibold hover:text-primary transition-colors">{{ row.name }}</router-link>
+        </div>
+      </template>
+      <template #groupVersion="{ row }">
+        <span class="font-mono text-code-sm text-on-surface-variant">{{ row.group }}/{{ row.version }}</span>
+      </template>
+      <template #kind="{ row }">
+        <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded">{{ row.kind }}</span>
+      </template>
+      <template #scope="{ row }">
+        <span
+          v-if="row.scope === 'Namespaced'"
+          class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-xs font-semibold rounded inline-flex items-center gap-1"
+        >
+          <span class="material-symbols-outlined text-xs">folder</span> {{ $t('admin.crdList.namespaced') }}
+        </span>
+        <span
+          v-else
+          class="px-2 py-0.5 bg-secondary-fixed/20 text-secondary text-xs font-semibold rounded inline-flex items-center gap-1"
+        >
+          <span class="material-symbols-outlined text-xs">public</span> {{ $t('admin.crdList.cluster') }}
+        </span>
+      </template>
+      <template #description="{ row }">
+        <span class="text-xs text-on-surface-variant line-clamp-1">{{ row.description || '-' }}</span>
+      </template>
+      <template v-if="filteredCrds.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-
-      <!-- 空状态 -->
-      <div v-if="!filteredCrds.length" class="px-md py-md text-center">
-        <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-        <p class="text-body-sm text-on-surface-variant mt-xs">
-          {{ search ? $t('admin.crdList.noMatchSearch') : $t('admin.crdList.noCrds') }}
-        </p>
-      </div>
-    </div>
+      </template>
+    </DataTable>
   </section>
 </template>
