@@ -13,13 +13,11 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 const expanded = ref(null)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const runtimeClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'runtimeclasses'],
   fetcher: () => store.fetchRuntimeClasses(),
-  mock: store.runtimeClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const runtimeClasses = computed(() => runtimeClassesQuery.data.value || [])
 function toggleExpand(name) { expanded.value = expanded.value === name ? null : name }

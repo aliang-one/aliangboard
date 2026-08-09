@@ -21,13 +21,11 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('ingresses')，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingDetail = useResourceDetail({
   key: ['cluster', cid.value, 'ingresses', route.params.name],
   fetcher: () => store.fetchIngress(route.params.name, route.params.namespace),
-  mock: store.getIngressByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const ing = computed(() => ingDetail.data.value ?? store.getIngressByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
@@ -35,17 +33,15 @@ const yaml = computed(() => store.generateYAML('ingress', ing.value))
 const ingressClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'ingressclasses'],
   fetcher: () => store.fetchIngressClasses(),
-  mock: store.ingressClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 // TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const allSecrets = computed(() => _secQ.data.value || [])
 
 const showDeleteModal = ref(false)

@@ -13,12 +13,10 @@ const store = useClusterStore()
 const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])

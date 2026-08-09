@@ -20,13 +20,11 @@ store.setNamespace(route.params.namespace)
 
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('configmaps')，编辑后自动刷新。
 // cm = query 优先、store 兜底（首屏 query 未就绪时用 hydrate 值，避免闪「Not Found」）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const cmDetail = useResourceDetail({
   key: ['cluster', cid.value, 'configmaps', route.params.name],
   fetcher: () => store.fetchConfigMap(route.params.name, route.params.namespace),
-  mock: store.getConfigMapByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const cm = computed(() => cmDetail.data.value ?? store.getConfigMapByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('configmap', cm.value))

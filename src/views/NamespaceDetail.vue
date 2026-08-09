@@ -15,7 +15,7 @@ const store = useClusterStore()
 const { t } = useI18n()
 
 // Namespace 详情 + 关联 services/workloads 走 Vue Query。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const nsName = computed(() => route.params.name)
 
 // 进入该命名空间：切换 currentNamespace 并跳转其 overview（复用 SideNavBar 切换模式）
@@ -26,8 +26,6 @@ function enterNamespace() {
 const nsDetail = useResourceDetail({
   key: ['cluster', cid.value, 'namespaces', nsName.value],
   fetcher: () => store.fetchNamespace(nsName.value),
-  mock: store.getNamespaceByName(nsName.value),
-  mockMode: !store.remoteMode,
   options: { enabled: Boolean(nsName.value) },
 })
 const ns = computed(() => nsDetail.data.value ?? store.getNamespaceByName(nsName.value))
@@ -35,8 +33,6 @@ const ns = computed(() => nsDetail.data.value ?? store.getNamespaceByName(nsName
 const servicesQuery = useResourceList({
   key: ['cluster', cid.value, 'services'],
   fetcher: () => store.fetchServices(),
-  mock: store.serviceList,
-  mockMode: !store.remoteMode,
   select: (list) => (list || []).filter(s => s.namespace === nsName.value),
 })
 const nsServices = computed(() => servicesQuery.data.value || [])
@@ -44,8 +40,6 @@ const nsServices = computed(() => servicesQuery.data.value || [])
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
   select: (list) => (list || []).filter(w => w.namespace === nsName.value),
 })
 const nsWorkloads = computed(() => workloadsQuery.data.value || [])

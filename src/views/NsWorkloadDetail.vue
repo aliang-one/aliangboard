@@ -36,28 +36,22 @@ store.setNamespace(route.params.namespace)
 
 // 关联资源走 Vue Query（services/ingresses/events 集群级单 key + ns select），
 // 与 Network/NsEvents 列表同源缓存——远端不再依赖 hydrate 填充的 store.serviceList/ingressList/nsEvents。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const servicesQuery = useResourceList({
   key: ['cluster', cid.value, 'services'],
   fetcher: () => store.fetchServices(),
-  mock: store.serviceList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(s => s.namespace === route.params.namespace),
 })
 const serviceList = computed(() => servicesQuery.data.value || [])
 const ingressesQuery = useResourceList({
   key: ['cluster', cid.value, 'ingresses'],
   fetcher: () => store.fetchIngresses(),
-  mock: store.ingressList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(i => i.namespace === route.params.namespace),
 })
 const ingressList = computed(() => ingressesQuery.data.value || [])
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])
@@ -68,16 +62,12 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
-  mock: store.podList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const workload = computed(() => (workloadsQuery.data.value || []).find(
   w => w.name === route.params.name && w.namespace === route.params.namespace
@@ -835,9 +825,9 @@ const containerTargets = computed(() => {
   ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const _cmQ2 = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const _secQ2 = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _cmQ2 = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ2 = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
 const availableConfigMaps = computed(() => (_cmQ2.data.value || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
 const availableSecrets = computed(() => (_secQ2.data.value || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))

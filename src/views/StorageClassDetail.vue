@@ -15,13 +15,12 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
-const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const _pvcQ = useResourceList({ key: ['cluster', _cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _cid = computed(() => (store.currentCluster || 'cluster'))
+const _pvcQ = useResourceList({ key: ['cluster', _cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 
 const sc = computed(() => store.getSCByName(route.params.name))
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('storageclass', sc.value),
 })
 const activeTab = ref('overview')
 

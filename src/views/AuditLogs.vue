@@ -15,13 +15,11 @@ const router = useRouter()
 const { t } = useI18n()
 
 // 集群级 Events 走 Vue Query（远端 30s 轮询 + 聚焦重拉 + watch live 桥接）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const eventList = computed(() => eventsQuery.data.value || [])
 

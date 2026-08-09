@@ -10,15 +10,13 @@ const store = useClusterStore()
 const timeRange = ref('24h')
 
 // Cluster ID (demo for mock, cluster name for remote)
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 
 // Nodes query (Vue Query)
 const nodesQuery = useResourceList({
   key: ['cluster', cid.value, 'nodes'],
   fetcher: () => store.fetchNodes(),
-  mock: store.nodeList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false }
+  options: { refetchInterval: 30000 }
 })
 const nodeList = computed(() => nodesQuery.data.value || [])
 
@@ -26,9 +24,7 @@ const nodeList = computed(() => nodesQuery.data.value || [])
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false }
+  options: { refetchInterval: 30000 }
 })
 const eventList = computed(() => eventsQuery.data.value || [])
 

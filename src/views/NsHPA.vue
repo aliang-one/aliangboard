@@ -20,18 +20,16 @@ const queryClient = useQueryClient()
 
 // HPAs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // targetOptions 仍读 nsWorkloads.value（不同资源，下拉用，保留 store 读）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const hpasKey = ['cluster', cid.value, 'hpas']
 const hpasQuery = useResourceList({
   key: hpasKey,
   fetcher: () => store.fetchHPAs(),
-  mock: store.hpaList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsHPAs = computed(() => (hpasQuery.data.value || []).filter(h => h.namespace === route.params.namespace))
 // 目标 Workload 下拉源走 Vue Query（nsWorkloads.value 在 remote 下孤立）
-const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 
 const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsHPAs))

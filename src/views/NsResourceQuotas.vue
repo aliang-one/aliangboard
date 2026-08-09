@@ -18,14 +18,12 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const resourcequotasKey = ['cluster', cid.value, 'resourcequotas']
 const resourcequotasQuery = useResourceList({
   key: resourcequotasKey,
   fetcher: () => store.fetchResourceQuotas(),
-  mock: store.resourceQuotaList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsResourceQuotas = computed(() => (resourcequotasQuery.data.value || []).filter(r => r.namespace === route.params.namespace))
 

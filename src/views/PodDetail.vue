@@ -27,13 +27,11 @@ const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 // 主资源走 Vue Query（单资源 + 15s 轮询）；pod = query 优先、store 兜底（首屏 query 未就绪时用 hydrate 值，避免闪空）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const podDetail = useResourceDetail({
   key: ['cluster', cid.value, 'pods', route.params.name],
   fetcher: () => store.fetchPod(route.params.name, route.params.namespace),
-  mock: store.getPodByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const pod = computed(() => podDetail.data.value ?? store.getPodByName(route.params.name, route.params.namespace))
 const activeTab = ref('logs')
@@ -43,18 +41,14 @@ const activeTab = ref('logs')
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 // 事件查询（远端用 Vue Query；演示模式回退 store.eventList）
 // podEvents 计算属性按 involvedObject 过滤该 Pod 的事件
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 
 // 支持 hash 直达 tab：PodCard 等快速入口跳转到 PodDetail 时带 #terminal/#files/#exec/#logs

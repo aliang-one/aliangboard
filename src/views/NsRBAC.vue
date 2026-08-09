@@ -17,34 +17,26 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
 const ns = computed(() => route.params.namespace)
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
-  mock: store.roleList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const roleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
-  mock: store.roleBindingList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const clusterRoleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
-  mock: store.clusterRoleBindingList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
   key: ['cluster', cid.value, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
-  mock: store.saList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 // ns/scope 派生（替代 store.nsRoles / nsRoleBindings / nsServiceAccounts / clusterRoles）
 const nsRoles = computed(() => (rolesQuery.data.value || []).filter(r => r.scope === 'Namespace' && r.namespace === ns.value))

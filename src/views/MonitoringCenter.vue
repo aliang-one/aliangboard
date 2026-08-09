@@ -13,34 +13,26 @@ const router = useRouter()
 const { t } = useI18n()
 
 // 集群级聚合查询（Vue Query，cluster-wide 单 key；eventWatch 桥接仍写同一缓存）
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodesQuery = useResourceList({
   key: ['cluster', cid.value, 'nodes'],
   fetcher: () => store.fetchNodes(),
-  mock: store.nodeList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
-  mock: store.podList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nodeList = computed(() => nodesQuery.data.value || [])
 const podList = computed(() => podsQuery.data.value || [])

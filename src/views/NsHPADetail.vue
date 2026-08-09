@@ -17,18 +17,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const hpaDetail = useResourceDetail({
   key: ['cluster', cid.value, 'hpas', route.params.name],
   fetcher: () => store.fetchHPA(route.params.name, route.params.namespace),
-  mock: store.getHPAByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const hpa = computed(() => hpaDetail.data.value ?? store.getHPAByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/autoscaling/v2/namespaces/${encodeURIComponent(route.params.namespace)}/horizontalpodautoscalers/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('hpa', hpa.value),
 })
 
 const activeTab = ref('overview')

@@ -10,13 +10,11 @@ import { useResourceList } from '@/composables/useK8sQuery'
 const { t } = useI18n()
 const store = useClusterStore()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const crdsQuery = useResourceList({
   key: ['cluster', cid.value, 'crds'],
   fetcher: () => store.fetchCRDs(),
-  mock: store.crdList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const crds = computed(() => crdsQuery.data.value || [])
 

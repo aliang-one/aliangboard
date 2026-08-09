@@ -25,22 +25,18 @@ const router = useRouter()
 const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const cid = computed(() => (store.currentCluster || 'cluster'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const priorityClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
-  mock: store.priorityClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
   key: ['cluster', cid.value, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
-  mock: store.saList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 
 const ns = computed(() => route.params.namespace)
@@ -247,9 +243,9 @@ const stepBlockReason = computed(() => {
 const canProceed = computed(() => !stepBlockReason.value)
 
 // Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）
-const _cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {

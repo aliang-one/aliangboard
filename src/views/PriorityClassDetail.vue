@@ -12,13 +12,11 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const pcDetail = useResourceDetail({
   key: ['cluster', cid.value, 'priorityclasses', route.params.name],
   fetcher: () => store.fetchPriorityClass(route.params.name),
-  mock: store.getPriorityClassByName(route.params.name),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const pc = computed(() => pcDetail.data.value ?? store.getPriorityClassByName(route.params.name))
 const yaml = computed(() => store.generateExtraYAML('priorityclass', pc.value))

@@ -22,9 +22,9 @@ const name = defineModel('name', { default: '' })
 const dataKey = defineModel('dataKey', { default: '' })
 
 const store = useClusterStore()
-const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _cid = computed(() => (store.currentCluster || 'cluster'))
+const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 
 const list = computed(() => (props.kind === 'secret' ? (_secQ.data.value || []) : (_cmQ.data.value || [])))
 const resourceOptions = computed(() => list.value.filter(r => r.namespace === props.namespace).map(r => r.name))

@@ -18,8 +18,8 @@ const emit = defineEmits(['update:modelValue'])
 
 const store = useClusterStore()
 // 标签历史源走 Vue Query（store.nsWorkloads 在 remote 下孤立）
-const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const _wlsQ = useResourceList({ key: ['cluster', _cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _cid = computed(() => (store.currentCluster || 'cluster'))
+const _wlsQ = useResourceList({ key: ['cluster', _cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsWorkloads = computed(() => (_wlsQ.data.value || []).filter(w => w.namespace === props.namespace))
 const input = ref('')
 const focused = ref(false)

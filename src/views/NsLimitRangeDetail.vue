@@ -15,18 +15,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const lrDetail = useResourceDetail({
   key: ['cluster', cid.value, 'limitranges', route.params.name],
   fetcher: () => store.fetchLimitRange(route.params.name, route.params.namespace),
-  mock: store.getLimitRangeByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const lr = computed(() => lrDetail.data.value ?? store.getLimitRangeByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/limitranges/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('limitrange', lr.value),
 })
 
 const activeTab = ref('overview')

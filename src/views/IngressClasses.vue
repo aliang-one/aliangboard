@@ -13,13 +13,11 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 const expanded = ref(null)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingressClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'ingressclasses'],
   fetcher: () => store.fetchIngressClasses(),
-  mock: store.ingressClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 function toggleExpand(name) { expanded.value = expanded.value === name ? null : name }

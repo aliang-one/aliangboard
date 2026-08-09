@@ -18,26 +18,21 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 // 主资源 rolebinding + 关联 role 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const rbDetail = useResourceDetail({
   key: ['cluster', cid.value, 'rolebindings', route.params.name],
   fetcher: () => store.fetchRoleBinding(route.params.name, route.params.namespace),
-  mock: store.getRoleBindingByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const rb = computed(() => rbDetail.data.value ?? store.getRoleBindingByName(route.params.name, route.params.namespace))
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
-  mock: store.roleList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const allRoles = computed(() => rolesQuery.data.value || [])
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/rolebindings/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('rolebinding', rb.value),
 })
 
 const activeTab = ref('overview')

@@ -22,13 +22,11 @@ const { t } = useI18n()
 
 // Nodes 走 Vue Query：远端 30s 轮询 + 聚焦窗口后台重拉（新鲜度）；mock 模式返回种子（staleTime:Infinity 不重拉）。
 const queryClient = useQueryClient()
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodesQuery = useResourceList({
   key: ['cluster', cid.value, 'nodes'],
   fetcher: () => store.fetchNodes(),
-  mock: store.nodeList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nodes = computed(() => nodesQuery.data.value || [])
 const healthyCount = computed(() => nodes.value.filter(n => n.status === 'Ready').length)

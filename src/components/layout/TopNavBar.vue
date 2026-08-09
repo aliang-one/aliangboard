@@ -15,18 +15,18 @@ const { bump: bumpRefresh } = usePageRefresh()
 // === 全局搜索：惰性 Query 消费者 ===
 // TopNavBar 常驻挂载，7 个资源查询仅在搜索框打开时 enabled（避免无谓请求）。
 // nodes/namespaces 已由 hydrateCriticalResources 预载入 store，直接读 store。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const searchOpen = ref(false)
 const searchEnabled = computed(() => searchOpen.value && store.remoteMode)
-const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), mock: store.podList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const workloadsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const servicesQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const ingressesQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], fetcher: () => store.fetchIngresses(), mock: store.ingressList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const configmapsQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const secretsQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
-const pvcsQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: false, enabled: searchEnabled } })
+const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: false, enabled: searchEnabled } })
+const workloadsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: false, enabled: searchEnabled } })
+const servicesQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: false, enabled: searchEnabled } })
+const ingressesQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: false, enabled: searchEnabled } })
+const configmapsQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: false, enabled: searchEnabled } })
+const secretsQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: false, enabled: searchEnabled } })
+const pvcsQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: false, enabled: searchEnabled } })
 // namespaces 常驻 Query（选择器需要，非搜索惰性）— 替代 hydrateCriticalResources 的 namespaces 拉取
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 
 // 刷新当前页：重拉集群核心资源（列表型页面）+ 重新挂载当前视图（详情页 onMounted 定点拉取）

@@ -17,27 +17,22 @@ import PodCard from '@/components/common/PodCard.vue'
 const { t } = useI18n()
 	const route = useRoute()
 const store = useClusterStore()
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodeDetail = useResourceDetail({
   key: ['cluster', cid.value, 'nodes', route.params.name],
   fetcher: () => store.fetchNode(route.params.name),
-  mock: store.getNodeByName(route.params.name),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const node = computed(() => nodeDetail.data.value ?? store.getNodeByName(route.params.name))
 // Pods 走 Vue Query（集群范围）+ select 按节点过滤：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
-  mock: store.podList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(p => p.node === route.params.name),
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/nodes/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('node', node.value),
 })
 
 const activeTab = ref('overview')

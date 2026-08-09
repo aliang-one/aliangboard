@@ -15,29 +15,23 @@ const router = useRouter()
 const store = useClusterStore()
 const activeTab = ref('roles')
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const cid = computed(() => (store.currentCluster || 'cluster'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
-  mock: store.roleList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const clusterRoleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
-  mock: store.clusterRoleBindingList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
   key: ['cluster', cid.value, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
-  mock: store.saList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 
 const tabs = computed(() => [

@@ -16,25 +16,20 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 // 主资源 role + 关联 rolebindings 走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const roleDetail = useResourceDetail({
   key: ['cluster', cid.value, 'roles', route.params.name],
   fetcher: () => store.fetchRole(route.params.name, route.params.namespace),
-  mock: store.getRoleByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const role = computed(() => roleDetail.data.value ?? store.getRoleByName(route.params.name, route.params.namespace))
 const roleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
-  mock: store.roleBindingList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/roles/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('role', role.value),
 })
 
 const activeTab = ref('overview')
