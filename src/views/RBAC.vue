@@ -9,10 +9,12 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useTableColumns } from '@/composables/useTableColumns'
 
 const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 const activeTab = ref('roles')
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -46,27 +48,11 @@ const tabs = computed(() => [
   { key: 'serviceaccounts', label: t('rbac.serviceAccountsTab') },
 ])
 
-const roleHeaders = computed(() => [
-  { key: 'name', label: t('rbac.thName') },
-  { key: 'namespace', label: t('rbac.thNamespace') },
-  { key: 'scope', label: t('rbac.thScope') },
-  { key: 'bindings', label: t('rbac.thBindings') },
-  { key: 'actions', label: t('rbac.thActions'), align: 'right' },
-])
+const roleHeaders = computed(() => tableColumns('rbacRoles'))
 
-const crbHeaders = computed(() => [
-  { key: 'name', label: t('rbac.thName') },
-  { key: 'roleName', label: t('rbac.thRoleName') },
-  { key: 'subjects', label: t('rbac.thSubjects') },
-  { key: 'age', label: t('rbac.thAge') },
-])
+const crbHeaders = computed(() => tableColumns('rbacCRBs'))
 
-const saHeaders = computed(() => [
-  { key: 'name', label: t('rbac.thName') },
-  { key: 'namespace', label: t('rbac.thNamespace') },
-  { key: 'age', label: t('rbac.thAge') },
-  { key: 'actions', label: t('rbac.thActions'), align: 'right' },
-])
+const saHeaders = computed(() => tableColumns('rbacSAs'))
 
 function openRole(row) {
   if (row.scope === 'Cluster') router.push({ name: 'ClusterRoleDetail', params: { name: row.name } })
@@ -149,7 +135,7 @@ async function doDelete() {
       </button>
     </div>
 
-    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" @row-click="openRole">
+    <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" column-key="rbacRoles" @row-click="openRole">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
@@ -177,7 +163,7 @@ async function doDelete() {
       </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="paginated" @row-click="openCRB">
+    <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="paginated" column-key="rbacCRBs" @row-click="openCRB">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">share</span>
@@ -195,7 +181,7 @@ async function doDelete() {
       </template>
     </DataTable>
 
-    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" @row-click="openSA">
+    <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" column-key="rbacSAs" @row-click="openSA">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">person</span>

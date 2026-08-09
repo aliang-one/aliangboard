@@ -196,6 +196,35 @@ export const TABLE_CATALOG = [
       { key: 'age', labelKey: 'ns.storage.thScAge', label: 'Age' },
     ],
   },
+  // —— 已用 DataTable 资源类(RBAC / Storage / Configuration)——
+  {
+    key: 'rbacRoles', labelKey: 'rbac.title', label: 'RBAC Roles', icon: 'admin_panel_settings',
+    columns: [
+      { key: 'name', labelKey: 'rbac.thName', label: 'Name' },
+      { key: 'namespace', labelKey: 'rbac.thNamespace', label: 'Namespace' },
+      { key: 'scope', labelKey: 'rbac.thScope', label: 'Scope' },
+      { key: 'bindings', labelKey: 'rbac.thBindings', label: 'Bindings' },
+      { key: 'actions', labelKey: 'rbac.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'rbacCRBs', labelKey: 'rbac.title', label: 'ClusterRoleBindings', icon: 'share',
+    columns: [
+      { key: 'name', labelKey: 'rbac.thName', label: 'Name' },
+      { key: 'roleName', labelKey: 'rbac.thRoleName', label: 'Role' },
+      { key: 'subjects', labelKey: 'rbac.thSubjects', label: 'Subjects' },
+      { key: 'age', labelKey: 'rbac.thAge', label: 'Age' },
+    ],
+  },
+  {
+    key: 'rbacSAs', labelKey: 'rbac.title', label: 'ServiceAccounts', icon: 'person',
+    columns: [
+      { key: 'name', labelKey: 'rbac.thName', label: 'Name' },
+      { key: 'namespace', labelKey: 'rbac.thNamespace', label: 'Namespace' },
+      { key: 'age', labelKey: 'rbac.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'rbac.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
