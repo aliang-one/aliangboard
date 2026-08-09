@@ -1,6 +1,6 @@
 <script setup>
-// 工作台项目详情:三栏 IDE 布局(文件树 | YamlEditor | AI chat),可折叠。
-// repo 在服务端(git),前端只读写文件 + 触发 commit。AI authoring 是 W4。
+// 工作台项目详情:Agent / Edit 双模式。
+// Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { workbenchApi } from '@/api/client'
@@ -25,16 +25,31 @@ const newFile = ref('')
 const saving = ref(false)
 const lastReconcile = ref(null)
 const reconciling = ref(false)
-const showFileTree = ref(true)
-const showChat = ref(true)
-const conversations = ref([])
 
+// Mode: agent | edit (persisted)
+const mode = ref(localStorage.getItem('aliangboard.workbench.mode') || 'agent')
+function setMode(m) { mode.value = m; localStorage.setItem('aliangboard.workbench.mode', m) }
+
+// Agent mode: conversation list
+const conversations = ref([])
+const activeConversationId = ref(null)
 const convStatusStyle = {
   running: 'bg-status-running/10 text-status-running',
   paused: 'bg-status-warning/10 text-status-warning',
   done: 'bg-surface-container-high text-on-surface-variant',
   failed: 'bg-error/10 text-error',
 }
+const relTime = ts => {
+  if (!ts) return ''
+  const s = Math.floor((Date.now() - ts) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s/60)}m`
+  if (s < 86400) return `${Math.floor(s/3600)}h`
+  return `${Math.floor(s/86400)}d`
+}
+
+function selectConversation(convId) { activeConversationId.value = convId }
+function newConversation() { activeConversationId.value = null }
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -53,7 +68,7 @@ async function loadConversations() {
   try {
     const r = await workbenchApi.conversations.list(id)
     conversations.value = r.conversations || []
-  } catch { /* best-effort: history panel non-critical */ }
+  } catch {}
 }
 async function reconcile() {
   reconciling.value = true
@@ -76,7 +91,6 @@ async function openFile(path) {
     dirty.value = false
   } catch (e) { notify('error', e.message || t('workbench.detail.readFailed')) }
 }
-
 async function save(content) {
   if (!currentPath.value) return
   saving.value = true
@@ -89,28 +103,19 @@ async function save(content) {
   } catch (e) { notify('error', e.message || t('workbench.detail.saveFailed')) }
   finally { saving.value = false }
 }
-
 async function doCommit() {
   try {
     const r = await workbenchApi.commit(id, commitMsg.value.trim() || 'update')
-    if (r.committed) {
-      notify('success', t('workbench.detail.commitSuccess', { subject: r.subject }))
-      commitMsg.value = ''
-    } else {
-      notify('error', t('workbench.detail.noChangesToCommit'))
-    }
+    if (r.committed) { notify('success', t('workbench.detail.commitSuccess', { subject: r.subject })); commitMsg.value = '' }
+    else { notify('error', t('workbench.detail.noChangesToCommit')) }
     const res = await workbenchApi.getProject(id)
     commits.value = res.commits || []
   } catch (e) { notify('error', e.message || t('workbench.detail.commitFailed')) }
 }
-
 function addFile() {
   const p = newFile.value.trim()
   if (!p) return
-  currentPath.value = p
-  currentContent.value = ''
-  dirty.value = true
-  newFile.value = ''
+  currentPath.value = p; currentContent.value = ''; dirty.value = true; newFile.value = ''
   notify('success', t('workbench.detail.newFileCreated', { path: p }))
 }
 </script>
@@ -118,65 +123,112 @@ function addFile() {
 <template>
   <div v-if="loading" class="p-md text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
-  <section v-else-if="project" class="animate-fade-in h-full flex flex-col gap-md min-h-0">
-    <div class="shrink-0 flex items-center gap-sm">
+  <section v-else-if="project" class="animate-fade-in h-full flex flex-col min-h-0">
+    <!-- Header -->
+    <div class="shrink-0 flex items-center gap-sm px-md py-sm border-b border-outline-variant bg-surface-container-lowest">
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
-      <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined">workspaces</span>{{ project.name }}</h2>
-      <span class="text-body-sm text-on-surface-variant">· {{ project.clusterName }}</span>
-      <button @click="reconcile" :disabled="reconciling" class="ml-auto flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.detail.reconcileTitle')">
-        <span class="material-symbols-outlined text-sm">{{ reconciling ? 'progress_activity' : 'sync' }}</span> {{ reconciling ? t('workbench.detail.reconciling') : t('workbench.detail.reconcile') }}
-      </button>
-      <!-- collapse / expand toggles -->
-      <button v-if="showFileTree" @click="showFileTree = false" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.collapseFiles')">
-        <span class="material-symbols-outlined text-sm">left_panel_close</span>
-      </button>
-      <button v-else @click="showFileTree = true" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.expandFiles')">
-        <span class="material-symbols-outlined text-sm">left_panel_open</span>
-      </button>
-      <button v-if="showChat" @click="showChat = false" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.collapseChat')">
-        <span class="material-symbols-outlined text-sm">right_panel_close</span>
-      </button>
-      <button v-else @click="showChat = true" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.expandChat')">
-        <span class="material-symbols-outlined text-sm">right_panel_open</span>
+      <h2 class="text-body-md font-bold text-on-surface flex items-center gap-xs">
+        <span class="material-symbols-outlined text-lg">workspaces</span>{{ project.name }}
+      </h2>
+      <span class="text-body-xs text-on-surface-variant">{{ project.clusterName }}</span>
+
+      <!-- Mode switcher (segmented control) -->
+      <div class="ml-auto flex items-center gap-xs bg-surface-container-low rounded-lg p-0.5">
+        <button @click="setMode('agent')" class="flex items-center gap-xs px-md py-xs rounded-md text-body-sm font-medium transition-all"
+          :class="mode === 'agent' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'">
+          <span class="material-symbols-outlined text-sm">smart_toy</span> Agent
+        </button>
+        <button @click="setMode('edit')" class="flex items-center gap-xs px-md py-xs rounded-md text-body-sm font-medium transition-all"
+          :class="mode === 'edit' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'">
+          <span class="material-symbols-outlined text-sm">code</span> Edit
+        </button>
+      </div>
+
+      <button @click="reconcile" :disabled="reconciling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.detail.reconcileTitle')">
+        <span class="material-symbols-outlined text-sm" :class="reconciling ? 'animate-spin' : ''">{{ reconciling ? 'progress_activity' : 'sync' }}</span>
       </button>
     </div>
 
-    <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-center gap-sm px-sm">
+    <!-- Reconcile status -->
+    <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-center gap-sm px-md py-xs bg-surface-container-low/50">
       <span class="material-symbols-outlined text-sm">sync</span>
       {{ t('workbench.detail.lastReconcile', { ts: fmt(lastReconcile.ts) }) }}:
       <template v-if="lastReconcile.result?.skipped">{{ t('workbench.detail.reconcileSkipped', { reason: lastReconcile.result.reason }) }}</template>
       <template v-else>{{ lastReconcile.result?.applied?.length || 0 }} applied, {{ lastReconcile.result?.failed?.length || 0 }} failed</template>
-      <span v-if="lastReconcile.result?.failed?.length" class="text-error">⚠ {{ t('workbench.detail.hasFailures') }}</span>
     </div>
 
-    <div class="flex-1 min-h-0 flex gap-md">
-      <!-- 文件树(左栏,可折叠) -->
-      <div v-if="showFileTree" class="w-64 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
-        <div class="px-md py-sm border-b border-outline-variant text-label-caps text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-base">folder</span>{{ t('workbench.detail.files') }}</div>
+    <!-- ═══════════════ Agent Mode ═══════════════ -->
+    <div v-if="mode === 'agent'" class="flex-1 min-h-0 flex">
+      <!-- Conversation list sidebar -->
+      <div class="w-56 shrink-0 flex flex-col border-r border-outline-variant bg-surface-container-lowest">
+        <div class="p-sm border-b border-outline-variant">
+          <button @click="newConversation" class="w-full flex items-center justify-center gap-xs px-sm py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 transition-opacity">
+            <span class="material-symbols-outlined text-sm">add</span> New
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-xs flex flex-col gap-0.5">
+          <button v-for="c in conversations" :key="c.id" @click="selectConversation(c.id)"
+            class="text-left px-sm py-sm rounded-lg transition-colors"
+            :class="activeConversationId === c.id ? 'bg-primary-container text-on-primary-container' : 'hover:bg-surface-container'">
+            <div class="flex items-center gap-xs mb-xs">
+              <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="{
+                'bg-status-running': c.status === 'running',
+                'bg-status-warning': c.status === 'paused',
+                'bg-on-surface-variant/30': c.status === 'done',
+                'bg-error': c.status === 'failed',
+              }"></span>
+              <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTime(c.updatedAt) }}</span>
+              <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
+            </div>
+            <p class="text-body-xs truncate">{{ c.userMessage || '(empty)' }}</p>
+          </button>
+          <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant/50 px-sm py-md text-center">No conversations yet</p>
+        </div>
+      </div>
+      <!-- Chat area (full width) -->
+      <div class="flex-1 min-w-0">
+        <WorkbenchChat
+          :key="activeConversationId || 'new'"
+          :project-id="id"
+          :project-name="project?.name"
+          :conversation-id="activeConversationId"
+          @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
+        />
+      </div>
+    </div>
+
+    <!-- ═══════════════ Edit Mode ═══════════════ -->
+    <div v-else class="flex-1 min-h-0 flex gap-md p-md">
+      <!-- File tree -->
+      <div class="w-56 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+        <div class="px-md py-sm border-b border-outline-variant text-label-caps text-on-surface-variant flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base">folder</span>{{ t('workbench.detail.files') }}
+        </div>
         <div class="flex-1 overflow-y-auto p-sm flex flex-col gap-0.5">
-          <button v-for="f in files" :key="f" @click="openFile(f)" class="text-left text-body-sm font-mono px-sm py-xs rounded truncate" :class="f === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
+          <button v-for="f in files" :key="f" @click="openFile(f)"
+            class="text-left text-body-sm font-mono px-sm py-xs rounded truncate"
+            :class="f === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
             <span class="material-symbols-outlined text-sm align-middle mr-xs">description</span>{{ f }}
           </button>
           <p v-if="!files.length" class="text-body-xs text-on-surface-variant px-sm py-sm">{{ t('workbench.detail.noFiles') }}</p>
         </div>
         <div class="p-sm border-t border-outline-variant flex gap-xs">
           <input v-model="newFile" @keydown.enter="addFile" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" :placeholder="t('workbench.detail.newFilePlaceholder')" />
-          <button @click="addFile" class="p-xs rounded bg-surface-container hover:bg-surface-container-high" :title="t('workbench.detail.newFileButton')"><span class="material-symbols-outlined text-sm">add</span></button>
+          <button @click="addFile" class="p-xs rounded bg-surface-container hover:bg-surface-container-high"><span class="material-symbols-outlined text-sm">add</span></button>
         </div>
       </div>
 
-      <!-- 编辑器 + 提交(中栏) -->
-      <div class="flex-1 min-w-0 flex flex-col gap-sm">
+      <!-- Editor + commit + history -->
+      <div class="flex-1 min-w-0 flex flex-col gap-sm overflow-y-auto">
         <div class="flex items-center justify-between gap-sm">
           <span class="text-body-sm font-mono text-on-surface-variant truncate">{{ currentPath || t('workbench.detail.noFileSelected') }}</span>
           <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
         </div>
-        <YamlEditor :model-value="currentContent" :readonly="false" height="60vh" @save="save" />
+        <YamlEditor :model-value="currentContent" :readonly="false" height="50vh" @save="save" />
         <div class="flex items-center gap-xs">
           <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
           <button @click="doCommit" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"><span class="material-symbols-outlined text-sm">commit</span>{{ t('workbench.detail.commit') }}</button>
         </div>
-
         <details class="bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant select-none">{{ t('workbench.detail.recentCommits', { n: commits.length }) }}</summary>
           <div class="px-md pb-md flex flex-col gap-xs">
@@ -188,27 +240,6 @@ function addFile() {
             <p v-if="!commits.length" class="text-body-xs text-on-surface-variant">{{ t('workbench.detail.noCommits') }}</p>
           </div>
         </details>
-
-        <details class="bg-surface-container-low border border-outline-variant rounded-lg">
-          <summary class="cursor-pointer px-md py-sm text-body-sm text-on-surface-variant select-none flex items-center gap-xs">
-            <span class="material-symbols-outlined text-sm">forum</span>
-            {{ t('workbench.detail.conversationHistory') }} ({{ conversations.length }})
-          </summary>
-          <div class="px-md pb-md flex flex-col gap-xs">
-            <div v-for="c in conversations" :key="c.id" class="flex items-center gap-sm py-xs border-b border-outline-variant/30 last:border-0">
-              <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="convStatusStyle[c.status] || convStatusStyle.done">{{ c.status }}</span>
-              <span class="text-body-sm text-on-surface truncate flex-1">{{ c.userMessage }}</span>
-              <span class="text-body-xs text-on-surface-variant shrink-0">{{ c.steps }} steps</span>
-              <span class="text-body-xs text-on-surface-variant shrink-0">{{ fmt(c.updatedAt) }}</span>
-            </div>
-            <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant">{{ t('workbench.detail.noConversations') }}</p>
-          </div>
-        </details>
-      </div>
-
-      <!-- AI 聊天(右栏,可折叠) -->
-      <div v-if="showChat" class="w-96 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
-        <WorkbenchChat :project-id="id" :project-name="project?.name" />
       </div>
     </div>
   </section>

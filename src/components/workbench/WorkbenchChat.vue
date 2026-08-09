@@ -14,9 +14,26 @@ import Modal from '@/components/common/Modal.vue'
 const props = defineProps({
   projectId: String,
   projectName: String,
+  conversationId: { type: String, default: null },
 })
+const emit = defineEmits(['conversation-created'])
 
 const { t } = useI18n()
+
+// Load existing conversation when conversationId prop is set
+watch(() => props.conversationId, async (convId) => {
+  stopPolling()
+  turns.value = []
+  conversationId.value = null
+  convStatus.value = null
+  pendingApproval.value = null
+  errorBanner.value = ''
+  if (convId) {
+    conversationId.value = convId
+    await pollOnce(convId)
+    if (convStatus.value === 'running') startPolling(convId)
+  }
+}, { immediate: true })
 const turns = ref([])
 const input = ref('')
 const sending = ref(false)
@@ -188,6 +205,7 @@ async function send() {
     const { id } = await workbenchApi.conversations.create(payload)
     conversationId.value = id
     convStatus.value = 'running'
+    emit('conversation-created', id)
     startPolling(id)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
