@@ -39,3 +39,25 @@ test('DataTable: 可见列为 0 → 渲染空状态而非空表', () => {
   const wrapper = mount(DataTable, { props: { headers: [], rows: [{ name: 'a' }] }, global: { plugins: [i18n] } })
   expect(wrapper.text()).toContain('暂无数据') // common.noData 的 zh 文案
 })
+
+test('DataTable: 拖拽途中卸载 → onBeforeUnmount 清理 window 监听(无泄漏)', async () => {
+  // 复现 I1: pointerdown 启动拖拽 → window 上挂 pointermove/pointerup → 组件卸载。
+  // 修复前:onUp 仅在 pointerup 触发,卸载时 listener 泄漏,后续 pointermove 仍调 setWidth。
+  // 修复后:onBeforeUnmount(() => onUp()) 清理,pointermove 不再触发 setWidth。
+  const wrapper = mount(DataTable, {
+    props: { headers: [{ key: 'name', label: '名称' }, { key: 'status', label: '状态' }], rows: [], columnKey: 'nodes' },
+    global: { plugins: [i18n] },
+  })
+  const handle = wrapper.find('th span.cursor-col-resize')
+  expect(handle.exists()).toBe(true)
+  // 启动拖拽:挂 window pointermove/pointerup
+  await handle.trigger('pointerdown', { clientX: 100 })
+  // 卸载(模拟路由切换 / v-if toggle):onBeforeUnmount 应清理监听
+  wrapper.unmount()
+  // 模拟卸载后的 pointermove:若监听已泄漏,setWidth 会被调用 → localStorage 出现 width 条目
+  window.dispatchEvent(new Event('pointermove'))
+  const raw = localStorage.getItem('aliangboard.tableColumns.v2')
+  const persisted = raw ? JSON.parse(raw) : {}
+  // 修复后:nodes 表无 width 条目(监听已移除,setWidth 未被调用)
+  expect(persisted.nodes?.width).toBeUndefined()
+})

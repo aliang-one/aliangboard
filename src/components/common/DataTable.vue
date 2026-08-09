@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 
@@ -38,6 +38,11 @@ function onUp() {
   window.removeEventListener('pointermove', onMove)
   window.removeEventListener('pointerup', onUp)
 }
+
+// 卸载兜底:拖拽途中组件被销毁(路由切换 / v-if toggle)时 onUp 不会触发,
+// window 上的 pointermove/pointerup 监听会泄漏并持有 resizing 闭包(捕获 props/setWidth)。
+// onUp 幂等(无拖拽时 removeEventListener 对未注册监听为 no-op,resizing=null 也安全)。
+onBeforeUnmount(() => onUp())
 
 const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'px' } : {}
 </script>
