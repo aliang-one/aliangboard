@@ -5,13 +5,17 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsHPA'))
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -92,6 +96,10 @@ function hpaStatus(status) {
   if (status === 'Scaling') return 'Pending'
   return status
 }
+
+function goDetail(row) {
+  router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -110,84 +118,52 @@ function hpaStatus(status) {
       </button>
     </div>
 
-    <div v-if="nsHPAs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thTarget') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thMinMaxReplicas') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCurrentReplicas') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCpuTarget') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thCpuCurrent') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thStatus') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.hpa.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.hpa.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-sm">speed</span>
-                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-col">
-                <span class="text-body-sm font-medium text-on-surface">{{ row.targetName }}</span>
-                <span class="text-xs text-on-surface-variant">{{ row.targetKind }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="font-mono text-xs">
-                <span class="text-on-surface font-semibold">{{ row.minReplicas }}</span>
-                <span class="text-on-surface-variant mx-xs">/</span>
-                <span class="text-on-surface font-semibold">{{ row.maxReplicas }}</span>
-              </span>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all duration-500" :class="row.currentReplicas >= row.maxReplicas ? 'bg-error' : row.currentReplicas > row.minReplicas ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: (row.maxReplicas ? Math.round((row.currentReplicas / row.maxReplicas) * 100) : 0) + '%' }"></div>
-                </div>
-                <span class="font-mono text-xs font-bold text-primary">{{ row.currentReplicas }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="font-mono text-xs text-on-surface-variant">{{ row.cpuTarget }}%</span>
-            </td>
-            <td class="px-md py-2">
-              <span class="font-mono text-xs" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
-            </td>
-            <td class="px-md py-2">
-              <StatusChip :status="row.status" size="sm" />
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsHPADetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!nsHPAs.length">
-            <td :colspan="9" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.hpa.emptyState') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsHPA" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-secondary text-sm">speed</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #target="{ row }">
+        <div class="flex flex-col">
+          <span class="text-body-sm font-medium text-on-surface">{{ row.targetName }}</span>
+          <span class="text-xs text-on-surface-variant">{{ row.targetKind }}</span>
+        </div>
+      </template>
+      <template #minMaxReplicas="{ row }">
+        <span class="font-mono text-xs">
+          <span class="text-on-surface font-semibold">{{ row.minReplicas }}</span>
+          <span class="text-on-surface-variant mx-xs">/</span>
+          <span class="text-on-surface font-semibold">{{ row.maxReplicas }}</span>
+        </span>
+      </template>
+      <template #currentReplicas="{ row }">
+        <div class="flex items-center gap-sm">
+          <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-500" :class="row.currentReplicas >= row.maxReplicas ? 'bg-error' : row.currentReplicas > row.minReplicas ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: (row.maxReplicas ? Math.round((row.currentReplicas / row.maxReplicas) * 100) : 0) + '%' }"></div>
+          </div>
+          <span class="font-mono text-xs font-bold text-primary">{{ row.currentReplicas }}</span>
+        </div>
+      </template>
+      <template #cpuTarget="{ row }">
+        <span class="font-mono text-xs text-on-surface-variant">{{ row.cpuTarget }}%</span>
+      </template>
+      <template #cpuCurrent="{ row }">
+        <span class="font-mono text-xs" :class="row.currentCPU > row.cpuTarget ? 'text-error font-semibold' : 'text-on-surface-variant'">{{ row.currentCPU }}%</span>
+      </template>
+      <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+        </div>
+      </template>
+      <template v-if="nsHPAs.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">speed</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.hpa.noHpainNs') }}</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.hpa.createBtn') }}</button>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create HPA Modal -->
