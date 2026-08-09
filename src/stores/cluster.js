@@ -1595,40 +1595,6 @@ export const useClusterStore = defineStore('cluster', () => {
     return { failed: requests.filter(r => r.status === 'rejected').length }
   }
 
-  async function hydrateExtendedResources() {
-    if (!remoteMode.value) return
-    const fetchers = {
-      configmaps: () => api.k8s('/api/v1/configmaps?limit=5000'),
-      secrets: () => api.k8s('/api/v1/secrets?limit=5000'),
-      persistentvolumeclaims: () => api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
-      endpoints: () => api.k8s('/api/v1/endpoints?limit=5000'),
-      resourcequotas: () => api.k8s('/api/v1/resourcequotas?limit=5000'),
-      limitranges: () => api.k8s('/api/v1/limitranges?limit=5000'),
-      persistentvolumes: () => api.k8s('/api/v1/persistentvolumes?limit=5000'),
-      networkpolicies: () => api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
-      horizontalpodautoscalers: () => api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
-      poddisruptionbudgets: () => api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
-      storageclasses: () => api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
-    }
-    const out = {}
-    let failed = 0
-    await Promise.all(Object.entries(fetchers).map(async ([k, fn]) => {
-      try { out[k] = (await fn())?.items || [] } catch { out[k] = []; failed++ }
-    }))
-    configMapList.value = out.configmaps.map(mapConfigMap)
-    secretList.value = out.secrets.map(mapSecret)
-    pvcList.value = out.persistentvolumeclaims.map(mapPVC)
-    endpointsList.value = out.endpoints.map(mapEndpoints)
-    resourceQuotaList.value = out.resourcequotas.map(mapResourceQuota)
-    limitRangeList.value = out.limitranges.map(mapLimitRange)
-    pvList.value = out.persistentvolumes.map(mapPV)
-    networkPolicyList.value = out.networkpolicies.map(mapNetworkPolicy)
-    hpaList.value = out.horizontalpodautoscalers.map(mapHPA)
-    pdbList.value = out.poddisruptionbudgets.map(mapPDB)
-    scList.value = out.storageclasses.map(mapStorageClass)
-    return { failed }
-  }
-
   function getCurrentCluster() {
     return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
   }
