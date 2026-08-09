@@ -2034,31 +2034,25 @@ spec:
     }
 
     if (type === 'resourcequota') {
-      const hardEntries = resource.hard ? Object.entries(resource.hard)
-        .map(([k, v]) => `  ${k}: ${scalar(v)}`).join('\n') : ''
-      const usedEntries = resource.used ? Object.entries(resource.used)
-        .map(([k, v]) => `  ${k}: ${scalar(v)}`).join('\n') : ''
+      const hardPairs = resource.hard ? Object.entries(resource.hard)
+        .map(([k, v]) => `    ${k}: ${scalar(v)}`) : []
+      const hardBlock = hardPairs.length ? hardPairs.join('\n') : '    {}'
       return `apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: "${name}"
+  namespace: "${ns}"
 spec:
   hard:
-${hardEntries || '  {}'}
-status:
-  hard:
-${hardEntries || '  {}'}
-  used:
-${usedEntries || '  {}'}`
+${hardBlock}`
     }
 
     if (type === 'limitrange') {
       return `apiVersion: v1
 kind: LimitRange
 metadata:
-  name: ${name}
-  namespace: ${ns}
+  name: "${name}"
+  namespace: "${ns}"
 spec:
   limits:
   - type: Container
@@ -2191,8 +2185,8 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
       return `apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: ${resource.name}
-  namespace: ${resource.namespace}
+  name: "${resource.name}"
+  namespace: "${resource.namespace}"
 spec:
   ${resource.minAvailable ? `minAvailable: ${resource.minAvailable}` : `maxUnavailable: ${resource.maxUnavailable}`}
   selector:
