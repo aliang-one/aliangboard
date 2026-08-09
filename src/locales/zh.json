@@ -265,6 +265,7 @@
     "policy": "策略",
     "clusterResources": "集群资源",
     "auditAndMultiCluster": "审计 / 多集群",
+    "multiCluster": "多集群",
     "platformAdmin": "平台管理",
     "searchPlaceholder": "搜索资源（Pod / 工作负载 / Service …，回车跳首个）...",
     "switchCluster": "切换集群",
