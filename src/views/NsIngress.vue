@@ -5,7 +5,9 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
@@ -17,6 +19,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsIngress'))
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -129,6 +133,9 @@ async function handleCreate() {
 // Delete
 const showDeleteModal = ref(false)
 const deleteTarget = ref(null)
+function goDetail(row) {
+  router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 function confirmDelete(ing) {
   deleteTarget.value = ing
   showDeleteModal.value = true
@@ -169,72 +176,50 @@ async function handleDelete() {
       <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ nsIngress.length }}</span>
     </div>
 
-    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thClass') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.ingress.thRules') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('ns.ingress.thTls') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant whitespace-nowrap">{{ t('common.age') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24 whitespace-nowrap">{{ t('common.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors align-top" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2 whitespace-nowrap">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-primary text-lg">language</span>
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2 whitespace-nowrap">
-              <span v-if="row.className" class="font-mono text-xs px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">{{ row.className }}</span>
-              <span v-else class="text-xs text-on-surface-variant/40">—</span>
-            </td>
-            <td class="px-md py-2 min-w-0">
-              <div class="flex flex-col gap-0.5">
-                <div v-for="(r, i) in flattenRules(row)" :key="i" class="flex items-center gap-xs text-code-sm font-mono">
-                  <span class="text-primary font-semibold max-w-[220px] truncate" :title="r.host">{{ r.host }}</span>
-                  <span class="text-on-surface-variant">{{ r.path }}</span>
-                  <span class="text-on-surface-variant/40">→</span>
-                  <span v-if="r.backend" class="text-on-surface max-w-[200px] truncate" :title="r.backend">{{ r.backend }}</span>
-                  <span v-else class="text-on-surface-variant/40 italic">{{ t('ns.ingress.noBackend') }}</span>
-                </div>
-              </div>
-            </td>
-            <td class="px-md py-2 whitespace-nowrap">
-              <div v-if="row.tls" class="flex items-center gap-xs">
-                <span class="material-symbols-outlined text-base text-primary">lock</span>
-                <span class="font-mono text-xs text-primary max-w-[140px] truncate" :title="row.tlsSecret">{{ row.tlsSecret || 'TLS' }}</span>
-              </div>
-              <span v-else class="text-xs text-on-surface-variant/50">{{ t('common.none') }}</span>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant whitespace-nowrap">{{ row.age }}</td>
-            <td class="px-md py-2 whitespace-nowrap" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('ns.ingress.viewDetail')">
-                  <span class="material-symbols-outlined text-lg">open_in_new</span>
-                </button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
-                  <span class="material-symbols-outlined text-lg">delete</span>
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsIngress" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-lg">language</span>
+          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #className="{ row }">
+        <span v-if="row.className" class="font-mono text-xs px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">{{ row.className }}</span>
+        <span v-else class="text-xs text-on-surface-variant/40">—</span>
+      </template>
+      <template #rules="{ row }">
+        <div class="flex flex-col gap-0.5">
+          <div v-for="(r, i) in flattenRules(row)" :key="i" class="flex items-center gap-xs text-code-sm font-mono">
+            <span class="text-primary font-semibold max-w-[220px] truncate" :title="r.host">{{ r.host }}</span>
+            <span class="text-on-surface-variant">{{ r.path }}</span>
+            <span class="text-on-surface-variant/40">→</span>
+            <span v-if="r.backend" class="text-on-surface max-w-[200px] truncate" :title="r.backend">{{ r.backend }}</span>
+            <span v-else class="text-on-surface-variant/40 italic">{{ t('ns.ingress.noBackend') }}</span>
+          </div>
+        </div>
+      </template>
+      <template #tls="{ row }">
+        <div v-if="row.tls" class="flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base text-primary">lock</span>
+          <span class="font-mono text-xs text-primary max-w-[140px] truncate" :title="row.tlsSecret">{{ row.tlsSecret || 'TLS' }}</span>
+        </div>
+        <span v-else class="text-xs text-on-surface-variant/50">{{ t('common.none') }}</span>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant whitespace-nowrap">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1 justify-end">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('ns.ingress.viewDetail')">
+            <span class="material-symbols-outlined text-lg">open_in_new</span>
+          </button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
+            <span class="material-symbols-outlined text-lg">delete</span>
+          </button>
+        </div>
+      </template>
+      <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ searchQuery ? 'search_off' : 'language' }}</span>
-      <p class="text-body-sm text-on-surface-variant mt-xs">{{ searchQuery ? t('ns.ingress.noMatch', { q: searchQuery }) : t('ns.ingress.empty') }}</p>
-      <button v-if="searchQuery" @click="searchQuery = ''" class="mt-md px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container">{{ t('ns.ingress.clearSearch') }}</button>
-      <button v-else @click="showCreateModal = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">{{ t('ns.ingress.createShort') }}</button>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create Ingress Modal -->
