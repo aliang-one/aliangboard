@@ -2688,7 +2688,13 @@
       "approve": "Approve",
       "atMentionHint": "Type @kind: to search resources (e.g. @pod:nginx)",
       "atMentionNoResults": "No matching resources",
-      "atMentionSearching": "Searching..."
+      "atMentionSearching": "Searching...",
+      "convStatus": {
+        "running": "Running",
+        "paused": "Awaiting Approval",
+        "done": "Done",
+        "failed": "Failed"
+      }
     },
     "shell": {
       "title": "Workbench",

@@ -1,8 +1,11 @@
 <script setup>
 // 可复用 AI 聊天组件(从 WorkbenchProjectChat 提取):工作台项目的 agent 聊天。
 // props: projectId / projectName。无路由依赖,适合侧栏嵌入。
-// → POST /api/agent/chat { projectId, message, resume? } → done(终答+trace)/ pending_approval(write_project_file 人审)。
-// 历史走服务端(workbench_history),客户端不传 history。审批 modal 展 path+content。
+// → POST /api/workbench/conversations { projectId, message, references } → { id, status:'running' }
+// → 每 2s GET /api/workbench/conversations/:id → 更新 turns/trace
+// → status==='paused' → 弹审批 modal;approve/deny → POST → 继续轮询
+// → status==='done' → 显示终答 + 停轮询;status==='failed' → 显示错误 + 停轮询。
+// 审批 modal 展 path+content。
 import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi } from '@/api/client'
@@ -21,6 +24,11 @@ const errorBanner = ref('')
 const scrollEl = ref(null)
 const pendingApproval = ref(null)
 let turnSeq = 0
+
+// --- 异步对话轮询状态 ---
+const conversationId = ref(null)
+const pollTimer = ref(null)
+const convStatus = ref(null)
 
 // --- @-mention state ---
 const refs = ref([])
@@ -84,7 +92,22 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer) })
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling() })
+
+const convStatusLabel = computed(() => {
+  const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
+  return labels[convStatus.value] || ''
+})
+
+const convStatusBadgeClass = computed(() => {
+  switch (convStatus.value) {
+    case 'running': return 'bg-status-running/10 text-status-running'
+    case 'paused': return 'bg-status-warning/10 text-status-warning'
+    case 'done': return 'bg-status-success/10 text-status-success'
+    case 'failed': return 'bg-error/10 text-error'
+    default: return 'bg-surface-container text-on-surface-variant'
+  }
+})
 
 const HINTS = computed(() => [
   t('workbench.chat.hintReadLedger'),
@@ -98,14 +121,50 @@ function fmtResult(v) { if (v == null) return ''; return typeof v === 'string' ?
 function updateTurn(tid, patch) { const t = turns.value.find(x => x._id === tid); if (t) Object.assign(t, patch) }
 async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
 
-function applyResponse(agentId, res) {
-  const t = turns.value.find(x => x._id === agentId)
-  if (t && Array.isArray(res.trace) && res.trace.length) t.trace.push(...res.trace)
-  if (res.status === 'pending_approval') {
-    updateTurn(agentId, { status: 'pending_approval', steps: res.steps ?? t.steps, denied: res.denied || [], truncated: false })
-    pendingApproval.value = { turnId: agentId, toolCallId: res.pending.toolCallId, name: res.pending.name, args: res.pending.args, runContext: res.runContext, queue: res.queue, denied: res.denied, steps: res.steps }
-  } else {
-    updateTurn(agentId, { status: 'done', content: res.content || t('workbench.chat.noAnswer'), steps: res.steps ?? 0, denied: res.denied || [], truncated: !!res.truncated })
+// --- 异步轮询 ---
+function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
+
+function startPolling(id) {
+  stopPolling()
+  pollTimer.value = setInterval(() => pollOnce(id), 2000)
+  // 立即首次拉取(不等 2s)
+  pollOnce(id)
+}
+
+async function pollOnce(id) {
+  try {
+    const conv = await workbenchApi.conversations.get(id)
+    convStatus.value = conv.status
+    const agentTurn = turns.value.find(x => x._id === turnSeq && x.role === 'assistant')
+    // 更新 trace
+    let trace = []
+    if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
+    if (agentTurn) {
+      agentTurn.trace = trace
+      agentTurn.steps = conv.steps ?? agentTurn.steps
+    }
+    if (conv.status === 'paused') {
+      stopPolling()
+      let pa = null
+      try { pa = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch { pa = null }
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'pending_approval', steps: conv.steps ?? agentTurn.steps })
+      if (pa) {
+        pendingApproval.value = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
+      }
+      sending.value = false
+    } else if (conv.status === 'done') {
+      stopPolling()
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), steps: conv.steps ?? agentTurn.steps })
+      sending.value = false
+      await scrollToBottom()
+    } else if (conv.status === 'failed') {
+      stopPolling()
+      errorBanner.value = conv.error || t('workbench.chat.agentFailed')
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: conv.error || t('workbench.chat.agentFailed') })
+      sending.value = false
+    }
+  } catch {
+    // 网络抖动:忽略,下次轮询重试
   }
 }
 
@@ -126,31 +185,39 @@ async function send() {
       payload.references = refs.value.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
       refs.value = []
     }
-    const res = await workbenchApi.chat(payload)
-    applyResponse(agentId, res)
+    const { id } = await workbenchApi.conversations.create(payload)
+    conversationId.value = id
+    convStatus.value = 'running'
+    startPolling(id)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
     if (e.status === 503) errorBanner.value = e.message
-  } finally { sending.value = false; await scrollToBottom() }
+    sending.value = false
+  }
 }
 
 async function decideApproval(approved) {
   const pa = pendingApproval.value
-  if (!pa || sending.value) return
+  if (!pa || !conversationId.value) return
   pendingApproval.value = null
-  updateTurn(pa.turnId, { status: 'thinking' })
   sending.value = true
   await scrollToBottom()
   try {
-    const res = await workbenchApi.chat({ projectId: props.projectId, resume: { runContext: pa.runContext, queue: pa.queue, denied: pa.denied, steps: pa.steps, toolCallId: pa.toolCallId, approved } })
-    applyResponse(pa.turnId, res)
-  } catch (e) { updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') }) }
-  finally { sending.value = false; await scrollToBottom() }
+    const id = conversationId.value
+    if (approved) { await workbenchApi.conversations.approve(id) }
+    else { await workbenchApi.conversations.deny(id) }
+    convStatus.value = 'running'
+    if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
+    startPolling(id)
+  } catch (e) {
+    if (pa.turnId) updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
+    sending.value = false
+  }
 }
 
 function onKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }
 function useHint(h) { input.value = h }
-function clearChat() { turns.value = []; pendingApproval.value = null; errorBanner.value = '' }
+function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
 </script>
 
 <template>
@@ -158,6 +225,7 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
     <div class="shrink-0 flex items-center gap-xs">
       <span class="material-symbols-outlined text-base text-on-surface-variant">smart_toy</span>
       <span class="text-body-sm font-semibold text-on-surface truncate">{{ props.projectName || t('workbench.chat.title') }}</span>
+      <span v-if="convStatus" class="shrink-0 text-body-xs px-xs py-xs rounded-full font-mono" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
       <button v-if="turns.length" @click="clearChat" class="ml-auto flex items-center gap-xs px-xs py-xs border border-outline-variant rounded-lg text-body-xs text-on-surface-variant hover:bg-surface-container"><span class="material-symbols-outlined text-sm">delete_sweep</span></button>
     </div>
 

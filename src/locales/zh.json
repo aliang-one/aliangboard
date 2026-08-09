@@ -2688,7 +2688,13 @@
       "approve": "批准",
       "atMentionHint": "输入 @kind: 搜索资源（如 @pod:nginx）",
       "atMentionNoResults": "无匹配资源",
-      "atMentionSearching": "搜索中…"
+      "atMentionSearching": "搜索中…",
+      "convStatus": {
+        "running": "执行中",
+        "paused": "待审批",
+        "done": "完成",
+        "failed": "失败"
+      }
     },
     "shell": {
       "title": "工作台",
