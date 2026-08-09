@@ -4,10 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useTableColumns } from '@/composables/useTableColumns'
 import { useQueryClient } from '@tanstack/vue-query'
 import { exportYaml } from '@/api/client'
 import { readMeta } from '@/composables/useBusinessMeta'
 import StatusChip from '@/components/common/StatusChip.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -17,6 +19,8 @@ import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsWorkloads'))
 
 const route = useRoute()
 const router = useRouter()
@@ -176,56 +180,30 @@ async function handleDelete() {
     </div>
 
     <!-- Table -->
-    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thType') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thStatus') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thReplicas') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thImage') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.workloads.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-12"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="goDetail(row)">
-            <td class="px-md py-2">
-              <div class="flex flex-col">
-                <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-                <span v-if="readMeta(row).title" class="text-xs text-primary">{{ readMeta(row).title }}</span>
-                <span class="font-mono text-xs text-on-surface-variant">{{ row.sha }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
-            </td>
-            <td class="px-md py-2"><StatusChip :status="row.status" size="sm" /></td>
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full" :class="replicaPercent(row.replicas) === 100 ? 'bg-primary' : replicaPercent(row.replicas) === 0 ? 'bg-error' : 'bg-tertiary-container'" :style="{ width: replicaPercent(row.replicas) + '%' }"></div>
-                </div>
-                <span class="font-mono text-code-sm font-bold" :class="replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.image }}</span></td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2">
-              <DropdownMenu :items="menuItems(row)" />
-            </td>
-          </tr>
-          <tr v-if="!filtered.length">
-            <td colspan="7" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.noMatch') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <!-- 分页 -->
-      <div v-if="filtered.length" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsWorkloads" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex flex-col">
+          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <span v-if="readMeta(row).title" class="text-xs text-primary">{{ readMeta(row).title }}</span>
+          <span class="font-mono text-xs text-on-surface-variant">{{ row.sha }}</span>
+        </div>
+      </template>
+      <template #type="{ row }">
+        <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
+      </template>
+      <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
+      <template #replicas="{ row }">
+        <div class="flex items-center gap-sm">
+          <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
+            <div class="h-full rounded-full" :class="replicaPercent(row.replicas) === 100 ? 'bg-primary' : replicaPercent(row.replicas) === 0 ? 'bg-error' : 'bg-tertiary-container'" :style="{ width: replicaPercent(row.replicas) + '%' }"></div>
+          </div>
+          <span class="font-mono text-code-sm font-bold" :class="replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
+        </div>
+      </template>
+      <template #image="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.image }}</span></template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }"><DropdownMenu :items="menuItems(row)" /></template>
+      <template v-if="filtered.length" #pagination>
         <Pagination
           :total="filtered.length"
           :page-size="pageSize"
@@ -234,8 +212,8 @@ async function handleDelete() {
           @page-change="(p) => currentPage = p"
           @size-change="(s) => { pageSize = s; currentPage = 1 }"
         />
-      </div>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- 删除确认 -->

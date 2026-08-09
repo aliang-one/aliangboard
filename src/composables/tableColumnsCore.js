@@ -66,6 +66,18 @@ export const TABLE_CATALOG = [
       { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
     ],
   },
+  {
+    key: 'nsWorkloads', labelKey: 'ns.workloads.title', label: 'Workloads', icon: 'workspaces',
+    columns: [
+      { key: 'name', labelKey: 'ns.workloads.thName', label: 'Name' },
+      { key: 'type', labelKey: 'ns.workloads.thType', label: 'Type' },
+      { key: 'status', labelKey: 'ns.workloads.thStatus', label: 'Status' },
+      { key: 'replicas', labelKey: 'ns.workloads.thReplicas', label: 'Replicas' },
+      { key: 'image', labelKey: 'ns.workloads.thImage', label: 'Image' },
+      { key: 'age', labelKey: 'ns.workloads.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
