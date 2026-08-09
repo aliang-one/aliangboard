@@ -1,11 +1,13 @@
 <script setup>
-// 工作台项目详情(W2):文件树 + 编辑器 + 保存 + 提交 + 最近提交。
+// 工作台项目详情:三栏 IDE 布局(文件树 | YamlEditor | AI chat),可折叠。
 // repo 在服务端(git),前端只读写文件 + 触发 commit。AI authoring 是 W4。
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
+import YamlEditor from '@/components/common/YamlEditor.vue'
+import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +25,8 @@ const newFile = ref('')
 const saving = ref(false)
 const lastReconcile = ref(null)
 const reconciling = ref(false)
+const showFileTree = ref(true)
+const showChat = ref(true)
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -107,8 +111,18 @@ function addFile() {
       <button @click="reconcile" :disabled="reconciling" class="ml-auto flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.detail.reconcileTitle')">
         <span class="material-symbols-outlined text-sm">{{ reconciling ? 'progress_activity' : 'sync' }}</span> {{ reconciling ? t('workbench.detail.reconciling') : t('workbench.detail.reconcile') }}
       </button>
-      <button @click="router.push({ name: 'WorkbenchProjectChat', params: { id } })" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
-        <span class="material-symbols-outlined text-sm">smart_toy</span> {{ t('workbench.detail.aiAssistant') }}
+      <!-- collapse / expand toggles -->
+      <button v-if="showFileTree" @click="showFileTree = false" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.collapseFiles')">
+        <span class="material-symbols-outlined text-sm">left_panel_close</span>
+      </button>
+      <button v-else @click="showFileTree = true" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.expandFiles')">
+        <span class="material-symbols-outlined text-sm">left_panel_open</span>
+      </button>
+      <button v-if="showChat" @click="showChat = false" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.collapseChat')">
+        <span class="material-symbols-outlined text-sm">right_panel_close</span>
+      </button>
+      <button v-else @click="showChat = true" class="flex items-center gap-xs px-sm py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" :title="t('workbench.ide.expandChat')">
+        <span class="material-symbols-outlined text-sm">right_panel_open</span>
       </button>
     </div>
 
@@ -121,8 +135,8 @@ function addFile() {
     </div>
 
     <div class="flex-1 min-h-0 flex gap-md">
-      <!-- 文件树 -->
-      <div class="w-64 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+      <!-- 文件树(左栏,可折叠) -->
+      <div v-if="showFileTree" class="w-64 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
         <div class="px-md py-sm border-b border-outline-variant text-label-caps text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-base">folder</span>{{ t('workbench.detail.files') }}</div>
         <div class="flex-1 overflow-y-auto p-sm flex flex-col gap-0.5">
           <button v-for="f in files" :key="f" @click="openFile(f)" class="text-left text-body-sm font-mono px-sm py-xs rounded truncate" :class="f === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
@@ -136,16 +150,13 @@ function addFile() {
         </div>
       </div>
 
-      <!-- 编辑器 + 提交 -->
+      <!-- 编辑器 + 提交(中栏) -->
       <div class="flex-1 min-w-0 flex flex-col gap-sm">
         <div class="flex items-center justify-between gap-sm">
           <span class="text-body-sm font-mono text-on-surface-variant truncate">{{ currentPath || t('workbench.detail.noFileSelected') }}</span>
-          <div class="flex items-center gap-xs">
-            <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
-            <button @click="save" :disabled="!currentPath || saving" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40"><span class="material-symbols-outlined text-sm">save</span>{{ t('workbench.detail.save') }}</button>
-          </div>
+          <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
         </div>
-        <textarea v-model="currentContent" @input="dirty = true" :disabled="!currentPath" class="flex-1 min-h-0 bg-surface-container-lowest border border-outline-variant rounded-lg p-md font-mono text-body-sm resize-none outline-none disabled:opacity-50" :placeholder="t('workbench.detail.editorPlaceholder')"></textarea>
+        <YamlEditor :model-value="currentContent" @update:model-value="v => { currentContent = v; dirty = true }" @save="save" />
         <div class="flex items-center gap-xs">
           <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
           <button @click="doCommit" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"><span class="material-symbols-outlined text-sm">commit</span>{{ t('workbench.detail.commit') }}</button>
@@ -162,6 +173,11 @@ function addFile() {
             <p v-if="!commits.length" class="text-body-xs text-on-surface-variant">{{ t('workbench.detail.noCommits') }}</p>
           </div>
         </details>
+      </div>
+
+      <!-- AI 聊天(右栏,可折叠) -->
+      <div v-if="showChat" class="w-96 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+        <WorkbenchChat :project-id="id" :project-name="project?.name" />
       </div>
     </div>
   </section>

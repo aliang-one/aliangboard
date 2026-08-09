@@ -2655,6 +2655,12 @@
       "reconcileSkipped": "跳过({reason})",
       "hasFailures": "有失败"
     },
+    "ide": {
+      "collapseFiles": "折叠文件树",
+      "collapseChat": "折叠 AI 助手",
+      "expandFiles": "展开文件树",
+      "expandChat": "展开 AI 助手"
+    },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",
       "hintWriteConfig": "帮我写一份 nginx deployment 的 manifests",

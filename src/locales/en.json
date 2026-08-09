@@ -2655,6 +2655,12 @@
       "reconcileSkipped": "Skipped ({reason})",
       "hasFailures": "has failures"
     },
+    "ide": {
+      "collapseFiles": "Collapse file tree",
+      "collapseChat": "Collapse AI chat",
+      "expandFiles": "Expand file tree",
+      "expandChat": "Expand AI chat"
+    },
     "chat": {
       "hintReadLedger": "Show me what files are in the current cluster ledger",
       "hintWriteConfig": "Help me write nginx deployment manifests",
