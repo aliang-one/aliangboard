@@ -24,6 +24,71 @@ export function createWorkbenchSchema(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS pending_distills (clusterId TEXT PRIMARY KEY, proposed TEXT, current TEXT, summary TEXT, stats TEXT, ts INTEGER NOT NULL)`)
   // 项目 reconcile 的最近结果(每项目一条;R1,第 4 阶段)
   db.exec(`CREATE TABLE IF NOT EXISTS last_reconcile (projectId TEXT PRIMARY KEY, result TEXT, ts INTEGER NOT NULL)`)
+  createConversationsSchema(db)
+}
+
+// 对话实体(P5):服务端持久化的 agent 对话——后台执行 + 轮询 + checkpoint/resume。
+export function createConversationsSchema(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS workbench_conversations (
+    id TEXT PRIMARY KEY,
+    projectId TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    system TEXT,
+    messages TEXT,
+    queue TEXT,
+    denied TEXT,
+    pendingApproval TEXT,
+    steps INTEGER DEFAULT 0,
+    trace TEXT,
+    content TEXT,
+    error TEXT,
+    userMessage TEXT,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_conversations_proj ON workbench_conversations(projectId, createdAt)`)
+}
+
+export function createConversation(db, { projectId, system, userMessage }) {
+  if (!projectId || !userMessage) throw new Error('createConversation 缺 projectId / userMessage')
+  const id = randomUUID()
+  const ts = Date.now()
+  db.prepare(`INSERT INTO workbench_conversations
+    (id,projectId,status,system,userMessage,steps,trace,createdAt,updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(id, projectId, 'running', system ?? '', userMessage, 0, '[]', ts, ts)
+  return getConversation(db, id)
+}
+
+export function getConversation(db, id) {
+  return db.prepare('SELECT * FROM workbench_conversations WHERE id=?').get(id) || null
+}
+
+export function updateConversation(db, id, patch) {
+  if (!id) throw new Error('updateConversation 缺 id')
+  const cols = Object.keys(patch)
+  if (cols.length === 0) return getConversation(db, id)
+  const setClause = cols.map(k => `${k}=?`).join(', ')
+  const vals = cols.map(k => patch[k])
+  db.prepare(`UPDATE workbench_conversations SET ${setClause}, updatedAt=? WHERE id=?`)
+    .run(...vals, Date.now(), id)
+  return getConversation(db, id)
+}
+
+export function listConversations(db, projectId) {
+  return db.prepare(`SELECT id,status,steps,userMessage,content,error,createdAt,updatedAt
+    FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC`).all(projectId)
+}
+
+export function appendTrace(db, id, step) {
+  const row = db.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(id)
+  if (!row) throw new Error(`appendTrace: conversation ${id} not found`)
+  let trace = []
+  try { trace = JSON.parse(row.trace || '[]') } catch { trace = [] }
+  trace.push(step)
+  db.prepare('UPDATE workbench_conversations SET trace=?, updatedAt=? WHERE id=?')
+    .run(JSON.stringify(trace), Date.now(), id)
+  return trace
 }
 
 export function createProject(db, { name, clusterId, ownerId }) {
