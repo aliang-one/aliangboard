@@ -425,6 +425,17 @@ export const TABLE_CATALOG = [
       { key: 'time', labelKey: 'audit.time', label: 'Time' },
     ],
   },
+  {
+    key: 'clusterResources', labelKey: 'admin.resourceList.thActions', label: 'Cluster Resources', icon: 'widgets',
+    columns: [
+      { key: 'name', labelKey: 'admin.resourceList.thName', label: 'Name' },
+      { key: 'namespace', labelKey: 'admin.resourceList.thNamespace', label: 'Namespace' },
+      { key: 'detail', labelKey: 'admin.resourceList.thDetail', label: 'Detail' },
+      { key: 'status', labelKey: 'admin.resourceList.thStatus', label: 'Status' },
+      { key: 'age', labelKey: 'admin.resourceList.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

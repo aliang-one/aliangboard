@@ -9,14 +9,17 @@ import { api } from '@/api/client'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
 import { notify } from '@/composables/useToast'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
 const route = useRoute()
+const { tableColumns } = useTableColumns()
 
 const CONFIGS = {
   apiservices: {
@@ -73,13 +76,23 @@ const CONFIGS = {
 
 const cfg = computed(() => CONFIGS[route.meta.resource])
 const namespaced = computed(() => cfg.value?.scope === 'namespace')
-// Expanded row colspan: namespaced resources have an extra Namespace column
-const colCount = computed(() => namespaced.value ? 6 : 5)
+// 自定义列:namespace 列仅在 namespaced 资源时显示
+const headers = computed(() =>
+  tableColumns('clusterResources').filter(h => h.key !== 'namespace' || namespaced.value))
 const items = ref([])
 const loading = ref(false)
 const { currentPage, pageSize, paginated, total } = usePagination(items)
-const expanded = ref(new Set())
-const yamlCache = ref({})        // key -> realtime YAML (after GET selfLink/fallback path then dump)
+
+// 将 K8s 原始对象映射为 DataTable 行(扁平键 + 保留 raw 引用供 YAML/操作使用)
+const rows = computed(() => paginated.value.map(it => ({
+  name: it.metadata?.name || '',
+  namespace: it.metadata?.namespace || '',
+  detail: cfg.value ? cfg.value.summary(it) : '',
+  status: cfg.value ? cfg.value.status(it) : '',
+  age: ageOf(it.metadata?.creationTimestamp),
+  _raw: it,
+  _key: rowKey(it),
+})))
 
 async function load() {
   if (!cfg.value) return
@@ -112,27 +125,7 @@ function itemPath(it) {
     : `${gv}/${plural}/${name}`
 }
 
-async function ensureYaml(it) {
-  const k = rowKey(it)
-  if (yamlCache.value[k] != null) return
-  try {
-    const obj = await api.k8s(itemPath(it))
-    if (obj?.metadata) delete obj.metadata.managedFields
-    yamlCache.value = { ...yamlCache.value, [k]: yamlDump(obj) }
-  } catch {
-    // No permission to read: editor fallback to list item's own dump
-  }
-}
-function toggleExpand(it) {
-  const k = rowKey(it)
-  const s = new Set(expanded.value)
-  if (s.has(k)) s.delete(k)
-  else { s.add(k); ensureYaml(it) }
-  expanded.value = s
-}
 function yamlOf(it) {
-  const k = rowKey(it)
-  if (yamlCache.value[k] != null) return yamlCache.value[k]
   const clone = JSON.parse(JSON.stringify(it))
   if (clone?.metadata) delete clone.metadata.managedFields
   return yamlDump(clone)
@@ -151,7 +144,7 @@ async function applyYaml(yaml) {
 // t('common.delete')
 const showDelete = ref(false)
 const delTarget = ref(null)
-function confirmDelete(it) { delTarget.value = it; showDelete.value = true }
+function confirmDelete(row) { delTarget.value = row._raw; showDelete.value = true }
 async function handleDelete() {
   const it = delTarget.value
   if (!it) return
@@ -191,63 +184,40 @@ const ageOf = ts => {
       </button>
     </div>
 
-    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thName') }}</th>
-            <th v-if="namespaced" class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thNamespace') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thDetail') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thStatus') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.resourceList.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('admin.resourceList.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <template v-for="it in paginated" :key="rowKey(it)">
-            <tr class="hover:bg-surface-container-low/40 transition-colors">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-base">{{ cfg.icon }}</span>
-                  <span class="font-semibold text-on-surface font-mono text-code-sm">{{ it.metadata.name }}</span>
-                </div>
-              </td>
-              <td v-if="namespaced" class="px-md py-2">
-                <span v-if="it.metadata.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ it.metadata.namespace }}</span>
-                <span v-else class="text-on-surface-variant text-xs">-</span>
-              </td>
-              <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ cfg.summary(it) }}</td>
-              <td class="px-md py-2"><StatusChip :status="cfg.status(it)" size="sm" /></td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ ageOf(it.metadata.creationTimestamp) }}</td>
-              <td class="px-md py-2" @click.stop>
-                <div class="flex gap-1">
-                  <button @click="toggleExpand(it)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('admin.resourceList.viewEditYaml')">
-                    <span class="material-symbols-outlined text-base transition-transform" :class="expanded.has(rowKey(it)) ? 'rotate-180' : ''">expand_more</span>
-                  </button>
-                  <button @click="confirmDelete(it)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
-                    <span class="material-symbols-outlined text-base">delete</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="expanded.has(rowKey(it))">
-              <td :colspan="colCount" class="px-md py-2 bg-surface-container-low/40">
-                <YamlEditor :model-value="yamlOf(it)" :readonly="false" height="360px" @save="applyYaml" />
-              </td>
-            </tr>
-          </template>
-          <tr v-if="!items.length && !loading">
-            <td :colspan="colCount" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-              <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.resourceList.noData') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable
+      :headers="headers"
+      :rows="rows"
+      column-key="clusterResources"
+      row-key="_key"
+      expandable
+    >
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-secondary text-base">{{ cfg.icon }}</span>
+          <span class="font-semibold text-on-surface font-mono text-code-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #namespace="{ row }">
+        <span v-if="row.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.namespace }}</span>
+        <span v-else class="text-on-surface-variant text-xs">-</span>
+      </template>
+      <template #detail="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.detail }}</span></template>
+      <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
+      <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1 justify-end" @click.stop>
+          <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
+            <span class="material-symbols-outlined text-base">delete</span>
+          </button>
+        </div>
+      </template>
+      <template #expanded="{ row }">
+        <YamlEditor :model-value="yamlOf(row._raw)" :readonly="false" height="360px" @save="applyYaml" />
+      </template>
+      <template v-if="total > pageSize" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
+      </template>
+    </DataTable>
 
     <!-- t('common.delete')确认 -->
     <Modal v-model="showDelete" :title="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })" width="max-w-md">
