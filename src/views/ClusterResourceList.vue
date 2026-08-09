@@ -115,6 +115,9 @@ onMounted(load)
 // Row unique key: namespaced resources include namespace
 function rowKey(it) { return (it.metadata?.namespace || '') + '/' + (it.metadata?.name || '') }
 
+// GET 拉取的完整 YAML 缓存(按 rowKey 懒加载,展开时 ensureYaml 触发)
+const yamlCache = ref({})
+
 // Object path: prefer selfLink, otherwise construct by gv/plural/scope
 function itemPath(it) {
   if (it.metadata?.selfLink) return it.metadata.selfLink
@@ -126,9 +129,21 @@ function itemPath(it) {
 }
 
 function yamlOf(it) {
+  const k = rowKey(it)
+  if (yamlCache.value[k] != null) return yamlCache.value[k]   // 已 GET 拉取的完整 YAML
   const clone = JSON.parse(JSON.stringify(it))
   if (clone?.metadata) delete clone.metadata.managedFields
   return yamlDump(clone)
+}
+// 展开时懒拉取完整对象(GET 单项 → dump → 缓存);无读权限则编辑器回退到列表项 dump
+async function ensureYaml(it) {
+  const k = rowKey(it)
+  if (yamlCache.value[k] != null) return
+  try {
+    const obj = await api.k8s(itemPath(it))
+    if (obj?.metadata) delete obj.metadata.managedFields
+    yamlCache.value = { ...yamlCache.value, [k]: yamlDump(obj) }
+  } catch { /* 无读权限:yamlOf 回退到列表项 */ }
 }
 
 async function applyYaml(yaml) {
@@ -190,6 +205,7 @@ const ageOf = ts => {
       column-key="clusterResources"
       row-key="_key"
       expandable
+      @expand="(row) => ensureYaml(row._raw)"
     >
       <template #name="{ row }">
         <div class="flex items-center gap-sm">

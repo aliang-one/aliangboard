@@ -16,7 +16,7 @@ const props = defineProps({
   selection: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['row-click', 'update:selection'])
+const emit = defineEmits(['row-click', 'update:selection', 'expand'])
 
 const { setWidth } = useTableColumns()
 
@@ -72,9 +72,11 @@ function isExpanded(row) { return expanded.value.has(rowId(row)) }
 function toggleExpand(row) {
   const id = rowId(row)
   const next = new Set(expanded.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
+  const willExpand = !next.has(id)
+  if (willExpand) next.add(id)
+  else next.delete(id)
   expanded.value = next
+  if (willExpand) emit('expand', row)   // 供视图懒拉取(如展开时 GET 完整 YAML)
 }
 
 // === 列数(含系统列:select / expand / ☰)用于 colspan ===

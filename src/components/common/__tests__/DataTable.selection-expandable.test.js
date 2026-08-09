@@ -61,6 +61,20 @@ test('expandable: 点展开钮 → 出现 #expanded 内容;且不触发 row-clic
   expect(wrapper.emitted('row-click')).toBeFalsy()
 })
 
+test('expandable: 展开时 emit expand 带该行(供懒拉取),收起不再 emit', async () => {
+  const wrapper = mount(DataTable, {
+    props: { headers: HEADERS, rows: ROWS, expandable: true, rowKey: 'name' },
+    slots: { expanded: '<div>x</div>' },
+    global: { plugins: [i18n] },
+  })
+  await wrapper.findAll('[data-expand-toggle]')[0].trigger('click')
+  const evt = wrapper.emitted('expand')
+  expect(evt).toBeTruthy()
+  expect(evt[0][0].name).toBe('a')
+  await wrapper.findAll('[data-expand-toggle]')[0].trigger('click')   // 收起
+  expect(wrapper.emitted('expand').length).toBe(1)
+})
+
 test('三者同存(selectable+expandable+columnKey):系统列顺序 + colspan 正常,不报错', () => {
   const wrapper = mount(DataTable, {
     props: { headers: HEADERS, rows: ROWS, selectable: true, expandable: true, columnKey: 'nodes', rowKey: 'name', selection: [] },
