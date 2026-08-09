@@ -4,7 +4,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useI18n } from 'vue-i18n'
@@ -13,6 +15,8 @@ import { useResourceList } from '@/composables/useK8sQuery'
 const store = useClusterStore()
 const router = useRouter()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('auditLogs'))
 
 // 集群级 Events 走 Vue Query（远端 30s 轮询 + 聚焦重拉 + watch live 桥接）。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -134,56 +138,32 @@ onUnmounted(() => store.stopEventWatch())
     </div>
 
     <!-- 日志表格 -->
-    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <div class="overflow-x-auto">
-        <table class="w-full text-left">
-          <thead>
-            <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">{{ t('audit.type') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.reason') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.resource') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.namespace') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.message') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('audit.time') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="(e, idx) in paginated" :key="idx" class="hover:bg-surface-container-low/40 transition-colors">
-              <td class="px-md py-2">
-                <div class="w-7 h-7 rounded-full flex items-center justify-center"
-                  :class="e.color === 'error' ? 'bg-error-container text-on-error-container' : e.color === 'tertiary' ? 'bg-tertiary-container/20 text-tertiary-container' : e.color === 'primary' ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container text-on-surface-variant'">
-                  <span class="material-symbols-outlined text-sm">{{ e.icon }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2">
-                <span class="font-semibold text-on-surface text-body-sm">{{ e.reason }}</span>
-                <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="e.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ e.type }}</span>
-              </td>
-              <td class="px-md py-2">
-                <button v-if="e.relatedKind" @click="goToRelated(e)" class="font-mono text-code-sm text-primary hover:underline whitespace-nowrap">
-                  {{ e.relatedKind }}/{{ e.relatedName }}
-                </button>
-                <span v-else class="text-on-surface-variant text-xs">—</span>
-              </td>
-              <td class="px-md py-2">
-                <span v-if="e.namespace" class="px-2 py-0.5 bg-surface-container rounded-full text-xs text-on-surface-variant border border-outline-variant">{{ e.namespace }}</span>
-                <span v-else class="text-on-surface-variant text-xs">—</span>
-              </td>
-              <td class="px-md py-2 text-xs text-on-surface-variant max-w-md">{{ e.message }}</td>
-              <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ e.time }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="auditLogs">
+      <template #type="{ row }">
+        <div class="w-7 h-7 rounded-full flex items-center justify-center"
+          :class="row.color === 'error' ? 'bg-error-container text-on-error-container' : row.color === 'tertiary' ? 'bg-tertiary-container/20 text-tertiary-container' : row.color === 'primary' ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container text-on-surface-variant'">
+          <span class="material-symbols-outlined text-sm">{{ row.icon }}</span>
+        </div>
+      </template>
+      <template #reason="{ row }">
+        <span class="font-semibold text-on-surface text-body-sm">{{ row.reason }}</span>
+        <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="row.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ row.type }}</span>
+      </template>
+      <template #resource="{ row }">
+        <button v-if="row.relatedKind" @click="goToRelated(row)" class="font-mono text-code-sm text-primary hover:underline whitespace-nowrap">
+          {{ row.relatedKind }}/{{ row.relatedName }}
+        </button>
+        <span v-else class="text-on-surface-variant text-xs">—</span>
+      </template>
+      <template #namespace="{ row }">
+        <span v-if="row.namespace" class="px-2 py-0.5 bg-surface-container rounded-full text-xs text-on-surface-variant border border-outline-variant">{{ row.namespace }}</span>
+        <span v-else class="text-on-surface-variant text-xs">—</span>
+      </template>
+      <template #message="{ row }"><span class="text-xs text-on-surface-variant max-w-md">{{ row.message }}</span></template>
+      <template #time="{ row }"><span class="font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ row.time }}</span></template>
+      <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">manage_history</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('audit.noRecords') }}</p>
-    </div>
+      </template>
+    </DataTable>
   </section>
 </template>

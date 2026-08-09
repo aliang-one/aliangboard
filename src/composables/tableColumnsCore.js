@@ -353,6 +353,17 @@ export const TABLE_CATALOG = [
       { key: 'description', labelKey: 'admin.crdList.thDescription', label: 'Description' },
     ],
   },
+  {
+    key: 'auditLogs', labelKey: 'audit.title', label: 'Audit Logs', icon: 'manage_history',
+    columns: [
+      { key: 'type', labelKey: 'audit.type', label: 'Type' },
+      { key: 'reason', labelKey: 'audit.reason', label: 'Reason' },
+      { key: 'resource', labelKey: 'audit.resource', label: 'Resource' },
+      { key: 'namespace', labelKey: 'audit.namespace', label: 'Namespace' },
+      { key: 'message', labelKey: 'audit.message', label: 'Message' },
+      { key: 'time', labelKey: 'audit.time', label: 'Time' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
