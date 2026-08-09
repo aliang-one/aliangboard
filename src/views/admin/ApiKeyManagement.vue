@@ -6,12 +6,14 @@ import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import ToolOverrideEditor from '@/components/common/ToolOverrideEditor.vue'
 import NsAllowlistEditor from '@/components/common/NsAllowlistEditor.vue'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
 const auth = useAuthStore()
 const apikeys = ref([])
 const clusters = ref([])
@@ -78,18 +80,7 @@ async function saveNamespaces() {
 const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 const TIER_STYLE = { read: 'bg-status-running/10 text-status-running', operator: 'bg-status-warning/10 text-status-warning', admin: 'bg-error/10 text-error' }
-const headers = computed(() => [
-  { key: 'prefix', label: 'Key' },
-  { key: 'tier', label: t('admin.apiKeys.colTier') },
-  { key: 'overrides', label: t('admin.apiKeys.colOverrides') },
-  { key: 'nsAllowlist', label: t('nsAllowlist.colHeader') },
-  { key: 'owner', label: t('admin.apiKeys.colOwner') },
-  { key: 'boundSA', label: t('admin.apiKeys.colBoundSA') },
-  { key: 'cluster', label: t('admin.apiKeys.colCluster') },
-  { key: 'state', label: t('common.status') },
-  { key: 'created', label: t('admin.apiKeys.colCreated') },
-  { key: 'actions', label: '', align: 'right' },
-])
+const headers = computed(() => tableColumns('apiKeys'))
 
 async function load() {
   loading.value = true
@@ -137,7 +128,7 @@ async function doRevoke(k) {
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
-    <DataTable v-else :headers="headers" :rows="apikeys">
+    <DataTable v-else :headers="headers" :rows="apikeys" column-key="apiKeys">
       <template #prefix="{ row }"><span class="font-mono text-body-sm font-semibold">{{ row.prefix }}…</span></template>
       <template #tier="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="TIER_STYLE[row.tier]">{{ row.tier }}</span></template>
       <template #overrides="{ row }">
