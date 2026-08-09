@@ -115,18 +115,6 @@ export const useClusterStore = defineStore('cluster', () => {
   // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
   const currentNamespace = ref(localStorage.getItem('aliangboard.namespace') || '')
 
-  // === 微服务分层定义（对标 Kuboard tier）===
-  const TIER_META = {
-    web: { label: i18n.global.t('store.presentationLayer'), en: 'Web', icon: 'web', color: 'primary', order: 0 },
-    gateway: { label: i18n.global.t('store.gatewayLayer'), en: 'Gateway', icon: 'dns', color: 'secondary', order: 1 },
-    svc: { label: i18n.global.t('store.serviceLayer'), en: 'Service', icon: 'apps', color: 'tertiary', order: 2 },
-    cloud: { label: i18n.global.t('store.middlewareLayer'), en: 'Middleware', icon: 'cloud', color: 'tertiary', order: 3 },
-    db: { label: i18n.global.t('store.persistenceLayer'), en: 'Database', icon: 'database', color: 'error', order: 4 },
-    monitor: { label: i18n.global.t('store.monitorLayer'), en: 'Monitor', icon: 'monitoring', color: 'secondary', order: 5 },
-    default: { label: i18n.global.t('store.defaultLayer'), en: 'Default', icon: 'workspaces', color: 'surface', order: 6 },
-  }
-
-  // === 全局计算属性 ===
   const runningPods = computed(() => podList.value.filter(p => p.status === 'Running').length)
   const pendingPods = computed(() => podList.value.filter(p => p.status === 'Pending').length)
   const failedPods = computed(() => podList.value.filter(p => p.status === 'Failed').length)
