@@ -23,7 +23,6 @@ const hasToken = sessionStorage.getItem('aliangboard.session')
 if (!hasToken) {
   document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b1c30;color:#cfe3ff;font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
 } else {
-  store.remoteMode = true
   if (ns.value) store.setNamespace(ns.value)
 }
 </script>

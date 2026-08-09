@@ -522,17 +522,15 @@ router.beforeEach(async (to) => {
       if (!isPublic) return { name: 'SelectCluster' }
       return
     }
-    // 自动连接成功 → 设集群状态，继续进入页面
+    // 自动连接成功 → 设集群状态（setConnectedCluster 内部已置连接态），继续进入页面
     store.setConnectedCluster({ apiServer: auto.cluster.apiServer.replace(/\/$/, ''), version: auto.cluster.version })
-    store.remoteMode = true
   }
   // 已有 K8s session 但未水合 → 仅验证 session 有效，不做全量水合（各页面按需加载）
-  if (!store.remoteMode) {
+  if (!store.currentCluster) {
     try {
       const result = await api.session()
       store.setConnectedCluster(result.cluster)
       // 不在这里调 hydrateCoreResources——改为各页面 onMounted 按需加载（避免首次进入拉全集群资源）
-      store.remoteMode = true
     } catch {
       clearSession()
       return { name: 'SelectCluster' }
