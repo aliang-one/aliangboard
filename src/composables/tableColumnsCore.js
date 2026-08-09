@@ -87,6 +87,42 @@ export const TABLE_CATALOG = [
       { key: 'time', labelKey: 'ns.events.thTime', label: 'Time' },
     ],
   },
+  {
+    key: 'nsServices', labelKey: 'ns.services.title', label: 'Services', icon: 'share',
+    columns: [
+      { key: 'name', labelKey: 'ns.services.thName', label: 'Name' },
+      { key: 'type', labelKey: 'ns.services.thType', label: 'Type' },
+      { key: 'clusterIP', labelKey: 'ns.services.thClusterIp', label: 'Cluster IP' },
+      { key: 'externalIP', labelKey: 'ns.services.thExternalIp', label: 'External IP' },
+      { key: 'ports', labelKey: 'ns.services.thPorts', label: 'Ports' },
+      { key: 'selector', labelKey: 'ns.services.thSelector', label: 'Selector' },
+      { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsIngress', labelKey: 'ns.ingress.title', label: 'Ingress', icon: 'language',
+    columns: [
+      { key: 'name', labelKey: 'ns.ingress.thName', label: 'Name' },
+      { key: 'className', labelKey: 'ns.ingress.thClass', label: 'Class' },
+      { key: 'rules', labelKey: 'ns.ingress.thRules', label: 'Routing Rules' },
+      { key: 'tls', labelKey: 'ns.ingress.thTls', label: 'TLS' },
+      { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsNetworkPolicies', labelKey: 'ns.networkPolicies.title', label: 'NetworkPolicies', icon: 'shield',
+    columns: [
+      { key: 'name', labelKey: 'ns.networkPolicies.thName', label: 'Name' },
+      { key: 'podSelector', labelKey: 'ns.networkPolicies.thPodSelector', label: 'Pod Selector' },
+      { key: 'policyTypes', labelKey: 'ns.networkPolicies.thPolicyTypes', label: 'Policy Types' },
+      { key: 'ingressRules', labelKey: 'ns.networkPolicies.thIngressRules', label: 'Ingress Rules' },
+      { key: 'egressRules', labelKey: 'ns.networkPolicies.thEgressRules', label: 'Egress Rules' },
+      { key: 'age', labelKey: 'cols._c.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

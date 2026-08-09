@@ -5,7 +5,9 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
 import { extractContainerPorts } from '@/composables/usePorts'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -18,6 +20,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsServices'))
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -111,12 +115,10 @@ function epState(row) {
 }
 
 // 装饰当前页行：预计算端口 / 端点 / 类型，避免模板内重复调用
-const decorated = computed(() => paginated.value.map(row => ({
-  row,
-  ports: parsePorts(row),
-  ep: epState(row),
-  meta: typeMeta(row.type),
-})))
+// (DataTable slots 接收 row，直接调用 parsePorts/epState/typeMeta 即时计算)
+function goDetail(row) {
+  router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 
 // 行操作菜单
 function menuItems(row) {
@@ -248,82 +250,46 @@ async function handleDelete() {
     </div>
 
     <!-- Table -->
-    <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[900px] text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thName') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thType') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thClusterIp') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thExternalIp') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thPorts') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('ns.services.thSelector') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap">{{ t('common.age') }}</th>
-            <th class="px-md py-1.5 text-label-caps text-on-surface-variant whitespace-nowrap w-12"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="{ row, ports, ep, meta } in decorated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <!-- Name + health dot + type icon -->
-            <td class="px-md py-1.5">
-              <div class="flex items-center gap-xs">
-                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="ep.dot" :title="ep.title"></span>
-                <span class="material-symbols-outlined text-base shrink-0" :class="meta.iconColor">{{ meta.icon }}</span>
-                <span class="font-mono text-xs font-semibold text-on-surface">{{ row.name }}</span>
-              </div>
-            </td>
-            <!-- Type badge -->
-            <td class="px-md py-1.5">
-              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border whitespace-nowrap" :class="meta.badge">{{ row.type }}</span>
-            </td>
-            <!-- Cluster IP -->
-            <td class="px-md py-1.5"><span class="font-mono text-xs whitespace-nowrap text-on-surface-variant">{{ row.clusterIP }}</span></td>
-            <!-- External IP -->
-            <td class="px-md py-1.5">
-              <span v-if="row.externalIP !== '-'" class="inline-flex items-center gap-0.5 font-mono text-xs text-primary font-semibold whitespace-nowrap">
-                <span class="material-symbols-outlined text-xs">cloud_done</span>{{ row.externalIP }}
-              </span>
-              <span v-else class="text-on-surface-variant/40">—</span>
-            </td>
-            <!-- Ports (port → target chips) -->
-            <td class="px-md py-1.5">
-              <div class="flex flex-wrap items-center gap-1 max-w-[220px]">
-                <span v-for="(p, i) in ports.slice(0, 2)" :key="i"
-                  class="inline-flex items-center gap-0.5 font-mono text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/15 whitespace-nowrap"
-                  :title="p.tip">
-                  {{ p.port }}<template v-if="p.target && String(p.target) !== String(p.port)"><span class="text-primary/50">→</span>{{ p.target }}</template>
-                </span>
-                <span v-if="ports.length > 2" class="text-xs text-on-surface-variant whitespace-nowrap" :title="ports.slice(2).map(p => p.port).join(', ')">+{{ ports.length - 2 }}</span>
-              </div>
-            </td>
-            <!-- Selector -->
-            <td class="px-md py-1.5">
-              <div v-if="row.selector && Object.keys(row.selector).length" class="flex flex-wrap gap-0.5 max-w-[200px]">
-                <span v-for="(v, k) in row.selector" :key="k" class="font-mono text-xs px-1 py-0.5 rounded bg-surface-container text-on-surface-variant border border-outline-variant/50 whitespace-nowrap">{{ k }}=<span class="text-on-surface font-medium">{{ v }}</span></span>
-              </div>
-              <span v-else class="text-on-surface-variant/40 text-xs">—</span>
-            </td>
-            <!-- Age -->
-            <td class="px-md py-1.5 text-xs text-on-surface-variant whitespace-nowrap">{{ row.age }}</td>
-            <!-- Actions -->
-            <td class="px-md py-1.5" @click.stop>
-              <DropdownMenu :items="menuItems(row)" />
-            </td>
-          </tr>
-          <tr v-if="!filtered.length">
-            <td colspan="8" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">search_off</span>
-              <p class="text-body-sm text-on-surface-variant">{{ t('ns.services.noMatch') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      </div>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsServices" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-xs">
+          <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="epState(row).dot" :title="epState(row).title"></span>
+          <span class="material-symbols-outlined text-base shrink-0" :class="typeMeta(row.type).iconColor">{{ typeMeta(row.type).icon }}</span>
+          <span class="font-mono text-xs font-semibold text-on-surface">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #type="{ row }">
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border whitespace-nowrap" :class="typeMeta(row.type).badge">{{ row.type }}</span>
+      </template>
+      <template #clusterIP="{ row }"><span class="font-mono text-xs whitespace-nowrap text-on-surface-variant">{{ row.clusterIP }}</span></template>
+      <template #externalIP="{ row }">
+        <span v-if="row.externalIP !== '-'" class="inline-flex items-center gap-0.5 font-mono text-xs text-primary font-semibold whitespace-nowrap">
+          <span class="material-symbols-outlined text-xs">cloud_done</span>{{ row.externalIP }}
+        </span>
+        <span v-else class="text-on-surface-variant/40">—</span>
+      </template>
+      <template #ports="{ row }">
+        <div class="flex flex-wrap items-center gap-1 max-w-[220px]">
+          <span v-for="(p, i) in parsePorts(row).slice(0, 2)" :key="i"
+            class="inline-flex items-center gap-0.5 font-mono text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/15 whitespace-nowrap"
+            :title="p.tip">
+            {{ p.port }}<template v-if="p.target && String(p.target) !== String(p.port)"><span class="text-primary/50">→</span>{{ p.target }}</template>
+          </span>
+          <span v-if="parsePorts(row).length > 2" class="text-xs text-on-surface-variant whitespace-nowrap" :title="parsePorts(row).slice(2).map(p => p.port).join(', ')">+{{ parsePorts(row).length - 2 }}</span>
+        </div>
+      </template>
+      <template #selector="{ row }">
+        <div v-if="row.selector && Object.keys(row.selector).length" class="flex flex-wrap gap-0.5 max-w-[200px]">
+          <span v-for="(v, k) in row.selector" :key="k" class="font-mono text-xs px-1 py-0.5 rounded bg-surface-container text-on-surface-variant border border-outline-variant/50 whitespace-nowrap">{{ k }}=<span class="text-on-surface font-medium">{{ v }}</span></span>
+        </div>
+        <span v-else class="text-on-surface-variant/40 text-xs">—</span>
+      </template>
+      <template #age="{ row }"><span class="text-xs text-on-surface-variant whitespace-nowrap">{{ row.age }}</span></template>
+      <template #actions="{ row }"><DropdownMenu :items="menuItems(row)" /></template>
+      <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create Service Modal（与详情页 Edit 字段集对齐）-->
