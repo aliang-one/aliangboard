@@ -13,7 +13,9 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: false,
     setupFiles: ['tests/setup.js'],
-    include: ['src/**/*.{test,spec}.{js,mjs}', 'tests/**/*.{test,spec}.{js,mjs}'],
+    // 只收 .js：.mjs 纯逻辑测试走 node:test（见 CLAUDE.md）。否则 vitest 会去抓
+    // node:test 语法的 .test.mjs（如 resourceCatalog）并报 "No test suite found"。
+    include: ['src/**/*.{test,spec}.js', 'tests/**/*.{test,spec}.js'],
   },
   resolve: {
     alias: {

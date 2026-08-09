@@ -870,8 +870,38 @@ async function handle(req, res) {
         } else {
           const history = recentHistory(db, proj.id)
           const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
-          out = await run({ system, history: [...history, { role: 'user', content: String(input.message) }], onStep: e => trace.push(e) })
-          if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', String(input.message)); appendHistory(db, proj.id, 'assistant', out.content || '') }
+
+          // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
+          let messageContent = String(input.message)
+          if (Array.isArray(input.references) && input.references.length && k8sSession) {
+            const KIND_API_PATH = {
+              pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
+              services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
+              configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
+              secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
+              deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+              statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+              daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+              ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+              namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+            }
+            const blocks = []
+            for (const ref of input.references) {
+              const pathFn = KIND_API_PATH[ref.kind]
+              const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+              if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
+              try {
+                const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
+                blocks.push(`${label}:\n${JSON.stringify(res, null, 2)}`)
+              } catch (e) {
+                blocks.push(`${label}: (not found)`)
+              }
+            }
+            messageContent = `Referenced resources:\n${blocks.join('\n\n')}\n\n${messageContent}`
+          }
+
+          out = await run({ system, history: [...history, { role: 'user', content: messageContent }], onStep: e => trace.push(e) })
+          if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', messageContent); appendHistory(db, proj.id, 'assistant', out.content || '') }
         }
         if (out.status === 'pending_approval') return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
         return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
@@ -1041,6 +1071,42 @@ async function handle(req, res) {
     }
 
     return sendJson(res, 404, { message: '未知的工作台路由' })
+  }
+
+  // ====== 工作台:项目集群资源搜索(P3 @-mention)。GET /api/workbench/search?projectId=X&kind=pod&q=nginx ======
+  if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const projectId = url.searchParams.get('projectId')
+    const kind = url.searchParams.get('kind') || 'pods'
+    const q = (url.searchParams.get('q') || '').toLowerCase()
+    if (!projectId) return sendJson(res, 400, { message: '缺 projectId' })
+    const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
+    if (!p) return sendJson(res, 404, { message: '项目不存在' })
+    if (!p.clusterId) return sendJson(res, 400, { message: '项目未绑定集群' })
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+    if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
+
+    // kind → K8s list path
+    const KIND_PATH = {
+      pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps',
+      secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
+      deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
+      ingresses: '/apis/networking.k8s.io/v1/ingresses',
+    }
+    const listPath = KIND_PATH[kind]
+    if (!listPath) return sendJson(res, 400, { message: '不支持的 kind: ' + kind })
+
+    try {
+      const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+      const resp = await requestKubernetes(k8sSession, listPath)
+      const items = (resp?.items || []).map(it => ({
+        name: it.metadata?.name || '',
+        namespace: it.metadata?.namespace || '',
+        kind,
+      }))
+      const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
+      return sendJson(res, 200, { items: filtered.slice(0, 50) })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '搜索失败' }) }
   }
 
   // ====== 工作台:集群台账(W3)。cluster-context repo,每集群一份。======

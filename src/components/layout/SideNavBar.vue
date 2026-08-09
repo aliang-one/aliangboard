@@ -24,7 +24,6 @@ const clusterPrimaryNav = [
   { icon: 'folder_open', labelKey: 'nav.namespaces', route: '/namespaces' },
   { icon: 'storage', labelKey: 'nav.storage', route: '/storage' },
   { icon: 'monitoring', labelKey: 'nav.monitoring', route: '/monitoring' },
-  { icon: 'workspaces', labelKey: 'nav.workbench', route: '/workbench' },
 ]
 const clusterResourcesNav = [
   { icon: 'extension', labelKey: 'nav.crds', route: '/crds' },

@@ -2662,7 +2662,6 @@
     },
     "detail": {
       "back": "返回",
-      "aiAssistant": "AI 助手",
       "files": "文件",
       "noFiles": "无文件",
       "newFilePlaceholder": "manifests/x.yaml",
@@ -2695,6 +2694,12 @@
       "reconcileSkipped": "跳过({reason})",
       "hasFailures": "有失败"
     },
+    "ide": {
+      "collapseFiles": "折叠文件树",
+      "collapseChat": "折叠 AI 助手",
+      "expandFiles": "展开文件树",
+      "expandChat": "展开 AI 助手"
+    },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",
       "hintWriteConfig": "帮我写一份 nginx deployment 的 manifests",
@@ -2720,7 +2725,37 @@
       "applyManifestsDesc": "平台直连集群凭据，把 manifests apply 到目标集群，并刷新 cluster ledger（只读 survey，不改其它集群资源）。",
       "bootstrapLedgerDesc": "平台直连集群凭据 survey 集群并重写 cluster ledger（INDEX.md / learnings.md），只读不改集群资源。",
       "path": "路径：",
-      "approve": "批准"
+      "approve": "批准",
+      "atMentionHint": "输入 @kind: 搜索资源（如 @pod:nginx）",
+      "atMentionNoResults": "无匹配资源",
+      "atMentionSearching": "搜索中…"
+    },
+    "shell": {
+      "title": "工作台",
+      "backToCluster": "返回集群",
+      "tabProjects": "项目",
+      "tabConfig": "配置",
+      "tabGlobal": "全局"
+    },
+    "card": {
+      "noProjects": "还没有项目,点击「新建」创建第一个",
+      "ns": "命名空间",
+      "manifests": "manifests",
+      "reconciled": "上次 reconcile",
+      "neverReconciled": "未 reconcile",
+      "openProject": "打开项目",
+      "create": "新建项目",
+      "nameLabel": "项目名称",
+      "selectCluster": "选择集群",
+      "loadFailed": "加载失败",
+      "createFailed": "创建失败",
+      "created": "创建成功"
+    },
+    "config": {
+      "title": "工作台配置",
+      "cluster": "绑定集群",
+      "projectRoot": "项目根目录",
+      "distillStatus": "蒸馏状态"
     }
   },
   "workloadDetail": {

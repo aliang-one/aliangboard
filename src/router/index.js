@@ -431,7 +431,7 @@ const routes = [
       {
         path: 'workbench',
         name: 'Workbench',
-        component: () => import('@/views/WorkbenchList.vue'),
+        component: () => import('@/views/WorkbenchShell.vue'),
         meta: { titleKey: 'nav.workbench', icon: 'workspaces', scope: 'global' }
       },
       {
@@ -448,9 +448,7 @@ const routes = [
       },
       {
         path: 'workbench/:id/chat',
-        name: 'WorkbenchProjectChat',
-        component: () => import('@/views/WorkbenchProjectChat.vue'),
-        meta: { titleKey: 'route.projectAiAssistant', scope: 'global' }
+        redirect: to => '/workbench/' + to.params.id
       },
       // === 平台管理（admin only）===
       {
