@@ -40,6 +40,8 @@ function mountIngress() {
   const w = mount(NsIngress, {
     global: {
       plugins: [[VueQueryPlugin, { queryClient }]],
+      // NsIngress 现含 DataTable(模板用全局 $t);本测试 mock 了 vue-i18n,补一个 $t 占位避免 $t is not a function
+      mocks: { $t: (k) => k },
       // stub 掉无关子组件,聚焦被测的 filtered / 表格 / 空状态逻辑
       stubs: { Modal: true, Breadcrumbs: true, Pagination: true, PortSelect: true, AnnotationKeySelect: true },
     },

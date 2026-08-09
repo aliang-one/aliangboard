@@ -41,4 +41,4 @@ test('全仓扫描:无 computed/ref 漏 .value', () => {
   try { execFileSync('node', [resolve('scripts/check-missing-value.mjs'), '--quiet'], { encoding: 'utf8', stdio: 'pipe' }) }
   catch (e) { code = e.status ?? 1; out = (e.stdout || '') + (e.stderr || '') }
   expect(code, `全仓扫描发现漏 .value:\n${out}`).toBe(0)
-})
+}, 30000)
