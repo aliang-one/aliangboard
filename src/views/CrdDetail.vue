@@ -17,22 +17,18 @@ const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const crdDetail = useResourceDetail({
   key: ['cluster', cid.value, 'crds', route.params.name],
   fetcher: () => store.fetchCRD(route.params.name),
-  mock: store.getCRDByName(route.params.name),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const crd = computed(() => crdDetail.data.value ?? store.getCRDByName(route.params.name))
 const instancesQuery = useResourceList({
   key: ['cluster', cid.value, 'crds', route.params.name, 'instances'],
   fetcher: () => store.fetchCRInstances(crd.value),
-  mock: crd.value?.instances || [],
-  mockMode: !store.remoteMode,
-  enabled: !store.remoteMode ? true : (!!crd.value && !!crd.value._plural),
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  enabled: (!!crd.value && !!crd.value._plural),
+  options: { refetchInterval: 30000 },
 })
 const instances = computed(() => instancesQuery.data.value || [])
 
@@ -41,7 +37,7 @@ const activeTab = ref('overview')
 // 远端模式下拉取真实 CRD 定义对象并转为 YAML（比静态模板准确）；失败回退静态模板
 const realYaml = ref('')
 onMounted(async () => {
-  if (!store.remoteMode || !crd.value) return
+  if (!crd.value) return
   try {
     const obj = await api.k8s(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${encodeURIComponent(route.params.name)}`)
     realYaml.value = yamlDump(obj)

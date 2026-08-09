@@ -16,13 +16,11 @@ const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const pdbDetail = useResourceDetail({
   key: ['cluster', cid.value, 'pdbs', route.params.name],
   fetcher: () => store.fetchPDB(route.params.name, route.params.namespace),
-  mock: store.getPDBByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const pdb = computed(() => pdbDetail.data.value ?? store.getPDBByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateExtraYAML('pdb', pdb.value))

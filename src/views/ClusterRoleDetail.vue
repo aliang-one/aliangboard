@@ -13,25 +13,20 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const roleDetail = useResourceDetail({
   key: ['cluster', cid.value, 'roles', route.params.name],
   fetcher: () => store.fetchClusterRole(route.params.name),
-  mock: store.getClusterRoleByName(route.params.name),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const role = computed(() => roleDetail.data.value ?? store.getClusterRoleByName(route.params.name))
 const clusterRoleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
-  mock: store.clusterRoleBindingList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('role', role.value),
 })
 const activeTab = ref('overview')
 const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filter(b => b.roleName === role.value?.name))

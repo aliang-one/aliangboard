@@ -17,18 +17,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const npDetail = useResourceDetail({
   key: ['cluster', cid.value, 'networkpolicies', route.params.name],
   fetcher: () => store.fetchNetworkPolicy(route.params.name, route.params.namespace),
-  mock: store.getNetworkPolicyByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const np = computed(() => npDetail.data.value ?? store.getNetworkPolicyByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/networkpolicies/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('networkpolicy', np.value),
 })
 
 const activeTab = ref('overview')

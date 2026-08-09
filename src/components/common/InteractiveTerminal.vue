@@ -2,7 +2,6 @@
 // Pod exec 终端：浏览器 xterm.js ↔ Gateway WebSocket ↔ K8s（client-node exec）。
 // 鲁棒性：默认走 PATH 解析的 sh；用户可选 bash/ash/绝对路径/自定义命令；
 // 所选 shell 不可用（无输出即退出）时自动降级尝试下一个，全失败则提示用「调试容器」。
-// 仅 remoteMode 建立真实 exec。
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
@@ -107,7 +106,6 @@ function handleEnd(statusVal, code, errMsg) {
 }
 
 async function connect(opts = {}) {
-  if (!store.remoteMode) return
   if (!props.podName || !props.namespace) { setStatus('error', t('terminal.missingContext')); return }
   teardown()
   // 自动连接（非手动）：清掉自定义命令，从首选 shell 起步并允许自动降级
@@ -131,7 +129,7 @@ function connectManual() {
   connect({ manual: true })
 }
 
-onMounted(() => { if (props.autoConnect && store.remoteMode) connect() })
+onMounted(() => { if (props.autoConnect) connect() })
 onUnmounted(teardown)
 
 // 从最小化恢复时重新 fit xterm（display:none→block 后尺寸可能未更新）
@@ -144,19 +142,14 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 
 <template>
   <div class="flex flex-col min-h-0 bg-[#0b1c30] rounded-lg overflow-hidden border border-outline-variant/20">
-    <!-- 未连接 / 演示模式 -->
+    <!-- 未连接 -->
     <div v-if="status === 'idle'" class="flex-1 flex flex-col items-center justify-center gap-md p-xl">
       <span class="material-symbols-outlined text-4xl text-on-surface-variant">terminal</span>
-      <p v-if="!store.remoteMode" class="text-body-sm text-on-surface-variant text-center max-w-md">
-        {{ t('terminal.demoModeHint') }}
+      <p class="text-body-sm text-on-surface-variant">
+        exec {{ t('terminal.execInto') }} <span class="font-mono text-on-surface">{{ container || t('terminal.defaultContainer') }}</span>
       </p>
-      <template v-else>
-        <p class="text-body-sm text-on-surface-variant">
-          exec {{ t('terminal.execInto') }} <span class="font-mono text-on-surface">{{ container || t('terminal.defaultContainer') }}</span>
-        </p>
-        <p class="text-body-xs text-on-surface-variant/60">{{ t('terminal.autoDetectHint') }}</p>
-      </template>
-      <button v-if="store.remoteMode" @click="connect" :disabled="status === 'connecting'"
+      <p class="text-body-xs text-on-surface-variant/60">{{ t('terminal.autoDetectHint') }}</p>
+      <button @click="connect" :disabled="status === 'connecting'"
         class="px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 flex items-center gap-sm disabled:opacity-50">
         <span class="material-symbols-outlined">terminal</span>
         Connect to Terminal

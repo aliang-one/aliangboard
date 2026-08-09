@@ -23,14 +23,12 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 // NetworkPolicies 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const networkpoliciesKey = ['cluster', cid.value, 'networkpolicies']
 const networkpoliciesQuery = useResourceList({
   key: networkpoliciesKey,
   fetcher: () => store.fetchNetworkPolicies(),
-  mock: store.networkPolicyList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsNetworkPolicies = computed(() => (networkpoliciesQuery.data.value || []).filter(n => n.namespace === route.params.namespace))
 

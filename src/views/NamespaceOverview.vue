@@ -21,14 +21,12 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
 // Workloads/Services/Ingresses 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const workloadsKey = ['cluster', cid.value, 'workloads']
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
 
@@ -40,9 +38,7 @@ const servicesKey = ['cluster', cid.value, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
-  mock: store.serviceList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
@@ -50,9 +46,7 @@ const ingressesKey = ['cluster', cid.value, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
-  mock: store.ingressList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsIngresses = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 

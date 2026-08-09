@@ -16,13 +16,11 @@ const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('priorityClasses'))
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const priorityClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
-  mock: store.priorityClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const priorityClasses = computed(() => priorityClassesQuery.data.value || [])
 

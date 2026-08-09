@@ -21,21 +21,18 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const pvcDetail = useResourceDetail({
   key: ['cluster', cid.value, 'pvcs', route.params.name],
   fetcher: () => store.fetchPVC(route.params.name, route.params.namespace),
-  mock: store.getPVCByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const pvc = computed(() => pvcDetail.data.value ?? store.getPVCByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('pvc', pvc.value),
 })
-const pvListQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), mock: store.pvList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const scListQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const pvListQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), options: { refetchInterval: 30000 } })
+const scListQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
 const allSCs = computed(() => scListQ.data.value || [])
 const pv = computed(() => pvc.value?.volume ? (pvListQ.data.value || []).find(p => p.name === pvc.value.volume) : null)
 const sc = computed(() => pvc.value?.storageClass ? (scListQ.data.value || []).find(s => s.name === pvc.value.storageClass) : null)
@@ -78,7 +75,6 @@ const ferror = ref('')
 const fInited = ref(false)
 const joinPath = (base, name) => (base.replace(/\/$/, '') + '/' + name).replace(/\/+/g, '/')
 async function browsePvc(p) {
-  if (!store.remoteMode) { ferror.value = t('ns.pvcDetail.browseFailed'); return }
   floading.value = true; ferror.value = ''; ffile.value = null
   try {
     const r = await pvcFileApi.list({ namespace: route.params.namespace, pvc: route.params.name, path: p || '/' })

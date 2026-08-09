@@ -23,19 +23,17 @@ const { tableColumns } = useTableColumns()
 const pvcHeaders = computed(() => tableColumns('nsStoragePVC'))
 const scHeaders = computed(() => tableColumns('nsStorageSC'))
 
-// cluster id（远端取 currentCluster，mock 取 'demo'）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+// cluster id（取 currentCluster）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
+const cid = computed(() => (store.currentCluster || 'cluster'))
 // PVCs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // StorageClasses 走 Vue Query（cluster-wide）
-const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), mock: store.scList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
 const allSCs = computed(() => scQ.data.value || [])
 const pvcsKey = ['cluster', cid.value, 'pvcs']
 const pvcsQuery = useResourceList({
   key: pvcsKey,
   fetcher: () => store.fetchPVCs(),
-  mock: store.pvcList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsPVCs = computed(() => (pvcsQuery.data.value || []).filter(p => p.namespace === route.params.namespace))
 

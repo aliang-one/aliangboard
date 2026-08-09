@@ -27,18 +27,16 @@ const queryClient = useQueryClient()
 
 // Services 走 Vue Query（cluster-wide fetch + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // hydrate 仍为其他页供数（过渡双源，后续收敛）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const servicesKey = ['cluster', cid.value, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
-  mock: store.serviceList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 // 容器端口（从 workloads 派生，替代 nsContainerPorts）
-const _wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace)))
 
 const typeFilter = ref('All')
@@ -123,7 +121,7 @@ function goDetail(row) {
 // 行操作菜单
 function menuItems(row) {
   const items = [{ label: t('ns.services.menuDetail'), icon: 'open_in_new', action: () => router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: row.name } }) }]
-  if (store.remoteMode) items.push({ label: t('ns.services.menuExport'), icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
+  items.push({ label: t('ns.services.menuExport'), icon: 'download', action: () => exportYaml(`/api/v1/namespaces/${encodeURIComponent(row.namespace || route.params.namespace)}/services/${encodeURIComponent(row.name)}`, `${row.name}.yaml`) })
   items.push({ label: t('ns.services.menuDelete'), icon: 'delete', danger: true, action: () => confirmDelete(row) })
   return items
 }

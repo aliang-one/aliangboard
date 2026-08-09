@@ -56,21 +56,14 @@ function mapItem(item, type) {
 async function loadWorkloads() {
   loading.value = true; error.value = ''; workloads.value = []; selected.value = null
   try {
-    if (store.remoteMode) {
-      const ns = encodeURIComponent(sourceNs.value)
-      const groups = await Promise.all(
-        Object.entries(WL_PATHS).map(async ([type, [group, ver, plural]]) => {
-          try { const res = await api.k8s(`/apis/${group}/${ver}/namespaces/${ns}/${plural}?limit=1000`); return (res?.items || []).map(i => mapItem(i, type)) }
-          catch { return [] }
-        })
-      )
-      workloads.value = groups.flat().sort((a, b) => String(a.name).localeCompare(String(b.name)))
-    } else {
-      // mock:store.workloadList(仅 3 类型)
-      workloads.value = (store.workloadList || [])
-        .filter(w => w.namespace === sourceNs.value)
-        .map(w => ({ type: w.type, name: w.name, replicas: w.replicas, image: w.image, raw: w.raw }))
-    }
+    const ns = encodeURIComponent(sourceNs.value)
+    const groups = await Promise.all(
+      Object.entries(WL_PATHS).map(async ([type, [group, ver, plural]]) => {
+        try { const res = await api.k8s(`/apis/${group}/${ver}/namespaces/${ns}/${plural}?limit=1000`); return (res?.items || []).map(i => mapItem(i, type)) }
+        catch { return [] }
+      })
+    )
+    workloads.value = groups.flat().sort((a, b) => String(a.name).localeCompare(String(b.name)))
   } catch (e) {
     error.value = t('component.copyWorkload.fetchError')
   } finally {

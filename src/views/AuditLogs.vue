@@ -19,13 +19,11 @@ const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('auditLogs'))
 
 // 集群级 Events 走 Vue Query（远端 30s 轮询 + 聚焦重拉 + watch live 桥接）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const eventList = computed(() => eventsQuery.data.value || [])
 
@@ -65,7 +63,7 @@ function goToRelated(e) {
 }
 
 // 远端 watch 桥接已写回 Query 缓存，列表自动 live；此处只管启停 watch。
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onMounted(() => store.startEventWatch())
 onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>

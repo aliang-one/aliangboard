@@ -20,20 +20,6 @@ const emit = defineEmits(['conversation-created'])
 
 const { t } = useI18n()
 
-// Load existing conversation when conversationId prop is set
-watch(() => props.conversationId, async (convId) => {
-  stopPolling()
-  turns.value = []
-  conversationId.value = null
-  convStatus.value = null
-  pendingApproval.value = null
-  errorBanner.value = ''
-  if (convId) {
-    conversationId.value = convId
-    await pollOnce(convId)
-    if (convStatus.value === 'running') startPolling(convId)
-  }
-}, { immediate: true })
 const turns = ref([])
 const input = ref('')
 const sending = ref(false)
@@ -53,18 +39,23 @@ const searchResults = ref([])
 const searching = ref(false)
 const searchOpen = ref(false)
 const kindHints = ref([])  // @ 后无 : → kind 补全
-const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets' }
-const MENTION_RE = /@(\w*):(\S*)$/
+const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets', sts:'statefulsets', statefulset:'statefulsets', ds:'daemonsets', daemonset:'daemonsets' }
+const KIND_LABELS = { pod:'Pod', pods:'Pod', deploy:'Deployment', deployment:'Deployment', svc:'Service', service:'Service', cm:'ConfigMap', configmap:'ConfigMap', ns:'Namespace', namespace:'Namespace', ingress:'Ingress', secret:'Secret', sts:'StatefulSet', statefulset:'StatefulSet', ds:'DaemonSet', daemonset:'DaemonSet' }
+// @-syntax: @ → kind hints; @pod: → resources; @pod:ns/ → ns-scoped resources; @pod:ns/name → filtered
+const MENTION_RE = /@(\w*):([^@\s]*)$/
+const AT_RE = /@(\w*)$/
 
 let debounceTimer = null
 function clearSearch() { searchOpen.value = false; searchResults.value = []; kindHints.value = [] }
 
-async function doSearch(kind, q) {
+async function doSearch(kind, q, ns) {
   searching.value = true
   searchOpen.value = true
   try {
     const data = await workbenchApi.search(props.projectId, kind, q)
-    searchResults.value = (data && data.items) || []
+    let items = (data && data.items) || []
+    if (ns) items = items.filter(it => it.namespace === ns)
+    searchResults.value = items
   } catch { searchResults.value = [] }
   finally { searching.value = false }
 }
@@ -74,17 +65,23 @@ watch(input, (val) => {
   if (!val) { clearSearch(); return }
   const m = val.match(MENTION_RE)
   if (m) {
+    // @kind:query — search resources of this kind
     const alias = m[1].toLowerCase()
-    const q = m[2]
+    const rawQuery = m[2]
     const kind = KIND_ALIASES[alias]
     if (!kind) { clearSearch(); return }
-    debounceTimer = setTimeout(() => doSearch(kind, q), 300)
+    // Parse ns/name from query: "default/nginx" → ns=default, q=nginx; "nginx" → q=nginx
+    let ns = null, q = rawQuery
+    if (rawQuery.includes('/')) { const [n, ...rest] = rawQuery.split('/'); ns = n; q = rest.join('/') }
+    debounceTimer = setTimeout(() => doSearch(kind, q, ns), 200)
   } else {
-    // 检查 @ 后无 : → kind 补全
-    const atMatch = val.match(/@(\w*)$/)
+    // @alias (no colon yet) → show kind hints immediately
+    const atMatch = val.match(AT_RE)
     if (atMatch) {
       const typed = atMatch[1].toLowerCase()
-      kindHints.value = Object.keys(KIND_ALIASES).filter(k => k.startsWith(typed))
+      kindHints.value = Object.entries(KIND_LABELS)
+        .filter(([k]) => k.startsWith(typed))
+        .map(([k, label]) => ({ alias: k, label }))
       searchOpen.value = kindHints.value.length > 0
       searchResults.value = []
     } else {
@@ -147,6 +144,21 @@ async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
+
+// Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
+watch(() => props.conversationId, async (convId) => {
+  stopPolling()
+  turns.value = []
+  conversationId.value = null
+  convStatus.value = null
+  pendingApproval.value = null
+  errorBanner.value = ''
+  if (convId) {
+    conversationId.value = convId
+    await pollOnce(convId)
+    if (convStatus.value === 'running') startPolling(convId)
+  }
+}, { immediate: true })
 
 function startPolling(id) {
   stopPolling()
@@ -368,31 +380,32 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea v-model="input" @keydown="onKeydown" @blur="clearSearch" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <textarea v-model="input" @keydown="onKeydown" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
           <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
         </div>
 
         <!-- @-mention dropdown -->
-        <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-20">
+        <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-30">
           <template v-if="kindHints.length">
-            <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
-            <button v-for="k in kindHints" :key="k" @click="selectKind(k)" class="w-full flex items-center gap-sm text-left px-md py-sm text-body-sm hover:bg-surface-container transition-colors">
-              <span class="material-symbols-outlined text-base text-primary/60">{{ refIcon(k) }}</span>
-              <span class="font-mono">{{ k }}</span>
+            <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">资源类型（输入冒号 : 搜索资源）</div>
+            <button v-for="h in kindHints" :key="h.alias" @mousedown.prevent="selectKind(h.alias)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
+              <span class="material-symbols-outlined text-base text-primary">{{ refIcon(h.alias) }}</span>
+              <span class="text-body-sm font-semibold text-on-surface">{{ h.label }}</span>
+              <span class="text-body-xs text-on-surface-variant font-mono ml-auto">@{{ h.alias }}:</span>
             </button>
           </template>
           <template v-else>
             <div v-if="searching" class="px-md py-sm text-body-sm text-on-surface-variant flex items-center gap-sm">
-              <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}
+              <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> 搜索中...
             </div>
-            <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
-            <button v-for="(item, i) in searchResults" :key="i" @click="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-surface-container transition-colors">
-              <span class="material-symbols-outlined text-base text-primary/60">{{ refIcon(item.kind) }}</span>
+            <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">无匹配资源</div>
+            <button v-for="(item, i) in searchResults" :key="i" @mousedown.prevent="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
+              <span class="material-symbols-outlined text-base text-primary">{{ refIcon(item.kind) }}</span>
               <div class="flex flex-col">
                 <span class="text-body-sm font-mono font-semibold text-on-surface">{{ item.name }}</span>
-                <span class="text-body-xs text-on-surface-variant">{{ item.kind }} · {{ item.namespace }}</span>
+                <span class="text-body-xs text-on-surface-variant">{{ item.namespace }}</span>
               </div>
             </button>
           </template>

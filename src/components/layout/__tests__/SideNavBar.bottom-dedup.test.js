@@ -9,7 +9,6 @@ vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
     currentNamespace: '', // 不选 ns:底部仅常驻项;集群管理分组自动展开(v-show="clusterNavOpen || !currentNs")
     namespaceList: [],
-    remoteMode: false,
     fetchNamespaces: vi.fn(),
     cluster: { name: 'test', version: 'v1' },
     setNamespace: vi.fn(),

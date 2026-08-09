@@ -16,13 +16,11 @@ const { applyYaml } = useResourceApply()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('runtimeClasses'))
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const runtimeClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'runtimeclasses'],
   fetcher: () => store.fetchRuntimeClasses(),
-  mock: store.runtimeClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const runtimeClasses = computed(() => runtimeClassesQuery.data.value || [])
 const yamlOf = (r) => store.generateYAML('runtimeclass', r)

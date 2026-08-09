@@ -19,13 +19,11 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('secrets')，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const secretDetail = useResourceDetail({
   key: ['cluster', cid.value, 'secrets', route.params.name],
   fetcher: () => store.fetchSecret(route.params.name, route.params.namespace),
-  mock: store.getSecretByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const secret = computed(() => secretDetail.data.value ?? store.getSecretByName(route.params.name, route.params.namespace))
 const yaml = computed(() => store.generateYAML('secret', secret.value))

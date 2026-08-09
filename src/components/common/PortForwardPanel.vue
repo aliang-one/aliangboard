@@ -32,8 +32,8 @@ function suggestedPortOptions() {
   return props.suggestedPorts.length ? props.suggestedPorts : [80, 8080, 443, 9090]
 }
 
-// 打开时同步后端真实活动转发（远端模式）
-watch(open, v => { if (v && store.remoteMode) store.refreshPortForwards() })
+// 打开时同步后端真实活动转发
+watch(open, v => { if (v) store.refreshPortForwards() })
 
 async function doForward() {
   const port = parseInt(selPort.value || suggestedPortOptions()[0])
@@ -69,7 +69,7 @@ async function stopForward(id) {
   <Modal v-model="open" :title="t('component.portForward.title')" width="max-w-2xl">
     <p class="text-body-sm text-on-surface-variant mb-md">
       {{ t('component.portForward.description', { resource: `${kind}/${name}${namespace ? ' (' + namespace + ')' : ''}` }) }}
-      <span v-if="store.remoteMode" class="text-tertiary-container">{{ t('component.portForward.remoteHint') }}</span>
+      <span class="text-tertiary-container">{{ t('component.portForward.remoteHint') }}</span>
     </p>
 
     <!-- 新建转发 -->

@@ -18,6 +18,42 @@ vi.mock('vue-router', () => ({
   RouterView: { template: '<div></div>' },
 }))
 
+// 桩 API 层:移除 mockMode 后,挂载时各 view 的 fetcher 会跑;
+// 用 Proxy 让 api 任意方法都 resolved 空值,避免打真实后端 / 同步抛错。
+vi.mock('@/api/client', () => {
+  const noop = () => {}
+  const api = new Proxy({}, { get: () => () => Promise.resolve({}) })
+  return {
+    api,
+    k8sStream: () => ({ close: noop, abort: noop }),
+    portForwardApi: new Proxy({}, { get: () => () => Promise.resolve([]) }),
+    registryApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    terminalApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    podFileApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    podDebugApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    pvcFileApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    cronJobApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    resourceTreeApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    workbenchApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    authApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    adminApi: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+    getSessionToken: () => '',
+    saveSession: noop,
+    clearSession: noop,
+    getSession: () => null,
+    getPlatformToken: () => '',
+    savePlatformToken: noop,
+    clearPlatformToken: noop,
+    exportYaml: noop,
+    getSavedClusters: () => [],
+    addSavedCluster: noop,
+    removeSavedCluster: noop,
+    setActiveToken: noop,
+    activeApiServer: () => '',
+    execStream: () => ({ close: noop }),
+  }
+})
+
 // localStorage 桩（happy-dom 此配置 getItem 非 fn），afterEach 还原避免污染其它套件。
 let _ls, _ss
 beforeEach(() => {

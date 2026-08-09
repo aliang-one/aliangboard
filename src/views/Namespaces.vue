@@ -19,18 +19,15 @@ const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 
 // Namespaces 走 Vue Query：远端按需重拉（staleTime 控制新鲜度）；mock 模式返回种子（不重拉）。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const namespacesQuery = useResourceList({
   key: ['cluster', cid.value, 'namespaces'],
   fetcher: () => store.fetchNamespaces(),
-  mock: store.namespaceList,
-  mockMode: !store.remoteMode,
 })
 const namespaces = computed(() => namespacesQuery.data.value || [])
 
 const syncing = computed(() => namespacesQuery.isFetching.value)
 async function sync() {
-  if (!store.remoteMode) { notify('info', t('ns.namespaces.noSyncNeeded')); return }
   try {
     store.invalidateAllClusterQueries()
     await namespacesQuery.refetch()

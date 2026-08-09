@@ -16,18 +16,15 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const rqDetail = useResourceDetail({
   key: ['cluster', cid.value, 'resourcequotas', route.params.name],
   fetcher: () => store.fetchResourceQuota(route.params.name, route.params.namespace),
-  mock: store.getResourceQuotaByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const rq = computed(() => rqDetail.data.value ?? store.getResourceQuotaByName(route.params.name, route.params.namespace))
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/resourcequotas/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('resourcequota', rq.value),
 })
 
 const activeTab = ref('overview')

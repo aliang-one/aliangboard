@@ -13,7 +13,6 @@ const invalidateSpy = vi.fn()
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
-    remoteMode: true,
     currentCluster: 'c',
     setNamespace: vi.fn(),
     fetchHPAs: vi.fn(),

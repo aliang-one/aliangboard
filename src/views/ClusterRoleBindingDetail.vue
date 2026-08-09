@@ -14,21 +14,17 @@ const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 
 // 主资源 clusterrolebinding + 关联 role 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const crbDetail = useResourceDetail({
   key: ['cluster', cid.value, 'clusterrolebindings', route.params.name],
   fetcher: () => store.fetchClusterRoleBinding(route.params.name),
-  mock: store.getClusterRoleBindingByName(route.params.name),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const crb = computed(() => crbDetail.data.value ?? store.getClusterRoleBindingByName(route.params.name))
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
-  mock: store.roleList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const role = computed(() => {
   if (!crb.value?.roleName) return null
@@ -36,7 +32,6 @@ const role = computed(() => {
 })
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${encodeURIComponent(route.params.name)}`,
-  mockFn: () => store.generateYAML('clusterrolebinding', crb.value),
 })
 const activeTab = ref('overview')
 </script>

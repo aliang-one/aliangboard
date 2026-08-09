@@ -22,14 +22,6 @@ const tabs = computed(() => [
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
 ])
 
-// Static components for demo data mode (shown when no backend connection, to avoid blank display)
-const demoComponents = [
-  { name: 'etcd', status: 'Healthy', message: '' },
-  { name: 'kube-apiserver', status: 'Healthy', message: '' },
-  { name: 'kube-controller-manager', status: 'Healthy', message: '' },
-  { name: 'kube-scheduler', status: 'Healthy', message: '' },
-]
-
 // === Components: real cluster component health ===
 const components = ref([])
 const apiReady = ref(null)        // null=unknown, true=ready, false=not ready
@@ -37,7 +29,6 @@ const csState = ref('idle')       // 'idle' | 'loading' | 'loaded' | 'error'
 const csError = ref('')
 
 async function loadComponents() {
-  if (!store.remoteMode) { csState.value = 'loaded'; return }   // demo mode: use demoComponents
   csState.value = 'loading'
   csError.value = ''
   // API Server readiness probe (/readyz returns 200 'ok' means healthy; componentstatuses deprecated since K8s 1.19)
@@ -158,21 +149,15 @@ const { catalog, resetAll } = useTableColumns()
               <span class="material-symbols-outlined text-primary text-lg">extension</span>
               <span class="text-body-sm font-semibold">{{ t('settings.componentStatus') }}</span>
             </div>
-            <button v-if="store.remoteMode" @click="loadComponents" :disabled="csState === 'loading'"
+            <button @click="loadComponents" :disabled="csState === 'loading'"
               class="flex items-center gap-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container disabled:opacity-50">
               <span class="material-symbols-outlined text-sm" :class="csState === 'loading' ? 'animate-spin' : ''">refresh</span>
               {{ t('settings.refresh') }}
             </button>
           </div>
 
-          <!-- 演示模式提示 -->
-          <div v-if="!store.remoteMode" class="mx-md mt-md mb-sm flex items-center gap-sm bg-tertiary-container/10 border border-tertiary/30 rounded-lg px-md py-sm">
-            <span class="material-symbols-outlined text-tertiary-container text-base">info</span>
-            <span class="text-xs text-on-surface-variant">{{ t('settings.demoModeHint') }}</span>
-          </div>
-
           <!-- API Server 就绪探针 -->
-          <div v-if="store.remoteMode" class="mx-md mb-sm flex items-center justify-between bg-surface-container-low rounded-lg px-md py-sm border border-outline-variant/50">
+          <div class="mx-md mb-sm flex items-center justify-between bg-surface-container-low rounded-lg px-md py-sm border border-outline-variant/50">
             <div class="flex items-center gap-sm">
               <span class="material-symbols-outlined text-on-surface-variant text-sm">api</span>
               <span class="text-body-sm font-medium">{{ t('settings.apiServerProbe') }}</span>
@@ -205,7 +190,7 @@ const { catalog, resetAll } = useTableColumns()
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
-              <tr v-for="c in (store.remoteMode ? components : demoComponents)" :key="c.name" class="hover:bg-surface-container-low/40">
+              <tr v-for="c in components" :key="c.name" class="hover:bg-surface-container-low/40">
                 <td class="px-md py-2 text-body-sm font-medium">{{ c.name }}</td>
                 <td class="px-md py-2">
                   <span class="flex items-center gap-sm">
@@ -215,7 +200,7 @@ const { catalog, resetAll } = useTableColumns()
                 </td>
                 <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ c.message || '—' }}</td>
               </tr>
-              <tr v-if="store.remoteMode && !components.length">
+              <tr v-if="!components.length">
                 <td colspan="3" class="px-md py-md text-center text-on-surface-variant text-body-sm">
                   {{ t('settings.noComponents') }}
                 </td>

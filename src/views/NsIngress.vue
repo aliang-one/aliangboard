@@ -25,18 +25,16 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 // Ingress 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingressesKey = ['cluster', cid.value, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
-  mock: store.ingressList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 

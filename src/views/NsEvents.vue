@@ -17,12 +17,10 @@ const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('nsEvents'))
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])
@@ -42,7 +40,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 
 // eventsQuery 挂载即自取（Vue Query enabled 默认 true）；watch 桥接已写回 Query 缓存，
 // 此处只负责启停 live watch（不再手动 refreshEvents——store.eventList 在远端不再被填充）。
-onMounted(() => { if (store.remoteMode) store.startEventWatch() })
+onMounted(() => store.startEventWatch())
 onUnmounted(() => store.stopEventWatch())
 onUnmounted(() => store.stopEventWatch())
 </script>

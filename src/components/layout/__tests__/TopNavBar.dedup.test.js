@@ -4,7 +4,6 @@ import { mount } from '@vue/test-utils'
 // 回归:顶栏去重,仅保留刷新;通知/设置图标移除(与侧边栏重复)。
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
-    remoteMode: false,
     currentCluster: 'test',
     cluster: { name: 'test', apiServer: 'https://x', version: 'v1' },
     clusterList: [],

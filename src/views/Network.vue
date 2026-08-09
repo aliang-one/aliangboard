@@ -18,23 +18,19 @@ const { tableColumns } = useTableColumns()
 const activeTab = ref('services')
 
 // Services/Ingresses 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const cid = computed(() => (store.currentCluster || 'cluster'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const servicesQuery = useResourceList({
   key: ['cluster', cid.value, 'services'],
   fetcher: () => store.fetchServices(),
-  mock: store.serviceList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const serviceList = computed(() => servicesQuery.data.value || [])
 const ingressesQuery = useResourceList({
   key: ['cluster', cid.value, 'ingresses'],
   fetcher: () => store.fetchIngresses(),
-  mock: store.ingressList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const ingressList = computed(() => ingressesQuery.data.value || [])
 

@@ -16,19 +16,15 @@ const router = useRouter()
 const store = useClusterStore()
 
 // 服务端状态归 Vue Query：workloads/pods/events 三查询，与列表页同源缓存。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
-  mock: store.podList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(p => p.namespace === route.params.namespace),
 })
 const workload = computed(() => (workloadsQuery.data.value || []).find(
@@ -39,8 +35,6 @@ const displayData = computed(() => pod.value || workload.value)
 const eventsQuery = useResourceList({
   key: ['cluster', cid.value, 'events'],
   fetcher: () => store.fetchEvents(),
-  mock: store.eventList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsPods = computed(() => podsQuery.data.value || [])

@@ -22,15 +22,13 @@ const { tableColumns } = useTableColumns()
 const { t } = useI18n()
 
 // Workloads 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), mock: store.namespaceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 60000 : false } })
+const cid = computed(() => (store.currentCluster || 'cluster'))
+const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid.value, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  mock: store.workloadList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const workloadList = computed(() => workloadsQuery.data.value || [])
 

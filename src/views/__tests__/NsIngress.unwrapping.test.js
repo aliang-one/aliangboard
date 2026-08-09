@@ -10,14 +10,12 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
-    remoteMode: false, // demo 模式 → useResourceList 用 mock 种子,不发请求
     currentCluster: 'demo',
-    ingressList: [
-      { name: 'my-test-ingress', namespace: 'default', className: 'nginx', rules: [], hosts: '', age: '1d' },
-    ],
     nsServices: [],
     setNamespace: () => {},
-    fetchIngresses: vi.fn(async () => []),
+    fetchIngresses: vi.fn(async () => [
+      { name: 'my-test-ingress', namespace: 'default', className: 'nginx', rules: [], hosts: '', age: '1d' },
+    ]),
     getServiceByName: () => null,
   }),
 }))

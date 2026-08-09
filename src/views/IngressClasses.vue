@@ -16,13 +16,11 @@ const { applyYaml } = useResourceApply()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('ingressClasses'))
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingressClassesQuery = useResourceList({
   key: ['cluster', cid.value, 'ingressclasses'],
   fetcher: () => store.fetchIngressClasses(),
-  mock: store.ingressClassList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 const yamlOf = (c) => store.generateYAML('ingressclass', c)

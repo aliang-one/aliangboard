@@ -21,14 +21,12 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const pdbsKey = ['cluster', cid.value, 'pdbs']
 const pdbsQuery = useResourceList({
   key: pdbsKey,
   fetcher: () => store.fetchPDBs(),
-  mock: store.pdbList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsPDBs = computed(() => (pdbsQuery.data.value || []).filter(p => p.namespace === route.params.namespace))
 

@@ -22,14 +22,12 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 // ConfigMaps 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const configmapsKey = ['cluster', cid.value, 'configmaps']
 const configmapsQuery = useResourceList({
   key: configmapsKey,
   fetcher: () => store.fetchConfigMaps(),
-  mock: store.configMapList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsConfigMaps = computed(() => (configmapsQuery.data.value || []).filter(c => c.namespace === route.params.namespace))
 

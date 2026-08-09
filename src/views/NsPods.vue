@@ -17,12 +17,10 @@ const store = useClusterStore()
 const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],
   fetcher: () => store.fetchPods(),
-  mock: store.podList,
-  mockMode: !store.remoteMode,
   select: list => list.filter(p => p.namespace === route.params.namespace),
 })
 const nsPods = computed(() => podsQuery.data.value || [])
@@ -123,7 +121,7 @@ function handleCreate() {
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
-        <button v-if="store.remoteMode" @click="toggleLive"
+        <button @click="toggleLive"
           class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border transition-colors"
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
           :title="store.podWatchLive ? t('ns.pods.liveOn') : t('ns.pods.liveOff')">

@@ -30,20 +30,18 @@ const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('services')，编辑后自动刷新。
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const svcDetail = useResourceDetail({
   key: ['cluster', cid.value, 'services', route.params.name],
   fetcher: () => store.fetchService(route.params.name, route.params.namespace),
-  mock: store.getServiceByName(route.params.name, route.params.namespace),
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 15000 : false },
+  options: { refetchInterval: 15000 },
 })
 const svc = computed(() => svcDetail.data.value ?? store.getServiceByName(route.params.name, route.params.namespace))
 
 // pods + workloads + events 走 Vue Query（store ref 在 remote 下孤立）
-const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), mock: store.podList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
-const eventsQ = useResourceList({ key: ['cluster', cid.value, 'events'], fetcher: () => store.fetchEvents(), mock: store.eventList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: 30000 } })
+const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
+const eventsQ = useResourceList({ key: ['cluster', cid.value, 'events'], fetcher: () => store.fetchEvents(), options: { refetchInterval: 30000 } })
 const nsPods = computed(() => (podsQ.data.value || []).filter(p => p.namespace === route.params.namespace))
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 // 容器端口（从 workloads 派生，替代 nsContainerPortGroups/nsContainerPorts）
@@ -203,7 +201,7 @@ const canMutate = ref(true)
 const canDelete = ref(true)
 let permsLoaded = false
 async function loadPerms() {
-  if (!store.remoteMode || !svc.value) return
+  if (!svc.value) return
   const ns = route.params.namespace
   const [u, d] = await Promise.all([
     store.checkAccessServer({ verb: 'update', resource: 'services', namespace: ns }),
@@ -234,7 +232,6 @@ const svcYaml = ref('')
 const yamlLoading = ref(false)
 async function loadYaml() {
   if (!svc.value) return
-  if (!store.remoteMode) { svcYaml.value = store.generateYAML('service', svc.value); return }
   yamlLoading.value = true
   try {
     // 从缓存的完整 server 对象生成 YAML（去 managedFields/status）；不再二次 api.k8s 拉取。
@@ -404,7 +401,7 @@ function actionItems() {
     { label: 'Port Forward', icon: 'cable', action: () => { showPortForward.value = true } },
     { label: t('ns.svcDetail.viewEditYaml'), icon: 'description', action: openYaml },
   ]
-  if (store.remoteMode) items.push({ label: t('ns.svcDetail.exportYaml'), icon: 'download', action: exportSvc })
+  items.push({ label: t('ns.svcDetail.exportYaml'), icon: 'download', action: exportSvc })
   items.push({ label: 'Delete Service', icon: 'delete', danger: true, disabled: !canDelete.value, action: () => { showDeleteModal.value = true } })
   return items
 }

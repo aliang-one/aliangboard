@@ -21,14 +21,12 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
-const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const cid = computed(() => (store.currentCluster || 'cluster'))
 const limitrangesKey = ['cluster', cid.value, 'limitranges']
 const limitrangesQuery = useResourceList({
   key: limitrangesKey,
   fetcher: () => store.fetchLimitRanges(),
-  mock: store.limitRangeList,
-  mockMode: !store.remoteMode,
-  options: { refetchInterval: store.remoteMode ? 30000 : false },
+  options: { refetchInterval: 30000 },
 })
 const nsLimitRanges = computed(() => (limitrangesQuery.data.value || []).filter(l => l.namespace === route.params.namespace))
 

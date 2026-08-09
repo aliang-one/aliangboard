@@ -17,7 +17,6 @@ const searchQuery = ref('')
 const syncing = ref(false)
 async function sync() {
   if (syncing.value) return
-  if (!store.remoteMode) { notify('info', t('clusters.demoModeNoSync')); return }
   syncing.value = true
   try {
     await store.invalidateAllClusterQueries()
