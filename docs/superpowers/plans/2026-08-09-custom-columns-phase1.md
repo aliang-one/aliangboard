@@ -368,71 +368,67 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ```js
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { defineComponent, h, nextTick } from 'vue'
+import { defineComponent, h } from 'vue'
 import { i18n } from '@/i18n'
-import { useTableColumns } from '../useTableColumns.js'
+import {
+  useTableColumns, resetAll, toggle, setOrder, setWidth,
+  resetTable, isHidden, loadAndMigrate,
+} from '../useTableColumns.js'
 
-// composable 内部用 useI18n,需挂载并提供 i18n 插件;config 为模块单例,每用例前重置。
-function withComposable(fn) {
+// tableColumns/allColumns 依赖 useI18n,须在组件 setup 内经 useTableColumns() 调用。
+// mutators / loadAndMigrate 是模块级导出(不依赖 i18n),可在用例中直接调,
+// 操作的是与 useTableColumns() 同一份模块单例 config。
+function readers() {
   let captured
-  const Test = defineComponent({
+  mount(defineComponent({
     setup() { captured = useTableColumns(); return () => h('div') },
-  })
-  mount(Test, { global: { plugins: [i18n] } })
+  }), { global: { plugins: [i18n] } })
   return captured
 }
 
 describe('useTableColumns', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    withComposable(c => c.resetAll())
-  })
+  beforeEach(() => { localStorage.clear(); resetAll() })
 
   it('tableColumns: 默认全部可见且 label 已翻译(zh)', () => {
-    const c = withComposable()
-    const keys = c.tableColumns('nodes').map(x => x.key)
-    expect(keys).toEqual(['name', 'status', 'roles', 'system', 'cpu', 'memory', 'pods', 'age', 'actions'])
-    expect(c.tableColumns('nodes')[0].label).toBe('名称') // cols._c.name → zh
+    const r = readers()
+    expect(r.tableColumns('nodes').map(x => x.key)).toEqual(['name', 'status', 'roles', 'system', 'cpu', 'memory', 'pods', 'age', 'actions'])
+    expect(r.tableColumns('nodes')[0].label).toBe('名称') // cols._c.name → zh
   })
 
-  it('toggle: 隐藏后再显示,tableColumns 即时反映', async () => {
-    const c = withComposable()
-    c.toggle('nodes', 'cpu')
-    expect(c.tableColumns('nodes').map(x => x.key)).not.toContain('cpu')
-    expect(c.allColumns('nodes').find(x => x.key === 'cpu').hidden).toBe(true)
-    c.toggle('nodes', 'cpu')
-    expect(c.tableColumns('nodes').map(x => x.key)).toContain('cpu')
+  it('toggle: 隐藏/显示,tableColumns 即时反映(同一模块单例)', () => {
+    toggle('nodes', 'cpu')
+    const r = readers()
+    expect(r.tableColumns('nodes').map(x => x.key)).not.toContain('cpu')
+    expect(r.allColumns('nodes').find(x => x.key === 'cpu').hidden).toBe(true)
+    toggle('nodes', 'cpu')
+    expect(readers().tableColumns('nodes').map(x => x.key)).toContain('cpu')
   })
 
   it('setOrder: 重排后 tableColumns 顺序变化', () => {
-    const c = withComposable()
-    c.setOrder('nodes', ['actions', 'name'])
-    const keys = c.tableColumns('nodes').map(x => x.key)
-    expect(keys.slice(0, 2)).toEqual(['actions', 'name'])
+    setOrder('nodes', ['actions', 'name'])
+    expect(readers().tableColumns('nodes').map(x => x.key).slice(0, 2)).toEqual(['actions', 'name'])
   })
 
   it('setWidth: 限幅 60–600 并合并到列上,且持久化', () => {
-    const c = withComposable()
-    c.setWidth('nodes', 'name', 9999)
-    expect(c.tableColumns('nodes').find(x => x.key === 'name').width).toBe(600)
+    setWidth('nodes', 'name', 9999)
+    expect(readers().tableColumns('nodes').find(x => x.key === 'name').width).toBe(600)
     expect(JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2')).nodes.width.name).toBe(600)
   })
 
   it('resetTable / resetAll: 清回默认', () => {
-    const c = withComposable()
-    c.toggle('nodes', 'cpu'); c.toggle('workloads', 'type')
-    c.resetTable('nodes')
-    expect(c.tableColumns('nodes').map(x => x.key)).toContain('cpu')
-    expect(c.isHidden('workloads', 'type')).toBe(true)
-    c.resetAll()
-    expect(c.isHidden('workloads', 'type')).toBe(false)
+    toggle('nodes', 'cpu'); toggle('workloads', 'type')
+    resetTable('nodes')
+    expect(isHidden('nodes', 'cpu')).toBe(false)
+    expect(isHidden('workloads', 'type')).toBe(true)
+    resetAll()
+    expect(isHidden('workloads', 'type')).toBe(false)
   })
 
-  it('v1→v2 迁移: 旧 v1 隐藏标记被读为 v2 hidden', () => {
+  it('v1→v2 迁移: loadAndMigrate 读 v1 写 v2', () => {
     localStorage.setItem('aliangboard.tableColumns.v1', JSON.stringify({ nodes: { cpu: false } }))
     localStorage.removeItem('aliangboard.tableColumns.v2')
-    const c = withComposable()
-    expect(c.tableColumns('nodes').map(x => x.key)).not.toContain('cpu')
+    const cfg = loadAndMigrate()
+    expect(cfg.nodes.hidden.cpu).toBe(true)
     expect(JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2')).nodes.hidden.cpu).toBe(true)
   })
 })
@@ -456,12 +452,16 @@ import {
 // 表格「自定义列」:可勾选显隐 / 拖拽排序 / 调列宽,配置持久化到 localStorage(v2),
 // 所有视图与 Settings 页共享同一份响应式状态(即时生效)。
 //
-// 纯逻辑(迁移/对账/列定义)见 tableColumnsCore.js;本文件只做响应式 + i18n + 存取包装。
+// 纯逻辑(迁移/对账/列定义)见 tableColumnsCore.js。本文件:
+//   - 模块级(不依赖 i18n,可直接单测):loadAndMigrate / isHidden / toggle /
+//     setOrder / setWidth / resetTable / resetAll,操作同一份模块单例 config。
+//   - useTableColumns() 工厂(依赖 i18n 翻译 label):tableColumns / allColumns,
+//     须在组件 setup 内调用;工厂同时把上面的 mutators 一并返回(视图/Settings 旧用法不变)。
 
-// 模块级单例:跨组件共享。
+// 模块级单例:跨组件/视图/Settings 共享。
 const config = ref(loadAndMigrate())
 
-function loadAndMigrate() {
+export function loadAndMigrate() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw) || {}
@@ -477,18 +477,48 @@ function loadAndMigrate() {
 function persist() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config.value)) } catch { /* 隐私模式 */ }
 }
-
 function entryOf(tableKey) {
   return TABLE_CATALOG.find(t => t.key === tableKey)
 }
 
+export function isHidden(tableKey, colKey) {
+  return config.value[tableKey]?.hidden?.[colKey] === true
+}
+export function toggle(tableKey, colKey) {
+  const cur = config.value[tableKey] || {}
+  const hidden = { ...(cur.hidden || {}) }
+  if (hidden[colKey]) delete hidden[colKey]
+  else hidden[colKey] = true
+  config.value = { ...config.value, [tableKey]: { ...cur, hidden } }
+  persist()
+}
+export function setOrder(tableKey, keyArray) {
+  const cur = config.value[tableKey] || {}
+  config.value = { ...config.value, [tableKey]: { ...cur, order: [...keyArray] } }
+  persist()
+}
+export function setWidth(tableKey, colKey, px) {
+  const cur = config.value[tableKey] || {}
+  const width = { ...(cur.width || {}) }
+  width[colKey] = Math.max(60, Math.min(600, Math.round(px)))
+  config.value = { ...config.value, [tableKey]: { ...cur, width } }
+  persist()
+}
+export function resetTable(tableKey) {
+  const next = { ...config.value }
+  delete next[tableKey]
+  config.value = next
+  persist()
+}
+export function resetAll() {
+  config.value = {}
+  persist()
+}
+
+// 读取(依赖 i18n 翻译 label):须在组件 setup 内经 useTableColumns() 调用。
 export function useTableColumns() {
   const { t } = useI18n()
   const withLabel = (c) => ({ ...c, label: t(c.labelKey) || c.label })
-
-  function isHidden(tableKey, colKey) {
-    return config.value[tableKey]?.hidden?.[colKey] === true
-  }
   // 视图用:可见列(有序 + width 合并 + label 已翻译)。
   function tableColumns(tableKey) {
     const entry = entryOf(tableKey)
@@ -501,37 +531,6 @@ export function useTableColumns() {
     if (!entry) return []
     return reconcileColumns(entry.columns, config.value[tableKey]).ordered.map(withLabel)
   }
-  function toggle(tableKey, colKey) {
-    const cur = config.value[tableKey] || {}
-    const hidden = { ...(cur.hidden || {}) }
-    if (hidden[colKey]) delete hidden[colKey]
-    else hidden[colKey] = true
-    config.value = { ...config.value, [tableKey]: { ...cur, hidden } }
-    persist()
-  }
-  function setOrder(tableKey, keyArray) {
-    const cur = config.value[tableKey] || {}
-    config.value = { ...config.value, [tableKey]: { ...cur, order: [...keyArray] } }
-    persist()
-  }
-  function setWidth(tableKey, colKey, px) {
-    const cur = config.value[tableKey] || {}
-    const width = { ...(cur.width || {}) }
-    width[colKey] = Math.max(60, Math.min(600, Math.round(px)))
-    config.value = { ...config.value, [tableKey]: { ...cur, width } }
-    persist()
-  }
-  function resetTable(tableKey) {
-    const next = { ...config.value }
-    delete next[tableKey]
-    config.value = next
-    persist()
-  }
-  function resetAll() {
-    config.value = {}
-    persist()
-  }
-
   return { catalog: TABLE_CATALOG, config, isHidden, tableColumns, allColumns, toggle, setOrder, setWidth, resetTable, resetAll }
 }
 ```
@@ -568,50 +567,45 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 import { test, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
-import { useTableColumns } from '@/composables/useTableColumns'
+import { resetAll } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 
-beforeEach(() => {
-  localStorage.clear()
-  const c = useTableColumns() // 仅用于 reset;不挂载,无 i18n 依赖副作用
-  // useTableColumns 内部 useI18n 仅在 setup 调用时执行,这里跳过;直接清 localStorage 已足够
-  localStorage.removeItem('aliangboard.tableColumns.v2')
-})
+// 每用例前清 localStorage + 重置模块单例(mutators 为模块级导出,无需 setup 上下文)。
+beforeEach(() => { localStorage.clear(); resetAll() })
 
-test('ColumnManager: 勾掉 CPU → 调 toggle,列表反映隐藏', async () => {
-  const wrapper = mount(ColumnManager, { props: { tableKey: 'nodes' }, global: { plugins: [i18n] } })
-  const cpuLabel = wrapper.findAll('label').find(l => l.text().includes('CPU'))
-  expect(cpuLabel).toBeTruthy()
-  await cpuLabel.find('input[type=checkbox]').setValue(false)
-  // 重新读取 allColumns:CPU 应标记隐藏
-  const { allColumns } = useTableColumns()
-  // 注意:useTableColumns 在测试上下文直接调用会缺 i18n;改为校验 localStorage 落库
+const mountMgr = () => mount(ColumnManager, { props: { tableKey: 'nodes' }, global: { plugins: [i18n] } })
+
+test('ColumnManager: 勾掉 CPU → toggle 落库', async () => {
+  const wrapper = mountMgr()
+  const cpu = wrapper.findAll('label').find(l => l.text().includes('CPU'))
+  expect(cpu).toBeTruthy()
+  await cpu.find('input[type=checkbox]').setValue(false)
   const persisted = JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2'))
   expect(persisted.nodes.hidden.cpu).toBe(true)
 })
 
-test('ColumnManager: 点击下移 → setOrder 改变顺序并落库', async () => {
-  const wrapper = mount(ColumnManager, { props: { tableKey: 'nodes' }, global: { plugins: [i18n] } })
-  // 第一项的下移按钮(title="下移")
-  const moveDownBtn = wrapper.findAll('button').find(b => b.attributes('title') === '下移')
-  expect(moveDownBtn).toBeTruthy()
-  await moveDownBtn.trigger('click')
+test('ColumnManager: 点击下移 → setOrder 落库,顺序改变', async () => {
+  const wrapper = mountMgr()
+  const moveDown = wrapper.findAll('button').find(b => b.attributes('title') === '下移')
+  expect(moveDown).toBeTruthy()
+  await moveDown.trigger('click')
   const persisted = JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2'))
   expect(Array.isArray(persisted.nodes.order)).toBe(true)
-  expect(persisted.nodes.order[0]).toBe('status') // 原 name 下移 → status 升到首位
+  expect(persisted.nodes.order[0]).toBe('status') // name 下移一位 → status 升到首位
 })
 
-test('ColumnManager: 点击重置 → 清空该表 overrides', async () => {
-  // 先写入一条 override
-  localStorage.setItem('aliangboard.tableColumns.v2', JSON.stringify({ nodes: { hidden: { cpu: true } } }))
-  const wrapper = mount(ColumnManager, { props: { tableKey: 'nodes' }, global: { plugins: [i18n] } })
-  await wrapper.find('button.border-outline-variant').trigger('click') // 重置按钮
+test('ColumnManager: 先隐藏再点重置 → 清空该表 overrides', async () => {
+  const wrapper = mountMgr()
+  const cpu = wrapper.findAll('label').find(l => l.text().includes('CPU'))
+  await cpu.find('input[type=checkbox]').setValue(false)
+  expect(JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2')).nodes.hidden.cpu).toBe(true)
+  await wrapper.find('button.border-outline-variant').trigger('click') // 重置按钮(唯一带该类)
   const persisted = JSON.parse(localStorage.getItem('aliangboard.tableColumns.v2') || '{}')
   expect(persisted.nodes).toBeUndefined()
 })
 ```
 
-> 说明:`useTableColumns` 在测试里直接调用会因缺 setup 上下文报 useI18n 错,因此断言走 **localStorage 落库** 这条客观事实,绕开 i18n 上下文依赖。
+> 说明:断言走 **localStorage 落库** 这条客观事实;mutators 已是模块级导出,`beforeEach` 直接 `resetAll()` 重置单例,无需 setup/i18n 上下文。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -741,9 +735,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 import { test, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
+import { resetAll } from '@/composables/useTableColumns'
 import DataTable from '@/components/common/DataTable.vue'
 
-beforeEach(() => { localStorage.clear(); localStorage.removeItem('aliangboard.tableColumns.v2') })
+beforeEach(() => { localStorage.clear(); resetAll() })
 
 const HEADERS = [
   { key: 'name', label: '名称' },
