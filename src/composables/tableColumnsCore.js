@@ -251,6 +251,42 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'storagePVC', labelKey: 'storage.tabs.pvc', label: 'PVCs', icon: 'storage',
+    columns: [
+      { key: 'name', labelKey: 'storage.thName', label: 'Name' },
+      { key: 'namespace', labelKey: 'storage.thNamespace', label: 'Namespace' },
+      { key: 'status', labelKey: 'storage.thStatus', label: 'Status' },
+      { key: 'capacity', labelKey: 'storage.thCapacity', label: 'Capacity' },
+      { key: 'accessModes', labelKey: 'storage.thAccess', label: 'Access' },
+      { key: 'storageClass', labelKey: 'storage.thStorageClass', label: 'StorageClass' },
+      { key: 'age', labelKey: 'storage.thAge', label: 'Age' },
+    ],
+  },
+  {
+    key: 'storagePV', labelKey: 'storage.tabs.pv', label: 'PersistentVolumes', icon: 'database',
+    columns: [
+      { key: 'name', labelKey: 'storage.thName', label: 'Name' },
+      { key: 'capacity', labelKey: 'storage.thCapacity', label: 'Capacity' },
+      { key: 'accessModes', labelKey: 'storage.thAccess', label: 'Access' },
+      { key: 'reclaimPolicy', labelKey: 'storage.thReclaim', label: 'Reclaim' },
+      { key: 'status', labelKey: 'storage.thStatus', label: 'Status' },
+      { key: 'claim', labelKey: 'storage.thClaim', label: 'Claim' },
+      { key: 'storageClass', labelKey: 'storage.thStorageClass', label: 'StorageClass' },
+      { key: 'actions', labelKey: 'storage.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'storageSC', labelKey: 'storage.tabs.sc', label: 'StorageClasses', icon: 'database',
+    columns: [
+      { key: 'name', labelKey: 'storage.thName', label: 'Name' },
+      { key: 'provisioner', labelKey: 'storage.thProvisioner', label: 'Provisioner' },
+      { key: 'reclaimPolicy', labelKey: 'storage.thReclaim', label: 'Reclaim' },
+      { key: 'default', labelKey: 'storage.thDefault', label: 'Default' },
+      { key: 'age', labelKey: 'storage.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'storage.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

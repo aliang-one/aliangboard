@@ -11,11 +11,13 @@ import Pagination from '@/components/common/Pagination.vue'
 import CodeViewer from '@/components/common/CodeViewer.vue'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, presetToFormState, hasPlaceholderParam } from '@/data/storageClassPresets'
 import { usePagination } from '@/composables/usePagination'
+import { useTableColumns } from '@/composables/useTableColumns'
 
 const { t } = useI18n()
 
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 const activeTab = ref('pvc')
 
 // PVC/PV/SC cluster-wide 走 Vue Query
@@ -35,35 +37,11 @@ const tabs = computed(() => [
   { key: 'sc', label: t('storage.tabs.sc') },
 ])
 
-const pvcHeaders = computed(() => [
-  { key: 'name', label: t('storage.thName') },
-  { key: 'namespace', label: t('storage.thNamespace') },
-  { key: 'status', label: t('storage.thStatus') },
-  { key: 'capacity', label: t('storage.thCapacity') },
-  { key: 'accessModes', label: t('storage.thAccess') },
-  { key: 'storageClass', label: t('storage.thStorageClass') },
-  { key: 'age', label: t('storage.thAge') },
-])
+const pvcHeaders = computed(() => tableColumns('storagePVC'))
 
-const pvHeaders = computed(() => [
-  { key: 'name', label: t('storage.thName') },
-  { key: 'capacity', label: t('storage.thCapacity') },
-  { key: 'accessModes', label: t('storage.thAccess') },
-  { key: 'reclaimPolicy', label: t('storage.thReclaim') },
-  { key: 'status', label: t('storage.thStatus') },
-  { key: 'claim', label: t('storage.thClaim') },
-  { key: 'storageClass', label: t('storage.thStorageClass') },
-  { key: 'actions', label: t('storage.thActions'), align: 'right' },
-])
+const pvHeaders = computed(() => tableColumns('storagePV'))
 
-const scHeaders = computed(() => [
-  { key: 'name', label: t('storage.thName') },
-  { key: 'provisioner', label: t('storage.thProvisioner') },
-  { key: 'reclaimPolicy', label: t('storage.thReclaim') },
-  { key: 'default', label: t('storage.thDefault') },
-  { key: 'age', label: t('storage.thAge') },
-  { key: 'actions', label: t('storage.thActions'), align: 'right' },
-])
+const scHeaders = computed(() => tableColumns('storageSC'))
 
 // Create PVC（集群页跨 namespace，需选择目标 namespace）
 const showCreatePVC = ref(false)
@@ -208,7 +186,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- PVC Tab -->
-    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="paginated" @row-click="openPVC">
+    <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="paginated" column-key="storagePVC" @row-click="openPVC">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -224,7 +202,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- PV Tab -->
-    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="paginated" @row-click="openPV">
+    <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="paginated" column-key="storagePV" @row-click="openPV">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -245,7 +223,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- SC Tab -->
-    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="paginated" @row-click="openSC">
+    <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="paginated" column-key="storageSC" @row-click="openSC">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
