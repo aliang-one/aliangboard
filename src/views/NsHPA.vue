@@ -36,7 +36,7 @@ const nsHPAs = computed(() => (hpasQuery.data.value || []).filter(h => h.namespa
 const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsHPAs))
+const { currentPage, pageSize, paginated, total } = usePagination(nsHPAs)
 
 // Create HPA
 const showCreateModal = ref(false)

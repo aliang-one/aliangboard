@@ -31,7 +31,7 @@ const resourcequotasQuery = useResourceList({
 })
 const nsResourceQuotas = computed(() => (resourcequotasQuery.data.value || []).filter(r => r.namespace === route.params.namespace))
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsResourceQuotas))
+const { currentPage, pageSize, paginated, total } = usePagination(nsResourceQuotas)
 
 // Create ResourceQuota
 const showCreateModal = ref(false)

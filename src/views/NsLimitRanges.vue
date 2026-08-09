@@ -30,7 +30,7 @@ const limitrangesQuery = useResourceList({
 })
 const nsLimitRanges = computed(() => (limitrangesQuery.data.value || []).filter(l => l.namespace === route.params.namespace))
 
-const { currentPage, pageSize, paginated, total } = usePagination(computed(() => nsLimitRanges))
+const { currentPage, pageSize, paginated, total } = usePagination(nsLimitRanges)
 
 // Create LimitRange
 const showCreateModal = ref(false)
