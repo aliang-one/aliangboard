@@ -25,8 +25,8 @@ const search = ref('')
 
 const filteredCrds = computed(() => {
   const kw = search.value.trim().toLowerCase()
-  if (!kw) return crds
-  return crds.filter(c =>
+  if (!kw) return crds.value
+  return crds.value.filter(c =>
     c.name.toLowerCase().includes(kw) ||
     c.kind.toLowerCase().includes(kw) ||
     c.group.toLowerCase().includes(kw) ||

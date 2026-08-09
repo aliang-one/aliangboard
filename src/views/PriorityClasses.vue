@@ -31,12 +31,12 @@ const searchQuery = ref('')
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   const list = q
-    ? priorityClasses.filter(
+    ? priorityClasses.value.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           (p.description || '').toLowerCase().includes(q)
       )
-    : [...priorityClasses]
+    : [...priorityClasses.value]
   // 按 value 降序
   return list.sort((a, b) => b.value - a.value)
 })
