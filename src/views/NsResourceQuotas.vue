@@ -5,13 +5,17 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsResourceQuotas'))
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -108,6 +112,10 @@ function getPercent(used, hard) {
   if (!hard || hard === 0) return 0
   return Math.round((used / hard) * 100)
 }
+
+function goDetail(row) {
+  router.push({ name: 'NsResourceQuotaDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -126,84 +134,57 @@ function getPercent(used, hard) {
       </button>
     </div>
 
-    <div v-if="nsResourceQuotas.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thCpu') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thMemory') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thPods') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.resourceQuotas.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.resourceQuotas.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsResourceQuotaDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-tertiary text-sm">speed</span>
-                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-col gap-xs min-w-[120px]">
-                <div class="flex justify-between text-xs">
-                  <span class="text-on-surface-variant">{{ row.used?.['limits.cpu'] || '0' }} / {{ row.hard?.['limits.cpu'] || '-' }}</span>
-                  <span class="font-medium" :class="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) > 80 ? 'text-error' : 'text-primary'">
-                    {{ getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) }}%
-                  </span>
-                </div>
-                <ProgressBar :value="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu']))" size="sm" />
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-col gap-xs min-w-[120px]">
-                <div class="flex justify-between text-xs">
-                  <span class="text-on-surface-variant">{{ row.used?.['limits.memory'] || '0' }} / {{ row.hard?.['limits.memory'] || '-' }}</span>
-                  <span class="font-medium" :class="getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) > 80 ? 'text-error' : 'text-primary'">
-                    {{ getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) }}%
-                  </span>
-                </div>
-                <ProgressBar :value="getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory']))" size="sm" />
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-col gap-xs min-w-[100px]">
-                <div class="flex justify-between text-xs">
-                  <span class="text-on-surface-variant">{{ row.used?.pods || '0' }} / {{ row.hard?.pods || '-' }}</span>
-                  <span class="font-medium" :class="getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) > 80 ? 'text-error' : 'text-primary'">
-                    {{ getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) }}%
-                  </span>
-                </div>
-                <ProgressBar :value="getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods))" size="sm" />
-              </div>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsResourceQuotaDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!nsResourceQuotas.length">
-            <td :colspan="6" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.resourceQuotas.emptyState') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsResourceQuotas" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-tertiary text-sm">speed</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #cpu="{ row }">
+        <div class="flex flex-col gap-xs min-w-[120px]">
+          <div class="flex justify-between text-xs">
+            <span class="text-on-surface-variant">{{ row.used?.['limits.cpu'] || '0' }} / {{ row.hard?.['limits.cpu'] || '-' }}</span>
+            <span class="font-medium" :class="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) > 80 ? 'text-error' : 'text-primary'">
+              {{ getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) }}%
+            </span>
+          </div>
+          <ProgressBar :value="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu']))" size="sm" />
+        </div>
+      </template>
+      <template #memory="{ row }">
+        <div class="flex flex-col gap-xs min-w-[120px]">
+          <div class="flex justify-between text-xs">
+            <span class="text-on-surface-variant">{{ row.used?.['limits.memory'] || '0' }} / {{ row.hard?.['limits.memory'] || '-' }}</span>
+            <span class="font-medium" :class="getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) > 80 ? 'text-error' : 'text-primary'">
+              {{ getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory'])) }}%
+            </span>
+          </div>
+          <ProgressBar :value="getPercent(parseMemory(row.used?.['limits.memory']), parseMemory(row.hard?.['limits.memory']))" size="sm" />
+        </div>
+      </template>
+      <template #pods="{ row }">
+        <div class="flex flex-col gap-xs min-w-[100px]">
+          <div class="flex justify-between text-xs">
+            <span class="text-on-surface-variant">{{ row.used?.pods || '0' }} / {{ row.hard?.pods || '-' }}</span>
+            <span class="font-medium" :class="getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) > 80 ? 'text-error' : 'text-primary'">
+              {{ getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods)) }}%
+            </span>
+          </div>
+          <ProgressBar :value="getPercent(parseCount(row.used?.pods), parseCount(row.hard?.pods))" size="sm" />
+        </div>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+        </div>
+      </template>
+      <template v-if="nsResourceQuotas.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">speed</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.resourceQuotas.noQuotasInNs') }}</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.resourceQuotas.createBtn') }}</button>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create ResourceQuota Modal -->
