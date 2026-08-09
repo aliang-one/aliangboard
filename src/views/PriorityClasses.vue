@@ -3,7 +3,9 @@ import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -11,6 +13,8 @@ import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('priorityClasses'))
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const priorityClassesQuery = useResourceList({
@@ -43,11 +47,6 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
 
-// 可展开行
-const expandedName = ref(null)
-function toggleExpand(name) {
-  expandedName.value = expandedName.value === name ? null : name
-}
 function yamlFor(pc) {
   return store.generateExtraYAML('priorityclass', pc)
 }
@@ -122,133 +121,96 @@ function handleDelete() {
     </div>
 
     <!-- 列表表格 -->
-    <div v-if="filtered.length" class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-md text-label-caps text-on-surface-variant w-8"></th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thName') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thValue') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thGlobalDefault') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thDescription') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.priorityClasses.thAge') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-32 text-right">{{ $t('admin.priorityClasses.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <template v-for="row in paginated" :key="row.name">
-            <!-- 主行 -->
-            <tr
-              class="hover:bg-surface-container-low/50 cursor-pointer transition-colors"
-              :class="{ 'bg-primary-container/5': expandedName === row.name }"
-              @click="toggleExpand(row.name)"
-            >
-              <td class="px-md py-md text-on-surface-variant">
-                <span class="material-symbols-outlined text-lg transition-transform" :class="{ 'rotate-90': expandedName === row.name }">chevron_right</span>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm flex-wrap">
-                  <span class="material-symbols-outlined text-lg" :class="isSystem(row.name) ? 'text-error' : 'text-secondary'">flag</span>
-                  <span class="font-semibold text-on-surface text-body-md font-mono">{{ row.name }}</span>
-                  <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30">{{ $t('admin.priorityClasses.systemBadge') }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span
-                    class="font-mono font-bold text-code-sm"
-                    :class="isSystem(row.name) ? 'text-error' : row.value >= 1000000 ? 'text-primary' : 'text-on-surface'"
-                  >{{ row.value.toLocaleString() }}</span>
-                  <span v-if="row.globalDefault" class="px-1.5 py-0.5 bg-primary-container/30 text-primary text-label-caps rounded font-semibold">{{ $t('admin.priorityClasses.defaultBadge') }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <span v-if="row.globalDefault" class="material-symbols-outlined text-success">check_circle</span>
-                <span v-else class="material-symbols-outlined text-on-surface-variant opacity-50">cancel</span>
-              </td>
-              <td class="px-lg py-md">
-                <span class="text-body-sm text-on-surface-variant line-clamp-1">{{ row.description || '—' }}</span>
-              </td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-              <td class="px-lg py-md text-right" @click.stop>
-                <div class="flex justify-end gap-1">
-                  <button
-                    @click="$router.push({ name: 'PriorityClassDetail', params: { name: row.name } })"
-                    class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
-                    :title="$t('admin.priorityClasses.titleDetail')"
-                  >
-                    <span class="material-symbols-outlined text-lg">open_in_new</span>
-                  </button>
-                  <button
-                    @click="toggleExpand(row.name)"
-                    class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
-                    :title="$t('admin.priorityClasses.viewYaml')"
-                  >
-                    <span class="material-symbols-outlined text-lg">code</span>
-                  </button>
-                  <button
-                    @click="confirmDelete(row)"
-                    :disabled="isSystem(row.name)"
-                    class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-                    :title="isSystem(row.name) ? $t('admin.priorityClasses.systemDeleteTip') : $t('admin.priorityClasses.deleteTip')"
-                  >
-                    <span class="material-symbols-outlined text-lg">delete</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <!-- 展开详情行 -->
-            <tr v-if="expandedName === row.name">
-              <td colspan="7" class="p-lg bg-surface-container-lowest">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-                  <!-- YAML -->
-                  <div class="lg:col-span-2">
-                    <div class="flex items-center gap-sm mb-sm">
-                      <span class="material-symbols-outlined text-on-surface-variant text-lg">code</span>
-                      <h4 class="text-label-caps text-on-surface-variant">YAML</h4>
-                    </div>
-                    <div class="border border-outline-variant rounded-lg overflow-hidden">
-                      <YamlEditor :model-value="yamlFor(row)" readonly height="260px" />
-                    </div>
-                  </div>
-                  <!-- 详情 -->
-                  <div>
-                    <div class="flex items-center gap-sm mb-md">
-                      <span class="material-symbols-outlined text-on-surface-variant text-lg">info</span>
-                      <h4 class="text-label-caps text-on-surface-variant">Details</h4>
-                    </div>
-                    <dl class="flex flex-col gap-md">
-                      <div>
-                        <dt class="text-label-caps text-on-surface-variant">Name</dt>
-                        <dd class="text-body-sm text-on-surface font-mono break-all">{{ row.name }}</dd>
-                      </div>
-                      <div>
-                        <dt class="text-label-caps text-on-surface-variant">Value</dt>
-                        <dd class="text-body-sm text-on-surface font-mono font-bold">{{ row.value.toLocaleString() }}</dd>
-                      </div>
-                      <div>
-                        <dt class="text-label-caps text-on-surface-variant">Global Default</dt>
-                        <dd>
-                          <span v-if="row.globalDefault" class="px-2 py-0.5 bg-success-container/30 text-success text-label-caps rounded-full">true</span>
-                          <span v-else class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-label-caps rounded-full">false</span>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt class="text-label-caps text-on-surface-variant">Description</dt>
-                        <dd class="text-body-sm text-on-surface">{{ row.description || '—' }}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-lg py-md border-t border-outline-variant bg-surface-container-low">
+    <DataTable v-if="filtered.length" :headers="headers" :rows="paginated" column-key="priorityClasses" expandable row-key="name">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm flex-wrap">
+          <span class="material-symbols-outlined text-lg" :class="isSystem(row.name) ? 'text-error' : 'text-secondary'">flag</span>
+          <span class="font-semibold text-on-surface text-body-md font-mono">{{ row.name }}</span>
+          <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30">{{ $t('admin.priorityClasses.systemBadge') }}</span>
+        </div>
+      </template>
+      <template #value="{ row }">
+        <div class="flex items-center gap-sm">
+          <span
+            class="font-mono font-bold text-code-sm"
+            :class="isSystem(row.name) ? 'text-error' : row.value >= 1000000 ? 'text-primary' : 'text-on-surface'"
+          >{{ row.value.toLocaleString() }}</span>
+          <span v-if="row.globalDefault" class="px-1.5 py-0.5 bg-primary-container/30 text-primary text-label-caps rounded font-semibold">{{ $t('admin.priorityClasses.defaultBadge') }}</span>
+        </div>
+      </template>
+      <template #globalDefault="{ row }">
+        <span v-if="row.globalDefault" class="material-symbols-outlined text-success">check_circle</span>
+        <span v-else class="material-symbols-outlined text-on-surface-variant opacity-50">cancel</span>
+      </template>
+      <template #description="{ row }">
+        <span class="text-body-sm text-on-surface-variant line-clamp-1">{{ row.description || '—' }}</span>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex justify-end gap-1">
+          <button
+            @click="$router.push({ name: 'PriorityClassDetail', params: { name: row.name } })"
+            class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
+            :title="$t('admin.priorityClasses.titleDetail')"
+          >
+            <span class="material-symbols-outlined text-lg">open_in_new</span>
+          </button>
+          <button
+            @click="confirmDelete(row)"
+            :disabled="isSystem(row.name)"
+            class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+            :title="isSystem(row.name) ? $t('admin.priorityClasses.systemDeleteTip') : $t('admin.priorityClasses.deleteTip')"
+          >
+            <span class="material-symbols-outlined text-lg">delete</span>
+          </button>
+        </div>
+      </template>
+      <template #expanded="{ row }">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
+          <!-- YAML -->
+          <div class="lg:col-span-2">
+            <div class="flex items-center gap-sm mb-sm">
+              <span class="material-symbols-outlined text-on-surface-variant text-lg">code</span>
+              <h4 class="text-label-caps text-on-surface-variant">YAML</h4>
+            </div>
+            <div class="border border-outline-variant rounded-lg overflow-hidden">
+              <YamlEditor :model-value="yamlFor(row)" readonly height="260px" />
+            </div>
+          </div>
+          <!-- 详情 -->
+          <div>
+            <div class="flex items-center gap-sm mb-md">
+              <span class="material-symbols-outlined text-on-surface-variant text-lg">info</span>
+              <h4 class="text-label-caps text-on-surface-variant">Details</h4>
+            </div>
+            <dl class="flex flex-col gap-md">
+              <div>
+                <dt class="text-label-caps text-on-surface-variant">Name</dt>
+                <dd class="text-body-sm text-on-surface font-mono break-all">{{ row.name }}</dd>
+              </div>
+              <div>
+                <dt class="text-label-caps text-on-surface-variant">Value</dt>
+                <dd class="text-body-sm text-on-surface font-mono font-bold">{{ row.value.toLocaleString() }}</dd>
+              </div>
+              <div>
+                <dt class="text-label-caps text-on-surface-variant">Global Default</dt>
+                <dd>
+                  <span v-if="row.globalDefault" class="px-2 py-0.5 bg-success-container/30 text-success text-label-caps rounded-full">true</span>
+                  <span v-else class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-label-caps rounded-full">false</span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-label-caps text-on-surface-variant">Description</dt>
+                <dd class="text-body-sm text-on-surface">{{ row.description || '—' }}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </template>
+      <template #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
+      </template>
+    </DataTable>
 
     <!-- 空状态 -->
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center">
