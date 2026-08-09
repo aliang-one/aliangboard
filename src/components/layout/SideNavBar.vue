@@ -337,23 +337,28 @@ function nsStatusColor(status) {
         <span class="material-symbols-outlined text-lg">rocket_launch</span>
         {{ $t('nav.deploy') }}
       </button>
-      <button v-if="currentNs" @click="goNsRoute('events')"
-        class="w-full flex items-center justify-center gap-sm py-xs px-md text-body-sm text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors mb-sm">
-        <span class="material-symbols-outlined text-lg">notifications_active</span>
-        {{ $t('nav.events') }}
-      </button>
-      <a data-test="bottom-activity" @click="router.push('/audit-logs')"
-        class="flex items-center gap-md rounded-lg px-md py-sm transition-all duration-200 cursor-pointer"
-        :class="isGlobalActive('/audit-logs') ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-        <span class="material-symbols-outlined text-lg">notifications</span>
-        <span class="text-body-sm">{{ $t('nav.activityLog') }}</span>
-      </a>
-      <a data-test="bottom-settings" @click="router.push('/settings')"
-        class="flex items-center gap-md rounded-lg px-md py-sm transition-all duration-200 cursor-pointer"
-        :class="isGlobalActive('/settings') ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-        <span class="material-symbols-outlined text-lg">tune</span>
-        <span class="text-body-sm">{{ $t('nav.settings') }}</span>
-      </a>
+      <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
+      <div class="flex items-stretch gap-xs">
+        <button v-if="currentNs" data-test="bottom-events"
+          @click="goNsRoute('events')"
+          :title="$t('nav.events')" :aria-label="$t('nav.events')"
+          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"
+          :class="isNsRouteActive('events') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+          <span class="material-symbols-outlined text-lg">notifications_active</span>
+        </button>
+        <a data-test="bottom-activity" @click="router.push('/audit-logs')"
+          :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
+          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
+          :class="isGlobalActive('/audit-logs') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+          <span class="material-symbols-outlined text-lg">history</span>
+        </a>
+        <a data-test="bottom-settings" @click="router.push('/settings')"
+          :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
+          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
+          :class="isGlobalActive('/settings') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+          <span class="material-symbols-outlined text-lg">settings</span>
+        </a>
+      </div>
     </div>
   </aside>
   <!-- Click-outside overlay -->
