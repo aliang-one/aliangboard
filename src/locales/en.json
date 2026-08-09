@@ -2652,7 +2652,9 @@
       "reconcileFailed": "reconcile failed",
       "lastReconcile": "Last reconcile {ts}",
       "reconcileSkipped": "Skipped ({reason})",
-      "hasFailures": "has failures"
+      "hasFailures": "has failures",
+      "conversationHistory": "Conversation History",
+      "noConversations": "No conversations"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",
