@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import NetworkPolicyEditor from '@/components/networkpolicy/NetworkPolicyEditor.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
@@ -56,44 +57,10 @@ function ruleCount(rules) {
 }
 
 // Create NetworkPolicy
-const showCreateModal = ref(false)
-const createForm = ref({
-  name: '',
-  podSelectorKey: '',
-  podSelectorValue: '',
-  policyTypes: ['Ingress', 'Egress'],
-})
-
-function resetCreate() {
-  createForm.value = { name: '', podSelectorKey: '', podSelectorValue: '', policyTypes: ['Ingress', 'Egress'] }
-}
-
-function togglePolicyType(type) {
-  const idx = createForm.value.policyTypes.indexOf(type)
-  if (idx >= 0) {
-    createForm.value.policyTypes.splice(idx, 1)
-  } else {
-    createForm.value.policyTypes.push(type)
-  }
-}
-
-function handleCreate() {
-  const f = createForm.value
-  const podSelector = {}
-  if (f.podSelectorKey) {
-    podSelector[f.podSelectorKey] = f.podSelectorValue
-  }
-  store.addNetworkPolicy({
-    name: f.name,
-    namespace: route.params.namespace,
-    podSelector,
-    policyTypes: [...f.policyTypes],
-    ingressRules: f.policyTypes.includes('Ingress') ? [] : [],
-    egressRules: f.policyTypes.includes('Egress') ? [] : [],
-  })
+const showCreate = ref(false)
+function onApplied() {
+  // applyResourceYaml 内部已 invalidate cluster 查询;这里显式再刷一次本页 key 保险。
   queryClient.invalidateQueries({ queryKey: networkpoliciesKey })
-  showCreateModal.value = false
-  resetCreate()
 }
 
 // Delete
@@ -124,7 +91,7 @@ function handleDelete() {
         <h2 class="text-headline-md text-on-surface font-bold">NetworkPolicies</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsNetworkPolicies.length }} network policies in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+      <button @click="showCreate = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> Create NetworkPolicy
       </button>
     </div>
@@ -221,44 +188,12 @@ function handleDelete() {
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">shield</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">No NetworkPolicies in this namespace</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create NetworkPolicy</button>
+      <button @click="showCreate = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create NetworkPolicy</button>
     </div>
   </section>
 
-  <!-- Create NetworkPolicy Modal -->
-  <Modal v-model="showCreateModal" title="Create NetworkPolicy" width="max-w-lg">
-    <div class="flex flex-col gap-md">
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">NetworkPolicy Name *</label>
-        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-network-policy" />
-      </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-sm">Pod Selector</label>
-        <div class="flex gap-sm items-center">
-          <input v-model="createForm.podSelectorKey" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="key (e.g. app)" />
-          <input v-model="createForm.podSelectorValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="value (e.g. frontend)" />
-        </div>
-        <p class="text-label-caps text-on-surface-variant mt-xs">Leave empty to select all pods in namespace</p>
-      </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-sm">Policy Types *</label>
-        <div class="flex gap-md">
-          <label class="flex items-center gap-sm cursor-pointer">
-            <input type="checkbox" :checked="createForm.policyTypes.includes('Ingress')" @change="togglePolicyType('Ingress')" class="rounded text-primary h-4 w-4" />
-            <span class="text-body-md font-medium text-on-surface">Ingress</span>
-          </label>
-          <label class="flex items-center gap-sm cursor-pointer">
-            <input type="checkbox" :checked="createForm.policyTypes.includes('Egress')" @change="togglePolicyType('Egress')" class="rounded text-primary h-4 w-4" />
-            <span class="text-body-md font-medium text-on-surface">Egress</span>
-          </label>
-        </div>
-      </div>
-    </div>
-    <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCreate" :disabled="!createForm.name || createForm.policyTypes.length === 0" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Create</button>
-    </template>
-  </Modal>
+  <!-- 创建向导 -->
+  <NetworkPolicyEditor v-model="showCreate" :namespace="route.params.namespace" @applied="onApplied" />
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" title="Delete NetworkPolicy" width="max-w-md">
