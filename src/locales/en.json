@@ -2318,6 +2318,7 @@
       "title": "API Keys Management",
       "subtitle": "Mint/revoke API keys (bound to K8s ServiceAccount, authorized by tier; plaintext visible only at mint time)",
       "mintKey": "Mint API Key",
+      "colKey": "Key",
       "colTier": "Tier",
       "colOverrides": "Overrides",
       "colOwner": "Owner",

@@ -436,6 +436,55 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
     ],
   },
+  // —— admin/app 视图(Phase 2 扩张:工作台 / 审计 / API Key / 用户)——
+  {
+    key: 'workbenchList', labelKey: 'workbench.list.title', label: 'Workbench Projects', icon: 'workspaces',
+    columns: [
+      { key: 'name', labelKey: 'workbench.list.tableProject', label: 'Project' },
+      { key: 'cluster', labelKey: 'workbench.list.tableCluster', label: 'Cluster' },
+      { key: 'created', labelKey: 'workbench.list.tableCreated', label: 'Created' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'auditTrail', labelKey: 'auditTrail.title', label: 'Audit Trail', icon: 'manage_history',
+    columns: [
+      { key: 'ts', labelKey: 'auditTrail.colTs', label: 'Time' },
+      { key: 'owner', labelKey: 'auditTrail.colOwner', label: 'Owner' },
+      { key: 'source', labelKey: 'auditTrail.colSource', label: 'Source' },
+      { key: 'clusterId', labelKey: 'auditTrail.colCluster', label: 'Cluster' },
+      { key: 'namespace', labelKey: 'auditTrail.colNamespace', label: 'Namespace' },
+      { key: 'tool', labelKey: 'auditTrail.colTool', label: 'Tool' },
+      { key: 'resource', labelKey: 'auditTrail.colResource', label: 'Resource' },
+      { key: 'result', labelKey: 'auditTrail.colResult', label: 'Result' },
+    ],
+  },
+  {
+    key: 'apiKeys', labelKey: 'admin.apiKeys.title', label: 'API Keys', icon: 'key',
+    columns: [
+      { key: 'prefix', labelKey: 'admin.apiKeys.colKey', label: 'Key' },
+      { key: 'tier', labelKey: 'admin.apiKeys.colTier', label: 'Tier' },
+      { key: 'overrides', labelKey: 'admin.apiKeys.colOverrides', label: 'Overrides' },
+      { key: 'nsAllowlist', labelKey: 'nsAllowlist.colHeader', label: 'Allowed ns' },
+      { key: 'owner', labelKey: 'admin.apiKeys.colOwner', label: 'Owner' },
+      { key: 'boundSA', labelKey: 'admin.apiKeys.colBoundSA', label: 'Bound SA' },
+      { key: 'cluster', labelKey: 'admin.apiKeys.colCluster', label: 'Cluster' },
+      { key: 'state', labelKey: 'common.status', label: 'Status' },
+      { key: 'created', labelKey: 'admin.apiKeys.colCreated', label: 'Created' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'userMgmt', labelKey: 'admin.users.title', label: 'Users', icon: 'group',
+    columns: [
+      { key: 'username', labelKey: 'admin.users.colUsername', label: 'Username' },
+      { key: 'role', labelKey: 'common.role', label: 'Role' },
+      { key: 'displayName', labelKey: 'admin.users.colDisplayName', label: 'Display Name' },
+      { key: 'assignedClusters', labelKey: 'admin.users.colAssignedClusters', label: 'Assigned Clusters' },
+      { key: 'status', labelKey: 'common.status', label: 'Status' },
+      { key: 'actions', labelKey: 'common.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

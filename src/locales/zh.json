@@ -2318,6 +2318,7 @@
       "title": "API Keys 管理",
       "subtitle": "签发/吊销 API key(绑定 K8s ServiceAccount,按 tier 授权;明文仅签发时可见)",
       "mintKey": "签发 API Key",
+      "colKey": "Key",
       "colTier": "权限",
       "colOverrides": "覆盖",
       "colOwner": "归属人",

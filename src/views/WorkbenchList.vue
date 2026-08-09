@@ -1,15 +1,17 @@
 <script setup>
 // 工作台项目列表(W2):任意平台用户,项目按 userId 归属。新建项目(绑集群)→ repo 初始化。
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
 
 const router = useRouter()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
 const projects = ref([])
 const clusters = ref([])
 const loading = ref(true)
@@ -17,12 +19,7 @@ const showCreate = ref(false)
 const form = ref({ name: '', clusterId: '' })
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
-const headers = [
-  { key: 'name', label: t('workbench.list.tableProject') },
-  { key: 'cluster', label: t('workbench.list.tableCluster') },
-  { key: 'created', label: t('workbench.list.tableCreated') },
-  { key: 'actions', label: '', align: 'right' },
-]
+const headers = computed(() => tableColumns('workbenchList'))
 
 async function load() {
   loading.value = true
@@ -67,7 +64,7 @@ async function doCreate() {
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
-    <DataTable v-else :headers="headers" :rows="projects">
+    <DataTable v-else :headers="headers" :rows="projects" column-key="workbenchList">
       <template #name="{ row }"><span class="text-body-sm font-semibold text-primary">{{ row.name }}</span></template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ row.clusterName || (row.clusterId ? row.clusterId.slice(0, 8) : '-') }}</span></template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
