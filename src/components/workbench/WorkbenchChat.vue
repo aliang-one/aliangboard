@@ -20,20 +20,6 @@ const emit = defineEmits(['conversation-created'])
 
 const { t } = useI18n()
 
-// Load existing conversation when conversationId prop is set
-watch(() => props.conversationId, async (convId) => {
-  stopPolling()
-  turns.value = []
-  conversationId.value = null
-  convStatus.value = null
-  pendingApproval.value = null
-  errorBanner.value = ''
-  if (convId) {
-    conversationId.value = convId
-    await pollOnce(convId)
-    if (convStatus.value === 'running') startPolling(convId)
-  }
-}, { immediate: true })
 const turns = ref([])
 const input = ref('')
 const sending = ref(false)
@@ -147,6 +133,21 @@ async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
+
+// Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
+watch(() => props.conversationId, async (convId) => {
+  stopPolling()
+  turns.value = []
+  conversationId.value = null
+  convStatus.value = null
+  pendingApproval.value = null
+  errorBanner.value = ''
+  if (convId) {
+    conversationId.value = convId
+    await pollOnce(convId)
+    if (convStatus.value === 'running') startPolling(convId)
+  }
+}, { immediate: true })
 
 function startPolling(id) {
   stopPolling()
