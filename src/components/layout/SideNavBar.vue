@@ -38,7 +38,6 @@ const clusterResourcesNav = [
   { icon: 'hard_drive', label: 'CSINodes', route: '/admin/csinodes' },
 ]
 const clusterOtherNav = [
-  { icon: 'history', labelKey: 'nav.auditLogs', route: '/audit-logs' },
   { icon: 'hub', labelKey: 'nav.clusters', route: '/clusters' },
 ]
 // 平台管理（admin only）
@@ -306,7 +305,7 @@ function nsStatusColor(status) {
             <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
             <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
           </a>
-          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.auditAndMultiCluster') }}</p>
+          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.multiCluster') }}</p>
           <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
@@ -343,7 +342,15 @@ function nsStatusColor(status) {
         <span class="material-symbols-outlined text-lg">notifications_active</span>
         {{ $t('nav.events') }}
       </button>
-      <a @click="router.push('/settings')" class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container rounded-lg px-md py-sm transition-all duration-200 cursor-pointer">
+      <a data-test="bottom-activity" @click="router.push('/audit-logs')"
+        class="flex items-center gap-md rounded-lg px-md py-sm transition-all duration-200 cursor-pointer"
+        :class="isGlobalActive('/audit-logs') ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+        <span class="material-symbols-outlined text-lg">notifications</span>
+        <span class="text-body-sm">{{ $t('nav.activityLog') }}</span>
+      </a>
+      <a data-test="bottom-settings" @click="router.push('/settings')"
+        class="flex items-center gap-md rounded-lg px-md py-sm transition-all duration-200 cursor-pointer"
+        :class="isGlobalActive('/settings') ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
         <span class="material-symbols-outlined text-lg">tune</span>
         <span class="text-body-sm">{{ $t('nav.settings') }}</span>
       </a>
