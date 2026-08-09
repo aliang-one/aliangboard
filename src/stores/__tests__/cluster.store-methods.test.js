@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useClusterStore } from '@/stores/cluster'
 
@@ -14,7 +14,11 @@ import { useClusterStore } from '@/stores/cluster'
 // 注意：本配置下 happy-dom 的 localStorage.getItem 不是函数（--localstorage-file 警告），
 // 而 store setup 顶层会经 getSavedClusters()/activeApiServer()/currentNamespace 读 localStorage，
 // 故先垫一个内存实现——这正是既有组件测试选择 mock @/stores/cluster 的同一原因。
-function installStorageShim() {
+// ⚠️ 必须 afterEach 还原，否则 globalThis 污染会泄漏到同 worker 的其它测试文件。
+let _ls, _ss
+beforeEach(() => {
+  _ls = globalThis.localStorage
+  _ss = globalThis.sessionStorage
   const mem = new Map()
   const shim = {
     getItem: k => (mem.has(k) ? mem.get(k) : null),
@@ -26,10 +30,13 @@ function installStorageShim() {
   }
   globalThis.localStorage = shim
   globalThis.sessionStorage = shim
-}
+})
+afterEach(() => {
+  globalThis.localStorage = _ls
+  globalThis.sessionStorage = _ss
+})
 
 test('cluster store 实例化不抛 + watch/CRD 方法齐备', () => {
-  installStorageShim()
   setActivePinia(createPinia())
   const store = useClusterStore()
   const methods = ['startPodWatch', 'stopPodWatch', 'startEventWatch', 'stopEventWatch', 'eventsFor', 'fetchCRDs']

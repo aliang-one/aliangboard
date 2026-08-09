@@ -214,9 +214,8 @@ async function loadPerms() {
 }
 watch(svc, s => { if (s && !permsLoaded) { permsLoaded = true; loadPerms() } }, { immediate: true })
 
-// === Events：按 involvedObject 过滤该 Service 的事件（mock 回退全量 ns 事件）===
+// === Events：按 involvedObject 过滤该 Service 的事件。eventsQ 自带 mock 回退(store.eventList)，双模式通用。===
 const svcEvents = computed(() => {
-  if (!store.remoteMode) return store.nsEvents
   const name = svc.value?.name, ns = svc.value?.namespace
   return (eventsQ.data.value || []).filter(e => e.relatedKind === 'Service' && e.relatedName === name && (!ns || e.relatedNamespace === ns))
 })
