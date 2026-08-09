@@ -1,5 +1,6 @@
 // NetworkPolicy 创建向导纯逻辑:无 Vue 依赖,可被 scripts/test.mjs(Node)与组件共同 import。
 // model 直接是 K8s 原生 NetworkPolicy 对象 —— 不造中间 app-model。
+import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 
 export function emptySelector() {
   return { matchLabels: {}, matchExpressions: [] }
@@ -62,4 +63,29 @@ export function consequence(spec, direction) {
 
 export function isDenyAll(spec) {
   return consequence(spec, 'ingress').state === 'denyAll' || consequence(spec, 'egress').state === 'denyAll'
+}
+
+export function modelToYaml(model) {
+  // 规范化:补全 apiVersion/kind,保留 model 其余字段(metadata/spec)
+  const doc = {
+    apiVersion: model.apiVersion || 'networking.k8s.io/v1',
+    kind: 'NetworkPolicy',
+    metadata: { ...(model.metadata || {}) },
+    spec: model.spec || {},
+  }
+  return yamlDump(doc, { lineWidth: -1, noRefs: true })
+}
+
+export function parseAndValidate(yamlStr) {
+  let doc
+  try {
+    doc = yamlLoad(yamlStr)
+  } catch (e) {
+    return { ok: false, code: 'parseError', detail: e?.message || String(e) }
+  }
+  if (!doc || typeof doc !== 'object') return { ok: false, code: 'parseError', detail: 'empty document' }
+  if (!doc.kind || typeof doc.kind !== 'string') return { ok: false, code: 'parseError', detail: 'missing or invalid kind field' }
+  if (doc.kind !== 'NetworkPolicy') return { ok: false, code: 'notNetworkPolicy', detail: `kind=${doc.kind}` }
+  if (!doc.metadata?.name) return { ok: false, code: 'nameRequired', detail: 'metadata.name missing' }
+  return { ok: true, model: doc }
 }

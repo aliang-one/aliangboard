@@ -18,7 +18,7 @@ import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/us
 import { workloadToForm } from '../src/composables/useWorkloadToForm.js'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
-import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll } from '../src/logic/networkPolicy.js'
+import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -686,6 +686,35 @@ test('工厂函数形状稳定', () => {
   assert.deepEqual(emptyIngressRule(), { from: [], ports: [] })
   assert.deepEqual(emptyEgressRule(), { to: [], ports: [] })
   assert.deepEqual(emptyPeer(), { podSelector: { matchLabels: {}, matchExpressions: [] } })
+})
+
+test('modelToYaml/parseAndValidate 语义往返深相等(含进阶特性)', () => {
+  const model = {
+    apiVersion: 'networking.k8s.io/v1', kind: 'NetworkPolicy',
+    metadata: { name: 'p1', namespace: 'default' },
+    spec: {
+      podSelector: { matchLabels: { app: 'web' }, matchExpressions: [{ key: 'env', operator: 'In', values: ['prod', 'staging'] }] },
+      policyTypes: ['Ingress'],
+      ingress: [{
+        from: [
+          { podSelector: { matchLabels: { role: 'api' } }, namespaceSelector: { matchLabels: { tier: 'be' } } },
+          { ipBlock: { cidr: '10.0.0.0/8', except: ['10.0.1.0/24'] } },
+        ],
+        ports: [{ protocol: 'TCP', port: 80, endPort: 90 }, { protocol: 'TCP', port: 'https' }],
+      }],
+      egress: [],
+    },
+  }
+  const yaml = modelToYaml(model)
+  const res = parseAndValidate(yaml)
+  assert.ok(res.ok, '合法 YAML 应解析成功')
+  assert.deepEqual(res.model, model)
+})
+
+test('parseAndValidate 错误码', () => {
+  assert.equal(parseAndValidate('apiVersion: v1\nkind: Pod\nmetadata: {name: x}').code, 'notNetworkPolicy')
+  assert.equal(parseAndValidate('apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {}\nspec: {}').code, 'nameRequired')
+  assert.equal(parseAndValidate(':::not yaml:::').code, 'parseError')
 })
 
 // --- 汇总 ---
