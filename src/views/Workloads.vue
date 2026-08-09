@@ -152,7 +152,7 @@ const nodeHealthPct = computed(() => {
 
     <!-- Table -->
     <EmptyState v-if="!filteredWorkloads.length" icon="workspaces" :title="t('workloads.emptyTitle')" :description="t('workloads.emptyDescription')" />
-    <DataTable v-else :headers="headers" :rows="pagedWorkloads" @row-click="goDetail">
+    <DataTable v-else :headers="headers" :rows="pagedWorkloads" column-key="workloads" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex flex-col">
           <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>

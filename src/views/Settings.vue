@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { api, adminApi } from '@/api/client'
 import { useTableColumns } from '@/composables/useTableColumns'
+import ColumnManager from '@/components/common/ColumnManager.vue'
 import { i18n, setLocale } from '@/i18n'
 
 const { t } = useI18n()
@@ -78,7 +79,7 @@ async function toggleMcp() {
 }
 
 // === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
-const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
+const { catalog, resetAll } = useTableColumns()
 </script>
 
 <template>
@@ -254,24 +255,14 @@ const { catalog, isHidden, toggle, resetTable, resetAll } = useTableColumns()
             </div>
             <button @click="resetAll" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium text-on-surface-variant hover:bg-surface-container">{{ t('settings.resetAll') }}</button>
           </div>
-          <div class="p-md space-y-sm">
+          <div class="p-md space-y-md">
             <p class="text-xs text-on-surface-variant">{{ t('settings.customDisplayDesc') }}</p>
             <div v-for="tbl in catalog" :key="tbl.key" class="border border-outline-variant/60 rounded-lg p-md">
-              <div class="flex items-center justify-between mb-sm">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-primary text-sm">{{ tbl.icon }}</span>
-                  <span class="text-body-sm font-semibold">{{ tbl.label }}</span>
-                </div>
-                <button @click="resetTable(tbl.key)" class="text-xs text-on-surface-variant hover:text-primary">{{ t('settings.reset') }}</button>
+              <div class="flex items-center gap-sm mb-sm">
+                <span class="material-symbols-outlined text-primary text-sm">{{ tbl.icon }}</span>
+                <span class="text-body-sm font-semibold">{{ t(tbl.labelKey) || tbl.label }}</span>
               </div>
-              <div class="flex flex-wrap gap-xs">
-                <label v-for="col in tbl.columns" :key="col.key"
-                  class="flex items-center gap-xs px-md py-xs rounded-lg border cursor-pointer transition-colors"
-                  :class="isHidden(tbl.key, col.key) ? 'border-outline-variant text-on-surface-variant bg-surface-container-low' : 'border-primary/40 text-primary bg-primary-container/10'">
-                  <input type="checkbox" :checked="!isHidden(tbl.key, col.key)" @change="toggle(tbl.key, col.key)" class="accent-[var(--md-sys-color-primary)]" />
-                  <span class="text-xs">{{ col.label }}</span>
-                </label>
-              </div>
+              <ColumnManager :table-key="tbl.key" />
             </div>
           </div>
         </div>

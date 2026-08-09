@@ -90,7 +90,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <EmptyState v-if="activeTab === 'services' && !serviceList.length" icon="share" :title="$t('network.noServices')" />
-    <DataTable v-if="activeTab === 'services' && serviceList.length" :headers="svcHeaders" :rows="paginated">
+    <DataTable v-if="activeTab === 'services' && serviceList.length" :headers="svcHeaders" :rows="paginated" column-key="services">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>
@@ -112,7 +112,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <EmptyState v-if="activeTab === 'ingress' && !ingressList.length" icon="router" :title="$t('network.noIngressRules')" />
-    <DataTable v-if="activeTab === 'ingress' && ingressList.length" :headers="ingressHeaders" :rows="paginated">
+    <DataTable v-if="activeTab === 'ingress' && ingressList.length" :headers="ingressHeaders" :rows="paginated" column-key="ingress">
       <template #name="{ row }">
         <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
       </template>

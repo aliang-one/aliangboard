@@ -147,7 +147,7 @@ function submitDelete() {
     </div>
 
     <EmptyState v-if="!namespaces.length" icon="folder_open" title="No namespaces" description="No namespaces in the cluster." />
-    <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
+    <DataTable v-else :headers="headers" :rows="paginated" column-key="namespaces" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded-lg bg-primary-container/20 flex items-center justify-center">

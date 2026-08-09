@@ -80,7 +80,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
       <span class="material-symbols-outlined text-2xl animate-spin text-on-surface-variant">progress_activity</span>
     </div>
     <EmptyState v-else-if="!filtered.length" icon="dns" :title="$t('nodes.noNodesTitle')" :description="$t('nodes.noNodesDesc')" />
-    <DataTable v-else :headers="headers" :rows="paginated" @row-click="(row) => router.push(`/nodes/${row.name}`)">
+    <DataTable v-else :headers="headers" :rows="paginated" column-key="nodes" @row-click="(row) => router.push(`/nodes/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">
