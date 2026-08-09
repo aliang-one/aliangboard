@@ -2350,7 +2350,12 @@ status:
         updates.egressRules = (spec.egress || []).map(r => ({ to: (r.to || []).map(toPeer), ports: r.ports || [] }))
         if (labels) updates.labels = labels
         if (annotations) updates.annotations = annotations
-        updateNetworkPolicy(name, ns, updates)
+        // upsert(kubectl apply 语义):mock 模式下找不到则新增,否则更新
+        if (networkPolicyList.value.some(n => n.name === name && n.namespace === ns)) {
+          updateNetworkPolicy(name, ns, updates)
+        } else {
+          addNetworkPolicy({ name, namespace: ns, ...updates, age: 'Just now' })
+        }
         break
       case 'HorizontalPodAutoscaler': {
         set('minReplicas', spec.minReplicas)
