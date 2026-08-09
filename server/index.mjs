@@ -620,6 +620,27 @@ async function execCapture(session, namespace, pod, container, command) {
   return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
 }
 
+// PVC 浏览专用 exec：遇 500 自愈一次。500 = helper 容器已终止/不可 exec（sleep 24h 到期、被驱逐、
+// 或 ensurePvcBrowser 的 Running 复用检查与 exec 之间的竞态——检查时 Running、exec 时容器已退出）。
+// 直接删掉旧 helper、等其消失、经 ensurePvcBrowser 重建（会等到 Running）后再试一次。
+// 仍 500 说明是节点/运行时环境问题（非代码可修），向上抛带提示。
+async function pvcBrowseExec(session, ns, pvc, podName, command) {
+  try {
+    return await execCapture(session, ns, podName, 'browser', command)
+  } catch (e) {
+    if (!/Unexpected server response:\s*500/i.test(e?.message || '')) throw e
+    const podPath = `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(podName)}`
+    console.error(`[pvcfile] exec 500，自愈：删除旧 helper ${podName} 并重建`)
+    try { await requestKubernetes(session, podPath, { method: 'DELETE' }) } catch { /* 已不在则忽略 */ }
+    for (let i = 0; i < 20; i++) {                       // 等旧 helper 真正消失，避免重建 POST 409
+      try { await requestKubernetes(session, podPath) } catch (e2) { if (e2.status === 404) break }
+      await new Promise(r => setTimeout(r, 500))
+    }
+    const fresh = await ensurePvcBrowser(session, ns, pvc)
+    return await execCapture(session, ns, fresh, 'browser', command)
+  }
+}
+
 // PVC 文件浏览：起一个 busybox 只读挂载该 PVC 的 helper Pod（确定性命名、幂等创建），复用 exec ls/cat。
 // 集群需允许当前用户 create pods + exec（cluster-admin 通常满足）。Pod 跨多次浏览复用，避免反复创建。
 async function ensurePvcBrowser(session, ns, pvc) {
@@ -1251,7 +1272,7 @@ async function handle(req, res) {
       const sub = (input.path || '/').replace(/^\//, '')
       const fullPath = sub ? `/data/${sub}`.replace(/\/$/, '') : '/data'
       if (action === 'list') {
-        const r = await execCapture(session, input.namespace, podName, 'browser', ['ls', '-1Ap', fullPath])
+        const r = await pvcBrowseExec(session, input.namespace, input.pvc, podName, ['ls', '-1Ap', fullPath])
         const errText = r.stderr.trim()
         if (errText && !r.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
         const entries = r.stdout.toString('utf8').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -1261,7 +1282,7 @@ async function handle(req, res) {
         return sendJson(res, 200, { path: '/' + sub, entries })
       }
       if (action === 'read') {
-        const r = await execCapture(session, input.namespace, podName, 'browser', ['head', '-c', String(PODFILE_PREVIEW_LIMIT + 1), fullPath])
+        const r = await pvcBrowseExec(session, input.namespace, input.pvc, podName, ['head', '-c', String(PODFILE_PREVIEW_LIMIT + 1), fullPath])
         const errText = r.stderr.trim()
         if (errText && !r.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
         const truncated = r.stdout.length > PODFILE_PREVIEW_LIMIT
