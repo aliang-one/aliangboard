@@ -1022,6 +1022,42 @@ async function handle(req, res) {
     return sendJson(res, 404, { message: '未知的工作台路由' })
   }
 
+  // ====== 工作台:项目集群资源搜索(P3 @-mention)。GET /api/workbench/search?projectId=X&kind=pod&q=nginx ======
+  if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const projectId = url.searchParams.get('projectId')
+    const kind = url.searchParams.get('kind') || 'pods'
+    const q = (url.searchParams.get('q') || '').toLowerCase()
+    if (!projectId) return sendJson(res, 400, { message: '缺 projectId' })
+    const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
+    if (!p) return sendJson(res, 404, { message: '项目不存在' })
+    if (!p.clusterId) return sendJson(res, 400, { message: '项目未绑定集群' })
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+    if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
+
+    // kind → K8s list path
+    const KIND_PATH = {
+      pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps',
+      secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
+      deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
+      ingresses: '/apis/networking.k8s.io/v1/ingresses',
+    }
+    const listPath = KIND_PATH[kind]
+    if (!listPath) return sendJson(res, 400, { message: '不支持的 kind: ' + kind })
+
+    try {
+      const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+      const resp = await requestKubernetes(k8sSession, listPath)
+      const items = (resp?.items || []).map(it => ({
+        name: it.metadata?.name || '',
+        namespace: it.metadata?.namespace || '',
+        kind,
+      }))
+      const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
+      return sendJson(res, 200, { items: filtered.slice(0, 50) })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '搜索失败' }) }
+  }
+
   // ====== 工作台:集群台账(W3)。cluster-context repo,每集群一份。======
   if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
     const ps = requirePlatform(req, res); if (!ps) return

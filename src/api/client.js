@@ -191,6 +191,8 @@ export const workbenchApi = {
   dismissDistill: clusterId => platformHttp.request('/api/workbench/distill/dismiss', { method: 'POST', body: JSON.stringify({ clusterId }) }),
   // 项目 reconcile(第 4 阶段):幂等再 apply manifests → { applied, failed, total, ts } | { skipped }
   reconcile: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/reconcile`, { method: 'POST' }),
+  // 项目集群资源搜索(P3 @-mention):{ projectId, kind, q } → { items:[{name,namespace,kind}] }(capped 50)
+  search: (projectId, kind, q) => platformHttp.request(`/api/workbench/search?projectId=${encodeURIComponent(projectId)}&kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(q || '')}`),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===
