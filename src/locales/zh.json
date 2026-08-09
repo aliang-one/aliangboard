@@ -2752,7 +2752,7 @@
       "bootstrapLedgerDesc": "平台直连集群凭据 survey 集群并重写 cluster ledger（INDEX.md / learnings.md），只读不改集群资源。",
       "path": "路径：",
       "approve": "批准",
-      "atMentionHint": "输入 @kind: 搜索资源（如 @pod:nginx）",
+      "atMentionHint": "输入 {'@'}kind: 搜索资源（如 {'@'}pod:nginx）",
       "atMentionNoResults": "无匹配资源",
       "atMentionSearching": "搜索中…",
       "convStatus": {
