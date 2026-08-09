@@ -19,6 +19,7 @@ import { workloadToForm } from '../src/composables/useWorkloadToForm.js'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
+import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -715,6 +716,69 @@ test('parseAndValidate 错误码', () => {
   assert.equal(parseAndValidate('apiVersion: v1\nkind: Pod\nmetadata: {name: x}').code, 'notNetworkPolicy')
   assert.equal(parseAndValidate('apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {}\nspec: {}').code, 'nameRequired')
   assert.equal(parseAndValidate(':::not yaml:::').code, 'parseError')
+})
+// --- 自定义列核心:迁移 v1→v2 ---
+test('migrateV1toV2: false 标记转 hidden,其它丢弃', () => {
+  const v1 = { nodes: { system: false, pods: false, name: true }, workloads: { namespace: false } }
+  const v2 = migrateV1toV2(v1)
+  assert.deepStrictEqual(v2, {
+    nodes: { hidden: { system: true, pods: true } },     // name:true 非 false → 不计入
+    workloads: { hidden: { namespace: true } },
+  })
+})
+test('migrateV1toV2: 非对象/空 → {}', () => {
+  assert.deepStrictEqual(migrateV1toV2(null), {})
+  assert.deepStrictEqual(migrateV1toV2({}), {})
+  assert.deepStrictEqual(migrateV1toV2('x'), {})
+})
+test('migrateV1toV2: 全显示的表不产出空 hidden', () => {
+  assert.deepStrictEqual(migrateV1toV2({ nodes: { name: true } }), {})
+})
+
+// --- 自定义列核心:reconcile 对账 ---
+const CAT = [
+  { key: 'a', labelKey: 'x.a', label: 'A' },
+  { key: 'b', labelKey: 'x.b', label: 'B' },
+  { key: 'c', labelKey: 'x.c', label: 'C' },
+]
+test('reconcile: 无 overrides → 默认序全可见', () => {
+  const r = reconcileColumns(CAT)
+  assert.deepStrictEqual(r.ordered.map(x => x.key), ['a', 'b', 'c'])
+  assert.deepStrictEqual(r.visible.map(x => x.key), ['a', 'b', 'c'])
+  assert.equal(r.ordered[0].hidden, false)
+})
+test('reconcile: order 重排,未列入的按默认序追加到末尾', () => {
+  const r = reconcileColumns(CAT, { order: ['c', 'a'] })  // b 未列入
+  assert.deepStrictEqual(r.ordered.map(x => x.key), ['c', 'a', 'b'])
+})
+test('reconcile: order 含已删除的 key 被忽略,不报错', () => {
+  const r = reconcileColumns(CAT, { order: ['b', 'ghost', 'a'] })
+  assert.deepStrictEqual(r.ordered.map(x => x.key), ['b', 'a', 'c'])
+})
+test('reconcile: hidden 过滤 visible,ordered 仍含全部并带标记', () => {
+  const r = reconcileColumns(CAT, { hidden: { b: true } })
+  assert.deepStrictEqual(r.visible.map(x => x.key), ['a', 'c'])
+  assert.equal(r.ordered.find(x => x.key === 'b').hidden, true)
+  assert.equal(r.ordered.find(x => x.key === 'a').hidden, false)
+})
+test('reconcile: width 合并到列上', () => {
+  const r = reconcileColumns(CAT, { width: { a: 200 } })
+  assert.equal(r.ordered.find(x => x.key === 'a').width, 200)
+  assert.equal(r.ordered.find(x => x.key === 'b').width, undefined)
+})
+test('reconcile: catalog 新增列自动出现在末尾(老配置前向兼容)', () => {
+  const r = reconcileColumns(CAT, { order: ['a', 'b'], hidden: { a: true } })
+  // 新列 c 不在老 order → 末尾;且默认可见
+  assert.deepStrictEqual(r.visible.map(x => x.key), ['b', 'c'])
+})
+test('reconcile: 容错非法 overrides', () => {
+  const r = reconcileColumns(CAT, { order: 'nope', hidden: null, width: 3 })
+  assert.deepStrictEqual(r.ordered.map(x => x.key), ['a', 'b', 'c'])
+})
+
+test('STORAGE_KEY 为 v2', () => {
+  assert.equal(STORAGE_KEY, 'aliangboard.tableColumns.v2')
+  assert.equal(STORAGE_KEY_V1, 'aliangboard.tableColumns.v1')
 })
 
 // --- 汇总 ---
