@@ -743,7 +743,20 @@
       "defaultOption": "Default StorageClass",
       "deletePVC": "Delete PVC",
       "deletePVCConfirm": "Are you sure you want to delete PVC {name}?",
-      "deletePVCWarning": "Deleting a PVC releases the associated volume and data may be lost. This action cannot be undone."
+      "deletePVCWarning": "Deleting a PVC releases the associated volume and data may be lost. This action cannot be undone.",
+      "thPvcName": "Name",
+      "thStatus": "Status",
+      "thCapacity": "Capacity",
+      "thAccess": "Access",
+      "thStorageClass": "StorageClass",
+      "thVolume": "Volume",
+      "thAge": "Age",
+      "thScName": "Name",
+      "thProvisioner": "Provisioner",
+      "thParameters": "Parameters",
+      "thReclaimPolicy": "Reclaim Policy",
+      "thDefault": "Default",
+      "thScAge": "Age"
     },
     "pods": {
       "deletedPod": "Deleted Pod {name}, controller will recreate and re-pull image",

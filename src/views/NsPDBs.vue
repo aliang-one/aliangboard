@@ -5,12 +5,16 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsPDBs'))
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -106,6 +110,10 @@ const allowedBadgeClass = (n) => {
 }
 
 const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
+
+function goDetail(row) {
+  router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -138,82 +146,59 @@ const isHealthy = (row) => row.currentHealthy >= row.desiredHealthy
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsPDBs.length }}</span>
     </div>
 
-    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thSelector') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thBudget') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thAllowedDisruptions') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thHealthy') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.pdb.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.pdb.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-primary text-sm">shield</span>
-                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-xs text-on-surface-variant rounded border border-outline-variant font-mono">
-                  {{ k }}={{ v }}
-                </span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex flex-col">
-                <span v-if="row.minAvailable" class="text-xs text-on-surface font-mono">
-                  <span class="text-on-surface-variant">minAvailable:</span> {{ row.minAvailable }}
-                </span>
-                <span v-else-if="row.maxUnavailable" class="text-xs text-on-surface font-mono">
-                  <span class="text-on-surface-variant">maxUnavailable:</span> {{ row.maxUnavailable }}
-                </span>
-                <span v-else class="text-xs text-on-surface-variant">—</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
-                {{ row.allowedDisruptions }}
-              </span>
-            </td>
-            <td class="px-md py-2">
-              <div class="flex items-center gap-xs">
-                <span class="text-xs font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
-                <span class="text-on-surface-variant text-xs">/</span>
-                <span class="text-xs font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
-                <span v-if="!isHealthy(row)" class="material-symbols-outlined text-error text-sm" :title="$t('ns.pdb.notReady')">warning</span>
-              </div>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsPDBDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
-                  <span class="material-symbols-outlined text-sm">open_in_new</span>
-                </button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
-                  <span class="material-symbols-outlined text-sm">delete</span>
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsPDBs" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-primary text-sm">shield</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #selector="{ row }">
+        <div class="flex flex-wrap gap-xs max-w-xs">
+          <span v-for="([k, v]) in selectorEntries(row.selector)" :key="k" class="px-1.5 py-0.5 bg-surface-container text-xs text-on-surface-variant rounded border border-outline-variant font-mono">
+            {{ k }}={{ v }}
+          </span>
+        </div>
+      </template>
+      <template #budget="{ row }">
+        <div class="flex flex-col">
+          <span v-if="row.minAvailable" class="text-xs text-on-surface font-mono">
+            <span class="text-on-surface-variant">minAvailable:</span> {{ row.minAvailable }}
+          </span>
+          <span v-else-if="row.maxUnavailable" class="text-xs text-on-surface font-mono">
+            <span class="text-on-surface-variant">maxUnavailable:</span> {{ row.maxUnavailable }}
+          </span>
+          <span v-else class="text-xs text-on-surface-variant">—</span>
+        </div>
+      </template>
+      <template #allowedDisruptions="{ row }">
+        <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold border" :class="allowedBadgeClass(row.allowedDisruptions)">
+          {{ row.allowedDisruptions }}
+        </span>
+      </template>
+      <template #healthy="{ row }">
+        <div class="flex items-center gap-xs">
+          <span class="text-xs font-mono font-semibold" :class="isHealthy(row) ? 'text-on-surface' : 'text-error'">{{ row.currentHealthy }}</span>
+          <span class="text-on-surface-variant text-xs">/</span>
+          <span class="text-xs font-mono text-on-surface-variant">{{ row.desiredHealthy }}</span>
+          <span v-if="!isHealthy(row)" class="material-symbols-outlined text-error text-sm" :title="$t('ns.pdb.notReady')">warning</span>
+        </div>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">open_in_new</span>
+          </button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
+            <span class="material-symbols-outlined text-sm">delete</span>
+          </button>
+        </div>
+      </template>
+      <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'shield' }}</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? $t('ns.pdb.noMatch') : $t('ns.pdb.emptyState') }}</p>
-      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ $t('ns.pdb.clearFilter') }}</button>
-      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.pdb.createBtn') }}</button>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create PDB Modal -->

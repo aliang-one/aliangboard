@@ -123,6 +123,79 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'nsPDBs', labelKey: 'ns.pdb.title', label: 'PodDisruptionBudgets', icon: 'shield',
+    columns: [
+      { key: 'name', labelKey: 'ns.pdb.thName', label: 'Name' },
+      { key: 'selector', labelKey: 'ns.pdb.thSelector', label: 'Selector' },
+      { key: 'budget', labelKey: 'ns.pdb.thBudget', label: 'Budget' },
+      { key: 'allowedDisruptions', labelKey: 'ns.pdb.thAllowedDisruptions', label: 'Allowed Disruptions' },
+      { key: 'healthy', labelKey: 'ns.pdb.thHealthy', label: 'Healthy' },
+      { key: 'age', labelKey: 'ns.pdb.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsHPA', labelKey: 'ns.hpa.title', label: 'HorizontalPodAutoscalers', icon: 'speed',
+    columns: [
+      { key: 'name', labelKey: 'ns.hpa.thName', label: 'Name' },
+      { key: 'target', labelKey: 'ns.hpa.thTarget', label: 'Target' },
+      { key: 'minMaxReplicas', labelKey: 'ns.hpa.thMinMaxReplicas', label: 'Min/Max Replicas' },
+      { key: 'currentReplicas', labelKey: 'ns.hpa.thCurrentReplicas', label: 'Current Replicas' },
+      { key: 'cpuTarget', labelKey: 'ns.hpa.thCpuTarget', label: 'CPU Target' },
+      { key: 'cpuCurrent', labelKey: 'ns.hpa.thCpuCurrent', label: 'CPU Current' },
+      { key: 'status', labelKey: 'ns.hpa.thStatus', label: 'Status' },
+      { key: 'age', labelKey: 'ns.hpa.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsLimitRanges', labelKey: 'ns.limitRanges.title', label: 'LimitRanges', icon: 'tune',
+    columns: [
+      { key: 'name', labelKey: 'ns.limitRanges.thName', label: 'Name' },
+      { key: 'defaultCPU', labelKey: 'ns.limitRanges.thDefaultCpu', label: 'Default CPU' },
+      { key: 'defaultMemory', labelKey: 'ns.limitRanges.thDefaultMemory', label: 'Default Memory' },
+      { key: 'maxCPU', labelKey: 'ns.limitRanges.thMaxCpu', label: 'Max CPU' },
+      { key: 'maxMemory', labelKey: 'ns.limitRanges.thMaxMemory', label: 'Max Memory' },
+      { key: 'age', labelKey: 'ns.limitRanges.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsResourceQuotas', labelKey: 'ns.resourceQuotas.title', label: 'ResourceQuotas', icon: 'speed',
+    columns: [
+      { key: 'name', labelKey: 'ns.resourceQuotas.thName', label: 'Name' },
+      { key: 'cpu', labelKey: 'ns.resourceQuotas.thCpu', label: 'CPU' },
+      { key: 'memory', labelKey: 'ns.resourceQuotas.thMemory', label: 'Memory' },
+      { key: 'pods', labelKey: 'ns.resourceQuotas.thPods', label: 'Pods' },
+      { key: 'age', labelKey: 'ns.resourceQuotas.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsStoragePVC', labelKey: 'ns.storage.pvcTab', label: 'PVCs', icon: 'storage',
+    columns: [
+      { key: 'name', labelKey: 'ns.storage.thPvcName', label: 'Name' },
+      { key: 'status', labelKey: 'ns.storage.thStatus', label: 'Status' },
+      { key: 'capacity', labelKey: 'ns.storage.thCapacity', label: 'Capacity' },
+      { key: 'accessModes', labelKey: 'ns.storage.thAccess', label: 'Access' },
+      { key: 'storageClass', labelKey: 'ns.storage.thStorageClass', label: 'StorageClass' },
+      { key: 'volume', labelKey: 'ns.storage.thVolume', label: 'Volume' },
+      { key: 'age', labelKey: 'ns.storage.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsStorageSC', labelKey: 'ns.storage.storageClassTab', label: 'StorageClasses', icon: 'database',
+    columns: [
+      { key: 'name', labelKey: 'ns.storage.thScName', label: 'Name' },
+      { key: 'provisioner', labelKey: 'ns.storage.thProvisioner', label: 'Provisioner' },
+      { key: 'parameters', labelKey: 'ns.storage.thParameters', label: 'Parameters' },
+      { key: 'reclaimPolicy', labelKey: 'ns.storage.thReclaimPolicy', label: 'Reclaim Policy' },
+      { key: 'default', labelKey: 'ns.storage.thDefault', label: 'Default' },
+      { key: 'age', labelKey: 'ns.storage.thScAge', label: 'Age' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
