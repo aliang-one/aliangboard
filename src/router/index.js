@@ -448,9 +448,7 @@ const routes = [
       },
       {
         path: 'workbench/:id/chat',
-        name: 'WorkbenchProjectChat',
-        component: () => import('@/views/WorkbenchProjectChat.vue'),
-        meta: { titleKey: 'route.projectAiAssistant', scope: 'global' }
+        redirect: to => '/workbench/' + to.params.id
       },
       // === 平台管理（admin only）===
       {
