@@ -516,6 +516,15 @@
       "deleteConfirm": "Are you sure you want to delete ingress {name}?",
       "deleteWarning": "This will remove all routing rules. This action cannot be undone."
     },
+    "networkPolicies": {
+      "title": "NetworkPolicies",
+      "subtitle": "{count} network policies in {ns}",
+      "thName": "Name",
+      "thPodSelector": "Pod Selector",
+      "thPolicyTypes": "Policy Types",
+      "thIngressRules": "Ingress Rules",
+      "thEgressRules": "Egress Rules"
+    },
     "ingressDetail": {
       "valPathRequired": "path is required",
       "valPathSlash": "path must start with / ({val})",

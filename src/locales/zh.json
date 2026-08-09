@@ -516,6 +516,15 @@
       "deleteConfirm": "确定要删除 ingress {name} 吗？",
       "deleteWarning": "将移除所有路由规则。此操作不可撤销。"
     },
+    "networkPolicies": {
+      "title": "NetworkPolicies",
+      "subtitle": "{ns} 命名空间中有 {count} 条网络策略",
+      "thName": "Name",
+      "thPodSelector": "Pod 选择器",
+      "thPolicyTypes": "策略类型",
+      "thIngressRules": "入站规则",
+      "thEgressRules": "出站规则"
+    },
     "ingressDetail": {
       "valPathRequired": "path 必填",
       "valPathSlash": "path 须以 / 开头（{val}）",

@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import NetworkPolicyEditor from '@/components/networkpolicy/NetworkPolicyEditor.vue'
@@ -13,6 +16,9 @@ import { usePagination } from '@/composables/usePagination'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsNetworkPolicies'))
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -56,6 +62,10 @@ function ruleCount(rules) {
   return rules ? rules.length : 0
 }
 
+function goDetail(row) {
+  router.push({ name: 'NsNetworkPolicyDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
+
 // Create NetworkPolicy
 const showCreate = ref(false)
 function onApplied() {
@@ -88,8 +98,8 @@ async function handleDelete() {
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md text-on-surface font-bold">NetworkPolicies</h2>
-        <p class="text-on-surface-variant text-body-sm mt-xs">{{ nsNetworkPolicies.length }} network policies in <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
+        <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.networkPolicies.title') }}</h2>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.networkPolicies.subtitle', { count: nsNetworkPolicies.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreate = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> Create NetworkPolicy
@@ -113,83 +123,55 @@ async function handleDelete() {
       </button>
     </div>
 
-    <div v-if="nsNetworkPolicies.length">
-      <div v-if="filteredPolicies.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Pod Selector</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Policy Types</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Ingress Rules</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Egress Rules</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsNetworkPolicyDetail', params: { namespace: route.params.namespace, name: row.name } })">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-tertiary text-sm">shield</span>
-                  <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2">
-                <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-xs rounded-full">All Pods</span>
-                <div v-else class="flex flex-wrap gap-xs max-w-xs">
-                  <span v-for="(val, key) in row.podSelector" :key="key" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ key }}={{ val }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2">
-                <div class="flex gap-xs">
-                  <span v-for="pt in row.policyTypes" :key="pt" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-                    :class="pt === 'Ingress' ? 'bg-primary-container/10 text-primary border border-primary/20' : 'bg-tertiary-container/10 text-tertiary border border-tertiary/20'">
-                    <span class="material-symbols-outlined text-xs">{{ pt === 'Ingress' ? 'arrow_downward' : 'arrow_upward' }}</span>
-                    {{ pt }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-md py-2">
-                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
-                  :class="ruleCount(row.ingressRules) > 0 ? 'bg-primary-container/10 text-primary' : 'bg-surface-container text-on-surface-variant'">
-                  {{ ruleCount(row.ingressRules) }}
-                </span>
-              </td>
-              <td class="px-md py-2">
-                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
-                  :class="ruleCount(row.egressRules) > 0 ? 'bg-tertiary-container/10 text-tertiary' : 'bg-surface-container text-on-surface-variant'">
-                  {{ ruleCount(row.egressRules) }}
-                </span>
-              </td>
-              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-              <td class="px-md py-2" @click.stop>
-                <div class="flex gap-1">
-                  <button @click="router.push({ name: 'NsNetworkPolicyDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
-                    <span class="material-symbols-outlined text-sm">open_in_new</span>
-                  </button>
-                  <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
-                    <span class="material-symbols-outlined text-sm">delete</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
-          <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+    <DataTable :headers="headers" :rows="paginated" column-key="nsNetworkPolicies" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-tertiary text-sm">shield</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
         </div>
-      </div>
-      <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-        <span class="material-symbols-outlined text-2xl text-surface-container-high">filter_list_off</span>
-        <p class="text-on-surface-variant text-body-sm mt-xs">No NetworkPolicies match the selected filter</p>
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">shield</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">No NetworkPolicies in this namespace</p>
-      <button @click="showCreate = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">Create NetworkPolicy</button>
-    </div>
+      </template>
+      <template #podSelector="{ row }">
+        <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-xs rounded-full">All Pods</span>
+        <div v-else class="flex flex-wrap gap-xs max-w-xs">
+          <span v-for="(val, key) in row.podSelector" :key="key" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ key }}={{ val }}</span>
+        </div>
+      </template>
+      <template #policyTypes="{ row }">
+        <div class="flex gap-xs">
+          <span v-for="pt in row.policyTypes" :key="pt" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+            :class="pt === 'Ingress' ? 'bg-primary-container/10 text-primary border border-primary/20' : 'bg-tertiary-container/10 text-tertiary border border-tertiary/20'">
+            <span class="material-symbols-outlined text-xs">{{ pt === 'Ingress' ? 'arrow_downward' : 'arrow_upward' }}</span>
+            {{ pt }}
+          </span>
+        </div>
+      </template>
+      <template #ingressRules="{ row }">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
+          :class="ruleCount(row.ingressRules) > 0 ? 'bg-primary-container/10 text-primary' : 'bg-surface-container text-on-surface-variant'">
+          {{ ruleCount(row.ingressRules) }}
+        </span>
+      </template>
+      <template #egressRules="{ row }">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border border-outline-variant"
+          :class="ruleCount(row.egressRules) > 0 ? 'bg-tertiary-container/10 text-tertiary' : 'bg-surface-container text-on-surface-variant'">
+          {{ ruleCount(row.egressRules) }}
+        </span>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1 justify-end">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+            <span class="material-symbols-outlined text-sm">open_in_new</span>
+          </button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
+            <span class="material-symbols-outlined text-sm">delete</span>
+          </button>
+        </div>
+      </template>
+      <template v-if="filteredPolicies.length" #pagination>
+        <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
+      </template>
+    </DataTable>
   </section>
 
   <!-- 创建向导 -->
