@@ -78,6 +78,15 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'nsEvents', labelKey: 'ns.events.title', label: 'Events', icon: 'event_available',
+    columns: [
+      { key: 'type', labelKey: 'ns.events.thType', label: 'Type' },
+      { key: 'reason', labelKey: 'ns.events.thReason', label: 'Reason' },
+      { key: 'message', labelKey: 'ns.events.thMessage', label: 'Message' },
+      { key: 'time', labelKey: 'ns.events.thTime', label: 'Time' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)

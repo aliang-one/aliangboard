@@ -3,7 +3,9 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -11,6 +13,8 @@ import { useResourceList } from '@/composables/useK8sQuery'
 const route = useRoute()
 const store = useClusterStore()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsEvents'))
 store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -73,45 +77,27 @@ onUnmounted(() => store.stopEventWatch())
       </span>
     </div>
 
-    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-14">{{ t('ns.events.thType') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thReason') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thMessage') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.events.thTime') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="(event, idx) in paginated" :key="idx" class="hover:bg-surface-container-low/40 transition-colors">
-            <td class="px-md py-2">
-              <div class="w-7 h-7 rounded-full flex items-center justify-center"
-                :class="{
-                  'bg-primary-container text-on-primary-container': event.color === 'primary',
-                  'bg-tertiary-fixed-dim text-on-tertiary-fixed': event.color === 'tertiary',
-                  'bg-error-container text-on-error-container': event.color === 'error',
-                  'bg-surface-container text-on-surface-variant': event.color === 'surface',
-                }">
-                <span class="material-symbols-outlined text-sm">{{ event.icon }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="font-semibold text-on-surface text-body-sm">{{ event.reason }}</span>
-              <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="event.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ event.type }}</span>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant max-w-md">{{ event.message }}</td>
-            <td class="px-md py-2 font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ event.time }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsEvents">
+      <template #type="{ row }">
+        <div class="w-7 h-7 rounded-full flex items-center justify-center"
+          :class="{
+            'bg-primary-container text-on-primary-container': row.color === 'primary',
+            'bg-tertiary-fixed-dim text-on-tertiary-fixed': row.color === 'tertiary',
+            'bg-error-container text-on-error-container': row.color === 'error',
+            'bg-surface-container text-on-surface-variant': row.color === 'surface',
+          }">
+          <span class="material-symbols-outlined text-sm">{{ row.icon }}</span>
+        </div>
+      </template>
+      <template #reason="{ row }">
+        <span class="font-semibold text-on-surface text-body-sm">{{ row.reason }}</span>
+        <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="row.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ row.type }}</span>
+      </template>
+      <template #message="{ row }"><span class="text-body-sm text-on-surface-variant max-w-md">{{ row.message }}</span></template>
+      <template #time="{ row }"><span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ row.time }}</span></template>
+      <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">event_available</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.events.empty') }}</p>
-    </div>
+      </template>
+    </DataTable>
   </section>
 </template>
