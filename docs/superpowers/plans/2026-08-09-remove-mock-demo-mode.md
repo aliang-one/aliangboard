@@ -156,15 +156,19 @@ export function useResourceDetail({ key, fetcher, options = {} }) {
 
 (顶部注释里「mock / 演示模式用 mockFn」一句删除/改写。)
 
-- [ ] **Step 3: typecheck + 单测**
+- [ ] **Step 3: 删除 mockMode 断言用例**
+
+`src/composables/__tests__/useResourceList.test.js` 的 `it('mockMode returns mock seed and does not call fetcher', ...)` 块(lines ~28-35)断言了已删的 `mock`/`mockMode` 行为——整块删除。保留同文件另两个用例(`calls fetcher...`、`refetches after invalidateQueries`)。
+
+- [ ] **Step 4: typecheck + 单测**
 
 Run: `npm run typecheck && npm run test:unit`
 Expected: PASS。(`useLiveYaml` 现恒 fetch,被 Task 1 桩兜底;view 仍传 mockMode 死参,被解构忽略。)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/composables/useK8sQuery.js src/composables/useLiveYaml.js
+git add src/composables/useK8sQuery.js src/composables/useLiveYaml.js src/composables/__tests__/useResourceList.test.js
 git commit -m "refactor(composable): 删 useResourceList/useLiveYaml 的 mock 形参"
 ```
 
