@@ -363,6 +363,16 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'nsEndpoints', labelKey: 'ns.endpoints.title', label: 'Endpoints', icon: 'hub',
+    columns: [
+      { key: 'name', labelKey: 'ns.endpoints.thName', label: 'Name' },
+      { key: 'ready', labelKey: 'ns.endpoints.thReady', label: 'Ready' },
+      { key: 'addresses', labelKey: 'ns.endpoints.thAddresses', label: 'Addresses' },
+      { key: 'ports', labelKey: 'ns.endpoints.thPorts', label: 'Ports' },
+      { key: 'age', labelKey: 'ns.endpoints.thAge', label: 'Age' },
+    ],
+  },
   // —— 集群硬编码列表(Phase2 Task7)——
   {
     key: 'crds', labelKey: 'admin.crdList.title', label: 'Custom Resource Definitions', icon: 'extension',
