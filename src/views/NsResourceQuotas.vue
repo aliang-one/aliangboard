@@ -45,9 +45,9 @@ function resetCreate() {
   createForm.value = { name: '', cpuHard: '8', memoryHard: '16Gi', podsHard: '20', servicesHard: '10' }
 }
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addResourceQuota({
+  await store.addResourceQuota({
     name: f.name,
     namespace: route.params.namespace,
     hard: {
@@ -75,9 +75,9 @@ function confirmDelete(rq) {
   deleteTarget.value = rq
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteResourceQuota(deleteTarget.value.name, route.params.namespace)
+    await store.deleteResourceQuota(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: resourcequotasKey })
   }
   showDeleteModal.value = false

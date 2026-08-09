@@ -50,9 +50,9 @@ function resetCreate() {
 // 切换 targetKind 时清空 targetName（旧选项不属于新 kind）
 watch(() => createForm.value.targetKind, () => { createForm.value.targetName = '' })
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addHPA({
+  await store.addHPA({
     name: f.name,
     namespace: route.params.namespace,
     targetName: f.targetName,
@@ -78,9 +78,9 @@ function confirmDelete(hpa) {
   deleteTarget.value = hpa
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteHPA(deleteTarget.value.name, route.params.namespace)
+    await store.deleteHPA(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: hpasKey })
   }
   showDeleteModal.value = false

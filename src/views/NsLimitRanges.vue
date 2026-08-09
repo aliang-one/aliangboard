@@ -58,9 +58,9 @@ function resetCreate() {
   }
 }
 
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addLimitRange({
+  await store.addLimitRange({
     name: f.name,
     namespace: route.params.namespace,
     defaultCPU: f.defaultCPU,
@@ -84,9 +84,9 @@ function confirmDelete(lr) {
   deleteTarget.value = lr
   showDeleteModal.value = true
 }
-function handleDelete() {
+async function handleDelete() {
   if (deleteTarget.value) {
-    store.deleteLimitRange(deleteTarget.value.name, route.params.namespace)
+    await store.deleteLimitRange(deleteTarget.value.name, route.params.namespace)
     queryClient.invalidateQueries({ queryKey: limitrangesKey })
   }
   showDeleteModal.value = false
