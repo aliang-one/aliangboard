@@ -4,11 +4,9 @@ import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
 import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { yamlScalar } from '@/composables/useYaml'
-import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
-import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
+import { classifyResource } from '@/composables/useLayering'
 import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
-import { extractNodeExtra } from '@/composables/useNodeFields'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
 import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
@@ -111,22 +109,87 @@ export const useClusterStore = defineStore('cluster', () => {
   let podWatchRv = null
   let podWatchHandle = null
   const podWatchLive = ref(false)
+  // === Pod Watch：实时监听 Pod 变化（ADDED/MODIFIED/DELETED 增量更新 podList）===
+  // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
+  // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
+  function applyPodWatchEvent(evt) {
+    if (!evt?.object) return
+    const mapped = mapPod(evt.object, null)
+    const list = podList.value
+    const idx = list.findIndex(p => p.name === mapped.name && p.namespace === mapped.namespace)
+    if (evt.type === 'DELETED') { if (idx !== -1) list.splice(idx, 1) }
+    else if (idx !== -1) list[idx] = { ...list[idx], ...mapped }
+    else list.push(mapped)
+  }
+  function startPodWatch() {
+    if (!remoteMode.value || podWatchHandle) return
+    const rv = podWatchRv || ''
+    const path = `/api/v1/pods?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`
+    podWatchLive.value = true
+    podWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
+          applyPodWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsPods 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopPodWatch,
+      onClose: stopPodWatch,
+    })
+  }
+  function stopPodWatch() {
+    podWatchLive.value = false
+    if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
+  }
+  
+  // === Events 实时监听（watch）+ 按对象过滤 ===
+  let eventWatchHandle = null
+  let eventWatchRv = ''
+  const eventWatchLive = ref(false)
+  function applyEventWatchEvent(evt) {
+    const mapped = mapEvent(evt.object)
+    if (!mapped.uid) return
+    const idx = eventList.value.findIndex(e => e.uid === mapped.uid)
+    if (evt.type === 'DELETED') { if (idx !== -1) eventList.value.splice(idx, 1) }
+    else if (idx !== -1) eventList.value[idx] = mapped
+    else { eventList.value.unshift(mapped); if (eventList.value.length > 1000) eventList.value.length = 1000 }
+  }
+  function startEventWatch() {
+    if (!remoteMode.value || eventWatchHandle) return
+    const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
+    eventWatchLive.value = true
+    eventWatchHandle = k8sStream(path, {
+      onMessage: line => {
+        try {
+          const evt = JSON.parse(line)
+          if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
+          applyEventWatchEvent(evt)
+          // 加法桥接：同步写 Query 缓存（NsEvents 等 Query 消费者享 live）
+          const _cid = currentCluster.value || 'cluster'
+          queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
+        } catch { /* 忽略非 JSON 心跳行 */ }
+      },
+      onError: stopEventWatch,
+      onClose: stopEventWatch,
+    })
+  }
+  function stopEventWatch() {
+    eventWatchLive.value = false
+    if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
+  }
+  // 详情页用：返回关联到指定资源（involvedObject）的事件
+  function eventsFor(kind, name, namespace) {
+    return eventList.value.filter(e => e.relatedKind === kind && e.relatedName === name && (!namespace || e.relatedNamespace === namespace))
+  }
+  
 
   // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
   const currentNamespace = ref(localStorage.getItem('aliangboard.namespace') || '')
 
-  // === 微服务分层定义（对标 Kuboard tier）===
-  const TIER_META = {
-    web: { label: i18n.global.t('store.presentationLayer'), en: 'Web', icon: 'web', color: 'primary', order: 0 },
-    gateway: { label: i18n.global.t('store.gatewayLayer'), en: 'Gateway', icon: 'dns', color: 'secondary', order: 1 },
-    svc: { label: i18n.global.t('store.serviceLayer'), en: 'Service', icon: 'apps', color: 'tertiary', order: 2 },
-    cloud: { label: i18n.global.t('store.middlewareLayer'), en: 'Middleware', icon: 'cloud', color: 'tertiary', order: 3 },
-    db: { label: i18n.global.t('store.persistenceLayer'), en: 'Database', icon: 'database', color: 'error', order: 4 },
-    monitor: { label: i18n.global.t('store.monitorLayer'), en: 'Monitor', icon: 'monitoring', color: 'secondary', order: 5 },
-    default: { label: i18n.global.t('store.defaultLayer'), en: 'Default', icon: 'workspaces', color: 'surface', order: 6 },
-  }
-
-  // === 全局计算属性 ===
   const runningPods = computed(() => podList.value.filter(p => p.status === 'Running').length)
   const pendingPods = computed(() => podList.value.filter(p => p.status === 'Pending').length)
   const failedPods = computed(() => podList.value.filter(p => p.status === 'Failed').length)
@@ -138,134 +201,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }))
 
   // === Namespace 作用域的计算属性 ===
-  const nsWorkloads = computed(() => {
-    if (!currentNamespace.value) return []
-    return workloadList.value.filter(w => w.namespace === currentNamespace.value)
-  })
-
-  const nsPods = computed(() => {
-    if (!currentNamespace.value) return []
-    return podList.value.filter(p => p.namespace === currentNamespace.value)
-  })
-
-  const nsServices = computed(() => {
-    if (!currentNamespace.value) return []
-    return serviceList.value.filter(s => s.namespace === currentNamespace.value)
-  })
-
-  // 当前 ns 下所有工作负载暴露的容器端口（去重升序），供 Service targetPort 下拉选择
-  const nsContainerPorts = computed(() => extractContainerPorts(nsWorkloads.value))
-  // 按 workload 聚合的容器端口（保留来源），供 PortSelect 分组展示 + 优先匹配绑定工作负载
-  const nsContainerPortGroups = computed(() => extractContainerPortsGrouped(nsWorkloads.value))
-
-  const nsIngress = computed(() => {
-    if (!currentNamespace.value) return []
-    return ingressList.value.filter(s => s.namespace === currentNamespace.value)
-  })
-
-  const nsEndpoints = computed(() => {
-    if (!currentNamespace.value) return []
-    return endpointsList.value.filter(e => e.namespace === currentNamespace.value)
-  })
-
-  const nsConfigMaps = computed(() => {
-    if (!currentNamespace.value) return []
-    return configMapList.value.filter(c => c.namespace === currentNamespace.value)
-  })
-
-  const nsSecrets = computed(() => {
-    if (!currentNamespace.value) return []
-    return secretList.value.filter(s => s.namespace === currentNamespace.value)
-  })
-
-  const nsPVCs = computed(() => {
-    if (!currentNamespace.value) return []
-    return pvcList.value.filter(p => p.namespace === currentNamespace.value)
-  })
-
-  const nsRoles = computed(() => {
-    if (!currentNamespace.value) return []
-    return roleList.value.filter(r => r.namespace === currentNamespace.value && r.scope !== 'Cluster')
-  })
-
-  const nsServiceAccounts = computed(() => {
-    if (!currentNamespace.value) return []
-    return saList.value.filter(s => s.namespace === currentNamespace.value)
-  })
-
-  const nsNetworkPolicies = computed(() => {
-    if (!currentNamespace.value) return []
-    return networkPolicyList.value.filter(n => n.namespace === currentNamespace.value)
-  })
-
-  const nsHPAs = computed(() => {
-    if (!currentNamespace.value) return []
-    return hpaList.value.filter(h => h.namespace === currentNamespace.value)
-  })
-
-  const nsResourceQuotas = computed(() => {
-    if (!currentNamespace.value) return []
-    return resourceQuotaList.value.filter(r => r.namespace === currentNamespace.value)
-  })
-
-  const nsLimitRanges = computed(() => {
-    if (!currentNamespace.value) return []
-    return limitRangeList.value.filter(l => l.namespace === currentNamespace.value)
-  })
-
-  const nsRoleBindings = computed(() => {
-    if (!currentNamespace.value) return []
-    return roleBindingList.value.filter(r => r.namespace === currentNamespace.value)
-  })
-
-  // 集群级角色（全局，不按 namespace 过滤）
-  const clusterRoles = computed(() => roleList.value.filter(r => r.scope === 'Cluster'))
-
-  // 命名空间级 PDB
-  const nsPDBs = computed(() => {
-    if (!currentNamespace.value) return []
-    return pdbList.value.filter(p => p.namespace === currentNamespace.value)
-  })
-
-  const nsEvents = computed(() => {
-    if (!currentNamespace.value) return eventList.value
-    return eventList.value.filter(e => e.namespace === currentNamespace.value)
-  })
-
-  // Namespace 统计
-  const nsStats = computed(() => {
-    if (!currentNamespace.value) return {}
-    const ns = currentNamespace.value
-    return {
-      deployments: workloadList.value.filter(w => w.namespace === ns && w.type === 'Deployment').length,
-      statefulSets: workloadList.value.filter(w => w.namespace === ns && w.type === 'StatefulSet').length,
-      daemonSets: workloadList.value.filter(w => w.namespace === ns && w.type === 'DaemonSet').length,
-      jobs: workloadList.value.filter(w => w.namespace === ns && (w.type === 'Job' || w.type === 'CronJob')).length,
-      pods: podList.value.filter(p => p.namespace === ns).length,
-      runningPods: podList.value.filter(p => p.namespace === ns && p.status === 'Running').length,
-      services: serviceList.value.filter(s => s.namespace === ns).length,
-      ingress: ingressList.value.filter(i => i.namespace === ns).length,
-      configMaps: configMapList.value.filter(c => c.namespace === ns).length,
-      secrets: secretList.value.filter(s => s.namespace === ns).length,
-      pvcs: pvcList.value.filter(p => p.namespace === ns).length,
-    }
-  })
-
-  // 微服务分层拓扑：按 classifyResource(w) 分组（与 NsLayers 同源），输出 LAYER_TAXONOMY 扁平层。
-  // meta 带 color/en/icon/label，供 NamespaceOverview 的 tierBg/Text/Chip 直接复用。
-  const nsTieredWorkloads = computed(() => {
-    if (!currentNamespace.value) return []
-    const groups = {}
-    nsWorkloads.value.forEach(w => {
-      const key = classifyResource(w) || 'unclassified'
-      ;(groups[key] ||= []).push(w)
-    })
-    const flat = []
-    for (const node of LAYER_TAXONOMY) {
-      if (node.children) flat.push(...node.children); else flat.push(node)
-    }
-    return flat.filter(n => groups[n.key]?.length).map(n => ({ tier: n.key, meta: n, workloads: groups[n.key] }))
-  })
 
   // === Actions ===
   // 平台编辑/回滚/创建后自动写入的 tag：标识「由 AliangBoard 管理」+ 最后编辑时间
@@ -1735,40 +1670,6 @@ export const useClusterStore = defineStore('cluster', () => {
     return { failed: requests.filter(r => r.status === 'rejected').length }
   }
 
-  async function hydrateExtendedResources() {
-    if (!remoteMode.value) return
-    const fetchers = {
-      configmaps: () => api.k8s('/api/v1/configmaps?limit=5000'),
-      secrets: () => api.k8s('/api/v1/secrets?limit=5000'),
-      persistentvolumeclaims: () => api.k8s('/api/v1/persistentvolumeclaims?limit=5000'),
-      endpoints: () => api.k8s('/api/v1/endpoints?limit=5000'),
-      resourcequotas: () => api.k8s('/api/v1/resourcequotas?limit=5000'),
-      limitranges: () => api.k8s('/api/v1/limitranges?limit=5000'),
-      persistentvolumes: () => api.k8s('/api/v1/persistentvolumes?limit=5000'),
-      networkpolicies: () => api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'),
-      horizontalpodautoscalers: () => api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'),
-      poddisruptionbudgets: () => api.k8s('/apis/policy/v1/poddisruptionbudgets?limit=5000'),
-      storageclasses: () => api.k8s('/apis/storage.k8s.io/v1/storageclasses?limit=5000'),
-    }
-    const out = {}
-    let failed = 0
-    await Promise.all(Object.entries(fetchers).map(async ([k, fn]) => {
-      try { out[k] = (await fn())?.items || [] } catch { out[k] = []; failed++ }
-    }))
-    configMapList.value = out.configmaps.map(mapConfigMap)
-    secretList.value = out.secrets.map(mapSecret)
-    pvcList.value = out.persistentvolumeclaims.map(mapPVC)
-    endpointsList.value = out.endpoints.map(mapEndpoints)
-    resourceQuotaList.value = out.resourcequotas.map(mapResourceQuota)
-    limitRangeList.value = out.limitranges.map(mapLimitRange)
-    pvList.value = out.persistentvolumes.map(mapPV)
-    networkPolicyList.value = out.networkpolicies.map(mapNetworkPolicy)
-    hpaList.value = out.horizontalpodautoscalers.map(mapHPA)
-    pdbList.value = out.poddisruptionbudgets.map(mapPDB)
-    scList.value = out.storageclasses.map(mapStorageClass)
-    return { failed }
-  }
-
   function getCurrentCluster() {
     return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
   }
@@ -2768,9 +2669,6 @@ status:
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Namespace 作用域计算
-    nsWorkloads, nsPods, nsServices, nsIngress, nsEndpoints, nsConfigMaps, nsSecrets, nsContainerPorts, nsContainerPortGroups,
-    nsPVCs, nsRoles, nsServiceAccounts, nsEvents, nsStats,
-    nsTieredWorkloads, TIER_META, clusterRoles, nsPDBs,
     nsNetworkPolicies, nsHPAs, nsResourceQuotas, nsLimitRanges, nsRoleBindings,
     // Actions
     setNamespace, getWorkloadByName, fetchWorkload, getPodByName, getNodeByName, getNamespaceByName,

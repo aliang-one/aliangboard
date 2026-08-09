@@ -2,12 +2,17 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
+import { extractContainerPorts } from '@/composables/usePorts'
 import PortSelect from '@/components/common/PortSelect.vue'
 import { SECRET_TEMPLATES, buildSecretData } from '@/composables/useSecretTemplates'
 import { useEscClose } from '@/composables/useEscClose'
 
 const { t } = useI18n()
 const store = useClusterStore()
+const _cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _wlsQ = useResourceList({ key: ['cluster', _cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || [])))
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -226,7 +231,7 @@ spec:
                     </div>
                   </div>
                   <div><label class="text-label-caps text-on-surface-variant block mb-xs">Port</label><input v-model.number="serviceForm.port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="store.nsContainerPorts" placeholder="8080" :empty-hint="t('component.createDialog.serviceEmptyHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="nsContainerPorts" placeholder="8080" :empty-hint="t('component.createDialog.serviceEmptyHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
                 </div>
               </template>
 

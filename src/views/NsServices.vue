@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { exportYaml } from '@/api/client'
+import { extractContainerPorts } from '@/composables/usePorts'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
@@ -32,6 +33,9 @@ const servicesQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
+// 容器端口（从 workloads 派生，替代 nsContainerPorts）
+const _wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), mock: store.workloadList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace)))
 
 const typeFilter = ref('All')
 const typeOptions = ['All', 'ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']
@@ -359,7 +363,7 @@ function handleDelete() {
           <div v-for="(p, idx) in createForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :options="store.nsContainerPorts" placeholder="target" :empty-hint="t('ns.services.targetPortHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :options="nsContainerPorts" placeholder="target" :empty-hint="t('ns.services.targetPortHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>

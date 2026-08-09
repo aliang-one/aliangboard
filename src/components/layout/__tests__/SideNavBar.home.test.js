@@ -8,11 +8,16 @@ vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
     currentNamespace: 'default',
     namespaceList: [],
+    remoteMode: false,
+    fetchNamespaces: vi.fn(),
     cluster: { name: 'test', version: 'v1' },
     setNamespace: vi.fn(),
   }),
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: false }) }))
+vi.mock('@/composables/useK8sQuery', () => ({
+  useResourceList: () => ({ data: { value: [] } }),
+}))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/ns/default/workloads', params: { namespace: 'default' }, name: 'NsWorkloads' }),
   useRouter: () => ({ push: pushSpy }),
