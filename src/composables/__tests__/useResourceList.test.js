@@ -25,17 +25,6 @@ describe('useResourceList integration', () => {
     queryClient.clear()
   })
 
-  it('mockMode returns mock seed and does not call fetcher', async () => {
-    const fetcher = vi.fn(async () => ['should-not-be-called'])
-    const mock = [{ name: 'mock-a' }]
-    let q
-    const { queryClient } = mountWithQuery(() => { q = useResourceList({ key: ['t', 'mock'], fetcher, mock, mockMode: true }); return {} })
-    await flush()
-    expect(fetcher).not.toHaveBeenCalled()
-    expect(q.data.value).toEqual([{ name: 'mock-a' }])
-    queryClient.clear()
-  })
-
   it('refetches after invalidateQueries', async () => {
     let calls = 0
     const fetcher = vi.fn(async () => { calls++; return [{ n: calls }] })

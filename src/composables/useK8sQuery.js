@@ -33,31 +33,30 @@ export function applyWatchEvent(list, type, item, identityKey = uidKey) {
 }
 
 // 集群资源列表查询。
-//   key: canonical queryKey（数组）；fetcher: () => Promise<mapped[]>；mock: 静态种子（demo 模式）；
-//   mockMode: true 时返回 mock 且 staleTime:Infinity（只取一次不重拉，避免无后端 demo 触发真实请求/401）；
+//   key: canonical queryKey（数组）；fetcher: () => Promise<mapped[]>；
 //   select: 派生（如按 namespace 过滤），Vue Query 按 key memoize，无 per-tick 全表重扫。
-export function useResourceList({ key, fetcher, mock = null, mockMode = false, select, identityKey = uidKey, options = {} }) {
+export function useResourceList({ key, fetcher, select, identityKey = uidKey, options = {} }) {
   return useQuery({
     queryKey: key,
-    queryFn: mockMode ? () => mock : fetcher,
-    staleTime: mockMode ? Infinity : (options.staleTime ?? 15_000),
-    gcTime: mockMode ? Infinity : (options.gcTime ?? 5 * 60_000),
-    refetchOnWindowFocus: mockMode ? false : (options.refetchOnWindowFocus ?? true),
-    retry: mockMode ? false : (options.retry ?? 1),
-    refetchInterval: mockMode ? false : (options.refetchInterval ?? false),
+    queryFn: fetcher,
+    staleTime: options.staleTime ?? 15_000,
+    gcTime: options.gcTime ?? 5 * 60_000,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true,
+    retry: options.retry ?? 1,
+    refetchInterval: options.refetchInterval ?? false,
     enabled: options.enabled ?? true,
     select,
   })
 }
 
 // 单资源详情查询。
-export function useResourceDetail({ key, fetcher, mock = null, mockMode = false, options = {} }) {
+export function useResourceDetail({ key, fetcher, options = {} }) {
   return useQuery({
     queryKey: key,
-    queryFn: mockMode ? () => mock : fetcher,
-    staleTime: mockMode ? Infinity : (options.staleTime ?? 15_000),
-    retry: mockMode ? false : (options.retry ?? 1),
-    refetchInterval: mockMode ? false : (options.refetchInterval ?? false),
+    queryFn: fetcher,
+    staleTime: options.staleTime ?? 15_000,
+    retry: options.retry ?? 1,
+    refetchInterval: options.refetchInterval ?? false,
     enabled: options.enabled ?? true,
   })
 }

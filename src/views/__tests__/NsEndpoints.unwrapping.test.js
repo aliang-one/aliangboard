@@ -9,14 +9,12 @@ import { i18n } from '@/i18n'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
-    remoteMode: false,
     currentCluster: 'demo',
-    endpointsList: [
-      { name: 'my-ep', namespace: 'default', addresses: ['10.0.0.1'], notReadyAddresses: [], ports: [{ port: 80, protocol: 'TCP' }], age: '1d' },
-    ],
     serviceList: [],
     setNamespace: () => {},
-    fetchEndpoints: vi.fn(async () => []),
+    fetchEndpoints: vi.fn(async () => [
+      { name: 'my-ep', namespace: 'default', addresses: ['10.0.0.1'], notReadyAddresses: [], ports: [{ port: 80, protocol: 'TCP' }], age: '1d' },
+    ]),
     fetchServices: vi.fn(async () => []),
     generateYAML: () => '',
   }),

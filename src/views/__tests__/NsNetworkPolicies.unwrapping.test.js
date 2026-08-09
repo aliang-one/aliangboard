@@ -10,13 +10,11 @@ import { i18n } from '@/i18n'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
-    remoteMode: false, // demo → useResourceList 用 mock 种子,不发请求
     currentCluster: 'demo',
-    networkPolicyList: [
-      { name: 'my-pol', namespace: 'default', policyTypes: ['Ingress', 'Egress'], ingressRules: [], egressRules: [], podSelector: {}, age: '1d' },
-    ],
     setNamespace: () => {},
-    fetchNetworkPolicies: vi.fn(async () => []),
+    fetchNetworkPolicies: vi.fn(async () => [
+      { name: 'my-pol', namespace: 'default', policyTypes: ['Ingress', 'Egress'], ingressRules: [], egressRules: [], podSelector: {}, age: '1d' },
+    ]),
   }),
 }))
 
