@@ -8,10 +8,12 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { useTableColumns } from '@/composables/useTableColumns'
 
 const { t } = useI18n()
 const router = useRouter()
 const store = useClusterStore()
+const { tableColumns } = useTableColumns()
 const activeTab = ref('configmaps')
 
 // 5 资源 cluster-wide 走 Vue Query（与 ns 页面共享 key 去重）
@@ -37,46 +39,11 @@ const tabs = [
   { key: 'hpas', label: t('config.hpasTab') },
 ]
 
-const cmHeaders = [
-  { key: 'name', label: t('config.name') },
-  { key: 'namespace', label: t('config.namespace') },
-  { key: 'keys', label: t('config.dataKeys') },
-  { key: 'age', label: t('config.age') },
-  { key: 'actions', label: t('config.actions'), align: 'right' },
-]
-const secretHeaders = [
-  { key: 'name', label: t('config.name') },
-  { key: 'namespace', label: t('config.namespace') },
-  { key: 'type', label: t('config.type') },
-  { key: 'keys', label: t('config.keys') },
-  { key: 'age', label: t('config.age') },
-  { key: 'actions', label: t('config.actions'), align: 'right' },
-]
-const rqHeaders = [
-  { key: 'name', label: t('config.name') },
-  { key: 'namespace', label: t('config.namespace') },
-  { key: 'limits', label: t('config.limits') },
-  { key: 'age', label: t('config.age') },
-  { key: 'actions', label: t('config.actions'), align: 'right' },
-]
-const lrHeaders = [
-  { key: 'name', label: t('config.name') },
-  { key: 'namespace', label: t('config.namespace') },
-  { key: 'defaultCPU', label: t('config.defCPU') },
-  { key: 'defaultMemory', label: t('config.defMemory') },
-  { key: 'age', label: t('config.age') },
-  { key: 'actions', label: t('config.actions'), align: 'right' },
-]
-const hpaHeaders = [
-  { key: 'name', label: t('config.name') },
-  { key: 'namespace', label: t('config.namespace') },
-  { key: 'targetName', label: t('config.target') },
-  { key: 'minReplicas', label: t('config.min') },
-  { key: 'maxReplicas', label: t('config.max') },
-  { key: 'cpuTarget', label: t('config.cpuTarget') },
-  { key: 'age', label: t('config.age') },
-  { key: 'actions', label: t('config.actions'), align: 'right' },
-]
+const cmHeaders = computed(() => tableColumns('configCM'))
+const secretHeaders = computed(() => tableColumns('configSecret'))
+const rqHeaders = computed(() => tableColumns('configRQ'))
+const lrHeaders = computed(() => tableColumns('configLR'))
+const hpaHeaders = computed(() => tableColumns('configHPA'))
 
 // 各 tab 对应的「新建」目标命名空间列表页（复用既有表单页）与详情页路由名
 const createRouteName = {
@@ -166,7 +133,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- ConfigMaps -->
-    <DataTable v-if="activeTab === 'configmaps'" :headers="cmHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'configmaps'" :headers="cmHeaders" :rows="paginated" column-key="configCM" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">description</span>
@@ -192,7 +159,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- Secrets -->
-    <DataTable v-if="activeTab === 'secrets'" :headers="secretHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'secrets'" :headers="secretHeaders" :rows="paginated" column-key="configSecret" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-tertiary-container">key</span>
@@ -214,7 +181,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </DataTable>
 
     <!-- ResourceQuotas -->
-    <DataTable v-if="activeTab === 'resourcequotas' && allResourceQuotas.length" :headers="rqHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'resourcequotas' && allResourceQuotas.length" :headers="rqHeaders" :rows="paginated" column-key="configRQ" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">pie_chart</span>
@@ -239,7 +206,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- LimitRanges -->
-    <DataTable v-if="activeTab === 'limitranges' && allLimitRanges.length" :headers="lrHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'limitranges' && allLimitRanges.length" :headers="lrHeaders" :rows="paginated" column-key="configLR" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">tune</span>
@@ -265,7 +232,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     </div>
 
     <!-- HPA -->
-    <DataTable v-if="activeTab === 'hpas' && allHPAs.length" :headers="hpaHeaders" :rows="paginated" @row-click="editItem">
+    <DataTable v-if="activeTab === 'hpas' && allHPAs.length" :headers="hpaHeaders" :rows="paginated" column-key="configHPA" @row-click="editItem">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
           <span class="material-symbols-outlined text-secondary">timeline</span>

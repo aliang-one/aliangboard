@@ -287,6 +287,61 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'storage.thActions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'configCM', labelKey: 'config.configmapsTab', label: 'ConfigMaps', icon: 'description',
+    columns: [
+      { key: 'name', labelKey: 'config.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'config.namespace', label: 'Namespace' },
+      { key: 'keys', labelKey: 'config.dataKeys', label: 'Data Keys' },
+      { key: 'age', labelKey: 'config.age', label: 'Age' },
+      { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'configSecret', labelKey: 'config.secretsTab', label: 'Secrets', icon: 'key',
+    columns: [
+      { key: 'name', labelKey: 'config.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'config.namespace', label: 'Namespace' },
+      { key: 'type', labelKey: 'config.type', label: 'Type' },
+      { key: 'keys', labelKey: 'config.keys', label: 'Keys' },
+      { key: 'age', labelKey: 'config.age', label: 'Age' },
+      { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'configRQ', labelKey: 'config.resourcequotasTab', label: 'ResourceQuotas', icon: 'pie_chart',
+    columns: [
+      { key: 'name', labelKey: 'config.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'config.namespace', label: 'Namespace' },
+      { key: 'limits', labelKey: 'config.limits', label: 'Limits' },
+      { key: 'age', labelKey: 'config.age', label: 'Age' },
+      { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'configLR', labelKey: 'config.limitrangesTab', label: 'LimitRanges', icon: 'tune',
+    columns: [
+      { key: 'name', labelKey: 'config.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'config.namespace', label: 'Namespace' },
+      { key: 'defaultCPU', labelKey: 'config.defCPU', label: 'Def CPU' },
+      { key: 'defaultMemory', labelKey: 'config.defMemory', label: 'Def Memory' },
+      { key: 'age', labelKey: 'config.age', label: 'Age' },
+      { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'configHPA', labelKey: 'config.hpasTab', label: 'HorizontalPodAutoscalers', icon: 'timeline',
+    columns: [
+      { key: 'name', labelKey: 'config.name', label: 'Name' },
+      { key: 'namespace', labelKey: 'config.namespace', label: 'Namespace' },
+      { key: 'targetName', labelKey: 'config.target', label: 'Target' },
+      { key: 'minReplicas', labelKey: 'config.min', label: 'Min' },
+      { key: 'maxReplicas', labelKey: 'config.max', label: 'Max' },
+      { key: 'cpuTarget', labelKey: 'config.cpuTarget', label: 'CPU %' },
+      { key: 'age', labelKey: 'config.age', label: 'Age' },
+      { key: 'actions', labelKey: 'config.actions', label: 'Actions', align: 'right' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
