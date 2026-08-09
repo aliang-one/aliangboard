@@ -3,15 +3,18 @@ import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { useTableColumns } from '@/composables/useTableColumns'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
 const { t } = useI18n()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
-const expanded = ref(null)
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('ingressClasses'))
 
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
 const ingressClassesQuery = useResourceList({
@@ -22,7 +25,6 @@ const ingressClassesQuery = useResourceList({
   options: { refetchInterval: store.remoteMode ? 30000 : false },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
-function toggleExpand(name) { expanded.value = expanded.value === name ? null : name }
 const yamlOf = (c) => store.generateYAML('ingressclass', c)
 
 // 创建
@@ -74,52 +76,28 @@ function handleDelete() {
       </button>
     </div>
 
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.ingressClasses.thName') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.ingressClasses.thController') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.ingressClasses.thDefault') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ $t('admin.ingressClasses.thAge') }}</th>
-            <th class="px-lg py-md text-label-caps text-on-surface-variant w-20">{{ $t('admin.ingressClasses.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/30">
-          <template v-for="row in ingressClasses" :key="row.name">
-            <tr class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">language</span>
-                  <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ row.controller }}</td>
-              <td class="px-lg py-md">
-                <span v-if="row.isDefault" class="flex items-center gap-xs text-primary"><span class="material-symbols-outlined text-lg">check_circle</span> {{ $t('admin.ingressClasses.yes') }}</span>
-                <span v-else class="text-on-surface-variant">—</span>
-              </td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ row.age }}</td>
-              <td class="px-lg py-md" @click.stop>
-                <div class="flex gap-1">
-                  <button @click="toggleExpand(row.name)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="$t('admin.ingressClasses.viewEditYaml')">
-                    <span class="material-symbols-outlined text-lg" :class="expanded === row.name ? 'rotate-180' : ''">expand_more</span>
-                  </button>
-                  <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
-                    <span class="material-symbols-outlined text-lg">delete</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="expanded === row.name">
-              <td colspan="5" class="px-lg py-md bg-surface-container-low">
-                <YamlEditor :model-value="yamlOf(row)" :readonly="false" height="320px" @save="applyYaml" />
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
+    <DataTable :headers="headers" :rows="ingressClasses" column-key="ingressClasses" expandable row-key="name">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-secondary text-lg">language</span>
+          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #controller="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.controller }}</span></template>
+      <template #isDefault="{ row }">
+        <span v-if="row.isDefault" class="flex items-center gap-xs text-primary"><span class="material-symbols-outlined text-lg">check_circle</span> {{ $t('admin.ingressClasses.yes') }}</span>
+        <span v-else class="text-on-surface-variant">—</span>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
+          <span class="material-symbols-outlined text-lg">delete</span>
+        </button>
+      </template>
+      <template #expanded="{ row }">
+        <YamlEditor :model-value="yamlOf(row)" :readonly="false" height="320px" @save="applyYaml" />
+      </template>
+    </DataTable>
   </section>
 
   <!-- 创建 Modal -->

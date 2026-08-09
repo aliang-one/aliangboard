@@ -385,6 +385,36 @@ export const TABLE_CATALOG = [
     ],
   },
   {
+    key: 'ingressClasses', labelKey: 'admin.ingressClasses.title', label: 'IngressClasses', icon: 'language',
+    columns: [
+      { key: 'name', labelKey: 'admin.ingressClasses.thName', label: 'Name' },
+      { key: 'controller', labelKey: 'admin.ingressClasses.thController', label: 'Controller' },
+      { key: 'isDefault', labelKey: 'admin.ingressClasses.thDefault', label: 'Default' },
+      { key: 'age', labelKey: 'admin.ingressClasses.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'admin.ingressClasses.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'priorityClasses', labelKey: 'admin.priorityClasses.title', label: 'PriorityClasses', icon: 'flag',
+    columns: [
+      { key: 'name', labelKey: 'admin.priorityClasses.thName', label: 'Name' },
+      { key: 'value', labelKey: 'admin.priorityClasses.thValue', label: 'Value' },
+      { key: 'globalDefault', labelKey: 'admin.priorityClasses.thGlobalDefault', label: 'Global Default' },
+      { key: 'description', labelKey: 'admin.priorityClasses.thDescription', label: 'Description' },
+      { key: 'age', labelKey: 'admin.priorityClasses.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'admin.priorityClasses.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'runtimeClasses', labelKey: 'admin.runtimeClasses.title', label: 'RuntimeClasses', icon: 'memory',
+    columns: [
+      { key: 'name', labelKey: 'admin.runtimeClasses.thName', label: 'Name' },
+      { key: 'handler', labelKey: 'admin.runtimeClasses.thHandler', label: 'Handler' },
+      { key: 'age', labelKey: 'admin.runtimeClasses.thAge', label: 'Age' },
+      { key: 'actions', labelKey: 'admin.runtimeClasses.thActions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
     key: 'auditLogs', labelKey: 'audit.title', label: 'Audit Logs', icon: 'manage_history',
     columns: [
       { key: 'type', labelKey: 'audit.type', label: 'Type' },
