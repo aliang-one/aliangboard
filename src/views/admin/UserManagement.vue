@@ -1,12 +1,15 @@
 <script setup>
 // 用户管理（admin only）：用户 CRUD + 分配集群
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
+import DataTable from '@/components/common/DataTable.vue'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
 const users = ref([])
 const allClusters = ref([])
 const loading = ref(true)
@@ -58,6 +61,8 @@ async function doReset() {
   catch (e) { notify('error', e.message || t('admin.users.resetFailed')) }
 }
 function clusterName(id) { return allClusters.value.find(c => c.id === id)?.name || id.slice(0, 8) }
+
+const headers = computed(() => tableColumns('userMgmt'))
 </script>
 
 <template>
@@ -71,35 +76,21 @@ function clusterName(id) { return allClusters.value.find(c => c.id === id)?.name
 
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
-    <div v-else class="rounded-xl border border-outline-variant overflow-hidden bg-surface-container-lowest">
-      <table class="w-full text-left">
-        <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">{{ $t('admin.users.colUsername') }}</th>
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">{{ $t('common.role') }}</th>
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">{{ $t('admin.users.colDisplayName') }}</th>
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">{{ $t('admin.users.colAssignedClusters') }}</th>
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant">{{ $t('common.status') }}</th>
-          <th class="px-md py-2 text-body-xs font-medium text-on-surface-variant text-right">{{ $t('common.actions') }}</th>
-        </tr></thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="u in users" :key="u.id" class="hover:bg-surface-container-low/30">
-            <td class="px-md py-2 font-mono text-body-sm font-medium">{{ u.username }}</td>
-            <td class="px-md py-2"><span class="px-1.5 py-0.5 rounded text-body-xs font-medium" :class="u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-surface-container text-on-surface-variant'">{{ u.role }}</span></td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ u.displayName || '—' }}</td>
-            <td class="px-md py-2 text-body-xs text-on-surface-variant">{{ $t('admin.users.clusterCount', { n: (u.clusterIds || []).length, list: (u.clusterIds || []).map(clusterName).join(', ') || $t('common.none') }) }}</td>
-            <td class="px-md py-2"><span :class="u.disabled ? 'text-error' : 'text-status-running'" class="text-body-xs font-medium">{{ u.disabled ? $t('admin.users.disabled') : $t('admin.users.active') }}</span></td>
-            <td class="px-md py-2">
-              <div class="flex items-center justify-end gap-xs">
-                <button @click="openAssign(u)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('admin.users.assignClusters')"><span class="material-symbols-outlined text-base">share</span></button>
-                <button @click="openReset(u)" class="p-1 rounded hover:bg-tertiary-container/10 text-on-surface-variant hover:text-tertiary-container" :title="$t('admin.users.resetPassword')"><span class="material-symbols-outlined text-base">key</span></button>
-                <button @click="toggleDisable(u)" class="p-1 rounded hover:bg-surface-container text-on-surface-variant" :title="u.disabled ? $t('admin.users.enable') : $t('admin.users.disable')"><span class="material-symbols-outlined text-base">{{ u.disabled ? 'check_circle' : 'block' }}</span></button>
-                <button @click="doDelete(u)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('common.delete')"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <DataTable v-else :headers="headers" :rows="users" column-key="userMgmt" row-key="id">
+      <template #username="{ row }"><span class="font-mono text-body-sm font-medium">{{ row.username }}</span></template>
+      <template #role="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-medium" :class="row.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-surface-container text-on-surface-variant'">{{ row.role }}</span></template>
+      <template #displayName="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.displayName || '—' }}</span></template>
+      <template #assignedClusters="{ row }"><span class="text-body-xs text-on-surface-variant">{{ $t('admin.users.clusterCount', { n: (row.clusterIds || []).length, list: (row.clusterIds || []).map(clusterName).join(', ') || $t('common.none') }) }}</span></template>
+      <template #status="{ row }"><span :class="row.disabled ? 'text-error' : 'text-status-running'" class="text-body-xs font-medium">{{ row.disabled ? $t('admin.users.disabled') : $t('admin.users.active') }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex items-center justify-end gap-xs">
+          <button @click.stop="openAssign(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('admin.users.assignClusters')"><span class="material-symbols-outlined text-base">share</span></button>
+          <button @click.stop="openReset(row)" class="p-1 rounded hover:bg-tertiary-container/10 text-on-surface-variant hover:text-tertiary-container" :title="$t('admin.users.resetPassword')"><span class="material-symbols-outlined text-base">key</span></button>
+          <button @click.stop="toggleDisable(row)" class="p-1 rounded hover:bg-surface-container text-on-surface-variant" :title="row.disabled ? $t('admin.users.enable') : $t('admin.users.disable')"><span class="material-symbols-outlined text-base">{{ row.disabled ? 'check_circle' : 'block' }}</span></button>
+          <button @click.stop="doDelete(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('common.delete')"><span class="material-symbols-outlined text-base">delete</span></button>
+        </div>
+      </template>
+    </DataTable>
 
     <!-- 创建用户 Modal -->
     <Modal v-model="showCreateModal" :title="$t('admin.users.addUser')" width="max-w-md">
