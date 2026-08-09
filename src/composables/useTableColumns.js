@@ -1,119 +1,91 @@
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
+  STORAGE_KEY, STORAGE_KEY_V1, TABLE_CATALOG,
+  migrateV1toV2, reconcileColumns,
+} from './tableColumnsCore.js'
 
-// 表格「自定义列」：可勾选每个列表视图要显示的列，配置持久化到 localStorage，
-// 所有视图与 Settings 页共享同一份响应式状态（即时生效）。
+// 表格「自定义列」:可勾选显隐 / 拖拽排序 / 调列宽,配置持久化到 localStorage(v2),
+// 所有视图与 Settings 页共享同一份响应式状态(即时生效)。
 //
-// TABLE_CATALOG 是各 DataTable 视图列定义的「单一事实源」：视图从这里取完整列集合，
-// 再用 visibleColumns() 按用户勾选过滤；Settings 页用同一份 catalog 渲染勾选 UI。
-// 新增可配置表格时，只需在此追加一项，并在对应视图用 visibleColumns('key', cols) 包裹 headers。
+// 纯逻辑(迁移/对账/列定义)见 tableColumnsCore.js。本文件:
+//   - 模块级(不依赖 i18n,可直接单测):loadAndMigrate / isHidden / toggle /
+//     setOrder / setWidth / resetTable / resetAll,操作同一份模块单例 config。
+//   - useTableColumns() 工厂(依赖 i18n 翻译 label):tableColumns / allColumns,
+//     须在组件 setup 内调用;工厂同时把上面的 mutators 一并返回(视图/Settings 旧用法不变)。
 
-const STORAGE_KEY = 'aliangboard.tableColumns.v1'
+// 模块级单例:跨组件/视图/Settings 共享。
+const config = ref(loadAndMigrate())
 
-export const TABLE_CATALOG = [
-  {
-    key: 'nodes', label: 'Nodes', icon: 'dns',
-    columns: [
-      { key: 'name', label: 'Name' },
-      { key: 'status', label: 'Status' },
-      { key: 'roles', label: 'Role' },
-      { key: 'system', label: 'System' },
-      { key: 'cpu', label: 'CPU' },
-      { key: 'memory', label: 'Memory' },
-      { key: 'pods', label: 'Pods' },
-      { key: 'age', label: 'Age' },
-      { key: 'actions', label: 'Actions', align: 'right' },
-    ],
-  },
-  {
-    key: 'workloads', label: 'Workloads', icon: 'workspaces',
-    columns: [
-      { key: 'name', label: 'Name' },
-      { key: 'type', label: 'Type' },
-      { key: 'namespace', label: 'Namespace' },
-      { key: 'status', label: 'Status' },
-      { key: 'replicas', label: 'Replicas' },
-      { key: 'actions', label: 'Actions', align: 'right' },
-    ],
-  },
-  {
-    key: 'namespaces', label: 'Namespaces', icon: 'folder',
-    columns: [
-      { key: 'name', label: 'Name' },
-      { key: 'status', label: 'Status' },
-      { key: 'pods', label: 'Pods' },
-      { key: 'services', label: 'Services' },
-      { key: 'age', label: 'Age' },
-      { key: 'actions', label: 'Actions', align: 'right' },
-    ],
-  },
-  {
-    key: 'services', label: 'Services', icon: 'share',
-    columns: [
-      { key: 'name', label: 'Name' },
-      { key: 'namespace', label: 'Namespace' },
-      { key: 'type', label: 'Type' },
-      { key: 'clusterIP', label: 'Cluster IP' },
-      { key: 'externalIP', label: 'External IP' },
-      { key: 'ports', label: 'Ports' },
-      { key: 'age', label: 'Age' },
-    ],
-  },
-  {
-    key: 'ingress', label: 'Ingress', icon: 'router',
-    columns: [
-      { key: 'name', label: 'Name' },
-      { key: 'namespace', label: 'Namespace' },
-      { key: 'hosts', label: 'Hosts' },
-      { key: 'path', label: 'Path' },
-      { key: 'backend', label: 'Backend' },
-      { key: 'tls', label: 'TLS' },
-      { key: 'age', label: 'Age' },
-    ],
-  },
-]
-
-// 结构：{ [tableKey]: { [colKey]: false } }，缺省（未出现）即「显示」。
-const config = ref(load())
-
-function load() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {} } catch { return {} }
+export function loadAndMigrate() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return JSON.parse(raw) || {}
+    const v1raw = localStorage.getItem(STORAGE_KEY_V1)
+    if (v1raw) {
+      const v2 = migrateV1toV2(JSON.parse(v1raw) || {})
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v2)) } catch { /* 隐私模式 */ }
+      return v2
+    }
+  } catch { /* 损坏 JSON */ }
+  return {}
 }
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config.value)) } catch { /* 隐私模式等忽略 */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config.value)) } catch { /* 隐私模式 */ }
+}
+function entryOf(tableKey) {
+  return TABLE_CATALOG.find(t => t.key === tableKey)
 }
 
+export function isHidden(tableKey, colKey) {
+  return config.value[tableKey]?.hidden?.[colKey] === true
+}
+export function toggle(tableKey, colKey) {
+  const cur = config.value[tableKey] || {}
+  const hidden = { ...(cur.hidden || {}) }
+  if (hidden[colKey]) delete hidden[colKey]
+  else hidden[colKey] = true
+  config.value = { ...config.value, [tableKey]: { ...cur, hidden } }
+  persist()
+}
+export function setOrder(tableKey, keyArray) {
+  const cur = config.value[tableKey] || {}
+  config.value = { ...config.value, [tableKey]: { ...cur, order: [...keyArray] } }
+  persist()
+}
+export function setWidth(tableKey, colKey, px) {
+  const cur = config.value[tableKey] || {}
+  const width = { ...(cur.width || {}) }
+  width[colKey] = Math.max(60, Math.min(600, Math.round(px)))
+  config.value = { ...config.value, [tableKey]: { ...cur, width } }
+  persist()
+}
+export function resetTable(tableKey) {
+  const next = { ...config.value }
+  delete next[tableKey]
+  config.value = next
+  persist()
+}
+export function resetAll() {
+  config.value = {}
+  persist()
+}
+
+// 读取(依赖 i18n 翻译 label):须在组件 setup 内经 useTableColumns() 调用。
 export function useTableColumns() {
-  function isHidden(tableKey, colKey) {
-    return config.value[tableKey]?.[colKey] === false
-  }
-  function toggle(tableKey, colKey) {
-    const table = { ...(config.value[tableKey] || {}) }
-    if (isHidden(tableKey, colKey)) {
-      delete table[colKey]        // 当前隐藏 → 显示：移除 false 标记（缺省=显示）
-    } else {
-      table[colKey] = false        // 当前显示 → 隐藏
-    }
-    config.value = { ...config.value, [tableKey]: table }
-    persist()
-  }
-  function resetTable(tableKey) {
-    const next = { ...config.value }
-    delete next[tableKey]
-    config.value = next
-    persist()
-  }
-  function resetAll() {
-    config.value = {}
-    persist()
-  }
-  // 视图用：按用户勾选过滤 headers，保持原顺序；缺省全部显示。
-  function visibleColumns(tableKey, headers) {
-    return headers.filter(h => !isHidden(tableKey, h.key))
-  }
-  // 视图用：直接取某表格过滤后的完整列（取自 catalog，无需视图自行定义 headers）。
+  const { t } = useI18n()
+  const withLabel = (c) => ({ ...c, label: t(c.labelKey) || c.label })
+  // 视图用:可见列(有序 + width 合并 + label 已翻译)。
   function tableColumns(tableKey) {
-    const entry = TABLE_CATALOG.find(t => t.key === tableKey)
-    return entry ? visibleColumns(tableKey, entry.columns) : []
+    const entry = entryOf(tableKey)
+    if (!entry) return []
+    return reconcileColumns(entry.columns, config.value[tableKey]).visible.map(withLabel)
   }
-  return { catalog: TABLE_CATALOG, config, isHidden, toggle, resetTable, resetAll, visibleColumns, tableColumns }
+  // ColumnManager 用:全量列(含 hidden 标记 + width + 翻译 label,有序)。
+  function allColumns(tableKey) {
+    const entry = entryOf(tableKey)
+    if (!entry) return []
+    return reconcileColumns(entry.columns, config.value[tableKey]).ordered.map(withLabel)
+  }
+  return { catalog: TABLE_CATALOG, config, isHidden, tableColumns, allColumns, toggle, setOrder, setWidth, resetTable, resetAll }
 }
