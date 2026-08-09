@@ -36,7 +36,7 @@ const search = ref('')
 const expanded = ref(new Set())
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  const list = nsEndpoints
+  const list = nsEndpoints.value
   return q ? list.filter(e => e.name.toLowerCase().includes(q)) : list
 })
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })

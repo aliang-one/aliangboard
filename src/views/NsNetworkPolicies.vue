@@ -31,7 +31,7 @@ const nsNetworkPolicies = computed(() => (networkpoliciesQuery.data.value || [])
 // Tab-based filter
 const activeFilter = ref('all')
 const filteredPolicies = computed(() => {
-  const all = nsNetworkPolicies
+  const all = nsNetworkPolicies.value
   switch (activeFilter.value) {
     case 'ingress':
       return all.filter(np => np.policyTypes.includes('Ingress') && !np.policyTypes.includes('Egress'))
