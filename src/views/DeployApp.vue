@@ -246,8 +246,11 @@ const stepBlockReason = computed(() => {
 })
 const canProceed = computed(() => !stepBlockReason.value)
 
-// Available ConfigMaps/Secrets for envFrom
-const availableConfigMaps = computed(() => store.nsConfigMaps.map(c => c.name))
+// Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）
+const _cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), mock: store.configMapList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), mock: store.pvcList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {
   const targets = [{ value: 'main', label: t('deploy.mainContainer') }]
@@ -255,8 +258,8 @@ const containerTargets = computed(() => {
   form.value.extraContainers.forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
-const availableSecrets = computed(() => store.nsSecrets.map(s => s.name))
-const availablePVCs = computed(() => store.nsPVCs.map(p => p.name))
+const availableSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
+const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === store.currentNamespace).map(p => p.name))
 const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
 const availableServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
 

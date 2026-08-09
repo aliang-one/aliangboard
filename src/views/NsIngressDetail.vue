@@ -44,6 +44,9 @@ const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), mock: store.serviceList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
+// TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
+const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allSecrets = computed(() => _secQ.data.value || [])
 
 const showDeleteModal = ref(false)
 
@@ -621,7 +624,7 @@ function saveEditLabel() {
       <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.ingressDetail.tlsSecretNameLabel') }}</label>
       <input v-model="editTlsSecret" list="ing-tls-secrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.ingressDetail.tlsSecretPlaceholder')" />
       <datalist id="ing-tls-secrets">
-        <option v-for="s in store.nsSecrets.filter(x => x.type === 'kubernetes.io/tls')" :key="s.name" :value="s.name" />
+        <option v-for="s in allSecrets.filter(x => x.type === 'kubernetes.io/tls')" :key="s.name" :value="s.name" />
       </datalist>
       <p class="text-xs text-on-surface-variant mt-xs">{{ $t('ns.ingressDetail.tlsHint') }}</p>
     </div>

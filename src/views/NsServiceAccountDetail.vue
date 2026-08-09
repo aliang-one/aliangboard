@@ -20,6 +20,8 @@ store.setNamespace(route.params.namespace)
 // 主资源 serviceaccount + 关联 rolebindings 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
 // nsSecrets 故意保留 store（secrets 非 RBAC，本计划不裁剪）。
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
+const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), mock: store.secretList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
+const allSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const saDetail = useResourceDetail({
   key: ['cluster', cid.value, 'serviceaccounts', route.params.name],
   fetcher: () => store.fetchServiceAccount(route.params.name, route.params.namespace),
@@ -47,7 +49,7 @@ const showDeleteModal = ref(false)
 // NOTE: 故意保留 store.nsSecrets —— secrets 非 RBAC，本计划不裁剪，保持 hydrated 行为不变。
 const saSecrets = computed(() => {
   if (!sa.value) return []
-  return store.nsSecrets.filter(s =>
+  return allSecrets.value.filter(s =>
     s.type && s.type.includes('service-account-token')
   )
 })

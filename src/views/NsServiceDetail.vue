@@ -7,7 +7,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
+import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { dumpResourceYaml } from '@/composables/useYaml'
 import { api, exportYaml } from '@/api/client'
@@ -45,6 +46,9 @@ const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher
 const eventsQ = useResourceList({ key: ['cluster', cid.value, 'events'], fetcher: () => store.fetchEvents(), mock: store.eventList, mockMode: !store.remoteMode, options: { refetchInterval: store.remoteMode ? 30000 : false } })
 const nsPods = computed(() => (podsQ.data.value || []).filter(p => p.namespace === route.params.namespace))
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
+// 容器端口（从 workloads 派生，替代 nsContainerPortGroups/nsContainerPorts）
+const nsContainerPortGroups = computed(() => extractContainerPortsGrouped(nsWorkloads.value))
+const nsContainerPorts = computed(() => extractContainerPorts(nsWorkloads.value))
 
 const showEditModal = ref(false)
 const showYamlModal = ref(false)
@@ -746,7 +750,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div v-for="(p, idx) in editForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" :placeholder="$t('ns.svcDetail.target')" :empty-hint="$t('ns.svcDetail.emptyWorkloadHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :groups="nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" :placeholder="$t('ns.svcDetail.target')" :empty-hint="$t('ns.svcDetail.emptyWorkloadHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
@@ -907,7 +911,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.targetPortLabel') }}</label>
-        <PortSelect v-model="addPortForm.targetPort" :groups="store.nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" :placeholder="$t('ns.svcDetail.leaveEmptyForPort')" :empty-hint="$t('ns.svcDetail.emptyWorkloadHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" @pick="onPickTarget" />
+        <PortSelect v-model="addPortForm.targetPort" :groups="nsContainerPortGroups" :priority-group="boundWorkload" :priority-groups="boundWorkloadNames" :placeholder="$t('ns.svcDetail.leaveEmptyForPort')" :empty-hint="$t('ns.svcDetail.emptyWorkloadHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" @pick="onPickTarget" />
         <p class="text-[10px] text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.portForwardToBackend') }}</p>
       </div>
       <div>
