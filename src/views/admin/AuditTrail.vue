@@ -5,10 +5,12 @@ import { ref, onMounted, computed } from 'vue'
 import { adminApi } from '@/api/client'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
+import { useTableColumns } from '@/composables/useTableColumns'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
 const loading = ref(false)
 const active = ref([])
 const log = ref({ items: [], total: 0, page: 1, size: 50 })
@@ -23,16 +25,7 @@ const WIN_OPTS = [{ v: 900, k: 'win15' }, { v: 1800, k: 'win30' }, { v: 21600, k
 const SRC_OPTS = [{ v: '', k: 'sourceAll' }, { v: 'mcp', k: 'sourceMcp' }, { v: 'agent', k: 'sourceAgent' }, { v: 'direct', k: 'sourceDirect' }]
 const RESULT_OPTS = [{ v: '', k: 'sourceAll' }, { v: 'ok', k: 'resultOk' }, { v: 'denied', k: 'resultDenied' }, { v: 'error', k: 'resultError' }]
 
-const headers = [
-  { key: 'ts', label: t('auditTrail.colTs') },
-  { key: 'owner', label: t('auditTrail.colOwner') },
-  { key: 'source', label: t('auditTrail.colSource') },
-  { key: 'clusterId', label: t('auditTrail.colCluster') },
-  { key: 'namespace', label: t('auditTrail.colNamespace') },
-  { key: 'tool', label: t('auditTrail.colTool') },
-  { key: 'resource', label: t('auditTrail.colResource') },
-  { key: 'result', label: t('auditTrail.colResult') },
-]
+const headers = computed(() => tableColumns('auditTrail'))
 const fmt = ts => ts ? new Date(Number(ts)).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'
 const rel = ts => { const s = Math.round((Date.now() - Number(ts)) / 1000); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h` }
 const pct = (n, total) => total ? Math.round((n / total) * 100) : 0
@@ -129,7 +122,7 @@ onMounted(() => { refresh() })
       <button @click="page = 1; loadLog()" class="px-md py-1 bg-primary text-on-primary rounded-lg text-body-sm">go</button>
     </div>
 
-    <DataTable :headers="headers" :rows="log.items">
+    <DataTable :headers="headers" :rows="log.items" column-key="auditTrail">
       <template #ts="{ row }"><span class="text-body-xs text-on-surface-variant font-mono">{{ fmt(row.ts) }}</span></template>
       <template #source="{ row }"><span v-if="row.source" class="px-1.5 py-0.5 rounded text-body-xs font-mono" :class="SRC_BADGE[row.source]">{{ row.source }}</span><span v-else class="text-body-xs text-on-surface-variant/50">—</span></template>
       <template #result="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="RESULT_STYLE[row.result]">{{ t(resultKey(row.result)) }}</span></template>
