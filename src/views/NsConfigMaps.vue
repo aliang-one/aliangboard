@@ -4,8 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useTableColumns } from '@/composables/useTableColumns'
 import { useQueryClient } from '@tanstack/vue-query'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
@@ -14,6 +16,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsConfigMaps'))
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
@@ -89,24 +93,18 @@ async function handleDelete() {
   deleteTarget.value = null
 }
 
-// 批量选择
-const selected = ref(new Set())
-function toggleSelect(name) {
-  const s = new Set(selected.value)
-  if (s.has(name)) s.delete(name); else s.add(name)
-  selected.value = s
-}
-const isAllSelected = computed(() => filtered.value.length > 0 && filtered.value.every(r => selected.value.has(r.name)))
-function toggleSelectAll() {
-  selected.value = isAllSelected.value ? new Set() : new Set(filtered.value.map(r => r.name))
-}
+// 批量选择（DataTable 发射行对象数组）
+const selected = ref([])
 const showBatchModal = ref(false)
-function confirmBatchDelete() { if (selected.value.size) showBatchModal.value = true }
+function confirmBatchDelete() { if (selected.value.length) showBatchModal.value = true }
 function handleBatchDelete() {
-  selected.value.forEach(name => store.deleteConfigMap(name, route.params.namespace))
+  selected.value.forEach(row => store.deleteConfigMap(row.name, route.params.namespace))
   queryClient.invalidateQueries({ queryKey: configmapsKey })
-  selected.value = new Set()
+  selected.value = []
   showBatchModal.value = false
+}
+function goDetail(row) {
+  router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })
 }
 </script>
 
@@ -136,67 +134,40 @@ function handleBatchDelete() {
         </button>
       </div>
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsConfigMaps.length }}</span>
-      <div v-if="selected.size" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
-        <span class="text-xs font-medium text-primary">{{ t('ns.configmaps.selected', { n: selected.size }) }}</span>
+      <div v-if="selected.length" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
+        <span class="text-xs font-medium text-primary">{{ t('ns.configmaps.selected', { n: selected.length }) }}</span>
         <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-sm">delete</span>{{ t('ns.configmaps.batchDelete') }}
         </button>
-        <button @click="selected = new Set()" class="text-xs text-on-surface-variant hover:text-on-surface">{{ t('ns.configmaps.cancel') }}</button>
+        <button @click="selected = []" class="text-xs text-on-surface-variant hover:text-on-surface">{{ t('ns.configmaps.cancel') }}</button>
       </div>
     </div>
 
-    <div v-if="filtered.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 w-10">
-              <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded text-primary focus:ring-primary h-4 w-4" />
-            </th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thKeys') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.configmaps.thPreview') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.age') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('common.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2" @click.stop>
-              <input type="checkbox" :checked="selected.has(row.name)" @change="toggleSelect(row.name)" class="rounded text-primary focus:ring-primary h-4 w-4" />
-            </td>
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-sm">description</span>
-                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></td>
-            <td class="px-md py-2">
-              <div class="flex flex-wrap gap-xs max-w-xs">
-                <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ k }}</span>
-                <span v-if="Object.keys(row.data || {}).length > 4" class="text-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsConfigMapDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!filtered.length">
-            <td :colspan="6" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">{{ t('common.noData') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable v-if="filtered.length" :headers="headers" :rows="paginated" column-key="nsConfigMaps" selectable v-model:selection="selected" row-key="name" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-secondary text-sm">description</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #keys="{ row }"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></template>
+      <template #preview="{ row }">
+        <div class="flex flex-wrap gap-xs max-w-xs">
+          <span v-for="k in Object.keys(row.data || {}).slice(0, 4)" :key="k" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ k }}</span>
+          <span v-if="Object.keys(row.data || {}).length > 4" class="text-xs text-on-surface-variant">+{{ Object.keys(row.data).length - 4 }}</span>
+        </div>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1 justify-end">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+        </div>
+      </template>
+      <template v-if="total > pageSize" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
+      </template>
+    </DataTable>
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? t('ns.configmaps.noMatch', { q: search }) : t('ns.configmaps.empty') }}</p>
@@ -244,7 +215,7 @@ function handleBatchDelete() {
 
   <!-- Batch Delete Modal -->
   <Modal v-model="showBatchModal" :title="t('ns.configmaps.batchTitle')" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">{{ t('ns.configmaps.batchConfirm', { n: selected.size }) }}</p>
+    <p class="text-body-md text-on-surface-variant">{{ t('ns.configmaps.batchConfirm', { n: selected.length }) }}</p>
     <p class="text-body-sm text-error mt-sm">{{ t('ns.configmaps.batchWarning') }}</p>
     <template #actions>
       <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>

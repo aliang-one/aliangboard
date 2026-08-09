@@ -79,6 +79,27 @@ export const TABLE_CATALOG = [
     ],
   },
   {
+    key: 'nsConfigMaps', labelKey: 'ns.configmaps.title', label: 'ConfigMaps', icon: 'description',
+    columns: [
+      { key: 'name', labelKey: 'ns.configmaps.thName', label: 'Name' },
+      { key: 'keys', labelKey: 'ns.configmaps.thKeys', label: 'Data Keys' },
+      { key: 'preview', labelKey: 'ns.configmaps.thPreview', label: 'Preview' },
+      { key: 'age', labelKey: 'common.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
+    key: 'nsSecrets', labelKey: 'ns.secrets.title', label: 'Secrets', icon: 'key',
+    columns: [
+      { key: 'name', labelKey: 'ns.secrets.thName', label: 'Name' },
+      { key: 'type', labelKey: 'ns.secrets.thType', label: 'Type' },
+      { key: 'keys', labelKey: 'ns.secrets.thKeys', label: 'Keys' },
+      { key: 'preview', labelKey: 'ns.secrets.thPreview', label: 'Data Preview' },
+      { key: 'age', labelKey: 'common.age', label: 'Age' },
+      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
+    ],
+  },
+  {
     key: 'nsEvents', labelKey: 'ns.events.title', label: 'Events', icon: 'event_available',
     columns: [
       { key: 'type', labelKey: 'ns.events.thType', label: 'Type' },
