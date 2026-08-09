@@ -2533,6 +2533,7 @@
       "delete": "Delete"
     },
     "resourceList": {
+      "title": "集群资源",
       "loadFailed": "加载失败",
       "applied": "已应用",
       "applyFailed": "应用失败",

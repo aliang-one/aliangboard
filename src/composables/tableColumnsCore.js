@@ -426,7 +426,7 @@ export const TABLE_CATALOG = [
     ],
   },
   {
-    key: 'clusterResources', labelKey: 'admin.resourceList.thActions', label: 'Cluster Resources', icon: 'widgets',
+    key: 'clusterResources', labelKey: 'admin.resourceList.title', label: 'Cluster Resources', icon: 'widgets',
     columns: [
       { key: 'name', labelKey: 'admin.resourceList.thName', label: 'Name' },
       { key: 'namespace', labelKey: 'admin.resourceList.thNamespace', label: 'Namespace' },

@@ -2533,6 +2533,7 @@
       "delete": "Delete"
     },
     "resourceList": {
+      "title": "Cluster Resources",
       "loadFailed": "Load failed",
       "applied": "Applied",
       "applyFailed": "Apply failed",
