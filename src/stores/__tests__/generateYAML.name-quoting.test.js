@@ -73,4 +73,13 @@ describe('generateYAML: 全类型数字名须序列化为字符串', () => {
     expect(obj.spec.template.metadata.labels.app).toBe('123')
     expect(obj.spec.template.spec.containers[0].name).toBe('123')
   })
+
+  it('Endpoints: addresses/ports 为空时仍产出合法 YAML', () => {
+    const yaml = store.generateYAML('endpoints', { name: 'ep1', namespace: 'anydoor' })
+    expect(() => yamlLoad(yaml)).not.toThrow()
+    const obj = yamlLoad(yaml)
+    expect(obj.metadata.name).toBe('ep1')
+    expect(obj.subsets[0].addresses).toEqual([])
+    expect(obj.subsets[0].ports).toEqual([])
+  })
 })

@@ -2148,19 +2148,17 @@ spec:
       const addresses = resource.addresses || []
       const notReady = resource.notReadyAddresses || []
       const ports = resource.ports || []
-      const addrYaml = addresses.length ? addresses.map(a => `  - ip: ${a}`).join('\n') : '  []'
+      const addrYaml = addresses.length ? '\n' + addresses.map(a => `  - ip: ${a}`).join('\n') : ' []'
       const notReadyYaml = notReady.length ? `\n  notReadyAddresses:\n${notReady.map(a => `  - ip: ${a}`).join('\n')}` : ''
-      const portsYaml = ports.length ? ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : '  []'
+      const portsYaml = ports.length ? '\n' + ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : ' []'
       return `apiVersion: v1
 kind: Endpoints
 metadata:
   name: ${yamlQ(name)}
   namespace: ${yamlQ(ns)}
 subsets:
-- addresses:
-${addrYaml}${notReadyYaml}
-  ports:
-${portsYaml}`
+- addresses:${addrYaml}${notReadyYaml}
+  ports:${portsYaml}`
     }
 
     if (type === 'node') {
