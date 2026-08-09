@@ -431,7 +431,7 @@ const routes = [
       {
         path: 'workbench',
         name: 'Workbench',
-        component: () => import('@/views/WorkbenchList.vue'),
+        component: () => import('@/views/WorkbenchShell.vue'),
         meta: { titleKey: 'nav.workbench', icon: 'workspaces', scope: 'global' }
       },
       {

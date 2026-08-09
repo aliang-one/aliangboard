@@ -2682,6 +2682,28 @@
       "bootstrapLedgerDesc": "The platform surveys the cluster via its credentials and rewrites the cluster ledger (INDEX.md / learnings.md) — read-only, does not modify cluster resources.",
       "path": "Path: ",
       "approve": "Approve"
+    },
+    "shell": {
+      "title": "Workbench",
+      "backToCluster": "Back to Cluster",
+      "tabProjects": "Projects",
+      "tabConfig": "Config",
+      "tabGlobal": "Global"
+    },
+    "card": {
+      "noProjects": "No projects yet. Click \"Create\" to make one.",
+      "ns": "Namespace",
+      "manifests": "manifests",
+      "reconciled": "Last reconcile",
+      "neverReconciled": "Not reconciled",
+      "openProject": "Open Project",
+      "create": "New Project"
+    },
+    "config": {
+      "title": "Workbench Configuration",
+      "cluster": "Bound Cluster",
+      "projectRoot": "Project Root",
+      "distillStatus": "Distill Status"
     }
   },
   "workloadDetail": {

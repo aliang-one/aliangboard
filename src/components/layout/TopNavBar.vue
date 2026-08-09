@@ -274,6 +274,9 @@ async function logout() {
       <button @click="router.push('/settings')" :aria-label="$t('nav.settings')" :title="$t('nav.settings')" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
         <span class="material-symbols-outlined">settings</span>
       </button>
+      <button @click="router.push('/workbench')" :aria-label="$t('workbench.shell.title')" :title="$t('workbench.shell.title')" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
+        <span class="material-symbols-outlined">workspaces</span>
+      </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
       <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" :title="$t('nav.logout')">
         <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ (authStore.user?.displayName || authStore.user?.username || 'U').charAt(0).toUpperCase() }}</div>

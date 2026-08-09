@@ -2682,6 +2682,28 @@
       "bootstrapLedgerDesc": "平台直连集群凭据 survey 集群并重写 cluster ledger（INDEX.md / learnings.md），只读不改集群资源。",
       "path": "路径：",
       "approve": "批准"
+    },
+    "shell": {
+      "title": "工作台",
+      "backToCluster": "返回集群",
+      "tabProjects": "项目",
+      "tabConfig": "配置",
+      "tabGlobal": "全局"
+    },
+    "card": {
+      "noProjects": "还没有项目,点击「新建」创建第一个",
+      "ns": "命名空间",
+      "manifests": "manifests",
+      "reconciled": "上次 reconcile",
+      "neverReconciled": "未 reconcile",
+      "openProject": "打开项目",
+      "create": "新建项目"
+    },
+    "config": {
+      "title": "工作台配置",
+      "cluster": "绑定集群",
+      "projectRoot": "项目根目录",
+      "distillStatus": "蒸馏状态"
     }
   },
   "workloadDetail": {
