@@ -5,12 +5,16 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const headers = computed(() => tableColumns('nsLimitRanges'))
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -92,6 +96,10 @@ async function handleDelete() {
   showDeleteModal.value = false
   deleteTarget.value = null
 }
+
+function goDetail(row) {
+  router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
 </script>
 
 <template>
@@ -110,72 +118,44 @@ async function handleDelete() {
       </button>
     </div>
 
-    <div v-if="nsLimitRanges.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-surface-container-low border-b border-outline-variant">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thName') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thDefaultCpu') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thDefaultMemory') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thMaxCpu') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thMaxMemory') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('ns.limitRanges.thAge') }}</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ $t('ns.limitRanges.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })">
-            <td class="px-md py-2">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-secondary text-sm">tune</span>
-                <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
-              </div>
-            </td>
-            <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
-                {{ row.defaultCPU }}
-              </span>
-            </td>
-            <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
-                {{ row.defaultMemory }}
-              </span>
-            </td>
-            <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
-                {{ row.maxCPU }}
-              </span>
-            </td>
-            <td class="px-md py-2">
-              <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
-                {{ row.maxMemory }}
-              </span>
-            </td>
-            <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-            <td class="px-md py-2" @click.stop>
-              <div class="flex gap-1">
-                <button @click="router.push({ name: 'NsLimitRangeDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-                <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!nsLimitRanges.length">
-            <td :colspan="7" class="px-md py-md text-center">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-              <p class="text-on-surface-variant text-body-sm">{{ $t('ns.limitRanges.emptyState') }}</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="total > pageSize" class="flex items-center justify-between px-md py-2 border-t border-outline-variant bg-surface-container-low">
+    <DataTable :headers="headers" :rows="paginated" column-key="nsLimitRanges" @row-click="goDetail">
+      <template #name="{ row }">
+        <div class="flex items-center gap-sm">
+          <span class="material-symbols-outlined text-secondary text-sm">tune</span>
+          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+        </div>
+      </template>
+      <template #defaultCPU="{ row }">
+        <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
+          {{ row.defaultCPU }}
+        </span>
+      </template>
+      <template #defaultMemory="{ row }">
+        <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-primary-container/10 text-primary text-xs font-mono rounded">
+          {{ row.defaultMemory }}
+        </span>
+      </template>
+      <template #maxCPU="{ row }">
+        <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
+          {{ row.maxCPU }}
+        </span>
+      </template>
+      <template #maxMemory="{ row }">
+        <span class="inline-flex items-center gap-xs px-2 py-0.5 bg-secondary-container/10 text-secondary text-xs font-mono rounded">
+          {{ row.maxMemory }}
+        </span>
+      </template>
+      <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      <template #actions="{ row }">
+        <div class="flex gap-1">
+          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+        </div>
+      </template>
+      <template v-if="nsLimitRanges.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-      </div>
-    </div>
-    <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">tune</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.noLimitRangesInNs') }}</p>
-      <button @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ $t('ns.limitRanges.createBtn') }}</button>
-    </div>
+      </template>
+    </DataTable>
   </section>
 
   <!-- Create LimitRange Modal -->
