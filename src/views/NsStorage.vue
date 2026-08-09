@@ -4,8 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useTableColumns } from '@/composables/useTableColumns'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
@@ -17,6 +19,9 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 const { t } = useI18n()
+const { tableColumns } = useTableColumns()
+const pvcHeaders = computed(() => tableColumns('nsStoragePVC'))
+const scHeaders = computed(() => tableColumns('nsStorageSC'))
 
 // cluster id（远端取 currentCluster，mock 取 'demo'）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
 const cid = computed(() => (store.remoteMode ? (store.currentCluster || 'cluster') : 'demo'))
@@ -96,6 +101,13 @@ async function handleDelete() {
 }
 
 const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany' }
+
+function goPVCDetail(row) {
+  router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })
+}
+function goSCDetail(row) {
+  router.push({ name: 'StorageClassDetail', params: { name: row.name } })
+}
 </script>
 
 <template>
@@ -153,58 +165,29 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
         <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ nsPVCs.length }}</span>
       </div>
 
-      <div v-if="filteredPVCs.length" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Capacity</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Access</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">StorageClass</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Volume</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-24">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="row in paginated" :key="row.name" class="hover:bg-surface-container-low/40 cursor-pointer transition-colors" @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-primary text-lg">storage</span>
-                  <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2"><StatusChip :status="row.status" size="sm" /></td>
-              <td class="px-md py-2 font-mono text-code-sm font-semibold">{{ row.capacity }}</td>
-              <td class="px-md py-2"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant" :title="accessModeLabels[row.accessModes] || row.accessModes">{{ row.accessModes }}</span></td>
-              <td class="px-md py-2"><span class="px-1.5 py-0.5 bg-surface-container rounded text-body-sm border border-outline-variant">{{ row.storageClass }}</span></td>
-              <td class="px-md py-2"><span class="font-mono text-code-sm text-primary">{{ row.volume || '-' }}</span></td>
-              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ row.age }}</td>
-              <td class="px-md py-2" @click.stop>
-                <div class="flex gap-1">
-                  <button @click="router.push({ name: 'NsPVCDetail', params: { namespace: route.params.namespace, name: row.name } })" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
-                  <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!filteredPVCs.length">
-              <td :colspan="8" class="px-md py-md text-center">
-                <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-                <p class="text-body-sm text-on-surface-variant">{{ t('ns.storage.noData') }}</p>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="total > pageSize" class="flex items-center justify-between px-md py-md border-t border-outline-variant bg-surface-container-low">
+      <DataTable :headers="pvcHeaders" :rows="paginated" column-key="nsStoragePVC" @row-click="goPVCDetail">
+        <template #name="{ row }">
+          <div class="flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">storage</span>
+            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
+        <template #capacity="{ row }"><span class="font-mono text-code-sm font-semibold">{{ row.capacity }}</span></template>
+        <template #accessModes="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant" :title="accessModeLabels[row.accessModes] || row.accessModes">{{ row.accessModes }}</span></template>
+        <template #storageClass="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-body-sm border border-outline-variant">{{ row.storageClass }}</span></template>
+        <template #volume="{ row }"><span class="font-mono text-code-sm text-primary">{{ row.volume || '-' }}</span></template>
+        <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+        <template #actions="{ row }">
+          <div class="flex gap-1">
+            <button @click.stop="goPVCDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
+            <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
+          </div>
+        </template>
+        <template v-if="filteredPVCs.length" #pagination>
           <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
-        </div>
-      </div>
-      <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md text-center">
-        <span class="material-symbols-outlined text-2xl text-surface-container-high">storage</span>
-        <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('ns.storage.noPVCsInNs') }}</p>
-        <button @click="showCreatePVC = true" class="mt-md px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90">{{ t('ns.storage.createPVC') }}</button>
-      </div>
+        </template>
+      </DataTable>
     </div>
 
     <!-- StorageClass Tab -->
@@ -215,46 +198,24 @@ const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'Rea
           <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.clusterWide') }}</p>
         </div>
       </div>
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Name</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Provisioner</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Parameters</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reclaim Policy</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Default</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="sc in allSCs" :key="sc.name" class="hover:bg-surface-container-low/40 transition-colors cursor-pointer" @click="router.push({ name: 'StorageClassDetail', params: { name: sc.name } })">
-              <td class="px-md py-2">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">database</span>
-                  <span class="font-semibold text-on-surface text-body-md">{{ sc.name }}</span>
-                </div>
-              </td>
-              <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ sc.provisioner }}</td>
-              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ sc.parameters }}</td>
-              <td class="px-md py-2"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ sc.reclaimPolicy }}</span></td>
-              <td class="px-md py-2">
-                <span v-if="sc.default" class="flex items-center gap-xs text-primary">
-                  <span class="material-symbols-outlined text-lg">check_circle</span> Yes
-                </span>
-                <span v-else class="text-on-surface-variant">—</span>
-              </td>
-              <td class="px-md py-2 text-body-sm text-on-surface-variant">{{ sc.age }}</td>
-            </tr>
-            <tr v-if="!allSCs.length">
-              <td :colspan="6" class="px-md py-md text-center">
-                <span class="material-symbols-outlined text-2xl text-surface-container-high block mb-sm">inbox</span>
-                <p class="text-body-sm text-on-surface-variant">{{ t('ns.storage.noData') }}</p>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable :headers="scHeaders" :rows="allSCs" column-key="nsStorageSC" @row-click="goSCDetail">
+        <template #name="{ row }">
+          <div class="flex items-center gap-sm">
+            <span class="material-symbols-outlined text-secondary text-lg">database</span>
+            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #provisioner="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.provisioner }}</span></template>
+        <template #parameters="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.parameters }}</span></template>
+        <template #reclaimPolicy="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.reclaimPolicy }}</span></template>
+        <template #default="{ row }">
+          <span v-if="row.default" class="flex items-center gap-xs text-primary">
+            <span class="material-symbols-outlined text-lg">check_circle</span> Yes
+          </span>
+          <span v-else class="text-on-surface-variant">—</span>
+        </template>
+        <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      </DataTable>
     </div>
   </section>
 
