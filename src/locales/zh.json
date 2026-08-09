@@ -2622,7 +2622,6 @@
     },
     "detail": {
       "back": "返回",
-      "aiAssistant": "AI 助手",
       "files": "文件",
       "noFiles": "无文件",
       "newFilePlaceholder": "manifests/x.yaml",

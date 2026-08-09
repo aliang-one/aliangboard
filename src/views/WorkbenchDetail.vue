@@ -63,10 +63,11 @@ async function openFile(path) {
   } catch (e) { notify('error', e.message || t('workbench.detail.readFailed')) }
 }
 
-async function save() {
+async function save(content) {
   if (!currentPath.value) return
   saving.value = true
   try {
+    if (typeof content === 'string') currentContent.value = content
     await workbenchApi.writeFile(id, currentPath.value, currentContent.value)
     dirty.value = false
     notify('success', t('workbench.detail.saveSuccess'))
@@ -156,7 +157,7 @@ function addFile() {
           <span class="text-body-sm font-mono text-on-surface-variant truncate">{{ currentPath || t('workbench.detail.noFileSelected') }}</span>
           <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
         </div>
-        <YamlEditor :model-value="currentContent" @update:model-value="v => { currentContent = v; dirty = true }" @save="save" />
+        <YamlEditor :model-value="currentContent" :readonly="false" height="60vh" @save="save" />
         <div class="flex items-center gap-xs">
           <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
           <button @click="doCommit" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"><span class="material-symbols-outlined text-sm">commit</span>{{ t('workbench.detail.commit') }}</button>
