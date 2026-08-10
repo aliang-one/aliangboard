@@ -14,7 +14,7 @@ import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
 import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
-import { cpuToMilli, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
+import { cpuToMilli, milliToCpu, memToKi, formatCpu, formatMem } from '../src/composables/useResourceFormat.js'
 import { workloadToForm } from '../src/composables/useWorkloadToForm.js'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, paramsRowsToMap, normalizeParamsToMap, hasPlaceholderParam, presetToFormState } from '../src/data/storageClassPresets.js'
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
@@ -77,6 +77,21 @@ test('K8s 资源量解析：CPU→毫核、内存→Ki（覆盖各后缀与裸�
   assert.equal(memToKi('1Gi'), 1024 ** 2)
   assert.equal(memToKi('512Mi'), 512 * 1024)
   assert.equal(memToKi('1024'), 1)            // 裸字节 → 1024 B = 1 Ki
+})
+
+test('CPU 毫核→K8s quantity(milliToCpu)+ 往返稳定', () => {
+  assert.equal(milliToCpu(20000), '20000m')
+  assert.equal(milliToCpu(500), '500m')
+  assert.equal(milliToCpu(0), '0m')
+  assert.equal(milliToCpu(''), '')
+  assert.equal(milliToCpu(null), '')
+  assert.equal(milliToCpu(undefined), '')
+  // 往返:毫核 → quantity → 毫核
+  assert.equal(cpuToMilli(milliToCpu(20000)), 20000)
+  assert.equal(cpuToMilli(milliToCpu(500)), 500)
+  // K8s 规范化("20" cores 或 "20000m")都能还原为同一毫核值
+  assert.equal(cpuToMilli('20'), 20000)
+  assert.equal(cpuToMilli('20000m'), 20000)
 })
 
 test('用量格式化：CPU→毫核串、内存→Ti/Gi/Mi 降级、空值→—', () => {

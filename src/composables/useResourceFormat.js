@@ -12,6 +12,9 @@ export function cpuToMilli(q) {
   return isNaN(n) ? 0 : n * 1000                                         // cores → m
 }
 
+// 毫核整数 → K8s quantity 字符串（保存/下发时用）。空值返回 ''，由调用方决定是否带该字段。
+export const milliToCpu = m => (m == null || m === '' ? '' : `${m}m`)
+
 export function memToKi(q) {
   if (q == null || q === '') return 0
   const s = String(q).trim()
