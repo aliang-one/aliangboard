@@ -407,7 +407,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
               <button @click="copyLogs" :title="$t('podDetail.copyLogs')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
             </div>
           </div>
-          <div class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
+          <div class="flex-1 bg-code-surface p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
             <div class="space-y-1">
               <p v-for="(log, idx) in allLogs" :key="idx" class="text-outline-variant">
                 {{ log.timestamp }} <span :class="levelColor(log.level)">[{{ log.level }}]</span> {{ log.message }}
@@ -517,12 +517,8 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
 
     <!-- Delete / Restart 确认 -->
     <Modal v-model="confirmOpen" :title="confirmAction?.mode === 'restart' ? $t('podDetail.restartPod') : $t('podDetail.deletePod')" width="max-w-lg">
-      <p v-if="confirmAction?.mode === 'restart'" class="text-body-md text-on-surface">
-        {{ $t('podDetail.restartConfirm') }}
-      </p>
-      <p v-else class="text-body-md text-on-surface">
-        {{ $t('podDetail.deleteConfirm', { name: pod?.name }) }}
-      </p>
+      <p v-if="confirmAction?.mode === 'restart'" class="text-body-md text-on-surface" v-html="$t('podDetail.restartConfirm')"></p>
+      <p v-else class="text-body-md text-on-surface" v-html="$t('podDetail.deleteConfirm', { name: pod?.name })"></p>
       <template #actions>
         <button @click="confirmOpen = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
         <button @click="doConfirmed" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">
@@ -533,9 +529,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
 
     <!-- 注入调试容器（kubectl debug） -->
     <Modal v-model="showDebug" :title="$t('podDetail.injectDebugContainer')" width="max-w-xl">
-      <p class="text-body-sm text-on-surface-variant mb-md">
-        {{ $t('podDetail.injectDebugDesc') }}
-      </p>
+      <p class="text-body-sm text-on-surface-variant mb-md" v-html="$t('podDetail.injectDebugDesc')"></p>
       <div class="grid grid-cols-2 gap-md">
         <div class="col-span-2">
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('podDetail.imageLabel') }}</label>

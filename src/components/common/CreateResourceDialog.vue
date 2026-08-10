@@ -111,7 +111,7 @@ function handleCreate() {
           <!-- Content -->
           <div class="flex-1 overflow-y-auto p-lg">
             <!-- YAML Preview -->
-            <div v-if="activeTab === 'yaml'" class="bg-[#0b1c30] rounded-lg p-md font-mono text-code-sm text-[#cfe3ff]">
+            <div v-if="activeTab === 'yaml'" class="bg-code-surface rounded-lg p-md font-mono text-code-sm text-on-code-surface">
               <pre v-if="resourceType === 'deployment'">apiVersion: apps/v1
 kind: Deployment
 metadata:

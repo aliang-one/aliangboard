@@ -236,10 +236,8 @@ const ageOf = ts => {
     </DataTable>
 
     <!-- t('common.delete')确认 -->
-    <Modal v-model="showDelete" :title="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })" width="max-w-md">
-      <p class="text-body-md text-on-surface-variant">
-        {{ t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name }) }}
-      </p>
+    <Modal v-model="showDelete" :title="t('admin.resourceList.titleDelete')" width="max-w-md">
+      <p class="text-body-md text-on-surface-variant" v-html="t('admin.resourceList.deleteConfirm', { title: cfg.title, name: delTarget?.metadata?.name })"></p>
       <p class="text-body-sm text-error mt-sm">{{ t('admin.resourceList.deleteWarning') }}</p>
       <template #actions>
         <button @click="showDelete = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>

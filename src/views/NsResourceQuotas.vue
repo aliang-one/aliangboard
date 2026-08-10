@@ -219,7 +219,7 @@ function goDetail(row) {
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" :title="$t('ns.resourceQuotas.deleteModalTitle')" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">{{ $t('ns.resourceQuotas.deleteConfirm', { name: deleteTarget?.name }) }}</p>
+    <p class="text-body-md text-on-surface-variant" v-html="$t('ns.resourceQuotas.deleteConfirm', { name: deleteTarget?.name })"></p>
     <p class="text-body-sm text-error mt-sm">{{ $t('ns.resourceQuotas.deleteWarning') }}</p>
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>

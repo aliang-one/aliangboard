@@ -220,7 +220,7 @@ async function doRevoke(k) {
     <!-- 编辑工具覆盖 Modal -->
     <Modal v-model="showOverrideModal" :title="$t('admin.apiKeys.editOverridesTitle', { prefix: editingKey?.prefix })" width="max-w-xl">
       <div v-if="editingKey" class="flex flex-col gap-md">
-        <p class="text-body-xs text-on-surface-variant">{{ $t('admin.apiKeys.overrideMeta', { tier: editingKey.tier, ns: editingKey.boundSA_namespace, name: editingKey.boundSA_name }) }}</p>
+        <p class="text-body-xs text-on-surface-variant" v-html="$t('admin.apiKeys.overrideMeta', { tier: editingKey.tier, ns: editingKey.boundSA_namespace, name: editingKey.boundSA_name })"></p>
         <ToolOverrideEditor :tier="editingKey.tier" v-model="editOverrides" />
       </div>
       <template #actions>

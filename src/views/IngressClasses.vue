@@ -137,9 +137,7 @@ function handleDelete() {
 
   <!-- 删除确认 Modal -->
   <Modal v-model="showDeleteModal" :title="$t('admin.ingressClasses.deleteTitle')" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">
-      {{ $t('admin.ingressClasses.deleteConfirm') }}<span class="text-on-surface font-semibold font-mono">{{ deleteTarget?.name }}</span>？
-    </p>
+    <p class="text-body-md text-on-surface-variant" v-html="$t('admin.ingressClasses.deleteConfirm', { name: deleteTarget?.name })"></p>
     <p class="text-body-sm text-error mt-sm">{{ $t('admin.ingressClasses.deleteWarning') }}</p>
     <template #actions>
       <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('admin.ingressClasses.cancel') }}</button>

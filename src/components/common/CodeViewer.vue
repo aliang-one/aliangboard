@@ -1,5 +1,5 @@
 <script setup>
-// 代码高亮查看器：用 Prism.js 按语言高亮代码，暗底配色匹配 YamlEditor 的 #0b1c30。
+// 代码高亮查看器：用 Prism.js 按语言高亮代码，暗底配色走 code-surface 主题（见 src/styles/code-theme.js）。
 // 语言由调用方按文件扩展名传入（yaml/json/toml/ini/properties/bash/markup/none）。
 import { ref, watchEffect } from 'vue'
 
@@ -46,5 +46,5 @@ watchEffect(async () => {
 </script>
 
 <template>
-  <pre class="bg-[#0b1c30] p-md rounded-lg overflow-auto" :style="{ maxHeight }"><code v-html="highlighted" class="font-mono text-code-sm text-[#cfe3ff] leading-[18px] block"></code></pre>
+  <pre class="bg-code-surface p-md rounded-lg overflow-auto" :style="{ maxHeight }"><code v-html="highlighted" class="font-mono text-code-sm text-on-code-surface leading-[18px] block"></code></pre>
 </template>

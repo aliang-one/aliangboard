@@ -10,6 +10,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useClusterStore } from '@/stores/cluster'
 import { execStream } from '@/api/client'
+import { codeTheme } from '@/styles/code-theme'
 
 const { t } = useI18n()
 
@@ -47,7 +48,7 @@ function ensureTerm() {
   term = new Terminal({
     cursorBlink: true, fontSize: 13,
     fontFamily: '"JetBrains Mono","JetBrains Mono NF",monospace',
-    theme: { background: '#0b1c30', foreground: '#cfe3ff', cursor: '#cfe3ff', selectionBackground: '#1f3b5e' },
+    theme: { background: codeTheme.surface, foreground: codeTheme.onSurface, cursor: codeTheme.onSurface, selectionBackground: codeTheme.selection },
   })
   fit = new FitAddon()
   term.loadAddon(fit)
@@ -141,7 +142,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 </script>
 
 <template>
-  <div class="flex flex-col min-h-0 bg-[#0b1c30] rounded-lg overflow-hidden border border-outline-variant/20">
+  <div class="flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
     <!-- 未连接 -->
     <div v-if="status === 'idle'" class="flex-1 flex flex-col items-center justify-center gap-md p-xl">
       <span class="material-symbols-outlined text-4xl text-on-surface-variant">terminal</span>
@@ -158,7 +159,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 
     <!-- 终端 -->
     <template v-else>
-      <div class="flex items-center justify-between px-md py-xs bg-[#1a1c1e] border-b border-outline-variant/20 shrink-0">
+      <div class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0">
         <div class="flex items-center gap-sm">
           <div class="flex gap-1">
             <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>

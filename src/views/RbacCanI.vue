@@ -174,7 +174,7 @@ async function runServerCheck() {
             </div>
             <div v-else class="text-xs text-on-surface-variant">
               <p>{{ $t('rbac.canI.noMatchRule') }}</p>
-              <p class="mt-xs">{{ $t('rbac.canI.noMatchHint') }}</p>
+              <p class="mt-xs" v-html="$t('rbac.canI.noMatchHint')"></p>
             </div>
           </div>
           </div>
