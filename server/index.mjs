@@ -1150,6 +1150,7 @@ async function handle(req, res) {
       id: conv.id, status: conv.status, steps: conv.steps,
       content: conv.content, error: conv.error,
       pendingApproval: conv.pendingApproval, trace: conv.trace,
+      userMessage: conv.userMessage,
     })
   }
 

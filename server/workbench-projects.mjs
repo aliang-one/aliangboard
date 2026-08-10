@@ -69,7 +69,14 @@ export function updateConversation(db, id, patch) {
   const cols = Object.keys(patch)
   if (cols.length === 0) return getConversation(db, id)
   const setClause = cols.map(k => `${k}=?`).join(', ')
-  const vals = cols.map(k => patch[k])
+  // node:sqlite 拒绝 undefined/对象/数组 → 强制成可绑定类型(undefined→null,对象→JSON)。
+  // 否则 out.content 等为 undefined 时 "Provided value cannot be bound to SQLite parameter N"。
+  const vals = cols.map(k => {
+    const v = patch[k]
+    if (v === undefined) return null
+    if (v !== null && typeof v === 'object') return JSON.stringify(v)
+    return v
+  })
   db.prepare(`UPDATE workbench_conversations SET ${setClause}, updatedAt=? WHERE id=?`)
     .run(...vals, Date.now(), id)
   return getConversation(db, id)
