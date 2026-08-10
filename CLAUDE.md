@@ -12,6 +12,8 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 |------|------|----------|----------|
 | `@tanstack/vue-query` | 运行时（dependencies） | 数据层终极优化：服务端状态归 Vue Query（去重/缓存/过期重取/三态/变更失效），Pinia 只留客户端状态。与 pinia/vue-router 同级的标准库。 | `/plan-eng-review` 2026-08-06：零依赖政策解读为「只约束工具链(test/build 不引 vitest/jest/ts)」，运行时可接受标准库 |
 | `vitest` + `@vue/test-utils` + `happy-dom` | 测试工具（devDependencies） | 66 页数据层迁移需组件/交互自动化安全网。纯逻辑仍优先用自研零依赖运行器覆盖。 | `/plan-eng-review` 2026-08-06：例外从运行时扩到测试工具 |
+| `marked` | 运行时（dependencies） | 工作台 chat agent 终答 markdown→HTML 解析（标准、~30KB）。 | 2026-08-10 workbench Cursor-style chat 设计 |
+| `dompurify` | 运行时（dependencies） | 消毒 marked 产出的 HTML（`conv.content` 为 LLM 生成、走 `v-html`，必须防 XSS）。 | 2026-08-10 workbench Cursor-style chat 设计 |
 
 > 设计文档：`~/.gstack/projects/aliang-aliangboard/liang-feat-data-model-design-20260806-001249.md`（含 GSTACK REVIEW REPORT）。
 
