@@ -139,6 +139,8 @@ export async function fetchClusterRole(name) { const d = await api.k8s(`/apis/rb
 export async function fetchClusterRoleBinding(name) { const d = await api.k8s(`/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${encodeURIComponent(name)}`); return d ? mapRoleBinding(d) : null }
 export async function fetchRuntimeClasses() { const d = await api.k8s('/apis/node.k8s.io/v1/runtimeclasses?limit=5000'); return (d?.items || []).map(mapRuntimeClass) }
 export async function fetchIngressClasses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingressclasses?limit=5000'); return (d?.items || []).map(mapIngressClass) }
+export async function fetchIngressClass(name) { const d = await api.k8s(`/apis/networking.k8s.io/v1/ingressclasses/${encodeURIComponent(name)}`); return d ? mapIngressClass(d) : null }
+export async function fetchRuntimeClass(name) { const d = await api.k8s(`/apis/node.k8s.io/v1/runtimeclasses/${encodeURIComponent(name)}`); return d ? mapRuntimeClass(d) : null }
 export async function fetchPriorityClasses() { const d = await api.k8s('/apis/scheduling.k8s.io/v1/priorityclasses?limit=5000'); return (d?.items || []).map(mapPriorityClass) }
 export async function fetchPriorityClass(name) { const d = await api.k8s(`/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`); return d ? mapPriorityClass(d) : null }
 export async function fetchNamespaces() {
