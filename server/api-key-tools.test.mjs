@@ -232,11 +232,35 @@ test('apply_yaml(admin happy): 走全链 → applyYamlFn(saCtx, yaml) 被调,返
   let called = null
   const applyYamlFn = async (saCtx, yaml) => { called = { yaml, authHeader: saCtx.authHeader }; return { applied: [{ kind: 'ConfigMap', name: 'cm' }], failed: [], total: 1 } }
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn })
-  const out = await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap' })
+  const out = await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n  namespace: ns' })
   assert.ok(called.yaml.includes('ConfigMap'))
   assert.ok(called.authHeader?.startsWith('Bearer '), 'SA-token ctx')
   assert.equal(out.applied.length, 1)
   assert.equal(out.total, 1)
+})
+test('apply_yaml: YAML metadata.namespace ∉ 允许集 → policy 拒(跨 ns 闸门;applyYamlFn 不应被调)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let applied = false
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn: async () => { applied = true; return { applied: [], failed: [], total: 0 } } })
+  const yaml = 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n  namespace: other'
+  await assert.rejects(
+    tools.callTool(k, cluster, 'apply_yaml', { yaml }),
+    (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /命名空间 'other'/.test(e.detail),
+  )
+  assert.equal(applied, false, '跨 ns 时 applyYamlFn 不应被调')
+})
+test('apply_yaml: 对象缺 metadata.namespace → policy 拒(防集群级 / 落 default 越权)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let applied = false
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn: async () => { applied = true; return { applied: [], failed: [], total: 0 } } })
+  const yaml = 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm'
+  await assert.rejects(
+    tools.callTool(k, cluster, 'apply_yaml', { yaml }),
+    (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /metadata\.namespace/.test(e.detail),
+  )
+  assert.equal(applied, false, '缺 ns 时 applyYamlFn 不应被调')
 })
 
 test('delete_resource(admin happy): DELETE path → requestFn called, 返 {deleted} + 审计 ok', async () => {

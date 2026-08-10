@@ -6,7 +6,7 @@ import { authorize, PermissionDeniedError, effectiveNamespaces } from './authori
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
-import { dump as yamlDump } from 'js-yaml'
+import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -306,6 +306,15 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       fn: async (saCtx) => {
         if (!applyYamlFn) throw new Error('apply_yaml 未启用(网关未注入 applyYamlFn)')
         if (!a.yaml || !a.yaml.trim()) throw new Error('apply_yaml 缺 yaml')
+        // ns 闸门(与 delete_resource 的 assertPathInNs 闭环):apply 正文里的 namespace 是攻击者可控的 metadata.namespace,
+        // 必须显式声明且 ∈ allowedNs。缺 ns(集群级资源,或落 default)→ 拒;他 ns → 拒。applyYamlFn 拿到的是已校验过的 yaml。
+        const allowedNs = effectiveNamespaces(keyRow)
+        yamlLoadAll(a.yaml, (o) => {
+          if (!o) return
+          const ns = o?.metadata?.namespace
+          if (!ns) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `apply_yaml 要求每个资源显式指定 metadata.namespace(防跨 ns / 集群级越权);kind=${o?.kind || '?'}` })
+          if (!allowedNs.has(ns)) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `命名空间 '${ns}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}])` })
+        })
         return applyYamlFn(saCtx, a.yaml)
       } }),
     delete_resource: async (keyRow, cluster, a, source) => runBoundedTool({
