@@ -2,8 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Material Symbols Configuration */
+/* Material Symbols —— 自托管(@fontsource-variable)。font-family 此前由 Google CDN 的 CSS 提供,
+   离线后须在此显式声明,否则 <span class="material-symbols-outlined"> 会以普通文本字形渲染。 */
 .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined Variable';
+  font-weight: normal;
+  font-style: normal;
+  font-feature-settings: 'liga';
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   user-select: none;
 }

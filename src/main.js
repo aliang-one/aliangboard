@@ -3,6 +3,15 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { i18n } from './i18n'
+// 字体自托管(@fontsource):离线 / 内网可用,不再依赖 Google Fonts CDN。
+// Inter 4 个字重 + JetBrains Mono 2 个字重(与原 CDN 完全一致)+ Material Symbols 变量字体(wght+FILL 轴)。
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
+import '@fontsource/jetbrains-mono/400.css'
+import '@fontsource/jetbrains-mono/500.css'
+import '@fontsource-variable/material-symbols-outlined/fill.css'
 import './styles/main.css'
 
 // 终端弹窗（新标签页）从 URL 接收 session token 并写入 sessionStorage（同源但 sessionStorage 不跨标签页）

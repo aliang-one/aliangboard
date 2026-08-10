@@ -16,8 +16,9 @@
     "i18n:check": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
-    "@fontsource/inter": "^5.2.8",
-    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/material-symbols-outlined": "^5.3.2",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@kubernetes/client-node": "^1.4.0",
     "@tanstack/vue-query": "^5.101.4",
     "js-yaml": "^5.2.1",
