@@ -39,6 +39,18 @@ function invalidateAllClusterQueries() {
   })
 }
 
+// HPA 定点 patch(strategic-merge):仅更新可编辑字段(minReplicas/maxReplicas/metrics),
+// 保留 spec.behavior / scaleTargetRef 等其余字段 —— 避免全量 SSA prune。
+// 提到模块级以便单测直接导入(纯函数)。
+export const hpaPatchFn = (name, ns, updates, before) => ({ spec: {
+  minReplicas: updates.minReplicas ?? before.minReplicas,
+  maxReplicas: updates.maxReplicas ?? before.maxReplicas,
+  metrics: [
+    { type: 'Resource', resource: { name: 'cpu', target: { type: 'Utilization', averageUtilization: updates.cpuTarget ?? before.cpuTarget } } },
+    { type: 'Resource', resource: { name: 'memory', target: { type: 'Utilization', averageUtilization: updates.memoryTarget ?? before.memoryTarget } } },
+  ],
+} })
+
 export const useClusterStore = defineStore('cluster', () => {
   // === Base64（Secret data 编解码，UTF-8 安全）===
   // K8s 的 Secret.data 一律 base64 编码；mock 里以明文（stringData）书写，
@@ -398,41 +410,124 @@ export const useClusterStore = defineStore('cluster', () => {
     } catch { /* 忽略 */ }
   }
 
-  // === CRUD: Services ===
-  async function addService(svc) {
-    await remoteCreate(generateYAML('service', svc), `Service/${svc.name}`, () => refetch('/api/v1/services', serviceList, mapService))
-    invalidateResource('services')
+  // === CRUD 工厂（全真实数据模型：纯远端 + Vue Query 缓存）===
+  // makeCrud 为每类规整资源生成 add/update/delete 三函数：
+  // - add: generateYAML → server-side apply → invalidateResource(刷 Vue Query)
+  // - update: 从 Vue Query 缓存取当前对象（fromCache）→ merge → remoteUpdate/remotePatch
+  //   · patchFn 资源(HPA)：定向 patch body，不 regenerate 全量 YAML
+  //   · 缓存未命中：仅 invalidate（下次有缓存再编辑），不抛
+  // - delete: api.k8s DELETE → invalidateResource
+  // 集中 await + invalidateResource，结构性消灭 await-race。
+  function makeCrud(plural, spec) {
+    const { kind, group, resource, namespaced, genType = resource, genExtra = false,
+            beforeSave, customYaml, patchFn, sideEffects, skipRemoteUpdate } = spec
+    const genFn = genExtra ? generateExtraYAML : generateYAML
+    const itemApi = (name, ns) => namespaced
+      ? `${group}/namespaces/${encodeURIComponent(ns)}/${resource}/${encodeURIComponent(name)}`
+      : `${group}/${resource}/${encodeURIComponent(name)}`
+    const yamlOf = item => customYaml ? customYaml(item) : genFn(genType, beforeSave ? beforeSave(item) : item)
+
+    // 从 Vue Query 缓存取当前对象（all-real-data 的唯一真相源；替代旧 store-ref idxOf）
+    const fromCache = (name, ns) => {
+      const cid = currentCluster.value || 'cluster'
+      const list = queryClient.getQueryData(['cluster', cid, plural]) || []
+      return list.find(x => x.name === name && (!namespaced || x.namespace === ns))
+    }
+
+    async function add(item) {
+      await remoteCreate(yamlOf(item), `${kind}/${item.name}`)
+      if (sideEffects?.onAdd) sideEffects.onAdd(item)
+      invalidateResource(plural)
+    }
+    async function update(name, ns, updates) {
+      if (skipRemoteUpdate) return
+      if (patchFn) {
+        const before = fromCache(name, ns) || {}
+        await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, before), kind)
+      } else {
+        const cur = fromCache(name, ns)
+        if (!cur) { invalidateResource(plural); return }
+        const merged = { ...cur, ...(beforeSave ? beforeSave(updates) : updates) }
+        await remoteUpdate(yamlOf(merged), kind)
+      }
+      if (sideEffects?.onUpdate) sideEffects.onUpdate(name, ns)
+      invalidateResource(plural)
+    }
+    async function remove(name, ns) {
+      await remoteDeletePath(itemApi(name, ns), `${kind}/${name}`)
+      if (sideEffects?.onDelete) sideEffects.onDelete(name, ns)
+      invalidateResource(plural)
+    }
+    return { add, update, delete: remove }
   }
 
-  async function updateService(name, ns, updates) {
-    const idx = serviceList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(serviceList.value[idx]))
-    serviceList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('service', serviceList.value[idx]), 'Service', () => { serviceList.value[idx] = before })
-    invalidateResource('services')
+  // 远端删除（工厂专用）：纯 DELETE，无 store ref / 无乐观回滚——Vue Query invalidate 重拉即同步。
+  async function remoteDeletePath(path, label) {
+    try {
+      await api.k8s(path, { method: 'DELETE' })
+    } catch (e) {
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: label || i18n.global.t('store.resource'), msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+    }
   }
 
-  async function deleteService(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`, serviceList, s => s.name === name && s.namespace === ns)
-    invalidateResource('services')
+  const RESOURCE_SPECS = {
+    configmaps: { kind: 'ConfigMap', group: '/api/v1', resource: 'configmaps', namespaced: true, genType: 'configmap' },
+    secrets: { kind: 'Secret', group: '/api/v1', resource: 'secrets', namespaced: true, genType: 'secret', beforeSave: s => (s.data ? { ...s, data: encodeSecretData(s.data) } : s) },
+    pvcs: { kind: 'PVC', group: '/api/v1', resource: 'persistentvolumeclaims', namespaced: true, genType: 'pvc' },
+    services: { kind: 'Service', group: '/api/v1', resource: 'services', namespaced: true, genType: 'service', sideEffects: {
+      onAdd: svc => { const ns = namespaceList.value.find(n => n.name === svc.namespace); if (ns) ns.services = (ns.services || 0) + 1 },
+      onDelete: (_n, ns) => { const nsObj = namespaceList.value.find(n => n.name === ns); if (nsObj) nsObj.services = Math.max(0, (nsObj.services || 0) - 1) },
+    } },
+    networkpolicies: { kind: 'NetworkPolicy', group: '/apis/networking.k8s.io/v1', resource: 'networkpolicies', namespaced: true, genType: 'networkpolicy' },
+    hpas: { kind: 'HPA', group: '/apis/autoscaling/v2', resource: 'horizontalpodautoscalers', namespaced: true, genType: 'hpa', patchFn: hpaPatchFn },
+    resourcequotas: { kind: 'ResourceQuota', group: '/api/v1', resource: 'resourcequotas', namespaced: true, genType: 'resourcequota' },
+    limitranges: { kind: 'LimitRange', group: '/api/v1', resource: 'limitranges', namespaced: true, genType: 'limitrange' },
+    serviceaccounts: { kind: 'ServiceAccount', group: '/api/v1', resource: 'serviceaccounts', namespaced: true, genType: 'serviceaccount' },
+    rolebindings: { kind: 'RoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'rolebindings', namespaced: true, genType: 'rolebinding' },
+    poddisruptionbudgets: { kind: 'PDB', group: '/apis/policy/v1', resource: 'poddisruptionbudgets', namespaced: true, genType: 'pdb', genExtra: true },
+    ingresses: { kind: 'Ingress', group: '/apis/networking.k8s.io/v1', resource: 'ingresses', namespaced: true, genType: 'ingress' },
+    // 集群级规整资源 (namespaced:false)：单一 API 端点 + 标准 remoteXxx
+    ingressclasses: { kind: 'IngressClass', group: '/apis/networking.k8s.io/v1', resource: 'ingressclasses', namespaced: false, genType: 'ingressclass' },
+    runtimeclasses: { kind: 'RuntimeClass', group: '/apis/node.k8s.io/v1', resource: 'runtimeclasses', namespaced: false, genType: 'runtimeclass' },
+    priorityclasses: { kind: 'PriorityClass', group: '/apis/scheduling.k8s.io/v1', resource: 'priorityclasses', namespaced: false, genType: 'priorityclass', genExtra: true },
+    clusterrolebindings: { kind: 'ClusterRoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'clusterrolebindings', namespaced: false, genType: 'clusterrolebinding' },
   }
+  // 生成并顶替手写（解构到与原函数同名）
+  const _crud = {}
+  ;(_crud.configmaps = makeCrud('configmaps', RESOURCE_SPECS.configmaps))
+  const { add: addConfigMap, update: updateConfigMap, delete: deleteConfigMap } = _crud.configmaps
+  ;(_crud.secrets = makeCrud('secrets', RESOURCE_SPECS.secrets))
+  const { add: addSecret, update: updateSecret, delete: deleteSecret } = _crud.secrets
+  ;(_crud.pvcs = makeCrud('pvcs', RESOURCE_SPECS.pvcs))
+  const { add: addPVC, update: updatePVC, delete: deletePVC } = _crud.pvcs
+  ;(_crud.services = makeCrud('services', RESOURCE_SPECS.services))
+  const { add: addService, update: updateService, delete: deleteService } = _crud.services
+  ;(_crud.networkpolicies = makeCrud('networkpolicies', RESOURCE_SPECS.networkpolicies))
+  const { add: addNetworkPolicy, update: updateNetworkPolicy, delete: deleteNetworkPolicy } = _crud.networkpolicies
+  ;(_crud.hpas = makeCrud('hpas', RESOURCE_SPECS.hpas))
+  const { add: addHPA, update: updateHPA, delete: deleteHPA } = _crud.hpas
+  ;(_crud.resourcequotas = makeCrud('resourcequotas', RESOURCE_SPECS.resourcequotas))
+  const { add: addResourceQuota, update: updateResourceQuota, delete: deleteResourceQuota } = _crud.resourcequotas
+  ;(_crud.limitranges = makeCrud('limitranges', RESOURCE_SPECS.limitranges))
+  const { add: addLimitRange, update: updateLimitRange, delete: deleteLimitRange } = _crud.limitranges
+  ;(_crud.serviceaccounts = makeCrud('serviceaccounts', RESOURCE_SPECS.serviceaccounts))
+  const { add: addServiceAccount, update: updateServiceAccount, delete: deleteServiceAccount } = _crud.serviceaccounts
+  ;(_crud.rolebindings = makeCrud('rolebindings', RESOURCE_SPECS.rolebindings))
+  const { add: addRoleBinding, update: updateRoleBinding, delete: deleteRoleBinding } = _crud.rolebindings
+  ;(_crud.poddisruptionbudgets = makeCrud('poddisruptionbudgets', RESOURCE_SPECS.poddisruptionbudgets))
+  const { add: addPDB, update: updatePDB, delete: deletePDB } = _crud.poddisruptionbudgets
+  ;(_crud.ingresses = makeCrud('ingresses', RESOURCE_SPECS.ingresses))
+  const { add: addIngress, update: updateIngress, delete: deleteIngress } = _crud.ingresses
+  ;(_crud.ingressclasses = makeCrud('ingressclasses', RESOURCE_SPECS.ingressclasses))
+  const { add: addIngressClass, update: updateIngressClass, delete: deleteIngressClass } = _crud.ingressclasses
+  ;(_crud.runtimeclasses = makeCrud('runtimeclasses', RESOURCE_SPECS.runtimeclasses))
+  const { add: addRuntimeClass, update: updateRuntimeClass, delete: deleteRuntimeClass } = _crud.runtimeclasses
+  ;(_crud.priorityclasses = makeCrud('priorityclasses', RESOURCE_SPECS.priorityclasses))
+  const { add: addPriorityClass, update: updatePriorityClass, delete: deletePriorityClass } = _crud.priorityclasses
+  ;(_crud.clusterrolebindings = makeCrud('clusterrolebindings', RESOURCE_SPECS.clusterrolebindings))
+  const { add: addClusterRoleBinding, update: updateClusterRoleBinding, delete: deleteClusterRoleBinding } = _crud.clusterrolebindings
 
-  // === CRUD: Ingress ===
-  async function addIngress(ing) {
-    await remoteCreate(generateYAML('ingress', ing), `Ingress/${ing.name}`, () => refetch('/apis/networking.k8s.io/v1/ingresses', ingressList, mapIngress))
-    invalidateResource('ingresses')
-  }
-
-  async function updateIngress(name, ns, updates) {
-    const idx = ingressList.value.findIndex(i => i.name === name && i.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(ingressList.value[idx]))
-    ingressList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('ingress', ingressList.value[idx]), 'Ingress', () => { ingressList.value[idx] = before })
-    invalidateResource('ingresses')
-  }
-
+  // === CRUD: Ingress (add/update/delete 已进工厂；updateIngressRules 手写——特殊 PATCH)===
   // 结构化编辑 Ingress 路由规则：入参 flatRules + defaultBackend，
   // 用 buildIngressRulesPatch 构造 PATCH body（rules + defaultBackend 一次提交）；
   // defaultBackend===null 时 merge-patch 删除该字段。本地合并 rules/defaultBackend/hosts。
@@ -448,76 +543,9 @@ export const useClusterStore = defineStore('cluster', () => {
     updateIngress(name, ns, { rules, defaultBackend: db, hosts: rules.map(r => r.host).filter(Boolean).join(',') })
   }
 
-  async function deleteIngress(name, ns) {
-    await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, ingressList, i => i.name === name && i.namespace === ns)
-    invalidateResource('ingresses')
-  }
+  // (ConfigMaps / Secrets / PVCs CRUD 已进工厂)
 
-  // === CRUD: ConfigMaps ===
-  async function addConfigMap(cm) {
-    await remoteCreate(generateYAML('configmap', cm), `ConfigMap/${cm.name}`, () => refetch('/api/v1/configmaps', configMapList, mapConfigMap))
-    invalidateResource('configmaps')
-  }
-
-  async function updateConfigMap(name, ns, updates) {
-    const idx = configMapList.value.findIndex(c => c.name === name && c.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(configMapList.value[idx]))
-    configMapList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('configmap', configMapList.value[idx]), 'ConfigMap', () => { configMapList.value[idx] = before })
-    invalidateResource('configmaps')
-  }
-
-  async function deleteConfigMap(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`, configMapList, c => c.name === name && c.namespace === ns)
-    invalidateResource('configmaps')
-  }
-
-  // === CRUD: Secrets ===
-  async function addSecret(sec) {
-    // 表单 data 为明文；先 base64 编码再交给 generateYAML，其内部 decodeBase64 会还原为 stringData 明文
-    await remoteCreate(generateYAML('secret', { ...sec, data: encodeSecretData(sec.data) }), `Secret/${sec.name}`, () => refetch('/api/v1/secrets', secretList, mapSecret))
-    invalidateResource('secrets')
-  }
-
-  async function updateSecret(name, ns, updates) {
-    const idx = secretList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(secretList.value[idx]))
-    // data 来自表单（明文），统一编码后再入库
-    const next = { ...updates }
-    if (next.data) next.data = encodeSecretData(next.data)
-    secretList.value[idx] = { ...before, ...next }
-    await remoteUpdate(generateYAML('secret', secretList.value[idx]), 'Secret', () => { secretList.value[idx] = before })
-    invalidateResource('secrets')
-  }
-
-  async function deleteSecret(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`, secretList, s => s.name === name && s.namespace === ns)
-    invalidateResource('secrets')
-  }
-
-  // === CRUD: PVCs ===
-  async function addPVC(pvc) {
-    await remoteCreate(generateYAML('pvc', pvc), `PVC/${pvc.name}`, () => refetch('/api/v1/persistentvolumeclaims', pvcList, mapPVC))
-    invalidateResource('pvcs')
-  }
-
-  async function updatePVC(name, ns, updates) {
-    const idx = pvcList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(pvcList.value[idx]))
-    pvcList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('pvc', pvcList.value[idx]), 'PVC', () => { pvcList.value[idx] = before })
-    invalidateResource('pvcs')
-  }
-
-  async function deletePVC(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`, pvcList, p => p.name === name && p.namespace === ns)
-    invalidateResource('pvcs')
-  }
-
-  // === CRUD: PersistentVolumes（集群级）===
+  // === CRUD: PersistentVolumes（集群级，手写——特殊 patch）===
   function getPVByName(name) {
     return pvList.value.find(p => p.name === name)
   }
@@ -583,32 +611,12 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
   }
 
-  // === CRUD: IngressClass / RuntimeClass（集群级）===
+  // === CRUD: IngressClass / RuntimeClass getters（CRUD 已进工厂）===
   function getIngressClassByName(name) {
     return ingressClassList.value.find(c => c.name === name)
   }
-  async function addIngressClass(ic) {
-    return remoteCreate(generateYAML('ingressclass', ic), `IngressClass/${ic.name}`, () => refetch('/apis/networking.k8s.io/v1/ingressclasses', ingressClassList, mapIngressClass))
-  }
-  function updateIngressClass(name, updates) {
-    const idx = ingressClassList.value.findIndex(c => c.name === name)
-    if (idx !== -1) ingressClassList.value[idx] = { ...ingressClassList.value[idx], ...updates }
-  }
-  async function deleteIngressClass(name) {
-    await remoteDelete(`/apis/networking.k8s.io/v1/ingressclasses/${encodeURIComponent(name)}`, ingressClassList, c => c.name === name)
-  }
   function getRuntimeClassByName(name) {
     return runtimeClassList.value.find(r => r.name === name)
-  }
-  async function addRuntimeClass(rc) {
-    return remoteCreate(generateYAML('runtimeclass', rc), `RuntimeClass/${rc.name}`, () => refetch('/apis/node.k8s.io/v1/runtimeclasses', runtimeClassList, mapRuntimeClass))
-  }
-  function updateRuntimeClass(name, updates) {
-    const idx = runtimeClassList.value.findIndex(r => r.name === name)
-    if (idx !== -1) runtimeClassList.value[idx] = { ...runtimeClassList.value[idx], ...updates }
-  }
-  async function deleteRuntimeClass(name) {
-    await remoteDelete(`/apis/node.k8s.io/v1/runtimeclasses/${encodeURIComponent(name)}`, runtimeClassList, r => r.name === name)
   }
 
   // === CRUD: Workloads (for Deploy) ===
@@ -1043,90 +1051,9 @@ export const useClusterStore = defineStore('cluster', () => {
     } catch { /* 静默：保留上次 metricsAvailable */ }
   }
 
-  // === CRUD: NetworkPolicies ===
-  async function addNetworkPolicy(np) {
-    await remoteCreate(generateYAML('networkpolicy', np), `NetworkPolicy/${np.name}`, () => refetch('/apis/networking.k8s.io/v1/networkpolicies', networkPolicyList, mapNetworkPolicy))
-    invalidateResource('networkpolicies')
-  }
+  // (NetworkPolicies / HPAs / ResourceQuotas / LimitRanges CRUD 已进工厂)
 
-  async function updateNetworkPolicy(name, ns, updates) {
-    const idx = networkPolicyList.value.findIndex(n => n.name === name && n.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(networkPolicyList.value[idx]))
-    networkPolicyList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('networkpolicy', networkPolicyList.value[idx]), 'NetworkPolicy', () => { networkPolicyList.value[idx] = before })
-    invalidateResource('networkpolicies')
-  }
-
-  async function deleteNetworkPolicy(name, ns) {
-    await remoteDelete(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`, networkPolicyList, n => n.name === name && n.namespace === ns)
-    invalidateResource('networkpolicies')
-  }
-
-  // === CRUD: HPAs ===
-  async function addHPA(hpa) {
-    await remoteCreate(generateYAML('hpa', hpa), `HPA/${hpa.name}`, () => refetch('/apis/autoscaling/v2/horizontalpodautoscalers', hpaList, mapHPA))
-    invalidateResource('hpas')
-  }
-
-  async function updateHPA(name, ns, updates) {
-    const idx = hpaList.value.findIndex(h => h.name === name && h.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(hpaList.value[idx]))
-    hpaList.value[idx] = { ...before, ...updates }
-    const patch = { spec: {
-      minReplicas: updates.minReplicas ?? before.minReplicas,
-      maxReplicas: updates.maxReplicas ?? before.maxReplicas,
-      metrics: [
-        { type: 'Resource', resource: { name: 'cpu', target: { type: 'Utilization', averageUtilization: updates.cpuTarget ?? before.cpuTarget } } },
-        { type: 'Resource', resource: { name: 'memory', target: { type: 'Utilization', averageUtilization: updates.memoryTarget ?? before.memoryTarget } } },
-      ],
-    } }
-    await remotePatch(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, patch, 'HPA', () => { hpaList.value[idx] = before })
-    invalidateResource('hpas')
-  }
-
-  async function deleteHPA(name, ns) {
-    await remoteDelete(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`, hpaList, h => h.name === name && h.namespace === ns)
-    invalidateResource('hpas')
-  }
-
-  // === CRUD: ResourceQuotas ===
-  async function addResourceQuota(rq) {
-    await remoteCreate(generateYAML('resourcequota', rq), `ResourceQuota/${rq.name}`, () => refetch('/api/v1/resourcequotas', resourceQuotaList, mapResourceQuota))
-    invalidateResource('resourcequotas')
-  }
-
-  async function updateResourceQuota(name, ns, updates) {
-    // 数据在 Vue Query(列表 ref 已空),先取当前单条再合并 updates,避免 findIndex 落空致编辑无效果。
-    const cur = await fetchResourceQuota(name, ns).catch(() => null)
-    await remoteUpdate(generateYAML('resourcequota', { ...(cur || {}), name, namespace: ns, ...updates }), 'ResourceQuota')
-    invalidateResource('resourcequotas')
-  }
-
-  async function deleteResourceQuota(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/resourcequotas/${encodeURIComponent(name)}`, resourceQuotaList, r => r.name === name && r.namespace === ns)
-    invalidateResource('resourcequotas')
-  }
-
-  // === CRUD: LimitRanges ===
-  async function addLimitRange(lr) {
-    await remoteCreate(generateYAML('limitrange', lr), `LimitRange/${lr.name}`, () => refetch('/api/v1/limitranges', limitRangeList, mapLimitRange))
-    invalidateResource('limitranges')
-  }
-
-  async function updateLimitRange(name, ns, updates) {
-    const cur = await fetchLimitRange(name, ns).catch(() => null)
-    await remoteUpdate(generateYAML('limitrange', { ...(cur || {}), name, namespace: ns, ...updates }), 'LimitRange')
-    invalidateResource('limitranges')
-  }
-
-  async function deleteLimitRange(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/limitranges/${encodeURIComponent(name)}`, limitRangeList, l => l.name === name && l.namespace === ns)
-    invalidateResource('limitranges')
-  }
-
-  // === CRUD: RBAC ===
+  // === CRUD: RBAC (Role 手写——Cluster/Namespace 双 scope；ServiceAccount/RoleBinding 已进工厂)===
   async function addRole(role) {
     return remoteCreate(generateYAML('role', role), `${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'}/${role.name}`, refetchRoles)
   }
@@ -1148,39 +1075,9 @@ export const useClusterStore = defineStore('cluster', () => {
     await remoteDelete(path, roleList, matchFn)
   }
 
-  async function addServiceAccount(sa) {
-    return remoteCreate(generateYAML('serviceaccount', sa), `ServiceAccount/${sa.name}`, () => refetch('/api/v1/serviceaccounts', saList, mapServiceAccount))
-  }
+  // (ServiceAccount / RoleBinding CRUD 已进工厂)
 
-  async function updateServiceAccount(name, ns, updates) {
-    const idx = saList.value.findIndex(s => s.name === name && s.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(saList.value[idx]))
-    saList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('serviceaccount', saList.value[idx]), 'ServiceAccount', () => { saList.value[idx] = before })
-  }
-
-  async function deleteServiceAccount(name, ns) {
-    await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`, saList, s => s.name === name && s.namespace === ns)
-  }
-
-  async function addRoleBinding(rb) {
-    return remoteCreate(generateYAML('rolebinding', rb), `RoleBinding/${rb.name}`, () => refetch('/apis/rbac.authorization.k8s.io/v1/rolebindings', roleBindingList, mapRoleBinding))
-  }
-
-  async function updateRoleBinding(name, ns, updates) {
-    const idx = roleBindingList.value.findIndex(r => r.name === name && r.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(roleBindingList.value[idx]))
-    roleBindingList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('rolebinding', roleBindingList.value[idx]), 'RoleBinding', () => { roleBindingList.value[idx] = before })
-  }
-
-  async function deleteRoleBinding(name, ns) {
-    await remoteDelete(`/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/rolebindings/${encodeURIComponent(name)}`, roleBindingList, r => r.name === name && r.namespace === ns)
-  }
-
-  // === CRUD: ClusterRoleBindings（集群级）===
+  // === CRUD: ClusterRoleBindings getters（CRUD 已进工厂）===
   function getClusterRoleByName(name) {
     return roleList.value.find(r => r.name === name && r.scope === 'Cluster')
   }
@@ -1188,52 +1085,15 @@ export const useClusterStore = defineStore('cluster', () => {
     return clusterRoleBindingList.value.find(r => r.name === name)
   }
 
-  async function addClusterRoleBinding(crb) {
-    return remoteCreate(generateYAML('clusterrolebinding', crb), `ClusterRoleBinding/${crb.name}`, () => refetch('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings', clusterRoleBindingList, mapRoleBinding))
-  }
-
-  function updateClusterRoleBinding(name, updates) {
-    const idx = clusterRoleBindingList.value.findIndex(r => r.name === name)
-    if (idx !== -1) clusterRoleBindingList.value[idx] = { ...clusterRoleBindingList.value[idx], ...updates }
-  }
-
-  async function deleteClusterRoleBinding(name) {
-    await remoteDelete(`/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${encodeURIComponent(name)}`, clusterRoleBindingList, r => r.name === name)
-  }
-
-  // === CRUD: PodDisruptionBudget ===
+  // === CRUD: PodDisruptionBudget getter（CRUD 已进工厂）===
   function getPDBByName(name, ns) {
     const namespace = ns || currentNamespace.value
     return pdbList.value.find(p => p.name === name && p.namespace === namespace)
   }
-  async function addPDB(pdb) {
-    await remoteCreate(generateExtraYAML('pdb', pdb), `PDB/${pdb.name}`, () => refetch('/apis/policy/v1/poddisruptionbudgets', pdbList, mapPDB))
-    invalidateResource('pdbs')
-  }
-  async function updatePDB(name, ns, updates) {
-    // 详情页只传 minAvailable/maxUnavailable,须先取当前单条(含 selector)再合并,避免覆盖丢失 selector。
-    const cur = await fetchPDB(name, ns).catch(() => null)
-    await remoteUpdate(generateExtraYAML('pdb', { ...(cur || {}), name, namespace: ns, ...updates }), 'PDB')
-    invalidateResource('pdbs')
-  }
-  async function deletePDB(name, ns) {
-    await remoteDelete(`/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`, pdbList, p => p.name === name && p.namespace === ns)
-    invalidateResource('pdbs')
-  }
 
-  // === CRUD: PriorityClass（集群级）===
+  // === CRUD: PriorityClass getter（CRUD 已进工厂）===
   function getPriorityClassByName(name) {
     return priorityClassList.value.find(p => p.name === name)
-  }
-  async function addPriorityClass(pc) {
-    return remoteCreate(generateExtraYAML('priorityclass', pc), `PriorityClass/${pc.name}`, () => refetch('/apis/scheduling.k8s.io/v1/priorityclasses', priorityClassList, mapPriorityClass))
-  }
-  function updatePriorityClass(name, updates) {
-    const idx = priorityClassList.value.findIndex(p => p.name === name)
-    if (idx !== -1) priorityClassList.value[idx] = { ...priorityClassList.value[idx], ...updates }
-  }
-  async function deletePriorityClass(name) {
-    await remoteDelete(`/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`, priorityClassList, p => p.name === name)
   }
 
   // === CRUD: Nodes ===
