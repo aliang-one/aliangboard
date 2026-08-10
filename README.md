@@ -102,6 +102,46 @@ K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 
 API Gateway 只在内存中保存集群凭据和会话，重启后所有登录会话都会失效。生产环境若需要多实例部署，应将会话和加密后的集群凭据迁移到专用存储。
 
+## 容器部署
+
+仓库提供多阶段 `Dockerfile`：单进程 Node 同时服务前端静态文件与 API Gateway，开箱即用。
+
+本地构建并运行：
+
+```bash
+docker build -t aliangboard .
+docker run -d --name aliangboard \
+  -p 8787:8787 \
+  -v aliangboard-data:/app/data \
+  aliangboard
+```
+
+浏览器打开 `http://localhost:8787` 即可。SQLite 库与 workbench git 仓库持久化在 `aliangboard-data` 卷中，**包含凭据，请妥善保管**。
+
+> 运行时镜像基于 `node:25-alpine`（`node:sqlite` 硬依赖），内置 `git`（工作台 repo 存储需要）。以非 root 用户 `node` 运行。
+
+容器相关变量（覆盖同名后端变量）：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | 容器内监听地址（镜像已设，勿改回 127.0.0.1） |
+| `PORT` | `8787` | 监听端口 |
+| `ALIANG_DB` | `/app/data/aliangboard.db` | SQLite 库路径（位于卷内） |
+| `ALIANG_WORKBENCH_DIR` | `/app/data/workbench` | 工作台 git 仓库目录（位于卷内） |
+| `ALIANG_STATIC_DIR` | `/app/dist` | 前端静态目录（一般无需改动） |
+
+### CI 自动发布
+
+推送到 GitHub `main` 分支时，`.github/workflows/docker.yml` 会自动构建 `linux/amd64` + `linux/arm64` 多架构镜像并发布到 GitHub Container Registry：
+
+```
+ghcr.io/<你的-github-owner>/aliangboard:latest
+ghcr.io/<你的-github-owner>/aliangboard:main
+ghcr.io/<你的-github-owner>/aliangboard:sha-<7位提交哈希>
+```
+
+`sha-<哈希>` 标签不可变，可用于精确回滚。认证使用内置 `GITHUB_TOKEN`，无需额外配置 secret。
+
 ## 当前边界
 
 - Pod Exec 终端、端口转发、文件浏览仅在连接真实集群时生效（演示数据模式下为模拟 / 只读）。
