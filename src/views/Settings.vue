@@ -61,11 +61,9 @@ onMounted(() => {
 // === MCP Service toggle (admin only) ===
 const mcpEnabled = ref(true)
 const mcpLoading = ref(false)
-const mcpUrl = computed(() => window.location.origin + '/mcp')
-// 可直接复制执行的客户端命令；<YOUR_API_KEY> 由用户替换为在「API Keys」签发的 key
-const mcpAddCmd = computed(() =>
-  `claude mcp add --transport http aliangboard ${mcpUrl.value} --header "Authorization: Bearer <YOUR_API_KEY>"`
-)
+// 可直接复制执行的客户端命令；{HOST} = AliangBoard 网关地址(默认端口 8787)，<YOUR_API_KEY> = 「API Keys」签发的 key
+const mcpCurrentOrigin = window.location.origin
+const mcpAddCmd = 'claude mcp add --transport http aliangboard {HOST}/mcp --header "Authorization: Bearer <YOUR_API_KEY>"'
 const mcpRemoveCmd = 'claude mcp remove aliangboard'
 const mcpInstallCliCmd = 'npm install -g @anthropic-ai/claude-code'
 async function copyText(text) {
@@ -303,7 +301,8 @@ const { catalog, resetAll } = useTableColumns()
                   </button>
                 </div>
                 <pre class="text-code-sm font-mono text-on-surface bg-surface-container-high/60 px-md py-sm rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{{ mcpAddCmd }}</pre>
-                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpAddCmdHint') }}</p>
+                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpAddCmdHint', { origin: mcpCurrentOrigin }) }}</p>
+                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpHostHint') }}</p>
               </div>
 
               <!-- ② 移除 / 换 Key 命令 -->
