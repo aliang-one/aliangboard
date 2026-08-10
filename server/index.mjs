@@ -22,6 +22,7 @@ import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFi
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
 import { reconcileProject } from './reconcile.mjs'
+import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
@@ -40,6 +41,7 @@ mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
 const db = new DatabaseSync(dbPath)
 // 工作台 repo 根目录(per-project repo + cluster ledger 的 git repo 落在这下面)
 const WORKBENCH_DIR = process.env.ALIANG_WORKBENCH_DIR || join(__dirname, '..', 'data', 'workbench')
+const STATIC_DIR = process.env.ALIANG_STATIC_DIR || join(__dirname, '..', 'dist')
 mkdirSync(WORKBENCH_DIR, { recursive: true })
 ensureGitAvailable().then(() => {}, e => console.error('[workbench] git 二进制不可用,工作台端点将失败:', e.message))
 try { chmodSync(dbPath, 0o600) } catch { /* 部分文件系统不支持，忽略 */ } // 含 K8s 凭据，收紧为仅属主可读写
@@ -1758,6 +1760,10 @@ async function handle(req, res) {
       return sendJson(res, error.status || 502, { message: error?.message || '解析归属链失败' })
     }
   }
+
+  // 非 /api/* 的 GET/HEAD:尝试服务 dist/ 静态前端(SPA)。serveStatic 内部已 guard /api 前缀(返 false)。
+  // 必须在 isK8s/isPlatform 分发门之前 —— 否则非 API 路径直接被下方 isK8s/isPlatform 门 404 吞掉,SPA 永远到不了。
+  if (serveStatic(req, res, url, { root: STATIC_DIR })) return
 
   // K8s 代理 vs 平台 API 路由分发
   const isK8s = url.pathname.startsWith('/api/k8s/')
