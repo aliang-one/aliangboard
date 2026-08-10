@@ -35,7 +35,7 @@ function confirm() {
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="close"></div>
         <!-- Dialog -->
-        <div :class="width" class="relative w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-dropdown p-lg z-10 animate-slide-up">
+        <div :class="width" class="relative w-full max-h-[90vh] overflow-y-auto bg-surface-container-lowest rounded-xl border border-outline-variant shadow-dropdown p-lg z-10 animate-slide-up">
           <div v-if="title" class="flex justify-between items-center mb-lg">
             <h3 class="text-headline-sm font-bold">{{ title }}</h3>
             <button @click="close" class="p-1 text-on-surface-variant hover:bg-surface-container rounded-lg">
