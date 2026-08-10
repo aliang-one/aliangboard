@@ -12,7 +12,7 @@ import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
-import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchStorageClasses, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
+import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
 
 // YAML 强制双引号序列化：metadata.name/namespace/标签值/容器名等必须是字符串,
@@ -553,18 +553,12 @@ export const useClusterStore = defineStore('cluster', () => {
     return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => refetch('/api/v1/persistentvolumes', pvList, mapPV))
   }
   async function updatePV(name, updates) {
-    const idx = pvList.value.findIndex(p => p.name === name)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(pvList.value[idx]))
-    const patch = buildPVPatch(before, updates)
+    const cur = await fetchPV(name).catch(() => null)
+    if (!cur) { invalidateResource('persistentvolumes'); return }
+    const patch = buildPVPatch(cur, updates)
     if (!patch) return
-    await remotePatch(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, patch, 'PersistentVolume', () => { pvList.value[idx] = before })
-    pvList.value[idx] = {
-      ...before,
-      ...(updates.reclaimPolicy ? { reclaimPolicy: updates.reclaimPolicy } : {}),
-      ...(updates.labels ? { labels: updates.labels } : {}),
-      ...(updates.annotations ? { annotations: updates.annotations } : {}),
-    }
+    await remotePatch(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, patch, 'PersistentVolume')
+    invalidateResource('persistentvolumes')
   }
   async function deletePV(name) {
     await remoteDelete(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, pvList, p => p.name === name)
@@ -578,24 +572,12 @@ export const useClusterStore = defineStore('cluster', () => {
     return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => refetch('/apis/storage.k8s.io/v1/storageclasses', scList, mapStorageClass))
   }
   async function updateStorageClass(name, updates) {
-    const idx = scList.value.findIndex(s => s.name === name)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(scList.value[idx]))
-    const patch = buildStorageClassPatch(before, updates)
+    const cur = await fetchStorageClass(name).catch(() => null)
+    if (!cur) { invalidateResource('storageclasses'); return }
+    const patch = buildStorageClassPatch(cur, updates)
     if (!patch) return
-    await remotePatch(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, patch, 'StorageClass', () => { scList.value[idx] = before })
-    const DEFAULT_KEY = 'storageclass.kubernetes.io/is-default-class'
-    const newAnns = { ...(updates.annotations || before.annotations || {}) }
-    if (updates.isDefault != null) {
-      if (updates.isDefault) newAnns[DEFAULT_KEY] = 'true'
-      else delete newAnns[DEFAULT_KEY]
-    }
-    scList.value[idx] = {
-      ...before,
-      default: updates.isDefault != null ? !!updates.isDefault : before.default,
-      ...(updates.labels ? { labels: updates.labels } : {}),
-      annotations: newAnns,
-    }
+    await remotePatch(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, patch, 'StorageClass')
+    invalidateResource('storageclasses')
   }
   async function deleteStorageClass(name) {
     await remoteDelete(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, scList, s => s.name === name)
@@ -635,24 +617,29 @@ export const useClusterStore = defineStore('cluster', () => {
     await remoteDelete(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, workloadList, matchFn, i18n.global.t('store.workload'))
   }
 
-  async function updateWorkload(name, ns, updates) {
-    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(workloadList.value[idx]))
-    workloadList.value[idx] = { ...before, ...updates }
-    const wl = workloadList.value[idx]
-    // tier 以 layer.aliangboard.io label 为权威：本地即时写入 labels，classifyResource 无需刷新即可重算
-    if (updates.tier != null) {
-      wl.labels = { ...(wl.labels || {}), 'layer.aliangboard.io': updates.tier }
-      wl.tier = updates.tier
+  // 从 Vue Query 缓存或 API 取单个工作负载（all-real-data 真相源；替代旧 workloadList.findIndex）
+  async function getWorkloadForEdit(name, ns) {
+    const cid = currentCluster.value || 'cluster'
+    const cached = queryClient.getQueryData(['cluster', cid, 'workloads']) || []
+    const hit = cached.find(w => w.name === name && w.namespace === ns)
+    if (hit) return hit
+    // 缓存未命中：逐类型探测 API（Deployment/StatefulSet/DaemonSet）
+    for (const type of ['Deployment', 'StatefulSet', 'DaemonSet']) {
+      try { return await fetchWorkload(type, name, ns) } catch { /* 继续下一个类型 */ }
     }
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    // 定点 merge-patch：仅改动字段，避免 regenerate 丢失深模板（env/probes/卷）。Job/CronJob 等不支持定点编辑，回退仅本地。
+    return null
+  }
+
+  async function updateWorkload(name, ns, updates) {
+    const cur = await getWorkloadForEdit(name, ns)
+    if (!cur) { invalidateResource('workloads'); return }
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[cur.type]
+    // 定点 merge-patch：仅改动字段，避免 regenerate 丢失深模板（env/probes/卷）。Job/CronJob 等不支持定点编辑。
     if (plural) {
       const patch = {}
       // labels：合并 tier→layer.aliangboard.io，保留既有 labels（merge-patch 全量回写，故取并集）
       if (updates.labels || updates.tier != null) {
-        const labels = { ...(updates.labels || before.labels || {}) }
+        const labels = { ...(updates.labels || cur.labels || {}) }
         if (updates.tier != null) labels['layer.aliangboard.io'] = updates.tier
         patch.metadata = { labels }
       }
@@ -667,7 +654,7 @@ export const useClusterStore = defineStore('cluster', () => {
         if (!Number.isNaN(r)) spec.replicas = r
       }
       if (updates.image) {
-        const tpl = wl.raw?.spec?.template || { spec: { containers: [{ name: wl.name, image: wl.image }] } }
+        const tpl = cur.raw?.spec?.template || { spec: { containers: [{ name: cur.name, image: cur.image }] } }
         if (tpl.spec?.containers?.[0]) {
           const tpl2 = JSON.parse(JSON.stringify(tpl))
           tpl2.spec.containers[0].image = updates.image
@@ -687,12 +674,10 @@ export const useClusterStore = defineStore('cluster', () => {
       if (updates.revisionHistoryLimit != null && updates.revisionHistoryLimit !== '') spec.revisionHistoryLimit = Number(updates.revisionHistoryLimit)
       if (Object.keys(spec).length) patch.spec = spec
       if (Object.keys(patch).length) {
-        await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.workload'), () => { workloadList.value[idx] = before })
-        // 本地镜像远端 spec（策略/历史上限）以便 UI 立即反映
-        if (spec.strategy) wl.raw.spec.strategy = spec.strategy
-        if (spec.revisionHistoryLimit != null) wl.raw.spec.revisionHistoryLimit = spec.revisionHistoryLimit
+        await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.workload'))
       }
     }
+    invalidateResource('workloads')
   }
 
   // 深度编辑工作负载的 Pod 模板（image/env/resources/probes/nodeSelector 等）：
@@ -750,11 +735,10 @@ export const useClusterStore = defineStore('cluster', () => {
   // - templateLabels：期望的 Pod 模板 labels 全量（镜像业务/自定义标签，与创建落点一致）；null 则不触碰 Pod 模板。
   // 乐观更新本地状态，远端失败回滚。仅 Deployment/StatefulSet/DaemonSet。
   async function updateWorkloadMeta(name, ns, payload) {
-    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns)
-    if (idx === -1) throw new Error(i18n.global.t('store.workloadNotFound'))
-    const wl = workloadList.value[idx]
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.editMetadataNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
+    const cur = await getWorkloadForEdit(name, ns)
+    if (!cur) throw new Error(i18n.global.t('store.workloadNotFound'))
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[cur.type]
+    if (!plural) throw new Error(`${i18n.global.t('store.editMetadataNotSupported', { type: cur.type || i18n.global.t('store.thisWorkload') })}`)
     const { labels = {}, annotations = {}, removedLabels = [], removedAnnotations = [], templateLabels = null } = payload || {}
     const tag = aliangTag() // managed-by + last-edited 自动 tag
     const outLabels = { ...labels, ...tag.labels }
@@ -764,28 +748,8 @@ export const useClusterStore = defineStore('cluster', () => {
     const patch = { metadata: { labels: outLabels, annotations: outAnnotations } }
     if (templateLabels) patch.spec = { template: { metadata: { labels: templateLabels } } }
 
-    const before = JSON.parse(JSON.stringify(wl))
-    // 乐观本地更新
-    const liveLabels = { ...(wl.labels || {}) }
-    Object.entries(labels).forEach(([k, v]) => { liveLabels[k] = v })
-    removedLabels.forEach(k => { delete liveLabels[k] })
-    const liveAnn = { ...(wl.annotations || {}), ...tag.annotations }
-    Object.entries(annotations).forEach(([k, v]) => { liveAnn[k] = v })
-    removedAnnotations.forEach(k => { delete liveAnn[k] })
-    wl.labels = liveLabels
-    wl.annotations = liveAnn
-    const newLayer = liveLabels['aliangboard.io/layer'] || liveLabels['layer.aliangboard.io']
-    if (newLayer) wl.tier = newLayer
-    if (wl.raw) {
-      wl.raw.metadata = wl.raw.metadata || {}
-      wl.raw.metadata.labels = liveLabels
-      wl.raw.metadata.annotations = liveAnn
-      if (templateLabels && wl.raw.spec?.template) {
-        wl.raw.spec.template.metadata = wl.raw.spec.template.metadata || {}
-        wl.raw.spec.template.metadata.labels = { ...(wl.raw.spec.template.metadata.labels || {}), ...templateLabels }
-      }
-    }
-    await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.metadata'), () => { workloadList.value[idx] = before })
+    await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.metadata'))
+    invalidateResource('workloads')
   }
 
   async function scaleWorkload(name, ns, replicas) {
@@ -1059,11 +1023,14 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function updateRole(name, ns, updates) {
-    const idx = roleList.value.findIndex(r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns))
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(roleList.value[idx]))
-    roleList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('role', roleList.value[idx]), 'Role', () => { roleList.value[idx] = before })
+    // Role 双 scope：优先 namespace Role，失败则试 ClusterRole
+    let cur = null
+    if (ns) cur = await fetchRole(name, ns).catch(() => null)
+    if (!cur) cur = await fetchClusterRole(name).catch(() => null)
+    if (!cur) { invalidateResource('roles'); return }
+    const merged = { ...cur, ...updates }
+    await remoteUpdate(generateYAML('role', merged), 'Role')
+    invalidateResource('roles')
   }
 
   async function deleteRole(name, ns) {
@@ -2126,7 +2093,7 @@ status:
     fetchService,
     fetchIngress,
     fetchNetworkPolicy, fetchPVC,
-    fetchPVs, fetchStorageClasses,
+    fetchPVs, fetchStorageClasses, fetchPV, fetchStorageClass,
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,

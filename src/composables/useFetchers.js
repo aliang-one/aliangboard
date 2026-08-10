@@ -117,7 +117,9 @@ export async function fetchWorkloads() {
 }
 export async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
 export async function fetchPVs() { const d = await api.k8s('/api/v1/persistentvolumes'); return (d?.items || []).map(mapPV) }
+export async function fetchPV(name) { const d = await api.k8s(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`); return d ? mapPV(d) : null }
 export async function fetchStorageClasses() { const d = await api.k8s('/apis/storage.k8s.io/v1/storageclasses'); return (d?.items || []).map(mapStorageClass) }
+export async function fetchStorageClass(name) { const d = await api.k8s(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`); return d ? mapStorageClass(d) : null }
 export async function fetchPVC(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`); return d ? mapPVC(d) : null }
 export async function fetchRoles() {
   const [roles, clusterRoles] = await Promise.all([
