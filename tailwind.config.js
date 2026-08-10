@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+import { codeTheme } from './src/styles/code-theme.js'
+
 export default {
   content: [
     "./index.html",
@@ -63,6 +65,11 @@ export default {
         'status-failed': '#ef4444',
         'status-succeeded': '#3b82f6',
         'status-unknown': '#6b7280',
+        // 暗底代码/终端主题（与 xterm/prism 共用 src/styles/code-theme.js，单一来源）
+        'code-surface': codeTheme.surface,
+        'on-code-surface': codeTheme.onSurface,
+        'code-surface-selection': codeTheme.selection,
+        'code-surface-dim': codeTheme.dim,
       },
       fontFamily: {
         // Latin 优先 Inter；中文回落到 PingFang SC(Mac)/Microsoft YaHei(Win)/思源(Noto CJK)，跨平台一致
@@ -70,12 +77,18 @@ export default {
         'mono': ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Consolas', 'monospace'],
       },
       fontSize: {
+        // 完整阶梯:display(大号数字/标题)→ headline(页面标题)→ body(正文)→ label/code。
+        // 此前模板里用到 body-xs / headline-lg / display-md 但配置缺这三档，导致 169 处静默回落到默认字号
+        // (MCP 设置页"字体不一样"的根因)。补齐让全站字号成体系。
         'display-lg': ['32px', { lineHeight: '40px', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'display-md': ['28px', { lineHeight: '36px', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'headline-lg': ['28px', { lineHeight: '36px', letterSpacing: '-0.01em', fontWeight: '700' }],
         'headline-md': ['24px', { lineHeight: '32px', letterSpacing: '-0.01em', fontWeight: '600' }],
         'headline-sm': ['20px', { lineHeight: '28px', fontWeight: '600' }],
         'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
         'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
         'body-sm': ['12px', { lineHeight: '16px', fontWeight: '400' }],
+        'body-xs': ['11px', { lineHeight: '16px', fontWeight: '400' }],
         'label-caps': ['11px', { lineHeight: '16px', letterSpacing: '0.05em', fontWeight: '600' }],
         'code-sm': ['12px', { lineHeight: '18px', fontWeight: '400' }],
       },

@@ -237,7 +237,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
               <button @click="ffile = null" class="text-xs text-primary hover:underline">← {{ t('ns.pvcDetail.backToList') }}</button>
             </div>
             <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.binaryFile') }}</p>
-            <pre v-else class="bg-[#0b1c30] text-[#cfe3ff] p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-[#cfe3ff]/60">
+            <pre v-else class="bg-code-surface text-on-code-surface p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-on-code-surface/60">
 
 {{ t('ns.pvcDetail.truncated') }}</span></pre>
           </div>

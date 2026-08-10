@@ -85,7 +85,7 @@ function handleDiscard() {
       </div>
       <div>
         <div class="px-md py-xs bg-primary-container/10 text-label-caps text-primary text-center border-b border-outline-variant">EDITABLE</div>
-        <textarea v-model="editableContent" class="w-full bg-[#0b1c30] text-[#cfe3ff] p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
+        <textarea v-model="editableContent" class="w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
       </div>
     </div>
 
@@ -94,7 +94,7 @@ function handleDiscard() {
       <!-- 查看模式（默认）：CodeViewer YAML 高亮 -->
       <CodeViewer v-if="!isEditing" :code="editableContent" lang="yaml" :max-height="height" />
       <!-- 编辑模式：textarea -->
-      <textarea v-else v-model="editableContent" class="w-full bg-[#0b1c30] text-[#cfe3ff] p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
+      <textarea v-else v-model="editableContent" class="w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
     </div>
 
     <!-- Action Bar（编辑且有改动时）-->

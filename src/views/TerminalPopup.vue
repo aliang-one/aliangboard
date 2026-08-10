@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { codeTheme } from '@/styles/code-theme'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -21,14 +22,14 @@ document.title = t('terminal.title', { name: name.value })
 // session token 已由 main.js 从 URL 写入 sessionStorage；验证存在
 const hasToken = sessionStorage.getItem('aliangboard.session')
 if (!hasToken) {
-  document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b1c30;color:#cfe3ff;font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
+  document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${codeTheme.surface};color:${codeTheme.onSurface};font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
 } else {
   if (ns.value) store.setNamespace(ns.value)
 }
 </script>
 
 <template>
-  <div class="h-screen w-screen flex flex-col bg-[#0b1c30]">
+  <div class="h-screen w-screen flex flex-col bg-code-surface">
     <!-- 顶部条（终端名 + 关闭） -->
     <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant" style="height: 36px">
       <span class="material-symbols-outlined text-base text-primary">terminal</span>

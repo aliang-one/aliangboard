@@ -148,10 +148,10 @@ onMounted(() => { if (props.namespace && props.pod) loadDir('/') })
             </template>
           </template>
         </div>
-        <pre v-if="!editing" class="bg-[#0b1c30] text-[#dbe7f7] p-md rounded-lg font-mono text-code-sm overflow-auto whitespace-pre flex-1">{{ file.content }}<span v-if="file.truncated" class="text-[#dbe7f7]/50">
+        <pre v-if="!editing" class="bg-code-surface text-on-code-surface p-md rounded-lg font-mono text-code-sm overflow-auto whitespace-pre flex-1">{{ file.content }}<span v-if="file.truncated" class="text-on-code-surface/50">
 
 …{{ t('component.fileBrowser.contentTruncated') }}</span></pre>
-        <textarea v-else v-model="editContent" class="w-full bg-[#0b1c30] text-[#dbe7f7] p-md rounded-lg font-mono text-code-sm outline-none border border-primary/40 flex-1" style="resize: none"></textarea>
+        <textarea v-else v-model="editContent" class="w-full bg-code-surface text-on-code-surface p-md rounded-lg font-mono text-code-sm outline-none border border-primary/40 flex-1" style="resize: none"></textarea>
       </template>
 
       <!-- 目录列表 -->

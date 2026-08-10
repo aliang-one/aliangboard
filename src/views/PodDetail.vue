@@ -407,7 +407,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
               <button @click="copyLogs" :title="$t('podDetail.copyLogs')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
             </div>
           </div>
-          <div class="flex-1 bg-[#0b1c30] p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
+          <div class="flex-1 bg-code-surface p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
             <div class="space-y-1">
               <p v-for="(log, idx) in allLogs" :key="idx" class="text-outline-variant">
                 {{ log.timestamp }} <span :class="levelColor(log.level)">[{{ log.level }}]</span> {{ log.message }}
