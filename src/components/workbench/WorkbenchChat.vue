@@ -10,6 +10,7 @@ import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
+import ChatTurn from './ChatTurn.vue'
 
 const props = defineProps({
   projectId: String,
@@ -134,9 +135,6 @@ const HINTS = computed(() => [
   t('workbench.chat.hintListFiles'),
 ])
 
-function toolCount(trace) { return (trace || []).filter(e => e.type === 'tool' || e.type === 'denied').length }
-function fmtResult(v) { if (v == null) return ''; return typeof v === 'string' ? v : JSON.stringify(v, null, 2) }
-
 const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns' }
 function refIcon(kind) {
   if (!kind) return 'label'
@@ -217,7 +215,7 @@ async function send() {
   const agentId = ++turnSeq
   turns.value.push({ _id: userId, role: 'user', content: msg, refs: refs.value.length ? [...refs.value] : undefined })
   turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
-  input.value = ''
+  resetInput()
   sending.value = true
   await scrollToBottom()
   try {
@@ -258,6 +256,15 @@ async function decideApproval(approved) {
 }
 
 function onKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }
+function autoGrow(e) {
+  const ta = e.target
+  ta.style.height = 'auto'
+  ta.style.height = Math.min(ta.scrollHeight, 128) + 'px' // max-h-32 = 8rem ≈ 128px
+}
+function resetInput() {
+  input.value = ''
+  nextTick(() => { const ta = document.querySelector('textarea'); if (ta) ta.style.height = 'auto' })
+}
 function useHint(h) { input.value = h }
 function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
 </script>
@@ -265,11 +272,11 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
 <template>
   <section class="h-full flex flex-col min-h-0 bg-surface-container-lowest">
     <!-- Status bar -->
-    <div v-if="convStatus" class="shrink-0 flex items-center justify-center gap-xs py-xs bg-surface-container-low border-b border-outline-variant">
+    <div v-if="convStatus" class="shrink-0 flex items-center justify-center gap-xs py-0.5 bg-surface-container-low border-b border-outline-variant">
       <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' }"></span>
       <span class="text-body-xs font-medium" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
     </div>
-    <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-sm"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
+    <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
 
     <!-- Messages -->
     <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
@@ -288,85 +295,8 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
       </div>
 
       <!-- Conversation -->
-      <div v-for="turn in turns" :key="turn._id" class="px-md py-sm">
-        <!-- User message -->
-        <div v-if="turn.role === 'user'" class="flex justify-end mb-sm">
-          <div class="max-w-[80%]">
-            <!-- Ref cards (resource previews) -->
-            <div v-if="turn.refs && turn.refs.length" class="flex flex-wrap gap-xs mb-xs justify-end">
-              <div v-for="(r, i) in turn.refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
-                <span class="material-symbols-outlined text-sm text-primary">{{ refIcon(r.kind) }}</span>
-                <div class="flex flex-col">
-                  <span class="text-body-xs font-mono font-semibold text-primary">{{ r.name }}</span>
-                  <span class="text-body-xs text-on-surface-variant">{{ r.kind }} · {{ r.namespace }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="bg-primary-container text-on-primary-container rounded-2xl rounded-br-md px-md py-sm">
-              <p class="text-body-sm whitespace-pre-wrap break-words leading-relaxed">{{ turn.content }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Assistant message -->
-        <div v-else class="flex flex-col gap-sm mb-sm">
-          <!-- Tool trace (compact, expandable) -->
-          <details v-if="turn.trace && turn.trace.length" class="group">
-            <summary class="cursor-pointer flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-on-surface py-xs select-none">
-              <span class="material-symbols-outlined text-sm group-open:rotate-90 transition-transform">chevron_right</span>
-              <span class="material-symbols-outlined text-sm text-primary/60">account_tree</span>
-              {{ toolCount(turn.trace) }} tool calls
-            </summary>
-            <div class="ml-md mt-xs flex flex-col gap-xs border-l-2 border-outline-variant pl-md">
-              <div v-for="(ev, j) in turn.trace" :key="j">
-                <div v-if="ev.type === 'tool'" class="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
-                  <div class="flex items-center gap-xs px-sm py-xs bg-surface-container/50">
-                    <span class="material-symbols-outlined text-sm text-status-running">play_arrow</span>
-                    <span class="text-body-xs font-mono font-semibold text-on-surface">{{ ev.name }}</span>
-                  </div>
-                  <pre v-if="fmtResult(ev.result)" class="px-sm py-xs max-h-28 overflow-y-auto font-mono text-body-xs text-on-surface-variant bg-surface-container-lowest whitespace-pre-wrap break-all">{{ fmtResult(ev.result) }}</pre>
-                </div>
-                <div v-else-if="ev.type === 'denied'" class="flex items-center gap-xs px-sm py-xs text-body-xs text-status-warning bg-status-warning/5 rounded-lg">
-                  <span class="material-symbols-outlined text-sm">block</span>
-                  <span class="font-mono font-semibold">{{ ev.name }}</span> rejected
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <!-- Thinking -->
-          <div v-if="turn.status === 'thinking' && !(turn.trace && turn.trace.length)" class="flex items-center gap-sm px-sm">
-            <div class="flex gap-0.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 0ms"></span>
-              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 150ms"></span>
-              <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
-            </div>
-            <span class="text-body-sm text-on-surface-variant">Thinking...</span>
-          </div>
-
-          <!-- Pending approval -->
-          <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
-            <span class="material-symbols-outlined text-base text-status-warning">pending_actions</span>
-            <span class="text-body-sm text-status-warning font-medium">Waiting for approval...</span>
-          </div>
-
-          <!-- Error -->
-          <div v-else-if="turn.status === 'error'" class="flex items-start gap-sm px-md py-sm bg-error/5 border border-error/20 rounded-xl">
-            <span class="material-symbols-outlined text-base text-error mt-0.5">error</span>
-            <span class="text-body-sm text-error whitespace-pre-wrap break-words">{{ turn.error }}</span>
-          </div>
-
-          <!-- Done (answer) -->
-          <template v-else-if="turn.status === 'done'">
-            <div class="bg-surface-container-lowest border border-outline-variant rounded-2xl rounded-tl-md px-md py-sm">
-              <p class="text-body-sm text-on-surface whitespace-pre-wrap break-words leading-relaxed">{{ turn.content || t('workbench.chat.noAnswer') }}</p>
-            </div>
-            <div class="flex items-center gap-sm text-body-xs text-on-surface-variant px-xs">
-              <span>{{ turn.steps }} steps</span>
-              <span v-if="turn.truncated" class="text-status-warning">⚠ truncated</span>
-            </div>
-          </template>
-        </div>
+      <div v-for="turn in turns" :key="turn._id">
+        <ChatTurn :turn="turn" />
       </div>
     </div>
 
@@ -385,7 +315,7 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea v-model="input" @keydown="onKeydown" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <textarea v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
           <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
