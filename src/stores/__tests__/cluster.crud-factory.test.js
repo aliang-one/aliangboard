@@ -253,15 +253,15 @@ test('deleteClusterRoleBinding: k8s DELETE 集群级 path', async () => {
 })
 
 // ========================================================================
-// 边界：update 缓存未命中 → 仅 invalidate 不抛
+// 边界：update 缓存未命中 → fetch-first GET 兜底 → applyYaml 被调用
 // ========================================================================
 
-test('updateConfigMap 缓存未命中: 不调用 applyYaml, 仅 invalidate, 不抛', async () => {
+test('updateConfigMap 缓存未命中: fetch-first GET 兜底后 applyYaml 被调用', async () => {
   const store = getStore()
-  // getQueryData 返回空数组 → fromCache 找不到
+  // getQueryData 返回空数组 → fromCache 找不到 → 走 fetchConfigMap GET
   getQueryData.mockImplementation(() => [])
   await expect(store.updateConfigMap('missing', 'default', { data: {} })).resolves.toBeUndefined()
-  expect(applyYaml).not.toHaveBeenCalled()
+  expect(applyYaml).toHaveBeenCalledTimes(1)
   expect(invalidateQueries).toHaveBeenCalled()
 })
 

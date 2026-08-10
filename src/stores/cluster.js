@@ -420,7 +420,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 集中 await + invalidateResource，结构性消灭 await-race。
   function makeCrud(plural, spec) {
     const { kind, group, resource, namespaced, genType = resource, genExtra = false,
-            beforeSave, customYaml, patchFn, sideEffects, skipRemoteUpdate } = spec
+            beforeSave, customYaml, patchFn, sideEffects, skipRemoteUpdate, fetch } = spec
     const genFn = genExtra ? generateExtraYAML : generateYAML
     const itemApi = (name, ns) => namespaced
       ? `${group}/namespaces/${encodeURIComponent(ns)}/${resource}/${encodeURIComponent(name)}`
@@ -441,11 +441,11 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     async function update(name, ns, updates) {
       if (skipRemoteUpdate) return
+      let cur = fromCache(name, ns)
+      if (!cur && fetch) cur = await fetch(name, ns).catch(() => null)
       if (patchFn) {
-        const before = fromCache(name, ns) || {}
-        await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, before), kind)
+        await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, cur || {}), kind)
       } else {
-        const cur = fromCache(name, ns)
         if (!cur) { invalidateResource(plural); return }
         const merged = { ...cur, ...(beforeSave ? beforeSave(updates) : updates) }
         await remoteUpdate(yamlOf(merged), kind)
@@ -471,26 +471,26 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   const RESOURCE_SPECS = {
-    configmaps: { kind: 'ConfigMap', group: '/api/v1', resource: 'configmaps', namespaced: true, genType: 'configmap' },
-    secrets: { kind: 'Secret', group: '/api/v1', resource: 'secrets', namespaced: true, genType: 'secret', beforeSave: s => (s.data ? { ...s, data: encodeSecretData(s.data) } : s) },
-    pvcs: { kind: 'PVC', group: '/api/v1', resource: 'persistentvolumeclaims', namespaced: true, genType: 'pvc' },
-    services: { kind: 'Service', group: '/api/v1', resource: 'services', namespaced: true, genType: 'service', sideEffects: {
+    configmaps: { kind: 'ConfigMap', group: '/api/v1', resource: 'configmaps', namespaced: true, genType: 'configmap', fetch: fetchConfigMap },
+    secrets: { kind: 'Secret', group: '/api/v1', resource: 'secrets', namespaced: true, genType: 'secret', beforeSave: s => (s.data ? { ...s, data: encodeSecretData(s.data) } : s), fetch: fetchSecret },
+    pvcs: { kind: 'PVC', group: '/api/v1', resource: 'persistentvolumeclaims', namespaced: true, genType: 'pvc', fetch: fetchPVC },
+    services: { kind: 'Service', group: '/api/v1', resource: 'services', namespaced: true, genType: 'service', fetch: fetchService, sideEffects: {
       onAdd: svc => { const ns = namespaceList.value.find(n => n.name === svc.namespace); if (ns) ns.services = (ns.services || 0) + 1 },
       onDelete: (_n, ns) => { const nsObj = namespaceList.value.find(n => n.name === ns); if (nsObj) nsObj.services = Math.max(0, (nsObj.services || 0) - 1) },
     } },
-    networkpolicies: { kind: 'NetworkPolicy', group: '/apis/networking.k8s.io/v1', resource: 'networkpolicies', namespaced: true, genType: 'networkpolicy' },
-    hpas: { kind: 'HPA', group: '/apis/autoscaling/v2', resource: 'horizontalpodautoscalers', namespaced: true, genType: 'hpa', patchFn: hpaPatchFn },
-    resourcequotas: { kind: 'ResourceQuota', group: '/api/v1', resource: 'resourcequotas', namespaced: true, genType: 'resourcequota' },
-    limitranges: { kind: 'LimitRange', group: '/api/v1', resource: 'limitranges', namespaced: true, genType: 'limitrange' },
-    serviceaccounts: { kind: 'ServiceAccount', group: '/api/v1', resource: 'serviceaccounts', namespaced: true, genType: 'serviceaccount' },
-    rolebindings: { kind: 'RoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'rolebindings', namespaced: true, genType: 'rolebinding' },
-    poddisruptionbudgets: { kind: 'PDB', group: '/apis/policy/v1', resource: 'poddisruptionbudgets', namespaced: true, genType: 'pdb', genExtra: true },
-    ingresses: { kind: 'Ingress', group: '/apis/networking.k8s.io/v1', resource: 'ingresses', namespaced: true, genType: 'ingress' },
+    networkpolicies: { kind: 'NetworkPolicy', group: '/apis/networking.k8s.io/v1', resource: 'networkpolicies', namespaced: true, genType: 'networkpolicy', fetch: fetchNetworkPolicy },
+    hpas: { kind: 'HPA', group: '/apis/autoscaling/v2', resource: 'horizontalpodautoscalers', namespaced: true, genType: 'hpa', patchFn: hpaPatchFn, fetch: fetchHPA },
+    resourcequotas: { kind: 'ResourceQuota', group: '/api/v1', resource: 'resourcequotas', namespaced: true, genType: 'resourcequota', fetch: fetchResourceQuota },
+    limitranges: { kind: 'LimitRange', group: '/api/v1', resource: 'limitranges', namespaced: true, genType: 'limitrange', fetch: fetchLimitRange },
+    serviceaccounts: { kind: 'ServiceAccount', group: '/api/v1', resource: 'serviceaccounts', namespaced: true, genType: 'serviceaccount', fetch: fetchServiceAccount },
+    rolebindings: { kind: 'RoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'rolebindings', namespaced: true, genType: 'rolebinding', fetch: fetchRoleBinding },
+    poddisruptionbudgets: { kind: 'PDB', group: '/apis/policy/v1', resource: 'poddisruptionbudgets', namespaced: true, genType: 'pdb', genExtra: true, fetch: fetchPDB },
+    ingresses: { kind: 'Ingress', group: '/apis/networking.k8s.io/v1', resource: 'ingresses', namespaced: true, genType: 'ingress', fetch: fetchIngress },
     // 集群级规整资源 (namespaced:false)：单一 API 端点 + 标准 remoteXxx
     ingressclasses: { kind: 'IngressClass', group: '/apis/networking.k8s.io/v1', resource: 'ingressclasses', namespaced: false, genType: 'ingressclass' },
     runtimeclasses: { kind: 'RuntimeClass', group: '/apis/node.k8s.io/v1', resource: 'runtimeclasses', namespaced: false, genType: 'runtimeclass' },
-    priorityclasses: { kind: 'PriorityClass', group: '/apis/scheduling.k8s.io/v1', resource: 'priorityclasses', namespaced: false, genType: 'priorityclass', genExtra: true },
-    clusterrolebindings: { kind: 'ClusterRoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'clusterrolebindings', namespaced: false, genType: 'clusterrolebinding' },
+    priorityclasses: { kind: 'PriorityClass', group: '/apis/scheduling.k8s.io/v1', resource: 'priorityclasses', namespaced: false, genType: 'priorityclass', genExtra: true, fetch: fetchPriorityClass },
+    clusterrolebindings: { kind: 'ClusterRoleBinding', group: '/apis/rbac.authorization.k8s.io/v1', resource: 'clusterrolebindings', namespaced: false, genType: 'clusterrolebinding', fetch: fetchClusterRoleBinding },
   }
   // 生成并顶替手写（解构到与原函数同名）
   const _crud = {}
