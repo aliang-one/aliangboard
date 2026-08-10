@@ -73,6 +73,11 @@ watch(input, (val) => {
     // Parse ns/name from query: "default/nginx" → ns=default, q=nginx; "nginx" → q=nginx
     let ns = null, q = rawQuery
     if (rawQuery.includes('/')) { const [n, ...rest] = rawQuery.split('/'); ns = n; q = rest.join('/') }
+    // 切到搜索模式:清掉 kind hints(否则模板 v-if="kindHints.length" 持续命中,搜索结果永不显示);
+    // 立即置 searching=true,避免 200ms debounce 期间先闪一下"无匹配资源"。
+    kindHints.value = []
+    searching.value = true
+    searchOpen.value = true
     debounceTimer = setTimeout(() => doSearch(kind, q, ns), 200)
   } else {
     // @alias (no colon yet) → show kind hints immediately
@@ -389,7 +394,7 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
         <!-- @-mention dropdown -->
         <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-30">
           <template v-if="kindHints.length">
-            <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">资源类型（输入冒号 : 搜索资源）</div>
+            <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
             <button v-for="h in kindHints" :key="h.alias" @mousedown.prevent="selectKind(h.alias)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
               <span class="material-symbols-outlined text-base text-primary">{{ refIcon(h.alias) }}</span>
               <span class="text-body-sm font-semibold text-on-surface">{{ h.label }}</span>
@@ -398,9 +403,9 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
           </template>
           <template v-else>
             <div v-if="searching" class="px-md py-sm text-body-sm text-on-surface-variant flex items-center gap-sm">
-              <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> 搜索中...
+              <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}
             </div>
-            <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">无匹配资源</div>
+            <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
             <button v-for="(item, i) in searchResults" :key="i" @mousedown.prevent="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
               <span class="material-symbols-outlined text-base text-primary">{{ refIcon(item.kind) }}</span>
               <div class="flex flex-col">

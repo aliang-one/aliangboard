@@ -2752,7 +2752,7 @@
       "bootstrapLedgerDesc": "The platform surveys the cluster via its credentials and rewrites the cluster ledger (INDEX.md / learnings.md) — read-only, does not modify cluster resources.",
       "path": "Path: ",
       "approve": "Approve",
-      "atMentionHint": "Type @kind: to search resources (e.g. @pod:nginx)",
+      "atMentionHint": "Type {'@'}kind: to search resources (e.g. {'@'}pod:nginx)",
       "atMentionNoResults": "No matching resources",
       "atMentionSearching": "Searching...",
       "convStatus": {

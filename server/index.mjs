@@ -1292,7 +1292,7 @@ async function handle(req, res) {
     try {
       const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
       const resp = await requestKubernetes(k8sSession, listPath)
-      const items = (resp?.items || []).map(it => ({
+      const items = (resp?.body?.items || []).map(it => ({
         name: it.metadata?.name || '',
         namespace: it.metadata?.namespace || '',
         kind,
