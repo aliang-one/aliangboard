@@ -20,7 +20,7 @@ const crbDetail = useResourceDetail({
   fetcher: () => store.fetchClusterRoleBinding(route.params.name),
   options: { refetchInterval: 15000 },
 })
-const crb = computed(() => crbDetail.data.value ?? store.getClusterRoleBindingByName(route.params.name))
+const crb = computed(() => crbDetail.data.value)
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),

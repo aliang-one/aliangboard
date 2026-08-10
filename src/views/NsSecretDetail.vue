@@ -25,7 +25,7 @@ const secretDetail = useResourceDetail({
   fetcher: () => store.fetchSecret(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const secret = computed(() => secretDetail.data.value ?? store.getSecretByName(route.params.name, route.params.namespace))
+const secret = computed(() => secretDetail.data.value)
 const yaml = computed(() => store.generateYAML('secret', secret.value))
 
 const activeTab = ref('data')

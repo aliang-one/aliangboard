@@ -16,7 +16,6 @@ vi.mock('@/stores/cluster', () => ({
     fetchIngresses: vi.fn(async () => [
       { name: 'my-test-ingress', namespace: 'default', className: 'nginx', rules: [], hosts: '', age: '1d' },
     ]),
-    getServiceByName: () => null,
   }),
 }))
 

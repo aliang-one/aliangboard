@@ -98,27 +98,16 @@ export const useClusterStore = defineStore('cluster', () => {
   const serviceList = ref([])
   const ingressList = ref([])
   const endpointsList = ref([])
-  const configMapList = ref([])
-  const secretList = ref([])
   const pvList = ref([])
-  const pvcList = ref([])
   const scList = ref([])
   const roleList = ref([])
-  const saList = ref([])
-  const networkPolicyList = ref([])
-  const hpaList = ref([])
-  const resourceQuotaList = ref([])
-  const limitRangeList = ref([])
   const roleBindingList = ref([])
   const clusterRoleBindingList = ref([])
-  const pdbList = ref([])
-  const priorityClassList = ref([])
   // 多集群：已保存集群来自 localStorage；clusterList 为其映射
   const savedClusters = ref(getSavedClusters())
   const activeApiServerRef = ref(activeApiServer())
   const clusterList = computed(() => savedClusters.value.map(c => ({ name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy', distribution: c.distribution || 'Kubernetes', context: c.name, current: c.apiServer === activeApiServerRef.value })))
   const auditLogList = ref([])
-  const crdList = ref([])
   const currentCluster = ref('')
   const connectionState = ref('')
   // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
@@ -165,11 +154,6 @@ export const useClusterStore = defineStore('cluster', () => {
     else localStorage.removeItem('aliangboard.namespace')
   }
 
-  function getWorkloadByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return workloadList.value.find(w => w.name === name && (!namespace || w.namespace === namespace))
-  }
-
   // 按需拉取单个工作负载并 upsert 进 workloadList。
   // Job/CronJob 不在 hydrateCoreResources 的批量拉取里；从 Pod 详情跳转或直接链接进入时用此补齐。
   async function fetchWorkload(type, name, ns) {
@@ -182,79 +166,6 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx >= 0) workloadList.value[idx] = wl
     else workloadList.value.push(wl)
     return wl
-  }
-
-  function getPodByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return podList.value.find(p => p.name === name && (!namespace || p.namespace === namespace))
-  }
-
-  function getNodeByName(name) {
-    return nodeList.value.find(n => n.name === name)
-  }
-
-  function getNamespaceByName(name) {
-    return namespaceList.value.find(n => n.name === name)
-  }
-
-  function getServiceByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return serviceList.value.find(s => s.name === name && s.namespace === namespace)
-  }
-
-  function getIngressByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return ingressList.value.find(i => i.name === name && i.namespace === namespace)
-  }
-
-  function getConfigMapByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return configMapList.value.find(c => c.name === name && c.namespace === namespace)
-  }
-
-  function getSecretByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return secretList.value.find(s => s.name === name && s.namespace === namespace)
-  }
-
-  function getPVCByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return pvcList.value.find(p => p.name === name && p.namespace === namespace)
-  }
-
-  function getNetworkPolicyByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return networkPolicyList.value.find(n => n.name === name && n.namespace === namespace)
-  }
-
-  function getHPAByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return hpaList.value.find(h => h.name === name && h.namespace === namespace)
-  }
-
-  function getResourceQuotaByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return resourceQuotaList.value.find(r => r.name === name && r.namespace === namespace)
-  }
-
-  function getLimitRangeByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return limitRangeList.value.find(l => l.name === name && l.namespace === namespace)
-  }
-
-  function getRoleByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return roleList.value.find(r => r.name === name && (r.scope === 'Cluster' || r.namespace === namespace))
-  }
-
-  function getServiceAccountByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return saList.value.find(s => s.name === name && s.namespace === namespace)
-  }
-
-  function getRoleBindingByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return roleBindingList.value.find(r => r.name === name && r.namespace === namespace)
   }
 
   function getWorkloadPods(workloadName, ns) {
@@ -543,9 +454,6 @@ export const useClusterStore = defineStore('cluster', () => {
   // (ConfigMaps / Secrets / PVCs CRUD 已进工厂)
 
   // === CRUD: PersistentVolumes（集群级，手写——特殊 patch）===
-  function getPVByName(name) {
-    return pvList.value.find(p => p.name === name)
-  }
   async function addPV(pv) {
     return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => refetch('/api/v1/persistentvolumes', pvList, mapPV))
   }
@@ -562,9 +470,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: StorageClasses（集群级）===
-  function getSCByName(name) {
-    return scList.value.find(s => s.name === name)
-  }
   async function addStorageClass(sc) {
     return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => refetch('/apis/storage.k8s.io/v1/storageclasses', scList, mapStorageClass))
   }
@@ -581,10 +486,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // === CRUD: Endpoints ===
-  function getEndpointsByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return endpointsList.value.find(e => e.name === name && e.namespace === namespace)
-  }
   function updateEndpoints(name, ns, updates) {
     const idx = endpointsList.value.findIndex(e => e.name === name && e.namespace === ns)
     if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
@@ -1033,24 +934,7 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // (ServiceAccount / RoleBinding CRUD 已进工厂)
 
-  // === CRUD: ClusterRoleBindings getters（CRUD 已进工厂）===
-  function getClusterRoleByName(name) {
-    return roleList.value.find(r => r.name === name && r.scope === 'Cluster')
-  }
-  function getClusterRoleBindingByName(name) {
-    return clusterRoleBindingList.value.find(r => r.name === name)
-  }
-
-  // === CRUD: PodDisruptionBudget getter（CRUD 已进工厂）===
-  function getPDBByName(name, ns) {
-    const namespace = ns || currentNamespace.value
-    return pdbList.value.find(p => p.name === name && p.namespace === namespace)
-  }
-
-  // === CRUD: PriorityClass getter（CRUD 已进工厂）===
-  function getPriorityClassByName(name) {
-    return priorityClassList.value.find(p => p.name === name)
-  }
+  // === CRUD: ClusterRoleBindings（CRUD 已进工厂）===
 
   // === CRUD: Nodes ===
   async function cordonNode(name) {
@@ -1270,11 +1154,6 @@ export const useClusterStore = defineStore('cluster', () => {
 
   function getCurrentCluster() {
     return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
-  }
-
-  // === CRD ===
-  function getCRDByName(name) {
-    return crdList.value.find(c => c.name === name)
   }
 
   // === 审计日志（按用户操作记录）===
@@ -2008,18 +1887,15 @@ status:
   return {
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
-    serviceList, ingressList, endpointsList, configMapList, secretList, pvList, pvcList,
-    scList, roleList, saList, currentNamespace,
-    networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
-    clusterRoleBindingList, pdbList, priorityClassList,
-    clusterList, savedClusters, auditLogList, crdList, currentCluster, connectionState,
+    serviceList, ingressList, endpointsList, pvList,
+    scList, roleList, currentNamespace,
+    roleBindingList,
+    clusterRoleBindingList,
+    clusterList, savedClusters, auditLogList, currentCluster, connectionState,
     // 全局计算
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Actions
-    setNamespace, getWorkloadByName, fetchWorkload, getPodByName, getNodeByName, getNamespaceByName,
-    getServiceByName, getIngressByName, getConfigMapByName, getSecretByName, getPVCByName,
-    getNetworkPolicyByName, getHPAByName, getResourceQuotaByName, getLimitRangeByName,
-    getRoleByName, getServiceAccountByName, getRoleBindingByName, getWorkloadPods,
+    setNamespace, fetchWorkload, getWorkloadPods,
     getResourceReferences, getWorkloadReferences,
     // CRUD: Services
     addService, updateService, deleteService,
@@ -2033,9 +1909,9 @@ status:
     // CRUD: PVCs
     addPVC, updatePVC, deletePVC,
     // CRUD: PersistentVolumes / StorageClasses（集群级）
-    getPVByName, addPV, updatePV, deletePV, getSCByName, addStorageClass, updateStorageClass, deleteStorageClass,
+    addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     // CRUD: Endpoints
-    getEndpointsByName, updateEndpoints,
+    updateEndpoints,
     // CRUD: IngressClass / RuntimeClass（集群级）
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
@@ -2054,11 +1930,11 @@ status:
     addRole, updateRole, deleteRole, addServiceAccount, updateServiceAccount, deleteServiceAccount,
     addRoleBinding, updateRoleBinding, deleteRoleBinding,
     // CRUD: ClusterRoleBindings
-    getClusterRoleByName, getClusterRoleBindingByName, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
+    addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     // CRUD: PDB
-    getPDBByName, addPDB, updatePDB, deletePDB,
+    addPDB, updatePDB, deletePDB,
     // CRUD: PriorityClass
-    getPriorityClassByName, addPriorityClass, updatePriorityClass, deletePriorityClass,
+    addPriorityClass, updatePriorityClass, deletePriorityClass,
     // CRUD: Nodes
     cordonNode, uncordonNode, drainNode,
     // CRUD: Namespaces
@@ -2091,7 +1967,7 @@ status:
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
     // CRD
-    getCRDByName, crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
+    crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计
     logAudit,
     // YAML generation

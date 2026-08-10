@@ -28,7 +28,7 @@ const nsDetail = useResourceDetail({
   fetcher: () => store.fetchNamespace(nsName.value),
   options: { enabled: Boolean(nsName.value) },
 })
-const ns = computed(() => nsDetail.data.value ?? store.getNamespaceByName(nsName.value))
+const ns = computed(() => nsDetail.data.value)
 
 const servicesQuery = useResourceList({
   key: ['cluster', cid.value, 'services'],

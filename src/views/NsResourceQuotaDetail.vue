@@ -22,7 +22,7 @@ const rqDetail = useResourceDetail({
   fetcher: () => store.fetchResourceQuota(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const rq = computed(() => rqDetail.data.value ?? store.getResourceQuotaByName(route.params.name, route.params.namespace))
+const rq = computed(() => rqDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/resourcequotas/${encodeURIComponent(route.params.name)}`,
 })

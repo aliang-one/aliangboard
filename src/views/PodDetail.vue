@@ -33,7 +33,7 @@ const podDetail = useResourceDetail({
   fetcher: () => store.fetchPod(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const pod = computed(() => podDetail.data.value ?? store.getPodByName(route.params.name, route.params.namespace))
+const pod = computed(() => podDetail.data.value)
 const activeTab = ref('logs')
 
 // 归属 workload 查询（Vue Query；用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配）

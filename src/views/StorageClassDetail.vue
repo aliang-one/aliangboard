@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceList } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -15,10 +15,11 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
-const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _pvcQ = useResourceList({ key: ['cluster', _cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const cid = computed(() => (store.currentCluster || 'cluster'))
+const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 
-const sc = computed(() => store.getSCByName(route.params.name))
+const scDetail = useResourceDetail({ key: ['cluster', cid.value, 'storageclasses', route.params.name], fetcher: () => store.fetchStorageClass(route.params.name), options: { refetchInterval: 30000 } })
+const sc = computed(() => scDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(route.params.name)}`,
 })

@@ -18,7 +18,7 @@ const pcDetail = useResourceDetail({
   fetcher: () => store.fetchPriorityClass(route.params.name),
   options: { refetchInterval: 15000 },
 })
-const pc = computed(() => pcDetail.data.value ?? store.getPriorityClassByName(route.params.name))
+const pc = computed(() => pcDetail.data.value)
 const yaml = computed(() => store.generateExtraYAML('priorityclass', pc.value))
 const activeTab = ref('overview')
 </script>

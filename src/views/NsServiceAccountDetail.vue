@@ -27,7 +27,7 @@ const saDetail = useResourceDetail({
   fetcher: () => store.fetchServiceAccount(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const sa = computed(() => saDetail.data.value ?? store.getServiceAccountByName(route.params.name, route.params.namespace))
+const sa = computed(() => saDetail.data.value)
 const roleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),

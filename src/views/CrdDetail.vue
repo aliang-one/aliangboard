@@ -23,7 +23,7 @@ const crdDetail = useResourceDetail({
   fetcher: () => store.fetchCRD(route.params.name),
   options: { refetchInterval: 15000 },
 })
-const crd = computed(() => crdDetail.data.value ?? store.getCRDByName(route.params.name))
+const crd = computed(() => crdDetail.data.value)
 const instancesQuery = useResourceList({
   key: ['cluster', cid.value, 'crds', route.params.name, 'instances'],
   fetcher: () => store.fetchCRInstances(crd.value),

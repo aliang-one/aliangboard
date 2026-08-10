@@ -21,7 +21,7 @@ const lrDetail = useResourceDetail({
   fetcher: () => store.fetchLimitRange(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const lr = computed(() => lrDetail.data.value ?? store.getLimitRangeByName(route.params.name, route.params.namespace))
+const lr = computed(() => lrDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/limitranges/${encodeURIComponent(route.params.name)}`,
 })

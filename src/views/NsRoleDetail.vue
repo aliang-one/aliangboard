@@ -22,7 +22,7 @@ const roleDetail = useResourceDetail({
   fetcher: () => store.fetchRole(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const role = computed(() => roleDetail.data.value ?? store.getRoleByName(route.params.name, route.params.namespace))
+const role = computed(() => roleDetail.data.value)
 const roleBindingsQuery = useResourceList({
   key: ['cluster', cid.value, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),

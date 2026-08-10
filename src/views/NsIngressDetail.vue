@@ -27,7 +27,7 @@ const ingDetail = useResourceDetail({
   fetcher: () => store.fetchIngress(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const ing = computed(() => ingDetail.data.value ?? store.getIngressByName(route.params.name, route.params.namespace))
+const ing = computed(() => ingDetail.data.value)
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
 
 const ingressClassesQuery = useResourceList({

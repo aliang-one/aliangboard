@@ -22,7 +22,7 @@ const pdbDetail = useResourceDetail({
   fetcher: () => store.fetchPDB(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const pdb = computed(() => pdbDetail.data.value ?? store.getPDBByName(route.params.name, route.params.namespace))
+const pdb = computed(() => pdbDetail.data.value)
 const yaml = computed(() => store.generateExtraYAML('pdb', pdb.value))
 
 const activeTab = ref('overview')

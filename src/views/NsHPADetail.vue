@@ -23,7 +23,7 @@ const hpaDetail = useResourceDetail({
   fetcher: () => store.fetchHPA(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const hpa = computed(() => hpaDetail.data.value ?? store.getHPAByName(route.params.name, route.params.namespace))
+const hpa = computed(() => hpaDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/autoscaling/v2/namespaces/${encodeURIComponent(route.params.namespace)}/horizontalpodautoscalers/${encodeURIComponent(route.params.name)}`,
 })

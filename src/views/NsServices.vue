@@ -35,6 +35,8 @@ const servicesQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
+// Endpoints：cluster-wide fetch + 按 row 过滤（store ref 在 remote 下孤立）
+const _endpointsQ = useResourceList({ key: ['cluster', cid.value, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
 // 容器端口（从 workloads 派生，替代 nsContainerPorts）
 const _wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace)))
@@ -104,7 +106,7 @@ function parsePorts(row) {
 // 后端端点健康：从 Endpoints 对象取 ready / notReady
 function epState(row) {
   if (row.type === 'ExternalName') return { dot: 'bg-on-surface-variant', title: t('ns.services.extNameHint') }
-  const ep = store.getEndpointsByName(row.name, row.namespace)
+  const ep = (_endpointsQ.data.value || []).find(e => e.name === row.name && e.namespace === row.namespace)
   if (!ep) return { dot: 'bg-outline-variant', title: t('ns.services.noEndpointsObj') }
   const ready = (ep.addresses || []).length, notReady = (ep.notReadyAddresses || []).length
   if (ready > 0) return { dot: 'bg-primary', title: t('ns.services.readyCount', { ready, notReady }) }

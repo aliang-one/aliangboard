@@ -36,7 +36,7 @@ const svcDetail = useResourceDetail({
   fetcher: () => store.fetchService(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const svc = computed(() => svcDetail.data.value ?? store.getServiceByName(route.params.name, route.params.namespace))
+const svc = computed(() => svcDetail.data.value)
 
 // pods + workloads + events 走 Vue Query（store ref 在 remote 下孤立）
 const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: 30000 } })
@@ -66,8 +66,9 @@ const portRows = computed(() => svc.value?.portList?.length ? svc.value.portList
 const hasNodePort = computed(() => svc.value?.type === 'NodePort' || svc.value?.type === 'LoadBalancer')
 const forwardPorts = computed(() => portRows.value.map(p => Number(p.port)).filter(n => !isNaN(n)))
 
-// === Endpoints：优先用真实 Endpoints 对象（ready / notReady），无则回退 selector 命中的 Pod ===
-const ep = computed(() => store.getEndpointsByName(route.params.name, route.params.namespace))
+// === Endpoints：从 cluster-wide Endpoints 列表按 ns/name 过滤（store ref 在 remote 下孤立）===
+const endpointsQ = useResourceList({ key: ['cluster', cid.value, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
+const ep = computed(() => (endpointsQ.data.value || []).find(e => e.name === route.params.name && e.namespace === route.params.namespace))
 const epTargets = computed(() => ep.value?.targets || {})
 const podByIp = computed(() => {
   const m = {}

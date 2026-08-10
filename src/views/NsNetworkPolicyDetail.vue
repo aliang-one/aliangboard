@@ -23,7 +23,7 @@ const npDetail = useResourceDetail({
   fetcher: () => store.fetchNetworkPolicy(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const np = computed(() => npDetail.data.value ?? store.getNetworkPolicyByName(route.params.name, route.params.namespace))
+const np = computed(() => npDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(route.params.namespace)}/networkpolicies/${encodeURIComponent(route.params.name)}`,
 })

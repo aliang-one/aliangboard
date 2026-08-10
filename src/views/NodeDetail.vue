@@ -23,7 +23,7 @@ const nodeDetail = useResourceDetail({
   fetcher: () => store.fetchNode(route.params.name),
   options: { refetchInterval: 15000 },
 })
-const node = computed(() => nodeDetail.data.value ?? store.getNodeByName(route.params.name))
+const node = computed(() => nodeDetail.data.value)
 // Pods 走 Vue Query（集群范围）+ select 按节点过滤：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const podsQuery = useResourceList({
   key: ['cluster', cid.value, 'pods'],

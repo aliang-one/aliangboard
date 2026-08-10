@@ -26,7 +26,7 @@ const cmDetail = useResourceDetail({
   fetcher: () => store.fetchConfigMap(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const cm = computed(() => cmDetail.data.value ?? store.getConfigMapByName(route.params.name, route.params.namespace))
+const cm = computed(() => cmDetail.data.value)
 const yaml = computed(() => store.generateYAML('configmap', cm.value))
 
 const activeTab = ref('data')

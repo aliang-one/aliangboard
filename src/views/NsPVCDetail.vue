@@ -27,7 +27,7 @@ const pvcDetail = useResourceDetail({
   fetcher: () => store.fetchPVC(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const pvc = computed(() => pvcDetail.data.value ?? store.getPVCByName(route.params.name, route.params.namespace))
+const pvc = computed(() => pvcDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
 })

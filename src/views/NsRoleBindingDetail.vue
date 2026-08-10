@@ -24,7 +24,7 @@ const rbDetail = useResourceDetail({
   fetcher: () => store.fetchRoleBinding(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
-const rb = computed(() => rbDetail.data.value ?? store.getRoleBindingByName(route.params.name, route.params.namespace))
+const rb = computed(() => rbDetail.data.value)
 const rolesQuery = useResourceList({
   key: ['cluster', cid.value, 'roles'],
   fetcher: () => store.fetchRoles(),
@@ -38,7 +38,7 @@ const { yaml } = useLiveYaml({
 const activeTab = ref('overview')
 const showDeleteModal = ref(false)
 
-// The referenced role — find 镜像 getRoleByName 逻辑：name 匹配 + scope=Cluster 或同 namespace
+// The referenced role — name 匹配 + scope=Cluster 或同 namespace
 const referencedRole = computed(() => {
   if (!rb.value) return null
   return (rolesQuery.data.value || []).find(r => r.name === rb.value.roleName && (r.scope === 'Cluster' || r.namespace === rb.value.namespace)) || null

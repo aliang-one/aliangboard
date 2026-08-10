@@ -84,7 +84,7 @@ async function submitCreate() {
     createError.value = t('ns.namespaces.nameRequired')
     return
   }
-  if (store.getNamespaceByName(name)) {
+  if ((namespaces.value || []).some(n => n.name === name)) {
     createError.value = t('ns.namespaces.nameExists', { name })
     return
   }
