@@ -39,6 +39,7 @@
     "enabled": "已启用",
     "disabled": "已禁用",
     "opFailed": "操作失败",
+    "copy": "复制",
     "copySuccess": "已复制",
     "copyFailed": "复制失败",
     "applyFailed": "应用失败"
@@ -1893,9 +1894,12 @@
     "mcpTitle": "MCP 服务",
     "mcpEnabled": "运行中",
     "mcpDisabled": "已关闭",
-    "mcpUsageTitle": "客户端连接方式",
-    "mcpUsageUrl": "连接地址",
-    "mcpUsageAuth": "认证头",
+    "mcpUsageTitle": "在本地终端接入 Claude Code",
+    "mcpAddCmdLabel": "① 安装命令",
+    "mcpAddCmdHint": "把命令里的 <YOUR_API_KEY> 替换成你在「API Keys」签发的 key,在本机终端执行即可。",
+    "mcpRemoveCmdLabel": "② 移除 / 换 Key",
+    "mcpRemoveCmdHint": "更换 API Key 时:先执行此命令移除旧配置,再用新 Key 跑一次①即可替换。",
+    "mcpInstallCliLabel": "③ 安装 claude CLI(可选)",
     "mcpUsageNote": "在「平台管理 → API Keys」签发 key；key 的权限档（tier）+ namespace + 工具覆盖决定可用工具/范围。",
     "mcpDisabledHint": "MCP 服务已关闭，外部 AI 客户端无法连接。",
     "mcpRunningHint": "外部 AI 客户端可通过 /mcp 连接"

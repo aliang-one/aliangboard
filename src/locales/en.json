@@ -39,6 +39,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "opFailed": "Operation failed",
+    "copy": "Copy",
     "copySuccess": "Copied",
     "copyFailed": "Failed to copy",
     "applyFailed": "Apply failed"
@@ -1893,9 +1894,12 @@
     "mcpTitle": "MCP Service",
     "mcpEnabled": "Running",
     "mcpDisabled": "Disabled",
-    "mcpUsageTitle": "Client connection",
-    "mcpUsageUrl": "Endpoint URL",
-    "mcpUsageAuth": "Auth header",
+    "mcpUsageTitle": "Connect Claude Code in your terminal",
+    "mcpAddCmdLabel": "① Install",
+    "mcpAddCmdHint": "Replace <YOUR_API_KEY> with a key from API Keys, then run in your terminal.",
+    "mcpRemoveCmdLabel": "② Remove / rotate key",
+    "mcpRemoveCmdHint": "To rotate the key: run this to remove, then re-run ① with the new key.",
+    "mcpInstallCliLabel": "③ Install claude CLI (optional)",
     "mcpUsageNote": "Mint a key at API Keys management; the key's tier + namespace + tool_overrides determine available tools/scope.",
     "mcpDisabledHint": "MCP service is disabled; external AI clients cannot connect.",
     "mcpRunningHint": "External AI clients can connect via /mcp"

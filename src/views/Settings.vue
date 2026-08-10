@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { api, adminApi } from '@/api/client'
+import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 import { i18n, setLocale } from '@/i18n'
@@ -61,6 +62,16 @@ onMounted(() => {
 const mcpEnabled = ref(true)
 const mcpLoading = ref(false)
 const mcpUrl = computed(() => window.location.origin + '/mcp')
+// 可直接复制执行的客户端命令；<YOUR_API_KEY> 由用户替换为在「API Keys」签发的 key
+const mcpAddCmd = computed(() =>
+  `claude mcp add --transport http aliangboard ${mcpUrl.value} --header "Authorization: Bearer <YOUR_API_KEY>"`
+)
+const mcpRemoveCmd = 'claude mcp remove aliangboard'
+const mcpInstallCliCmd = 'npm install -g @anthropic-ai/claude-code'
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); notify('success', t('common.copySuccess')) }
+  catch { notify('error', t('common.copyFailed')) }
+}
 async function loadMcpConfig() {
   try { const r = await adminApi.mcpConfig.get(); mcpEnabled.value = r.enabled } catch { /* 非 admin 或无权限→静默 */ }
 }
@@ -278,20 +289,49 @@ const { catalog, resetAll } = useTableColumns()
                   :class="mcpEnabled ? 'translate-x-6' : 'translate-x-0'"></span>
               </button>
             </div>
-            <!-- Usage hint (when enabled) -->
-            <div v-if="mcpEnabled" class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+            <!-- Usage hint (when enabled): copy-paste install / remove / rotate commands -->
+            <div v-if="mcpEnabled" class="space-y-md p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.mcpUsageTitle') }}</p>
+
+              <!-- ① 安装命令 -->
               <div class="space-y-xs">
-                <div class="flex items-center justify-between gap-md">
-                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ t('settings.mcpUsageUrl') }}</span>
-                  <code class="text-body-xs font-mono text-primary bg-primary/5 px-sm py-xs rounded">{{ mcpUrl }}</code>
+                <div class="flex items-center justify-between">
+                  <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpAddCmdLabel') }}</span>
+                  <button @click="copyText(mcpAddCmd)" type="button"
+                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
+                  </button>
                 </div>
-                <div class="flex items-center justify-between gap-md">
-                  <span class="text-body-xs text-on-surface-variant shrink-0">{{ t('settings.mcpUsageAuth') }}</span>
-                  <code class="text-body-xs font-mono text-primary bg-primary/5 px-sm py-xs rounded">Authorization: Bearer &lt;API key&gt;</code>
-                </div>
+                <pre class="text-code-sm font-mono text-on-surface bg-surface-container-high/60 px-md py-sm rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{{ mcpAddCmd }}</pre>
+                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpAddCmdHint') }}</p>
               </div>
-              <p class="text-body-xs text-on-surface-variant pt-xs">{{ t('settings.mcpUsageNote') }}</p>
+
+              <!-- ② 移除 / 换 Key 命令 -->
+              <div class="space-y-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpRemoveCmdLabel') }}</span>
+                  <button @click="copyText(mcpRemoveCmd)" type="button"
+                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
+                  </button>
+                </div>
+                <pre class="text-code-sm font-mono text-on-surface bg-surface-container-high/60 px-md py-sm rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{{ mcpRemoveCmd }}</pre>
+                <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpRemoveCmdHint') }}</p>
+              </div>
+
+              <!-- ③ 安装 claude CLI(可选) -->
+              <div class="space-y-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpInstallCliLabel') }}</span>
+                  <button @click="copyText(mcpInstallCliCmd)" type="button"
+                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
+                  </button>
+                </div>
+                <pre class="text-code-sm font-mono text-on-surface bg-surface-container-high/60 px-md py-sm rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{{ mcpInstallCliCmd }}</pre>
+              </div>
+
+              <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageNote') }}</p>
             </div>
           </div>
         </div>
