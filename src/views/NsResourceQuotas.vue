@@ -12,6 +12,7 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { cpuToMilli, milliToCpu, formatCpu } from '@/composables/useResourceFormat'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -37,14 +38,14 @@ const { currentPage, pageSize, paginated, total } = usePagination(nsResourceQuot
 const showCreateModal = ref(false)
 const createForm = ref({
   name: '',
-  cpuHard: '8',
+  cpuHard: '8000',
   memoryHard: '16Gi',
   podsHard: '20',
   servicesHard: '10',
 })
 
 function resetCreate() {
-  createForm.value = { name: '', cpuHard: '8', memoryHard: '16Gi', podsHard: '20', servicesHard: '10' }
+  createForm.value = { name: '', cpuHard: '8000', memoryHard: '16Gi', podsHard: '20', servicesHard: '10' }
 }
 
 async function handleCreate() {
@@ -53,7 +54,7 @@ async function handleCreate() {
     name: f.name,
     namespace: route.params.namespace,
     hard: {
-      'limits.cpu': f.cpuHard,
+      'limits.cpu': milliToCpu(Number(f.cpuHard)),
       'limits.memory': f.memoryHard,
       pods: f.podsHard,
       services: f.servicesHard,
@@ -88,8 +89,7 @@ async function handleDelete() {
 
 // Helpers for parsing resource values
 function parseCpu(val) {
-  if (!val) return 0
-  return parseFloat(val)
+  return cpuToMilli(val)
 }
 
 function parseMemory(val) {
@@ -142,7 +142,7 @@ function goDetail(row) {
       <template #cpu="{ row }">
         <div class="flex flex-col gap-xs min-w-[120px]">
           <div class="flex justify-between text-xs">
-            <span class="text-on-surface-variant">{{ row.used?.['limits.cpu'] || '0' }} / {{ row.hard?.['limits.cpu'] || '-' }}</span>
+            <span class="text-on-surface-variant">{{ formatCpu(cpuToMilli(row.used?.['limits.cpu'])) }} / {{ formatCpu(cpuToMilli(row.hard?.['limits.cpu'])) }}</span>
             <span class="font-medium" :class="getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) > 80 ? 'text-error' : 'text-primary'">
               {{ getPercent(parseCpu(row.used?.['limits.cpu']), parseCpu(row.hard?.['limits.cpu'])) }}%
             </span>
@@ -194,8 +194,8 @@ function goDetail(row) {
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.cpuLimitLabel') }}</label>
-          <input v-model="createForm.cpuHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="8" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.cpuLimitLabel') }} <span class="text-on-surface-variant/60 text-xs normal-case font-normal ml-xs">(millicores, 1=1000m)</span></label>
+          <input v-model="createForm.cpuHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="8000" />
         </div>
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.resourceQuotas.memoryLimitLabel') }}</label>
