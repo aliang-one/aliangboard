@@ -175,7 +175,13 @@ async function pollOnce(id) {
   try {
     const conv = await workbenchApi.conversations.get(id)
     convStatus.value = conv.status
-    const agentTurn = turns.value.find(x => x._id === turnSeq && x.role === 'assistant')
+    // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 user+agent turn,
+    // 否则 status 分支里 `if (agentTurn)` 全落空、什么都不渲染。
+    if (!turns.value.length) {
+      if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
+      turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+    }
+    const agentTurn = turns.value.find(x => x.role === 'assistant')
     // 更新 trace
     let trace = []
     if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
