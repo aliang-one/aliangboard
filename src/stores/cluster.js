@@ -103,11 +103,8 @@ export const useClusterStore = defineStore('cluster', () => {
   const pvList = ref([])
   const pvcList = ref([])
   const scList = ref([])
-  const ingressClassList = ref([])
-  const runtimeClassList = ref([])
   const roleList = ref([])
   const saList = ref([])
-  const logEntries = ref([])
   const networkPolicyList = ref([])
   const hpaList = ref([])
   const resourceQuotaList = ref([])
@@ -591,14 +588,6 @@ export const useClusterStore = defineStore('cluster', () => {
   function updateEndpoints(name, ns, updates) {
     const idx = endpointsList.value.findIndex(e => e.name === name && e.namespace === ns)
     if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
-  }
-
-  // === CRUD: IngressClass / RuntimeClass getters（CRUD 已进工厂）===
-  function getIngressClassByName(name) {
-    return ingressClassList.value.find(c => c.name === name)
-  }
-  function getRuntimeClassByName(name) {
-    return runtimeClassList.value.find(r => r.name === name)
   }
 
   // === CRUD: Workloads (for Deploy) ===
@@ -1131,11 +1120,6 @@ export const useClusterStore = defineStore('cluster', () => {
 
   async function deleteNamespace(name) {
     await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(name)}`, namespaceList, n => n.name === name)
-  }
-
-  function updateNamespace(name, updates) {
-    const idx = namespaceList.value.findIndex(n => n.name === name)
-    if (idx !== -1) namespaceList.value[idx] = { ...namespaceList.value[idx], ...updates }
   }
 
   // === 多集群 ===
@@ -2025,7 +2009,7 @@ status:
     // 基础数据
     cluster, nodeList, workloadList, podList, namespaceList, eventList,
     serviceList, ingressList, endpointsList, configMapList, secretList, pvList, pvcList,
-    scList, ingressClassList, runtimeClassList, roleList, saList, logEntries, currentNamespace,
+    scList, roleList, saList, currentNamespace,
     networkPolicyList, hpaList, resourceQuotaList, limitRangeList, roleBindingList,
     clusterRoleBindingList, pdbList, priorityClassList,
     clusterList, savedClusters, auditLogList, crdList, currentCluster, connectionState,
@@ -2053,7 +2037,7 @@ status:
     // CRUD: Endpoints
     getEndpointsByName, updateEndpoints,
     // CRUD: IngressClass / RuntimeClass（集群级）
-    getIngressClassByName, addIngressClass, updateIngressClass, deleteIngressClass, getRuntimeClassByName, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
+    addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
     addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods
@@ -2078,7 +2062,7 @@ status:
     // CRUD: Nodes
     cordonNode, uncordonNode, drainNode,
     // CRUD: Namespaces
-    addNamespace, updateNamespace, deleteNamespace,
+    addNamespace, deleteNamespace,
     // 多集群
     switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore,
     hydrateCriticalResources,
