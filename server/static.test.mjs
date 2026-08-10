@@ -121,4 +121,11 @@ test('无 root → false(未配静态目录,直接兜底)', () => {
   assert.equal(hit, false)
 })
 
+test('畸形百分号编码 /bad%ZZ → false,不抛(decode 守卫)', () => {
+  const res = makeRes()
+  const hit = serveStatic({ method: 'GET' }, res, { pathname: '/bad%ZZ' }, { root })
+  assert.equal(hit, false)
+  assert.equal(res.__state().status, null, '不应写响应')
+})
+
 test('teardown', () => { rmSync(base, { recursive: true, force: true }) })

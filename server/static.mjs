@@ -30,7 +30,8 @@ export function serveStatic(req, res, url, { root } = {}) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return false
   if (url.pathname.startsWith('/api')) return false
 
-  const rel = decodeURIComponent(url.pathname)
+  let rel
+  try { rel = decodeURIComponent(url.pathname) } catch { return false }
   const rootNorm = root.endsWith('/') ? root.slice(0, -1) : root
   const safe = normalize(join(rootNorm, rel))
   if (safe !== rootNorm && !safe.startsWith(rootNorm + '/')) return false // 防穿越(带分隔符)
