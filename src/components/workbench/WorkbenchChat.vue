@@ -26,6 +26,7 @@ const input = ref('')
 const sending = ref(false)
 const errorBanner = ref('')
 const scrollEl = ref(null)
+const taEl = ref(null)
 const pendingApproval = ref(null)
 let turnSeq = 0
 
@@ -263,7 +264,7 @@ function autoGrow(e) {
 }
 function resetInput() {
   input.value = ''
-  nextTick(() => { const ta = document.querySelector('textarea'); if (ta) ta.style.height = 'auto' })
+  nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
 function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
@@ -315,7 +316,7 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
           <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
