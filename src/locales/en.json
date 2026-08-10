@@ -2755,6 +2755,9 @@
       "atMentionHint": "Type {'@'}kind: to search resources (e.g. {'@'}pod:nginx)",
       "atMentionNoResults": "No matching resources",
       "atMentionSearching": "Searching...",
+      "roleYou": "You",
+      "roleAgent": "Agent",
+      "toolDenied": "denied",
       "convStatus": {
         "running": "Running",
         "paused": "Awaiting Approval",
