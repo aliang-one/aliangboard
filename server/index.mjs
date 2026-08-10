@@ -1762,7 +1762,7 @@ async function handle(req, res) {
   }
 
   // 非 /api/* 的 GET/HEAD:尝试服务 dist/ 静态前端(SPA)。serveStatic 内部已 guard /api 前缀(返 false)。
-  // 必须在 isK8s/isPlatform 分发门之前 —— 否则非 API 路径直接被 1767 行 404 吞掉,SPA 永远到不了。
+  // 必须在 isK8s/isPlatform 分发门之前 —— 否则非 API 路径直接被下方 isK8s/isPlatform 门 404 吞掉,SPA 永远到不了。
   if (serveStatic(req, res, url, { root: STATIC_DIR })) return
 
   // K8s 代理 vs 平台 API 路由分发
