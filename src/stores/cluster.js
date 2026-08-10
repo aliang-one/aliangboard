@@ -1098,11 +1098,9 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function updateResourceQuota(name, ns, updates) {
-    const idx = resourceQuotaList.value.findIndex(r => r.name === name && r.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(resourceQuotaList.value[idx]))
-    resourceQuotaList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('resourcequota', resourceQuotaList.value[idx]), 'ResourceQuota', () => { resourceQuotaList.value[idx] = before })
+    // 数据在 Vue Query(列表 ref 已空),先取当前单条再合并 updates,避免 findIndex 落空致编辑无效果。
+    const cur = await fetchResourceQuota(name, ns).catch(() => null)
+    await remoteUpdate(generateYAML('resourcequota', { ...(cur || {}), name, namespace: ns, ...updates }), 'ResourceQuota')
     invalidateResource('resourcequotas')
   }
 
@@ -1118,11 +1116,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function updateLimitRange(name, ns, updates) {
-    const idx = limitRangeList.value.findIndex(l => l.name === name && l.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(limitRangeList.value[idx]))
-    limitRangeList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('limitrange', limitRangeList.value[idx]), 'LimitRange', () => { limitRangeList.value[idx] = before })
+    const cur = await fetchLimitRange(name, ns).catch(() => null)
+    await remoteUpdate(generateYAML('limitrange', { ...(cur || {}), name, namespace: ns, ...updates }), 'LimitRange')
     invalidateResource('limitranges')
   }
 
@@ -1216,11 +1211,9 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource('pdbs')
   }
   async function updatePDB(name, ns, updates) {
-    const idx = pdbList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx === -1) return
-    const before = JSON.parse(JSON.stringify(pdbList.value[idx]))
-    pdbList.value[idx] = { ...before, ...updates }
-    await remoteUpdate(generateYAML('pdb', pdbList.value[idx]), 'PDB', () => { pdbList.value[idx] = before })
+    // 详情页只传 minAvailable/maxUnavailable,须先取当前单条(含 selector)再合并,避免覆盖丢失 selector。
+    const cur = await fetchPDB(name, ns).catch(() => null)
+    await remoteUpdate(generateExtraYAML('pdb', { ...(cur || {}), name, namespace: ns, ...updates }), 'PDB')
     invalidateResource('pdbs')
   }
   async function deletePDB(name, ns) {
