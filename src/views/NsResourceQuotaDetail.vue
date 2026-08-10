@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { cpuToMilli, milliToCpu } from '@/composables/useResourceFormat'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -44,7 +45,7 @@ const editForm = ref({
 function openEditModal() {
   if (!rq.value) return
   editForm.value = {
-    cpuHard: rq.value.hard?.['limits.cpu'] || '',
+    cpuHard: String(cpuToMilli(rq.value.hard?.['limits.cpu']) || ''),
     memoryHard: rq.value.hard?.['limits.memory'] || '',
     podsHard: rq.value.hard?.pods || '',
     servicesHard: rq.value.hard?.services || '',
@@ -58,7 +59,7 @@ function handleEdit() {
   const f = editForm.value
   const hard = {}
   const used = { ...rq.value.used }
-  if (f.cpuHard) hard['limits.cpu'] = f.cpuHard
+  if (f.cpuHard) hard['limits.cpu'] = milliToCpu(Number(f.cpuHard))
   if (f.memoryHard) hard['limits.memory'] = f.memoryHard
   if (f.podsHard) hard.pods = f.podsHard
   if (f.servicesHard) hard.services = f.servicesHard
@@ -74,16 +75,23 @@ async function handleDelete() {
 }
 
 // Compute all hard/used entries for overview
+// 按 quota key 选量值解析器:cpu→毫核(修 K8s 规范化后 cores/millicores 单位错配);其余 parseFloat
+const parseQty = (key, val) => {
+  if (key.endsWith('.cpu')) return cpuToMilli(val)
+  const n = parseFloat(val)
+  return isNaN(n) ? 0 : n
+}
+
 const quotaEntries = computed(() => {
   if (!rq.value) return []
   const hard = rq.value.hard || {}
   const used = rq.value.used || {}
-  return Object.entries(hard).map(([key, hardVal]) => ({
-    key,
-    hard: hardVal,
-    used: used[key] || '0',
-    percent: getPercent(used[key] || '0', hardVal),
-  }))
+  return Object.entries(hard).map(([key, hardVal]) => {
+    const h = parseQty(key, hardVal)
+    const u = parseQty(key, used[key] || '0')
+    const percent = h ? Math.min(Math.round((u / h) * 100), 100) : 0
+    return { key, hard: hardVal, used: used[key] || '0', percent }
+  })
 })
 
 // Friendly names for quota keys
@@ -215,8 +223,8 @@ function getPercent(used, hard) {
     <div class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit</label>
-          <input v-model="editForm.cpuHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit <span class="text-on-surface-variant/60 text-xs normal-case font-normal ml-xs">(millicores, 1=1000m)</span></label>
+          <input v-model="editForm.cpuHard" placeholder="20000" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Limit</label>
