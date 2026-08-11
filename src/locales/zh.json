@@ -2771,6 +2771,7 @@
       "roleYou": "你",
       "roleAgent": "Agent",
       "toolDenied": "已拒绝",
+      "recapSummary": "之前的对话摘要",
       "convStatus": {
         "running": "执行中",
         "paused": "待审批",

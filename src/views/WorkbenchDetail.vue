@@ -58,6 +58,8 @@ async function load() {
   try {
     const res = await workbenchApi.getProject(id)
     project.value = res.project
+    // 后端权威:项目的活跃对话(无则 null → 下条消息走新建分支)
+    activeConversationId.value = res.project?.activeConversationId || null
     files.value = res.files || []
     commits.value = res.commits || []
     lastReconcile.value = res.lastReconcile || null
@@ -192,7 +194,8 @@ function addFile() {
           :project-id="id"
           :project-name="project?.name"
           :conversation-id="activeConversationId"
-          @conversation-created="loadConversations"
+          :active-conversation-id="activeConversationId"
+          @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
         />
       </div>
     </div>

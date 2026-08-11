@@ -17,10 +17,11 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace, appendMessage, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
+import { maybeSummarize } from './workbench-summarize.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -1080,6 +1081,45 @@ async function handle(req, res) {
     }
   }
 
+  // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
+  // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
+  // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
+  const KIND_API_PATH = {
+    pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
+    services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
+    configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
+    secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
+    deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+    statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+    daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+    ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+    namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+  }
+  async function buildRefsContext(project, references) {
+    if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
+    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
+    if (!cluster) return { ctx: '', resources: [] } // 项目绑定的集群不存在 → 无 @-ref 可拉
+    const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+    const blocks = []
+    const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
+    for (const ref of references) {
+      const pathFn = KIND_API_PATH[ref.kind]
+      const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+      if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
+      try {
+        const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
+        // requestKubernetes 返回 {status,headers,body};资源在 body(guard:可能 undefined)
+        const body = res?.body
+        if (body == null) { blocks.push(`${label}: (空响应)`); continue }
+        blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
+        resources.push(body)
+      } catch (e) {
+        blocks.push(`${label}: (not found)`)
+      }
+    }
+    return { ctx: `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`, resources }
+  }
+
   // checkpoint → paused; done → done + history
   function handleAgentResult(convId, project, out) {
     if (out.status === 'pending_approval') {
@@ -1096,12 +1136,17 @@ async function handle(req, res) {
         status: 'done', messages: JSON.stringify(out.messages),
         content: out.content, steps: out.steps,
       })
+      // T4:多轮核心 —— done 时追加 assistant 消息到 workbench_messages(供下一轮 buildHistory 读取)。
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', trace: JSON.stringify(out.trace || []) })
       appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
       appendHistory(db, project.id, 'assistant', out.content || '')
     }
   }
 
-  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)
+  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。
+  // T4:改吃 buildHistory —— 多轮上下文(recap? + 近期全文 messages,末条是新 user 消息)。
+  // 新建对话首条 user 消息由 POST /conversations 在 createConversation 前 append;
+  // 续接对话新 user 消息由 POST /:id/messages append。runConversation 只读不写消息。
   async function runConversation(convId, llmClient) {
     try {
       const conv = getConversation(db, convId)
@@ -1110,9 +1155,10 @@ async function handle(req, res) {
       if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const history = buildHistory(db, conv)
       const out = await run({
         system: conv.system,
-        history: [{ role: 'user', content: conv.userMessage }],
+        history,
         onStep: e => appendTrace(db, convId, e),
       })
       handleAgentResult(convId, project, out)
@@ -1158,45 +1204,56 @@ async function handle(req, res) {
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
-      // @-mention references 注入(复用 agent chat projectId 分支逻辑)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
-      const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
-      const fetchedResources = []
-      let refContext = ''
-      if (Array.isArray(input.references) && input.references.length && k8sSession) {
-        const KIND_API_PATH = {
-          pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-          services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-          configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-          secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-          deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-          statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-          daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-          ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-          namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-        }
-        const blocks = []
-        for (const ref of input.references) {
-          const pathFn = KIND_API_PATH[ref.kind]
-          const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-          if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
-          try {
-            const res2 = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-            fetchedResources.push(res2.body) // requestKubernetes 返回 {status,headers,body};资源在 body → 前端 ResourceCard
-            blocks.push(`${label}:\n${JSON.stringify(res2.body, null, 2)}`)
-          } catch (e) {
-            blocks.push(`${label}: (not found)`)
-          }
-        }
-        refContext = `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
-      }
+      // @-ref 资源:单次拉取(buildRefsContext 同时返回 agent 注入串 + 原始 body 供前端 ResourceCard)。
+      const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
+      const refContext = refsCtx ? `\n\n${refsCtx}` : ''
 
       const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
 
       const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message) })
+      // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
+      setActiveConversation(db, input.projectId, conv.id)
+      // T4:首条 user 消息写入 workbench_messages(@-ref context 拼进 content,供 buildHistory 读到)。
+      const firstContent = refsCtx ? `${refsCtx}\n\n${input.message}` : String(input.message)
+      appendMessage(db, { conversationId: conv.id, role: 'user', content: firstContent, refs: Array.isArray(input.references) ? input.references : null })
       runConversation(conv.id, llmClient) // detached — 不 await
       return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
+  }
+
+  // POST /api/workbench/conversations/:id/messages — 续接对话(多轮核心,T4)。
+  // 必须在 GET /:id 之前注册(路径更具体,先匹配)。
+  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/messages$/) && req.method === 'POST') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    try {
+      const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/messages
+      const input = await readBody(req)
+      const conv = getConversation(db, id)
+      if (!conv) return sendJson(res, 404, { message: '对话不存在' })
+      const project = getProject(db, conv.projectId)
+      if (!project) return sendJson(res, 404, { message: '项目不存在' })
+      if (project.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问' })
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
+      // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
+      setActiveConversation(db, conv.projectId, id)
+      // 1) append user 消息(干净 content;refs 存原始,资源另拉注入 content)
+      const cleanMessage = String(input.message ?? '')
+      appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references : null })
+      // 2) @-ref 资源拉取 → 拼进刚 append 的 user 消息 content(buildHistory 读 content → agent 可见)
+      const { ctx: refsCtx } = await buildRefsContext(project, input.references)
+      if (refsCtx) {
+        const maxSeq = getMaxSeq(db, id)
+        db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
+          .run(`${refsCtx}\n\n${cleanMessage}`, id, maxSeq)
+      }
+      // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
+      updateConversation(db, id, { status: 'running' })
+      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      runConversation(id, llmClient) // detached — 不 await
+      maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
+      return sendJson(res, 200, { status: 'running' })
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '续接失败' }) }
   }
 
   // GET /api/workbench/conversations/:id — 单条对话状态(轮询用)
@@ -1210,6 +1267,8 @@ async function handle(req, res) {
       content: conv.content, error: conv.error,
       pendingApproval: conv.pendingApproval, trace: conv.trace,
       userMessage: conv.userMessage,
+      recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+      messages: listMessages(db, id),
     })
   }
 
@@ -1287,7 +1346,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && seg.length === 1) {
       let files = [], commits = []
       try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
-      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id) })
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
     }
 
     // 文件读写 :id/files/<path>

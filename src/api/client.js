@@ -196,6 +196,7 @@ export const workbenchApi = {
   // 有状态对话(P5):服务端持久化 + 后台执行 + 轮询
   conversations: {
     create: (payload) => platformHttp.request('/api/workbench/conversations', { method: 'POST', body: JSON.stringify(payload) }),
+    append: (id, { message, references }) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, references }) }),
     get: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`),
     list: (projectId) => platformHttp.request(`/api/workbench/conversations?projectId=${encodeURIComponent(projectId)}`),
     approve: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST' }),

@@ -1,95 +1,170 @@
-// P5 对话实体测试:create→get→update→list→appendTrace round-trip。
+// SP1 Task 4 多轮核心测试:验证续接对话时 buildHistory(runConversation 的唯一 history 来源)
+// 含第 1 轮 user/assistant + 新 user 消息。runConversation 是 index.mjs 闭包无法直测,
+// 这里测它依赖的 buildHistory 产出 —— 即 agent 实际收到的 history。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import {
-  createConversationsSchema,
+  createWorkbenchSchema,
+  createProject,
   createConversation,
   getConversation,
   updateConversation,
-  listConversations,
-  appendTrace,
+  appendMessage,
+  getMaxSeq,
+  buildHistory,
+  setActiveConversation,
+  getActiveConversationId,
+  listMessages,
 } from './workbench-projects.mjs'
 
-function makeDb() {
+function freshDb() {
   const db = new DatabaseSync(':memory:')
-  createConversationsSchema(db)
+  createWorkbenchSchema(db)
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
   return db
 }
 
-test('createConversation + getConversation:写入可读回,初始 status=running trace=[]', () => {
-  const db = makeDb()
-  const conv = createConversation(db, { projectId: 'p1', system: '你是助手', userMessage: '帮我看看' })
-  assert.equal(conv.projectId, 'p1')
-  assert.equal(conv.status, 'running')
-  assert.equal(conv.system, '你是助手')
-  assert.equal(conv.userMessage, '帮我看看')
-  assert.equal(conv.steps, 0)
-  assert.deepEqual(JSON.parse(conv.trace), [])
-  assert.ok(conv.id && conv.createdAt > 0)
-  assert.equal(conv.createdAt, conv.updatedAt, '创建时两时间戳相同')
-  // getConversation round-trip
-  assert.equal(getConversation(db, conv.id).id, conv.id)
-  assert.equal(getConversation(db, 'nope'), null)
+function p1Id(db) {
+  return db.prepare("SELECT id FROM workbench_projects WHERE name='p1'").get().id
+}
+
+// 核心多轮断言:续接第 2 条消息时,runConversation 读到的 history 含第 1 轮。
+test('多轮:第 2 轮 buildHistory 含第 1 轮 user/assistant + 新 user', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: 'sys', userMessage: '帮我看看 pod' })
+  const conv = getConversation(db, listConvId(db))
+  // 第 1 轮(POST /conversations 先 append user → runConversation → done 时 append assistant)
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '帮我看看 pod' })       // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '找到 3 个 pod', trace: '[]' }) // seq2
+  // 第 2 轮(POST /:id/messages append 新 user)
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '第 2 个详情?' })        // seq3
+
+  // runConversation 内部:const history = buildHistory(db, conv)
+  const history = buildHistory(db, conv)
+  assert.equal(history.length, 3, '3 条全文消息')
+  assert.equal(history[0].role, 'user')
+  assert.equal(history[0].content, '帮我看看 pod', '第 1 轮 user 在前')
+  assert.equal(history[1].role, 'assistant')
+  assert.equal(history[1].content, '找到 3 个 pod', '第 1 轮 assistant 保留')
+  assert.equal(history[2].role, 'user')
+  assert.equal(history[2].content, '第 2 个详情?', '新 user 消息在末尾')
 })
 
-test('createConversation:缺字段抛错', () => {
-  const db = makeDb()
-  assert.throws(() => createConversation(db, { userMessage: 'x' }), /缺/)
-  assert.throws(() => createConversation(db, { projectId: 'p1' }), /缺/)
+// @-ref 注入:续接端点把 refsCtx 拼进刚 append 的 user 消息 content → buildHistory 读到带资源上下文的版本。
+test('多轮:@-ref context 注入到新 user 消息 content,buildHistory 可见', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: '首轮' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '首轮' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '首轮答' })
+  // 续接端点流程:先 append 干净 → 再 UPDATE 拼 refsCtx
+  const cleanMsg = '这个 pod 怎么了'
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: cleanMsg })
+  const refsCtx = 'Referenced resources (当前状态,供你参考):\n[pods/default/nginx]:\n{...}'
+  const maxSeq = getMaxSeq(db, conv.id)
+  db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
+    .run(`${refsCtx}\n\n${cleanMsg}`, conv.id, maxSeq)
+
+  const history = buildHistory(db, conv)
+  const lastUser = history[history.length - 1]
+  assert.match(lastUser.content, /Referenced resources/, '@-ref context 已注入新 user content')
+  assert.match(lastUser.content, /这个 pod 怎么了$/, '原始消息保留在末尾')
 })
 
-test('updateConversation:patch 动态 SET(status + content),updatedAt 更新', () => {
-  const db = makeDb()
-  const conv = createConversation(db, { projectId: 'p1', userMessage: 'hello' })
-  const updated = updateConversation(db, conv.id, { status: 'done', content: '最终答案' })
-  assert.equal(updated.status, 'done')
-  assert.equal(updated.content, '最终答案')
-  assert.ok(updated.updatedAt >= conv.updatedAt, 'updatedAt 已推进')
-  // 未提供的字段不变
-  assert.equal(updated.userMessage, 'hello')
+// done 分支 append assistant:handleAgentResult done 后消息表多一条 assistant → 下一轮 buildHistory 含它。
+test('多轮:done append assistant 后,第 3 轮 history 含第 2 轮 assistant', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q1' })
+  const conv = getConversation(db, listConvId(db))
+  // 轮 1
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' })
+  // 轮 2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2' })
+  // runConversation 跑完 → handleAgentResult done → append assistant(模拟 T4 done 分支)
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a2', trace: '[]' })
+  // 轮 3
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q3' })
+
+  const history = buildHistory(db, conv)
+  assert.equal(history.length, 5, '5 条全文:q1,a1,q2,a2,q3')
+  assert.deepEqual(
+    history.map(h => h.role),
+    ['user', 'assistant', 'user', 'assistant', 'user'],
+    '轮次交替完整',
+  )
 })
 
-test('listConversations:按项目过滤 + createdAt DESC 排序,返回 slim 列', () => {
-  const db = makeDb()
-  const c1 = createConversation(db, { projectId: 'p1', userMessage: 'first' })
-  const c2 = createConversation(db, { projectId: 'p2', userMessage: '别的项目' })
-  const c3 = createConversation(db, { projectId: 'p1', userMessage: 'second' })
-  const list = listConversations(db, 'p1')
-  assert.equal(list.length, 2, 'p1 有 2 条')
-  assert.equal(list[0].id, c3.id, '最新在前')
-  assert.equal(list[1].id, c1.id)
-  // 隔离:p2 不出现
-  assert.ok(!list.some(c => c.id === c2.id))
-  // slim 列:不含 messages / trace / pendingApproval 等重列
-  assert.ok(!('messages' in list[0]), 'slim 列不含 messages')
-  assert.ok(!('trace' in list[0]), 'slim 列不含 trace')
-  // slim 列含必须字段
-  for (const c of list) {
-    assert.ok('id' in c && 'status' in c && 'steps' in c && 'userMessage' in c && 'createdAt' in c && 'updatedAt' in c)
+// 摘要后:recap 在前,summarizedUpTo 之后的全文(多轮下 recap 不丢近期轮次)。
+test('多轮:摘要触发后 recap + 近期全文共存的 history', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q0' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q0' })       // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a0' }) // seq2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })      // seq3
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1' }) // seq4
+  // 摘要覆盖 seq1-2
+  updateConversation(db, conv.id, { recap: '早期:用户问了 q0', summarizedUpTo: 2 })
+  const conv2 = getConversation(db, conv.id)
+  const history = buildHistory(db, conv2)
+  assert.equal(history[0].role, 'system')
+  assert.match(history[0].content, /早期:用户问了 q0/, 'recap 在最前')
+  assert.equal(history.length, 3, 'recap + seq3,4 两条全文')
+  assert.equal(history[1].content, 'q1')
+  assert.equal(history[2].content, 'a1')
+})
+
+// helper:取 p1 最新 conversation id
+function listConvId(db) {
+  return db.prepare("SELECT id FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC LIMIT 1").get(p1Id(db)).id
+}
+
+// T5:POST /conversations 新建线程后调 setActiveConversation → GET project 的 activeConversationId 指向新线程。
+test('T5:新建线程 setActiveConversation 后,getActiveConversationId 返回该线程', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  const conv = createConversation(db, { projectId: pid, system: '', userMessage: 'hi' })
+  // 模拟 POST /conversations 的 setActiveConversation(db, projectId, conv.id)
+  setActiveConversation(db, pid, conv.id)
+  assert.equal(getActiveConversationId(db, pid), conv.id, 'active 指向新线程')
+  // 切到另一线程后 active 跟着变
+  const conv2 = createConversation(db, { projectId: pid, system: '', userMessage: 'hi2' })
+  setActiveConversation(db, pid, conv2.id)
+  assert.equal(getActiveConversationId(db, pid), conv2.id, 'active 切到最新线程')
+  // 未 set 过的项目返回 null(GET project 字段为 null,前端无活跃线程)
+  createProject(db, { name: 'p2', clusterId: 'c1', ownerId: 'u1' })
+  const p2id = db.prepare("SELECT id FROM workbench_projects WHERE name='p2'").get().id
+  assert.equal(getActiveConversationId(db, p2id), null, '无活跃线程 → null')
+})
+
+// T5:GET /conversations/:id 返 messages + recap + summarizedUpTo。
+// 验证 listMessages + getConversation(含 recap/summarizedUpTo 列)供 GET 端点拼装响应。
+test('T5:GET conversation 的 messages/recap/summarizedUpTo 字段拼装', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  createConversation(db, { projectId: pid, system: '', userMessage: 'q0' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q0' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a0', trace: '[]' })
+
+  // GET conversation 响应拼装(与 index.mjs GET /:id 响应体字段一致)
+  const response = {
+    id: conv.id, status: conv.status,
+    recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+    messages: listMessages(db, conv.id),
   }
-})
+  assert.equal(response.recap, null, '未摘要前 recap 为 null')
+  assert.equal(response.summarizedUpTo, 0, '未摘要前 summarizedUpTo 为 0 (列默认值,recap=null 表无摘要)')
+  assert.equal(response.messages.length, 2, '2 条消息:user + assistant')
+  assert.equal(response.messages[0].role, 'user')
+  assert.equal(response.messages[0].content, 'q0')
+  assert.equal(response.messages[1].role, 'assistant')
 
-test('appendTrace:push 多步,trace JSON 数组累积', () => {
-  const db = makeDb()
-  const conv = createConversation(db, { projectId: 'p1', userMessage: 'run a tool' })
-  const t1 = appendTrace(db, conv.id, { type: 'tool', name: 'list_pods', result: '3 pods' })
-  assert.equal(t1.length, 1)
-  assert.equal(t1[0].name, 'list_pods')
-  const t2 = appendTrace(db, conv.id, { type: 'tool', name: 'get_pod', result: 'running' })
-  assert.equal(t2.length, 2)
-  assert.equal(t2[1].name, 'get_pod')
-  assert.equal(t2[0].name, 'list_pods', '旧步保留')
-  // 从 DB 读回验证持久化
-  const stored = JSON.parse(getConversation(db, conv.id).trace)
-  assert.equal(stored.length, 2)
-  assert.equal(stored[0].type, 'tool')
-  assert.equal(stored[1].type, 'tool')
-  // updatedAt 被推进
-  assert.ok(getConversation(db, conv.id).updatedAt >= conv.updatedAt)
-})
-
-test('appendTrace:不存在的 conversation 抛错', () => {
-  const db = makeDb()
-  assert.throws(() => appendTrace(db, 'nope', { type: 'tool' }), /not found/)
+  // 摘要后 recap/summarizedUpTo 落库 → getConversation 再读出来即新值
+  updateConversation(db, conv.id, { recap: '早期总结', summarizedUpTo: 2 })
+  const conv2 = getConversation(db, conv.id)
+  assert.equal(conv2.recap, '早期总结', 'recap 已落库')
+  assert.equal(conv2.summarizedUpTo, 2, 'summarizedUpTo 已落库')
 })

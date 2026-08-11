@@ -16,6 +16,7 @@ const props = defineProps({
   projectId: String,
   projectName: String,
   conversationId: { type: String, default: null },
+  activeConversationId: { type: String, default: null },
 })
 const emit = defineEmits(['conversation-created'])
 
@@ -34,6 +35,7 @@ let turnSeq = 0
 const conversationId = ref(null)
 const pollTimer = ref(null)
 const convStatus = ref(null)
+const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
 
 // --- @-mention state ---
 const refs = ref([])
@@ -159,6 +161,7 @@ watch(() => props.conversationId, async (convId) => {
   turns.value = []
   conversationId.value = null
   convStatus.value = null
+  recap.value = ''
   pendingApproval.value = null
   errorBanner.value = ''
   if (convId) {
@@ -175,21 +178,63 @@ function startPolling(id) {
   pollOnce(id)
 }
 
+// 解析消息的 refs 字段(后端存 JSON 字符串)为数组,供 ChatTurn ResourceCard 渲染。
+function parseRefs(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+function tryParseTrace(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+
 async function pollOnce(id) {
   try {
     const conv = await workbenchApi.conversations.get(id)
     convStatus.value = conv.status
-    // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 user+agent turn,
-    // 否则 status 分支里 `if (agentTurn)` 全落空、什么都不渲染。
+    recap.value = conv.recap || ''
+    // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
+    let rebuiltFromMessages = false
     if (!turns.value.length) {
-      if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
-      turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+      if (Array.isArray(conv.messages) && conv.messages.length) {
+        // 多轮渲染(T7):每条 message → 一个 ChatTurn。
+        // 已落库的 assistant 消息都是 done 状态(写入时即终态);
+        // 若对话仍在 running,说明最后一条 user 后 agent 尚未产出 → 末尾补一个 thinking turn。
+        rebuiltFromMessages = true
+        const msgs = conv.messages
+        for (const m of msgs) {
+          if (m.role === 'user') {
+            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs) })
+          } else {
+            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), trace: tryParseTrace(m.trace), steps: 0 })
+          }
+        }
+        // running 且末条非 assistant-thinking:补 thinking turn(如页面刷新续接运行中对话)。
+        const last = turns.value[turns.value.length - 1]
+        if (conv.status === 'running' && !(last && last.role === 'assistant' && last.status === 'thinking')) {
+          turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+        }
+      } else {
+        // 旧单轮数据 fallback(无 messages 数组):user from conv.userMessage + agent thinking。
+        if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
+        turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+      }
     }
-    const agentTurn = turns.value.find(x => x.role === 'assistant')
-    // 更新 trace
-    let trace = []
-    if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
+    // 从 messages 重建时,turns 已是终态(done/failed 不需再改,各 turn 自带 per-message content);
+    // running/paused 需操作末尾的 thinking turn(刚补的)。
+    // 非重建(send/续接路径,turns 由 send() 填充):多轮续接时 turns 已含历史 done assistant,
+    // 必须取最后一个 thinking assistant(running/paused 刚补的占位),否则取首个会把旧 turn 覆盖、
+    // 新 thinking turn 卡死(永久 spinner + 答案重复)。无 thinking 则回退最后一个 assistant。
+    const agentTurn = rebuiltFromMessages
+      ? [...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
+      : ([...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
+        ?? [...turns.value].reverse().find(x => x.role === 'assistant'))
+    // 更新 trace(running/paused 时的 live trace;done+rebuilt 时各 turn 已自带 trace,不覆盖)
     if (agentTurn) {
+      let trace = []
+      if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
       agentTurn.trace = trace
       agentTurn.steps = conv.steps ?? agentTurn.steps
     }
@@ -235,16 +280,26 @@ async function send() {
       payload.references = refs.value.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
       refs.value = []
     }
-    const { id, references } = await workbenchApi.conversations.create(payload)
-    conversationId.value = id
-    convStatus.value = 'running'
-    // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
-    if (Array.isArray(references) && references.length) {
-      const ut = turns.value.find(x => x._id === userId)
-      if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+    // 续接既有对话(append) vs 新建对话(create):
+    // activeConversationId 来自父级(选中的对话)— 有则 POST /messages 续接,不 emit conversation-created;
+    // 无则 POST /conversations 新建并通知父级刷新列表。
+    if (props.activeConversationId) {
+      await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
+      conversationId.value = props.activeConversationId
+      convStatus.value = 'running'
+      startPolling(props.activeConversationId)
+    } else {
+      const { id, references } = await workbenchApi.conversations.create(payload)
+      conversationId.value = id
+      convStatus.value = 'running'
+      // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
+      if (Array.isArray(references) && references.length) {
+        const ut = turns.value.find(x => x._id === userId)
+        if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+      }
+      emit('conversation-created', id)
+      startPolling(id)
     }
-    emit('conversation-created', id)
-    startPolling(id)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
     if (e.status === 503) errorBanner.value = e.message
@@ -297,7 +352,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
+function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null; recap.value = '' }
 </script>
 
 <template>
@@ -324,6 +379,15 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
           </button>
         </div>
       </div>
+
+      <!-- Recap card: earlier conversation summary (collapsible, shown only when conv.recap exists) -->
+      <details v-if="recap" class="mx-md mt-md bg-surface-container-low border border-outline-variant rounded-lg">
+        <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base text-primary/60">summarize</span>
+          {{ t('workbench.chat.recapSummary') }}
+        </summary>
+        <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
+      </details>
 
       <!-- Conversation -->
       <div v-for="turn in turns" :key="turn._id">
