@@ -17,6 +17,8 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
+import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
+import { eventsForResult } from './conv-events.mjs'
 import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
@@ -1080,13 +1082,28 @@ async function handle(req, res) {
     }
   }
 
+  // 对话终态 → bus 事件序列(pending_approval → paused 不 dispose;done → dispose)。T7。
+  function finalizeConvEmit(convId, out) {
+    const { events, dispose } = eventsForResult(out)
+    for (const evt of events) busEmit(convId, evt)
+    if (dispose) busDispose(convId)
+  }
+
   // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
+  // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
   async function runConversation(convId, llmClient) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
       const project = getProject(db, conv.projectId)
-      if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
+      if (!project) {
+        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
+      busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
       const k8sSession = buildK8sSession(project.clusterId)
@@ -1096,22 +1113,35 @@ async function handle(req, res) {
         system: conv.system,
         history: [{ role: 'user', content: conv.userMessage }],
         refreshSystem,
-        onStep: e => appendTrace(db, convId, e),
+        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
       handleAgentResult(convId, project, out)
+      finalizeConvEmit(convId, out)
     } catch (err) {
       updateConversation(db, convId, { status: 'failed', error: err.message })
+      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
+      busEmit(convId, { type: 'end' })
+      busDispose(convId)
     }
   }
 
   // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
+  // T7:全程把事件透到 conv-bus,与 runConversation 对称。
   async function resumeConversation(convId, approved, llmClient) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
       const project = getProject(db, conv.projectId)
-      if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
+      if (!project) {
+        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
+      busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
       const k8sSession = buildK8sSession(project.clusterId)
@@ -1125,11 +1155,16 @@ async function handle(req, res) {
           toolCallId: pending.toolCallId, approved,
         },
         refreshSystem,
-        onStep: e => appendTrace(db, convId, e),
+        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
       handleAgentResult(convId, project, out)
+      finalizeConvEmit(convId, out)
     } catch (err) {
       updateConversation(db, convId, { status: 'failed', error: err.message })
+      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
+      busEmit(convId, { type: 'end' })
+      busDispose(convId)
     }
   }
 
@@ -1177,6 +1212,33 @@ async function handle(req, res) {
       pendingApproval: conv.pendingApproval, trace: conv.trace,
       userMessage: conv.userMessage,
     })
+  }
+
+  // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
+  // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
+  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/stream
+    const conv = getConversation(db, id)
+    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'connection': 'keep-alive',
+      'x-accel-buffering': 'no',
+    })
+    const send = (evt) => { try { res.write('data: ' + JSON.stringify(evt) + '\n\n') } catch { /* 客户端已断 */ } }
+    send({ type: 'hello', convId: id, status: conv.status })
+    if (conv.status === 'done' || conv.status === 'failed') {
+      send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
+      send({ type: 'end' })
+      res.end()
+      return
+    }
+    busSubscribe(id, send)
+    const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
+    req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })
+    return
   }
 
   // GET /api/workbench/conversations?projectId=X — 列表(slim)
