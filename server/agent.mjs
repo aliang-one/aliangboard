@@ -63,7 +63,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   function callId(tc) { if (!tc.id) tc.id = `gen_${idSeq++}`; return tc.id }
   function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return {} } }
 
-  async function run({ system, history = [], onStep, onDelta, resume } = {}) {
+  async function run({ system, history = [], onStep, onDelta, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
     let messages, queue = [], denied = [], steps = 0
     let resumeToolCallId = null, resumeApproved = false
@@ -119,6 +119,10 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       if (messages.length > 1) {
         const t = trimMessages(messages)
         messages = t.messages; truncated = t.truncated
+      }
+      // T5:每轮 chat 前重置 messages[0]——@-ref 漂移修复:让 LLM 每轮看到 ref 的最新状态(由 run/resumeConversation 注入的 refreshSystem 钩子)。
+      if (refreshSystem && messages[0]?.role === 'system') {
+        messages[0] = { role: 'system', content: await refreshSystem() }
       }
       const assistant = await chat(messages, toolDefs, onDelta ? { onDelta } : {})
       messages.push(assistant)

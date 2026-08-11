@@ -205,3 +205,42 @@ test('agent 无 onDelta 时,chat 第三参为 undefined(回退非流式)', async
   await run({ system: 's', history: [{ role: 'user', content: 'x' }] })
   assert.deepEqual(captured, {})
 })
+
+test('agent 每轮 chat 前调 refreshSystem() 重置 messages[0]', async () => {
+  const calls = []
+  const chat = async (messages) => { calls.push(messages[0].content); return calls.length === 1 ? toolCall('c1', 'f', {}) : final('done') }
+  let n = 0
+  const refreshSystem = async () => `sys@${++n}`
+  const run = createAgent({ chat, execTool: async () => 'r' }).run
+  await run({ system: 'sys@0', history: [{ role: 'user', content: 'q' }], refreshSystem })
+  assert.deepEqual(calls, ['sys@1', 'sys@2'])  // 两轮 chat,每轮都刷新
+})
+
+test('agent 无 refreshSystem 时,行为不变(system 保持初值)', async () => {
+  const seen = []
+  const chat = async (messages) => { seen.push(messages[0].content); return seen.length === 1 ? toolCall('c1', 'f', {}) : final('done') }
+  const run = createAgent({ chat, execTool: async () => 'r' }).run
+  await run({ system: 'sys0', history: [{ role: 'user', content: 'q' }] })
+  assert.deepEqual(seen, ['sys0', 'sys0'])
+})
+
+test('agent resume 路径也调 refreshSystem(每轮 chat 前重置)', async () => {
+  const calls = []
+  const chat = async (messages) => { calls.push(messages[0].content); return final('done') }
+  let n = 0
+  const refreshSystem = async () => `r@${++n}`
+  const run = createAgent({ chat, execTool: async () => 'r', needsApproval: () => false }).run
+  // 先跑到一个 checkpoint(resume 入口)
+  const cp = await run({
+    system: 'init',
+    history: [{ role: 'user', content: 'q' }],
+    onStep: () => {},
+  })
+  // 即便 cp 已经是终答,我们这里直接构造 resume 场景:messages 含 system[0]
+  calls.length = 0
+  await run({
+    resume: { messages: [{ role: 'system', content: 'init' }, { role: 'user', content: 'q' }], queue: [], denied: [], steps: 1 },
+    refreshSystem,
+  })
+  assert.deepEqual(calls, ['r@1'])
+})

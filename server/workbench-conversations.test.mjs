@@ -93,3 +93,25 @@ test('appendTrace:不存在的 conversation 抛错', () => {
   const db = makeDb()
   assert.throws(() => appendTrace(db, 'nope', { type: 'tool' }), /not found/)
 })
+
+test('createConversation 落库 references(JSON)', () => {
+  const db = makeDb()
+  const refs = [{ kind: 'pods', namespace: 'default', name: 'nginx' }]
+  const conv = createConversation(db, { projectId: 'p1', system: 's', userMessage: 'hi', references: refs })
+  const row = getConversation(db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), refs)
+})
+
+test('createConversation 不传 references 默认空数组', () => {
+  const db = makeDb()
+  const conv = createConversation(db, { projectId: 'p1', userMessage: 'hi' })
+  const row = getConversation(db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), [])
+})
+
+test('createConversation 传 undefined references 默认空数组', () => {
+  const db = makeDb()
+  const conv = createConversation(db, { projectId: 'p1', userMessage: 'hi', references: undefined })
+  const row = getConversation(db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), [])
+})

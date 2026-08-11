@@ -814,6 +814,44 @@ function listForwards(sessionId) {
   return [...forwards.values()].filter(f => f.sessionId === sessionId).map(({ server, pf, sessionId, ...rest }) => rest)
 }
 
+// ====== T5: @-ref 漂移修复——提取的 helpers(KIND_API_PATH / withTimeout / fetchRefContext / buildK8sSession)======
+// 原 POST 端点内联;现抽取为模块级,run/resumeConversation 也用它每轮刷新 ref context。
+const KIND_API_PATH = {
+  pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
+  services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
+  configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
+  secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
+  deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+  statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+  daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+  namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+}
+function withTimeout(p, ms, label) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
+}
+// 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
+async function fetchRefContext(references, k8sSession) {
+  if (!Array.isArray(references) || !references.length || !k8sSession) return ''
+  const tasks = references.map(async ref => {
+    const pathFn = KIND_API_PATH[ref.kind]
+    const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+    if (!pathFn) return `${label}: (不支持的 kind)`
+    try {
+      const res = await withTimeout(requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name)), 5000, `ref ${ref.kind}/${ref.name}`)
+      return `${label}:\n${JSON.stringify(res.body, null, 2)}`
+    } catch { return `${label}: (not found / 已删除)` }
+  })
+  const blocks = await Promise.all(tasks)
+  return `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
+}
+// 从 clusterId 重建 k8sSession(POST 端点 + run/resumeConversation 共用,避免 6 字段重复)
+function buildK8sSession(clusterId) {
+  const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+  if (!cluster) return null
+  return { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+}
+
 async function handle(req, res) {
   if (req.method === 'OPTIONS') return sendJson(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
@@ -1044,7 +1082,7 @@ async function handle(req, res) {
     }
   }
 
-  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)
+  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
   async function runConversation(convId, llmClient) {
     try {
       const conv = getConversation(db, convId)
@@ -1053,9 +1091,13 @@ async function handle(req, res) {
       if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const k8sSession = buildK8sSession(project.clusterId)
+      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const out = await run({
         system: conv.system,
         history: [{ role: 'user', content: conv.userMessage }],
+        refreshSystem,
         onStep: e => appendTrace(db, convId, e),
       })
       handleAgentResult(convId, project, out)
@@ -1064,7 +1106,7 @@ async function handle(req, res) {
     }
   }
 
-  // resume from paused
+  // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
   async function resumeConversation(convId, approved, llmClient) {
     try {
       const conv = getConversation(db, convId)
@@ -1074,6 +1116,9 @@ async function handle(req, res) {
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const k8sSession = buildK8sSession(project.clusterId)
+      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const pending = JSON.parse(conv.pendingApproval)
       const out = await run({
         resume: {
@@ -1081,6 +1126,7 @@ async function handle(req, res) {
           denied: JSON.parse(conv.denied), steps: conv.steps,
           toolCallId: pending.toolCallId, approved,
         },
+        refreshSystem,
         onStep: e => appendTrace(db, convId, e),
       })
       handleAgentResult(convId, project, out)
@@ -1101,43 +1147,22 @@ async function handle(req, res) {
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
-      // @-mention references 注入(复用 agent chat projectId 分支逻辑)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
-      const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
+      // @-mention references:首屏给前端 fetch 一次 ResourceCard;system 只存工作台 prompt 原文(不含 refContext——
+      // 每轮 chat 前由 run/resumeConversation 内部 refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5。
+      const k8sSession = buildK8sSession(project.clusterId)
       const fetchedResources = []
-      let refContext = ''
       if (Array.isArray(input.references) && input.references.length && k8sSession) {
-        const KIND_API_PATH = {
-          pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-          services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-          configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-          secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-          deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-          statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-          daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-          ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-          namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-        }
-        const blocks = []
         for (const ref of input.references) {
           const pathFn = KIND_API_PATH[ref.kind]
-          const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-          if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
-          try {
-            const res2 = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-            fetchedResources.push(res2.body) // requestKubernetes 返回 {status,headers,body};资源在 body → 前端 ResourceCard
-            blocks.push(`${label}:\n${JSON.stringify(res2.body, null, 2)}`)
-          } catch (e) {
-            blocks.push(`${label}: (not found)`)
-          }
+          if (!pathFn) continue
+          try { const r = await withTimeout(requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name)), 5000, `ref ${ref.kind}/${ref.name}`); fetchedResources.push(r.body) } catch { /* not found,前端不显示 */ }
         }
-        refContext = `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
       }
 
-      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
+      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
 
-      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message) })
-      runConversation(conv.id, llmClient) // detached — 不 await
+      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
+      runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
       return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
   }

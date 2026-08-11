@@ -47,16 +47,19 @@ export function createConversationsSchema(db) {
     updatedAt INTEGER NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_conversations_proj ON workbench_conversations(projectId, createdAt)`)
+  // T5:@-ref 落库(每轮 chat 前刷新用)。幂等:旧库已存在该表无此列时补;新库直接建表后 noop。
+  // 「references」是 SQLite 保留字,引用时必须双引号。
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN "references" TEXT') } catch { /* 列已存在 */ }
 }
 
-export function createConversation(db, { projectId, system, userMessage }) {
+export function createConversation(db, { projectId, system, userMessage, references }) {
   if (!projectId || !userMessage) throw new Error('createConversation 缺 projectId / userMessage')
   const id = randomUUID()
   const ts = Date.now()
   db.prepare(`INSERT INTO workbench_conversations
-    (id,projectId,status,system,userMessage,steps,trace,createdAt,updatedAt)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, projectId, 'running', system ?? '', userMessage, 0, '[]', ts, ts)
+    (id,projectId,status,system,userMessage,"references",steps,trace,createdAt,updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, projectId, 'running', system ?? '', userMessage, JSON.stringify(references || []), 0, '[]', ts, ts)
   return getConversation(db, id)
 }
 
