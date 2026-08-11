@@ -20,6 +20,7 @@ import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, 
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
+import { formatBytes } from '../src/utils/bytes.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -792,6 +793,24 @@ test('reconcile: 容错非法 overrides', () => {
 test('STORAGE_KEY 为 v2', () => {
   assert.equal(STORAGE_KEY, 'aliangboard.tableColumns.v2')
   assert.equal(STORAGE_KEY_V1, 'aliangboard.tableColumns.v1')
+})
+
+// --- PVC 用量:字节数格式化 ---
+test('formatBytes: 边界与二进制单位', () => {
+  assert.equal(formatBytes(0), '0 B')
+  assert.equal(formatBytes(512), '512 B')
+  assert.equal(formatBytes(1023), '1023 B')
+  assert.equal(formatBytes(2048), '2 Ki')
+  assert.equal(formatBytes(3221225472), '3.0 Gi')          // 3 GiB
+  assert.equal(formatBytes(10737418240), '10 Gi')          // 10 GiB
+  assert.equal(formatBytes(1649267441664), '1.5 Ti')       // 1.5 TiB
+})
+
+test('formatBytes: 非法/空值 → 占位', () => {
+  assert.equal(formatBytes(null), '—')
+  assert.equal(formatBytes(undefined), '—')
+  assert.equal(formatBytes(NaN), '—')
+  assert.equal(formatBytes(-1), '—')
 })
 
 // --- 汇总 ---
