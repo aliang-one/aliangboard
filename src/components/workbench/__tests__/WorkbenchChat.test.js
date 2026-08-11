@@ -32,7 +32,7 @@ import WorkbenchChat from '../WorkbenchChat.vue'
 const i18n = createI18n({
   legacy: false,
   locale: 'zh',
-  messages: { zh: { workbench: { chat: { userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要' } } } },
+  messages: { zh: { workbench: { chat: { userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)' } } } },
 })
 
 async function mountChat(props = {}) {
@@ -91,4 +91,47 @@ test('recap card renders when conv.recap is truthy', async () => {
   await flushPromises()
   await flushPromises()
   expect(w.html()).toContain('Earlier we discussed nginx config.')
+})
+
+test('multi-turn: conv.messages renders multiple ChatTurns', async () => {
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-multi',
+    status: 'done',
+    trace: '[]',
+    steps: 2,
+    recap: '',
+    messages: [
+      { role: 'user', content: 'what is nginx?', refs: null, trace: null },
+      { role: 'assistant', content: 'nginx is a web server', refs: null, trace: '[{"tool":"search","args":{}}]' },
+      { role: 'user', content: 'how to install?', refs: null, trace: null },
+      { role: 'assistant', content: 'apt-get install nginx', refs: null, trace: null },
+    ],
+  })
+  const w = await mountChat({ conversationId: 'conv-multi' })
+  await flushPromises()
+  await flushPromises()
+  const html = w.html()
+  // Each message renders its content somewhere in the turns
+  expect(html).toContain('what is nginx?')
+  expect(html).toContain('nginx is a web server')
+  expect(html).toContain('how to install?')
+  expect(html).toContain('apt-get install nginx')
+})
+
+test('multi-turn: empty messages falls back to single-turn from userMessage', async () => {
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-old',
+    status: 'done',
+    content: 'legacy answer',
+    trace: '[]',
+    steps: 0,
+    userMessage: 'legacy question',
+    messages: [],
+  })
+  const w = await mountChat({ conversationId: 'conv-old' })
+  await flushPromises()
+  await flushPromises()
+  const html = w.html()
+  expect(html).toContain('legacy question')
+  expect(html).toContain('legacy answer')
 })

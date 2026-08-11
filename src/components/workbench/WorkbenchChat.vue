@@ -178,22 +178,59 @@ function startPolling(id) {
   pollOnce(id)
 }
 
+// 解析消息的 refs 字段(后端存 JSON 字符串)为数组,供 ChatTurn ResourceCard 渲染。
+function parseRefs(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+function tryParseTrace(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+
 async function pollOnce(id) {
   try {
     const conv = await workbenchApi.conversations.get(id)
     convStatus.value = conv.status
     recap.value = conv.recap || ''
-    // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 user+agent turn,
-    // 否则 status 分支里 `if (agentTurn)` 全落空、什么都不渲染。
+    // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
+    let rebuiltFromMessages = false
     if (!turns.value.length) {
-      if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
-      turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+      if (Array.isArray(conv.messages) && conv.messages.length) {
+        // 多轮渲染(T7):每条 message → 一个 ChatTurn。
+        // 已落库的 assistant 消息都是 done 状态(写入时即终态);
+        // 若对话仍在 running,说明最后一条 user 后 agent 尚未产出 → 末尾补一个 thinking turn。
+        rebuiltFromMessages = true
+        const msgs = conv.messages
+        for (const m of msgs) {
+          if (m.role === 'user') {
+            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs) })
+          } else {
+            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), trace: tryParseTrace(m.trace), steps: 0 })
+          }
+        }
+        // running 且末条非 assistant-thinking:补 thinking turn(如页面刷新续接运行中对话)。
+        const last = turns.value[turns.value.length - 1]
+        if (conv.status === 'running' && !(last && last.role === 'assistant' && last.status === 'thinking')) {
+          turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+        }
+      } else {
+        // 旧单轮数据 fallback(无 messages 数组):user from conv.userMessage + agent thinking。
+        if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
+        turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+      }
     }
-    const agentTurn = turns.value.find(x => x.role === 'assistant')
-    // 更新 trace
-    let trace = []
-    if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
+    // 从 messages 重建时,turns 已是终态(done/failed 不需再改);
+    // running/paused 需操作末尾的 thinking turn(刚补的)。否则取首个 assistant(单轮 fallback)。
+    const agentTurn = rebuiltFromMessages
+      ? [...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
+      : turns.value.find(x => x.role === 'assistant')
+    // 更新 trace(running/paused 时的 live trace;done+rebuilt 时各 turn 已自带 trace,不覆盖)
     if (agentTurn) {
+      let trace = []
+      if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
       agentTurn.trace = trace
       agentTurn.steps = conv.steps ?? agentTurn.steps
     }
