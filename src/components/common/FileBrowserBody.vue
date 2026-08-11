@@ -36,7 +36,8 @@ async function toggleNode(path) {
     const s = new Set(expanded.value); s.delete(path); expanded.value = s; return
   }
   if (!files.dirCache.value.has(k(path))) {
-    try { await files.listDir(ctx.value, path) } catch {}
+    try { await files.listDir(ctx.value, path) }
+    catch (e) { notify('error', e.message || t('component.fileBrowser.readDirFailed')); return }  // 失败不展开，让用户可重试
   }
   const s = new Set(expanded.value); s.add(path); expanded.value = s
 }
@@ -71,9 +72,9 @@ async function refresh() {
 }
 
 onMounted(() => { if (props.namespace && props.pod) files.listDir(ctx.value, '/').catch(() => {}) })
-// 换容器：清该容器缓存 + 重置选中/展开 + 重拉根
-watch(() => props.container, (c) => {
-  files.resetForContainer(c)
+// 换容器：清「离开的」容器缓存 + 重置选中/展开 + 重拉根
+watch(() => props.container, (next, prev) => {
+  if (prev) files.resetForContainer(prev)   // 清理「离开的」容器缓存（用旧值）
   selected.value = null; selectedIsDir.value = false; expanded.value = new Set()
   if (props.namespace && props.pod) files.listDir(ctx.value, '/').catch(() => {})
 })

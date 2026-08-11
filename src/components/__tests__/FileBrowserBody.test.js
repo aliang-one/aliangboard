@@ -85,8 +85,15 @@ test('FileBrowserBody: 切换 container 触发 reset + 以新容器重拉根', a
   await w.setProps({ container: 'c2' })
   await flushPromises()
 
-  // watch(container) 触发 resetForContainer + 重拉根(新容器 c2)
+  // watch(container) 触发 resetForContainer(旧容器 c) + 重拉根(新容器 c2)
   expect(podFileApi.list).toHaveBeenCalledWith(expect.objectContaining({ container: 'c2', path: '/' }))
+
+  // 切回 c：若 reset 清的是旧容器(正确)，c 的缓存已被清，应再次 list '/'；否则缓存命中不 list（回归 guard）
+  const callsBeforeReturn = podFileApi.list.mock.calls.length
+  await w.setProps({ container: 'c' })
+  await flushPromises()
+  expect(podFileApi.list.mock.calls.length).toBeGreaterThan(callsBeforeReturn) // c 缓存已清→重拉
+  expect(podFileApi.list).toHaveBeenCalledWith(expect.objectContaining({ container: 'c', path: '/' }))
 })
 
 test('FileBrowserBody: onUpload 写入选中文件夹并强制刷新该目录', async () => {
