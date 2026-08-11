@@ -37,7 +37,10 @@ export function createLlmClient({ baseURL, apiKey, model, timeoutMs = 60000, fet
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 200)}`)
+      // 镜像 chat 的解析:优先提取 json.error.message,而非 raw body。
+      let msg = text.slice(0, 200)
+      try { const j = JSON.parse(text); msg = j.error?.message || j.message || msg } catch {}
+      throw new Error(`LLM HTTP ${res.status}: ${msg}`)
     }
     if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
     const reader = res.body.getReader()
@@ -58,7 +61,7 @@ export function createLlmClient({ baseURL, apiKey, model, timeoutMs = 60000, fet
         const line = raw.trim()
         if (!line.startsWith('data:')) continue
         const payload = line.slice(5).trim()
-        if (payload === '[DONE]') { reader.cancel?.(); return finalize() }
+        if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
         let obj; try { obj = JSON.parse(payload) } catch { continue }
         const delta = obj.choices?.[0]?.delta
         if (!delta) continue

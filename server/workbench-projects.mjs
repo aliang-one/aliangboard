@@ -71,7 +71,8 @@ export function updateConversation(db, id, patch) {
   if (!id) throw new Error('updateConversation 缺 id')
   const cols = Object.keys(patch)
   if (cols.length === 0) return getConversation(db, id)
-  const setClause = cols.map(k => `${k}=?`).join(', ')
+  // 列名双引号:「references」等 SQLite 保留字裸插值会 syntax error;双引号对保留/非保留字都安全。
+  const setClause = cols.map(k => `"${k}"=?`).join(', ')
   // node:sqlite 拒绝 undefined/对象/数组 → 强制成可绑定类型(undefined→null,对象→JSON)。
   // 否则 out.content 等为 undefined 时 "Provided value cannot be bound to SQLite parameter N"。
   const vals = cols.map(k => {

@@ -92,3 +92,12 @@ test('chatStream: HTTP 错误抛', async () => {
   const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: async () => ({ ok: false, status: 500, text: async () => 'boom' }) })
   await assert.rejects(() => c.chatStream({ messages: [] }), /LLM HTTP 500/)
 })
+
+// I2 回归:chatStream HTTP 错误须像 chat 一样提取 json.error.message,而非抛 raw body。
+test('chatStream: HTTP 错误提取 json.error.message(非 raw body)', async () => {
+  const c = createLlmClient({
+    baseURL: 'http://x/v1', model: 'm',
+    fetch: async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: { message: 'Incorrect API key' } }) }),
+  })
+  await assert.rejects(() => c.chatStream({ messages: [] }), /Incorrect API key/)
+})

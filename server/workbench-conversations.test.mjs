@@ -115,3 +115,14 @@ test('createConversation 传 undefined references 默认空数组', () => {
   const row = getConversation(db, conv.id)
   assert.deepEqual(JSON.parse(row.references), [])
 })
+
+// I1 回归:updateConversation 的 SET 子句必须对列名双引号,否则「references」(SQLite 保留字) 裸插值会 syntax error。
+test('updateConversation: patch references(保留字)不抛 + 值落库', () => {
+  const db = makeDb()
+  const conv = createConversation(db, { projectId: 'p1', userMessage: 'hi' })
+  const refs = [{ kind: 'pods', namespace: 'default', name: 'nginx' }]
+  const updated = updateConversation(db, conv.id, { references: refs })
+  assert.equal(updated.status, 'running', '其他字段不受影响')
+  const row = getConversation(db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), refs, 'references 落库可读回')
+})
