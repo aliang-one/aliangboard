@@ -25,7 +25,7 @@ import { reconcileProject } from './reconcile.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -498,6 +498,27 @@ const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
 
 // idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt }
 const idleTracker = new Map()
+
+// 空闲回收：超过 IDLE_TTL 未活动的 tmux 会话 best-effort 杀掉并删行。
+// 已知限制：计时在 gateway 内存,重启后已空闲的会话需等下次 attach-再离开才计时,或等 pod 重启。
+const IDLE_TTL_MS = Number(process.env.IDLE_TTL_MS || 30 * 60 * 1000)
+const idleSweeper = setInterval(() => {
+  ;(async () => {
+    const now = Date.now()
+    for (const name of pickStaleSids(now, idleTracker, IDLE_TTL_MS)) {
+      const meta = idleTracker.get(name)
+      idleTracker.delete(name)
+      if (!meta) continue
+      const session = sessions.get(meta.token)
+      if (session) {
+        try { await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name)) }
+        catch { /* pod 不在 / token 已过期 —— 忽略 */ }
+      }
+      try { db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(meta.terminalId, meta.token) } catch { /* noop */ }
+    }
+  })()
+}, 60 * 1000)
+idleSweeper.unref()
 
 async function isTmuxAvailable(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
