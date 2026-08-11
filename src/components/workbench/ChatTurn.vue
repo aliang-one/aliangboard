@@ -4,6 +4,7 @@ import { ref, onMounted, onUpdated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { renderMarkdown } from '@/logic/markdown'
 import ToolTrace from './ToolTrace.vue'
+import ResourceCard from '@/components/common/ResourceCard.vue'
 
 const props = defineProps({ turn: { type: Object, required: true } })
 const { t } = useI18n()
@@ -48,8 +49,11 @@ onUpdated(() => nextTick(highlight))
 
     <!-- USER -->
     <div v-if="turn.role === 'user'">
-      <div v-if="turn.refs && turn.refs.length" class="flex flex-wrap gap-xs mb-xs">
-        <span v-for="(r, i) in turn.refs" :key="i" class="text-body-xs font-mono text-primary bg-primary/10 border border-primary/20 rounded px-xs py-0.5">@{{ r.kind }}:{{ r.name }}</span>
+      <div v-if="turn.refs && turn.refs.length" class="flex flex-col gap-xs mb-xs">
+        <template v-for="(r, i) in turn.refs" :key="i">
+          <ResourceCard v-if="r.resource" :resource="r.resource" />
+          <span v-else class="text-body-xs font-mono text-primary bg-primary/10 border border-primary/20 rounded px-xs py-0.5 self-start">@{{ r.kind }}:{{ r.name }}</span>
+        </template>
       </div>
       <p class="text-body-sm whitespace-pre-wrap break-words leading-relaxed">{{ turn.content }}</p>
     </div>

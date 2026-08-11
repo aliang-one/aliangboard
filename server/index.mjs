@@ -1104,7 +1104,8 @@ async function handle(req, res) {
       // @-mention references 注入(复用 agent chat projectId 分支逻辑)
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
       const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
-      let messageContent = String(input.message)
+      const fetchedResources = []
+      let refContext = ''
       if (Array.isArray(input.references) && input.references.length && k8sSession) {
         const KIND_API_PATH = {
           pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
@@ -1124,19 +1125,20 @@ async function handle(req, res) {
           if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
           try {
             const res2 = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-            blocks.push(`${label}:\n${JSON.stringify(res2, null, 2)}`)
+            fetchedResources.push(res2.body) // requestKubernetes 返回 {status,headers,body};资源在 body → 前端 ResourceCard
+            blocks.push(`${label}:\n${JSON.stringify(res2.body, null, 2)}`)
           } catch (e) {
             blocks.push(`${label}: (not found)`)
           }
         }
-        messageContent = `Referenced resources:\n${blocks.join('\n\n')}\n\n${messageContent}`
+        refContext = `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
       }
 
-      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
 
-      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: messageContent })
+      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message) })
       runConversation(conv.id, llmClient) // detached — 不 await
-      return sendJson(res, 200, { id: conv.id, status: 'running' })
+      return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
   }
 

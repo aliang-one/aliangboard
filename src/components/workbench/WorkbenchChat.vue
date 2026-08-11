@@ -41,6 +41,8 @@ const searchResults = ref([])
 const searching = ref(false)
 const searchOpen = ref(false)
 const kindHints = ref([])  // @ 后无 : → kind 补全
+const activeIndex = ref(-1)  // @-mention 下拉键盘选中索引(-1=无)
+const mentionItems = computed(() => kindHints.value.length ? kindHints.value : searchResults.value)
 const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets', sts:'statefulsets', statefulset:'statefulsets', ds:'daemonsets', daemonset:'daemonsets' }
 const KIND_LABELS = { pod:'Pod', pods:'Pod', deploy:'Deployment', deployment:'Deployment', svc:'Service', service:'Service', cm:'ConfigMap', configmap:'ConfigMap', ns:'Namespace', namespace:'Namespace', ingress:'Ingress', secret:'Secret', sts:'StatefulSet', statefulset:'StatefulSet', ds:'DaemonSet', daemonset:'DaemonSet' }
 // @-syntax: @ → kind hints; @pod: → resources; @pod:ns/ → ns-scoped resources; @pod:ns/name → filtered
@@ -48,7 +50,7 @@ const MENTION_RE = /@(\w*):([^@\s]*)$/
 const AT_RE = /@(\w*)$/
 
 let debounceTimer = null
-function clearSearch() { searchOpen.value = false; searchResults.value = []; kindHints.value = [] }
+function clearSearch() { searchOpen.value = false; searchResults.value = []; kindHints.value = []; activeIndex.value = -1 }
 
 async function doSearch(kind, q, ns) {
   searching.value = true
@@ -58,6 +60,7 @@ async function doSearch(kind, q, ns) {
     let items = (data && data.items) || []
     if (ns) items = items.filter(it => it.namespace === ns)
     searchResults.value = items
+    activeIndex.value = items.length ? 0 : -1
   } catch { searchResults.value = [] }
   finally { searching.value = false }
 }
@@ -91,6 +94,7 @@ watch(input, (val) => {
         .map(([k, label]) => ({ alias: k, label }))
       searchOpen.value = kindHints.value.length > 0
       searchResults.value = []
+      activeIndex.value = kindHints.value.length ? 0 : -1
     } else {
       clearSearch()
     }
@@ -231,9 +235,14 @@ async function send() {
       payload.references = refs.value.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
       refs.value = []
     }
-    const { id } = await workbenchApi.conversations.create(payload)
+    const { id, references } = await workbenchApi.conversations.create(payload)
     conversationId.value = id
     convStatus.value = 'running'
+    // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
+    if (Array.isArray(references) && references.length) {
+      const ut = turns.value.find(x => x._id === userId)
+      if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+    }
     emit('conversation-created', id)
     startPolling(id)
   } catch (e) {
@@ -262,7 +271,22 @@ async function decideApproval(approved) {
   }
 }
 
-function onKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }
+function onKeydown(e) {
+  // @-mention 下拉打开时:↑↓ 移动选中,Enter/Tab 选中项,Esc 关闭
+  if (searchOpen.value && mentionItems.value.length) {
+    const n = mentionItems.value.length
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex.value = (activeIndex.value + 1) % n; return }
+    if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex.value = (activeIndex.value - 1 + n) % n; return }
+    if ((e.key === 'Enter' || e.key === 'Tab') && activeIndex.value >= 0) {
+      e.preventDefault()
+      const item = mentionItems.value[activeIndex.value]
+      if (kindHints.value.length) selectKind(item.alias); else selectRef(item)
+      return
+    }
+    if (e.key === 'Escape') { e.preventDefault(); clearSearch(); return }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+}
 function autoGrow(e) {
   const ta = e.target
   ta.style.height = 'auto'
@@ -332,7 +356,8 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
         <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-30">
           <template v-if="kindHints.length">
             <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant">{{ t('workbench.chat.atMentionHint') }}</div>
-            <button v-for="h in kindHints" :key="h.alias" @mousedown.prevent="selectKind(h.alias)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
+            <button v-for="(h, i) in kindHints" :key="h.alias" @mousedown.prevent="selectKind(h.alias)" class="w-full flex items-center gap-sm text-left px-md py-sm transition-colors"
+              :class="i === activeIndex ? 'bg-primary/10' : 'hover:bg-primary/5'">
               <span class="material-symbols-outlined text-base text-primary">{{ refIcon(h.alias) }}</span>
               <span class="text-body-sm font-semibold text-on-surface">{{ h.label }}</span>
               <span class="text-body-xs text-on-surface-variant font-mono ml-auto">@{{ h.alias }}:</span>
@@ -343,7 +368,8 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
               <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> {{ t('workbench.chat.atMentionSearching') }}
             </div>
             <div v-else-if="!searchResults.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.atMentionNoResults') }}</div>
-            <button v-for="(item, i) in searchResults" :key="i" @mousedown.prevent="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm hover:bg-primary/5 transition-colors">
+            <button v-for="(item, i) in searchResults" :key="i" @mousedown.prevent="selectRef(item)" class="w-full flex items-center gap-sm text-left px-md py-sm transition-colors"
+              :class="i === activeIndex ? 'bg-primary/10' : 'hover:bg-primary/5'">
               <span class="material-symbols-outlined text-base text-primary">{{ refIcon(item.kind) }}</span>
               <div class="flex flex-col">
                 <span class="text-body-sm font-mono font-semibold text-on-surface">{{ item.name }}</span>
