@@ -2949,7 +2949,11 @@
     "manualNeededHint": "No available shell auto-detected. Please manually select or enter a startup command:",
     "manualCmdPlaceholder": "Custom command (e.g. /bin/bash, python)",
     "connectWithCmd": "Connect",
-    "execConnectError": "exec connection error (ensure the cluster is connected, the container is ready, and a shell exists in the image)"
+    "execConnectError": "exec connection error (ensure the cluster is connected, the container is ready, and a shell exists in the image)",
+    "persistentBadge": "Persists",
+    "persistentHint": "Backed by tmux — commands survive refresh / reconnect",
+    "ephemeralBadge": "Lost on refresh",
+    "ephemeralHint": "Image has no tmux — this terminal won't survive refresh"
   },
   "storageclass": {
     "editModalTitle": "Edit StorageClass (mutable fields only)",

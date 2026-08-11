@@ -2949,7 +2949,11 @@
     "manualNeededHint": "未自动检测到可用 shell，请手动选择或输入启动命令：",
     "manualCmdPlaceholder": "自定义命令（如 /bin/bash、python）",
     "connectWithCmd": "用此连接",
-    "execConnectError": "exec 连接异常（请确认已连接集群、容器已就绪且镜像内存在 shell）"
+    "execConnectError": "exec 连接异常（请确认已连接集群、容器已就绪且镜像内存在 shell）",
+    "persistentBadge": "会保留",
+    "persistentHint": "此终端由 tmux 承载,刷新浏览器/断线后命令继续运行",
+    "ephemeralBadge": "刷新不保留",
+    "ephemeralHint": "该镜像内无 tmux,终端不会在刷新后保留"
   },
   "storageclass": {
     "editModalTitle": "编辑 StorageClass（仅可变字段）",
