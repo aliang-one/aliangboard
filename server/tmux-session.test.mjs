@@ -4,6 +4,7 @@ import {
   hashToken, tmuxLabel, tmuxSessionName, probeKey,
   tmuxProbeCommand, isTmuxPresent, tmuxKillCommand, tmuxAttachCommand,
   planExec, pickStaleSids,
+  tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture,
 } from './tmux-session.mjs'
 
 test('hashToken: first 8 hex of sha256, stable', () => {
@@ -85,4 +86,24 @@ test('pickStaleSids: returns names whose lastActiveAt older than ttl', () => {
   ])
   assert.deepEqual(pickStaleSids(now, tracker, 5_000), ['ab1-termB'])
   assert.deepEqual(pickStaleSids(now, new Map(), 5_000), [])
+})
+
+test('tmuxCaptureCommand: capture-pane -e -p -S -lines -t name (depth floored at 1)', () => {
+  assert.deepEqual(tmuxCaptureCommand('abDEADBEEF', 'abDEADBEEF-t1', 2000),
+    ['tmux', '-L', 'abDEADBEEF', 'capture-pane', '-e', '-p', '-S', '-2000', '-t', 'abDEADBEEF-t1'])
+  assert.equal(tmuxCaptureCommand('L', 'N', 0)[7], '-1', 'lines floored to 1 → -S -1')
+})
+
+test('tmuxAttachOnlyCommand: attach-session -t name (no -A, no new-session)', () => {
+  assert.deepEqual(tmuxAttachOnlyCommand('abDEADBEEF', 'abDEADBEEF-t1'),
+    ['tmux', '-L', 'abDEADBEEF', 'attach-session', '-t', 'abDEADBEEF-t1'])
+})
+
+test('hasHistoryFromCapture: true iff stdout is a non-empty trimmed Buffer', () => {
+  assert.equal(hasHistoryFromCapture({ stdout: Buffer.from('Serving HTTP on 0.0.0.0 port 8080\n') }), true)
+  assert.equal(hasHistoryFromCapture({ stdout: Buffer.from('  \n \t ') }), false)
+  assert.equal(hasHistoryFromCapture({ stdout: Buffer.alloc(0) }), false)
+  assert.equal(hasHistoryFromCapture({ stdout: 'not-a-buffer' }), false, 'non-Buffer stdout → false')
+  assert.equal(hasHistoryFromCapture({}), false)
+  assert.equal(hasHistoryFromCapture(null), false)
 })
