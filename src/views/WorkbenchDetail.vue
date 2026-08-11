@@ -195,7 +195,7 @@ function addFile() {
           :project-name="project?.name"
           :conversation-id="activeConversationId"
           :active-conversation-id="activeConversationId"
-          @conversation-created="loadConversations"
+          @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
         />
       </div>
     </div>
