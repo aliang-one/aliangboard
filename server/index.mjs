@@ -25,7 +25,7 @@ import { reconcileProject } from './reconcile.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -1700,7 +1700,16 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true })
       }
       if (req.method === 'DELETE') {
+        // 取行（含 ns/pod/container）以便 best-effort 杀掉 pod 内的 tmux 会话
+        const row = db.prepare('SELECT namespace, podName, container FROM terminals WHERE id = ? AND sessionToken = ?').get(id, token)
         db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(id, token)
+        idleTracker.delete(tmuxSessionName(token, id))
+        if (row) {
+          try {
+            await execCapture(session, row.namespace, row.podName, row.container || '',
+              tmuxKillCommand(tmuxLabel(token), tmuxSessionName(token, id)))
+          } catch { /* pod 已不在 / 无 tmux —— 忽略 */ }
+        }
         return sendJson(res, 200, { ok: true })
       }
       return sendJson(res, 405, { message: 'Method not allowed' })
