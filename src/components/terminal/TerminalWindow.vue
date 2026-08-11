@@ -105,7 +105,7 @@ const winStyle = computed(() => isMax.value
     </div>
     <!-- 终端体 -->
     <div class="flex-1 min-h-0 p-0">
-      <InteractiveTerminal ref="termRef" :pod-name="terminal.podName" :namespace="terminal.namespace" :container="terminal.container" :auto-connect="true" />
+      <InteractiveTerminal ref="termRef" :pod-name="terminal.podName" :namespace="terminal.namespace" :container="terminal.container" :session-id="terminal.id" :auto-connect="true" />
     </div>
   </div>
 </template>
