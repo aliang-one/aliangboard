@@ -23,5 +23,61 @@ export function createLlmClient({ baseURL, apiKey, model, timeoutMs = 60000, fet
     if (!msg) throw new Error('LLM 响应缺 choices[0].message')
     return msg
   }
-  return { chat, model, endpoint }
+
+  // chatStream:流式版 chat。逐 chunk 解 OpenAI 兼容 SSE;content 累积并回调 onDelta;
+  // tool_calls 按 index 合并分片。返回结构与 chat 一致。
+  async function chatStream({ messages, tools, toolChoice } = {}, { onDelta } = {}) {
+    const body = { model, messages, stream: true }
+    if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      // 镜像 chat 的解析:优先提取 json.error.message,而非 raw body。
+      let msg = text.slice(0, 200)
+      try { const j = JSON.parse(text); msg = j.error?.message || j.message || msg } catch {}
+      throw new Error(`LLM HTTP ${res.status}: ${msg}`)
+    }
+    if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = '', content = '', toolCallsMap = {}
+    const finalize = () => {
+      const tool_calls = Object.keys(toolCallsMap).sort((a, b) => a - b)
+        .map(k => toolCallsMap[k]).filter(t => t.function.name || t.function.arguments)
+      return { role: 'assistant', content, ...(tool_calls.length ? { tool_calls } : {}) }
+    }
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, idx); buf = buf.slice(idx + 2)
+        const line = raw.trim()
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
+        let obj; try { obj = JSON.parse(payload) } catch { continue }
+        const delta = obj.choices?.[0]?.delta
+        if (!delta) continue
+        if (delta.content) { content += delta.content; onDelta?.(delta.content) }
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const i = tc.index ?? 0
+            if (!toolCallsMap[i]) toolCallsMap[i] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } }
+            if (tc.id) toolCallsMap[i].id = tc.id
+            if (tc.function?.name) toolCallsMap[i].function.name += tc.function.name
+            if (tc.function?.arguments) toolCallsMap[i].function.arguments += tc.function.arguments
+          }
+        }
+      }
+    }
+    return finalize()
+  }
+  return { chat, chatStream, model, endpoint }
 }

@@ -26,7 +26,9 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     if (!t) throw new Error(`未知工具: ${name}`)
     return t.exec(ctx, args) // registry 分派:K8s→callTool;工作台→ctx.wb
   }
-  const chat = (messages, tools) => llmClient.chat({ messages, tools })
+  const chat = (messages, tools, opts) =>
+    opts?.onDelta ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta })
+                  : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调
   const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && offered.has(n) })
   return { run: agent.run, toolDefs }

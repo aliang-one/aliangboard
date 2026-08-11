@@ -59,16 +59,19 @@ export function createConversationsSchema(db) {
   // 迁移加列(既有库可能没有;idempotent——列已存在时 ALTER 抛错被吞):
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN recap TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN summarizedUpTo INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }
+  // T5:@-ref 落库(每轮 chat 前刷新用)。幂等:旧库已存在该表无此列时补;新库直接建表后 noop。
+  // 「references」是 SQLite 保留字,引用时必须双引号。
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN "references" TEXT') } catch { /* 列已存在 */ }
 }
 
-export function createConversation(db, { projectId, system, userMessage }) {
+export function createConversation(db, { projectId, system, userMessage, references }) {
   if (!projectId || !userMessage) throw new Error('createConversation 缺 projectId / userMessage')
   const id = randomUUID()
   const ts = Date.now()
   db.prepare(`INSERT INTO workbench_conversations
-    (id,projectId,status,system,userMessage,steps,trace,createdAt,updatedAt)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, projectId, 'running', system ?? '', userMessage, 0, '[]', ts, ts)
+    (id,projectId,status,system,userMessage,"references",steps,trace,createdAt,updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, projectId, 'running', system ?? '', userMessage, JSON.stringify(references || []), 0, '[]', ts, ts)
   return getConversation(db, id)
 }
 
@@ -80,7 +83,8 @@ export function updateConversation(db, id, patch) {
   if (!id) throw new Error('updateConversation 缺 id')
   const cols = Object.keys(patch)
   if (cols.length === 0) return getConversation(db, id)
-  const setClause = cols.map(k => `${k}=?`).join(', ')
+  // 列名双引号:「references」等 SQLite 保留字裸插值会 syntax error;双引号对保留/非保留字都安全。
+  const setClause = cols.map(k => `"${k}"=?`).join(', ')
   // node:sqlite 拒绝 undefined/对象/数组 → 强制成可绑定类型(undefined→null,对象→JSON)。
   // 否则 out.content 等为 undefined 时 "Provided value cannot be bound to SQLite parameter N"。
   const vals = cols.map(k => {

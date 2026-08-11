@@ -41,3 +41,63 @@ test('chat: 非 JSON 响应 → 抛清晰错误', async () => {
   const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ text: '<html>nginx error</html>' }) })
   await assert.rejects(() => c.chat({ messages: [] }), /非 JSON/)
 })
+
+// mock fetch 返回 SSE 流(ReadableStream)。chunks 是原始 'data: ...\n\n' 字符串。
+function mockFetchStream(chunks, capture = {}) {
+  return async (url, init) => {
+    capture.url = url; capture.init = init
+    capture.body = init.body ? JSON.parse(init.body) : {}
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(encoder.encode(c))
+        controller.close()
+      }
+    })
+    return { ok: true, status: 200, body: stream }
+  }
+}
+
+test('chatStream: content delta 累积 + onDelta 回调 + body.stream=true', async () => {
+  const cap = {}
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"好"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks, cap) })
+  const msg = await c.chatStream({ messages: [{ role: 'user', content: 'hi' }] }, { onDelta: t => deltas.push(t) })
+  assert.equal(msg.content, '你好')
+  assert.deepEqual(deltas, ['你', '好'])
+  assert.equal(cap.body.stream, true)
+})
+
+test('chatStream: tool_calls 按 index 合并分片(name+arguments 增量)', async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_resources","arguments":""}}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"namespace\\""}}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\\"default\\"}"}}]}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.equal(msg.tool_calls.length, 1)
+  assert.equal(msg.tool_calls[0].id, 'call_1')
+  assert.equal(msg.tool_calls[0].function.name, 'list_resources')
+  assert.equal(msg.tool_calls[0].function.arguments, '{"namespace":"default"}')
+})
+
+test('chatStream: HTTP 错误抛', async () => {
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: async () => ({ ok: false, status: 500, text: async () => 'boom' }) })
+  await assert.rejects(() => c.chatStream({ messages: [] }), /LLM HTTP 500/)
+})
+
+// I2 回归:chatStream HTTP 错误须像 chat 一样提取 json.error.message,而非抛 raw body。
+test('chatStream: HTTP 错误提取 json.error.message(非 raw body)', async () => {
+  const c = createLlmClient({
+    baseURL: 'http://x/v1', model: 'm',
+    fetch: async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: { message: 'Incorrect API key' } }) }),
+  })
+  await assert.rejects(() => c.chatStream({ messages: [] }), /Incorrect API key/)
+})

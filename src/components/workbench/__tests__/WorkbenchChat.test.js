@@ -16,7 +16,12 @@ const api = vi.hoisted(() => ({
   search: vi.fn(),
 }))
 
-vi.mock('@/api/client', () => ({ workbenchApi: api }))
+vi.mock('@/api/client', () => ({
+  workbenchApi: api,
+  // startStreaming 调 getPlatformToken() 构造 SSE url;测试环境无 EventSource,
+  // startStreaming 的 try/catch 会降级到 startPolling → pollOnce。getPlatformToken 必须是函数。
+  getPlatformToken: () => 'test-token',
+}))
 
 // Mock Modal (teleport / nested component not relevant to send() branching)
 vi.mock('@/components/common/Modal.vue', () => ({

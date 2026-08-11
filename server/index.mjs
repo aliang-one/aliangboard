@@ -15,9 +15,13 @@ import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './aud
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
+import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
+import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
+import { eventsForResult } from './conv-events.mjs'
 import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace, appendMessage, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
+import { k8sSystemPrompt } from './k8s-prompt.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
@@ -170,8 +174,10 @@ function loadPersistedPlatformSessions() {
     if (rows.length) console.log(`[auth] 已恢复 ${rows.length} 个平台会话`)
   } catch (e) { console.error('[auth] 恢复平台会话失败', e?.message) }
 }
+// 提取平台 token:extractPlatformToken(抽出到 ./platform-auth.mjs 便于单测)。
+// 优先 x-platform-token header;缺失时回退 ?token= query(EventSource 不能加自定义 header,SSE 走 query)。
 function platformUserFromRequest(req) {
-  const token = req.headers['x-platform-token']
+  const token = extractPlatformToken(req)
   if (!token) return null
   const ps = platformSessions.get(token)
   if (!ps) return null
@@ -885,6 +891,44 @@ function listForwards(sessionId) {
   return [...forwards.values()].filter(f => f.sessionId === sessionId).map(({ server, pf, sessionId, ...rest }) => rest)
 }
 
+// ====== T5: @-ref 漂移修复——提取的 helpers(KIND_API_PATH / withTimeout / fetchRefContext / buildK8sSession)======
+// 原 POST 端点内联;现抽取为模块级,run/resumeConversation 也用它每轮刷新 ref context。
+const KIND_API_PATH = {
+  pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
+  services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
+  configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
+  secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
+  deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+  statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+  daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+  namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+}
+function withTimeout(p, ms, label) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
+}
+// 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
+async function fetchRefContext(references, k8sSession) {
+  if (!Array.isArray(references) || !references.length || !k8sSession) return ''
+  const tasks = references.map(async ref => {
+    const pathFn = KIND_API_PATH[ref.kind]
+    const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+    if (!pathFn) return `${label}: (不支持的 kind)`
+    try {
+      const res = await withTimeout(requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name)), 5000, `ref ${ref.kind}/${ref.name}`)
+      return `${label}:\n${JSON.stringify(res.body, null, 2)}`
+    } catch { return `${label}: (not found / 已删除)` }
+  })
+  const blocks = await Promise.all(tasks)
+  return `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
+}
+// 从 clusterId 重建 k8sSession(POST 端点 + run/resumeConversation 共用,避免 6 字段重复)
+function buildK8sSession(clusterId) {
+  const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+  if (!cluster) return null
+  return { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+}
+
 async function handle(req, res) {
   if (req.method === 'OPTIONS') return sendJson(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
@@ -1000,10 +1044,7 @@ async function handle(req, res) {
         })
       } else {
         const history = Array.isArray(input.history) ? input.history : []
-        const canWrite = keyRow.tier === 'operator' || keyRow.tier === 'admin'
-        const system = canWrite
-          ? '你是 aliangboard 集群 debug/运维 助手。先用只读工具(list_resources/get_resource/get_pod_logs/get_events)调查问题。需要扩缩容(scale)或滚动重启(restart)时直接调用——平台会弹出审批,用户批准后才执行,被拒会告知你。'
-          : '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。'
+        const system = k8sSystemPrompt(keyRow.tier)
         out = await run({
           system,
           history: [...history, { role: 'user', content: String(input.message) }],
@@ -1160,36 +1201,72 @@ async function handle(req, res) {
   // T4:改吃 buildHistory —— 多轮上下文(recap? + 近期全文 messages,末条是新 user 消息)。
   // 新建对话首条 user 消息由 POST /conversations 在 createConversation 前 append;
   // 续接对话新 user 消息由 POST /:id/messages append。runConversation 只读不写消息。
+  // 对话终态 → bus 事件序列(pending_approval → paused 不 dispose;done → dispose)。T7。
+  function finalizeConvEmit(convId, out) {
+    const { events, dispose } = eventsForResult(out)
+    for (const evt of events) busEmit(convId, evt)
+    if (dispose) busDispose(convId)
+  }
+
+  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
+  // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
   async function runConversation(convId, llmClient) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
       const project = getProject(db, conv.projectId)
-      if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
+      if (!project) {
+        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
+      busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const k8sSession = buildK8sSession(project.clusterId)
+      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       const out = await run({
         system: conv.system,
         history,
-        onStep: e => appendTrace(db, convId, e),
+        refreshSystem,
+        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
       handleAgentResult(convId, project, out)
+      finalizeConvEmit(convId, out)
     } catch (err) {
       updateConversation(db, convId, { status: 'failed', error: err.message })
+      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
+      busEmit(convId, { type: 'end' })
+      busDispose(convId)
     }
   }
 
-  // resume from paused
+  // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
+  // T7:全程把事件透到 conv-bus,与 runConversation 对称。
   async function resumeConversation(convId, approved, llmClient) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
       const project = getProject(db, conv.projectId)
-      if (!project) { updateConversation(db, convId, { status: 'failed', error: '项目不存在' }); return }
+      if (!project) {
+        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
+      busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
       const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const k8sSession = buildK8sSession(project.clusterId)
+      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const pending = JSON.parse(conv.pendingApproval)
       const out = await run({
         resume: {
@@ -1197,11 +1274,17 @@ async function handle(req, res) {
           denied: JSON.parse(conv.denied), steps: conv.steps,
           toolCallId: pending.toolCallId, approved,
         },
-        onStep: e => appendTrace(db, convId, e),
+        refreshSystem,
+        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
       handleAgentResult(convId, project, out)
+      finalizeConvEmit(convId, out)
     } catch (err) {
       updateConversation(db, convId, { status: 'failed', error: err.message })
+      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
+      busEmit(convId, { type: 'end' })
+      busDispose(convId)
     }
   }
 
@@ -1217,19 +1300,19 @@ async function handle(req, res) {
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
-      // @-ref 资源:单次拉取(buildRefsContext 同时返回 agent 注入串 + 原始 body 供前端 ResourceCard)。
-      const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
-      const refContext = refsCtx ? `\n\n${refsCtx}` : ''
+      // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
+      // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
+      // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
+      const { resources: fetchedResources } = await buildRefsContext(project, input.references)
 
-      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
+      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
 
-      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message) })
+      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
       // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
       setActiveConversation(db, input.projectId, conv.id)
-      // T4:首条 user 消息写入 workbench_messages(@-ref context 拼进 content,供 buildHistory 读到)。
-      const firstContent = refsCtx ? `${refsCtx}\n\n${input.message}` : String(input.message)
-      appendMessage(db, { conversationId: conv.id, role: 'user', content: firstContent, refs: Array.isArray(input.references) ? input.references : null })
-      runConversation(conv.id, llmClient) // detached — 不 await
+      // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
+      appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references : null })
+      runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
       return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
   }
@@ -1283,6 +1366,33 @@ async function handle(req, res) {
       recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
       messages: listMessages(db, id),
     })
+  }
+
+  // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
+  // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
+  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {
+    const ps = requireAdmin(req, res); if (!ps) return
+    const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/stream
+    const conv = getConversation(db, id)
+    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'connection': 'keep-alive',
+      'x-accel-buffering': 'no',
+    })
+    const send = (evt) => { try { res.write('data: ' + JSON.stringify(evt) + '\n\n') } catch { /* 客户端已断 */ } }
+    send({ type: 'hello', convId: id, status: conv.status })
+    if (conv.status === 'done' || conv.status === 'failed') {
+      send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
+      send({ type: 'end' })
+      res.end()
+      return
+    }
+    busSubscribe(id, send)
+    const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
+    req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })
+    return
   }
 
   // GET /api/workbench/conversations?projectId=X — 列表(slim)
