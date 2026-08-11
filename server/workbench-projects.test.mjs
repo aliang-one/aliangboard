@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, listConversations, appendMessage, listMessages, getMaxSeq, setActiveConversation, getActiveConversationId } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -116,4 +116,20 @@ test('迁移:conversation 有 recap/summarizedUpTo 列', () => {
   // 列存在 + 默认值
   const row = db.prepare('SELECT recap, summarizedUpTo FROM workbench_conversations WHERE id=?').get(conv.id)
   assert.equal(row.summarizedUpTo, 0); assert.equal(row.recap, null)
+})
+
+test('buildHistory: recap 在前 + summarizedUpTo 之后的全文消息', () => {
+  const db = makeDb()
+  createConversation(db, { projectId: 'p1', system: '', userMessage: 'x' })
+  const conv = listConversations(db, 'p1')[0]
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'old-q' })      // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'old-a' }) // seq2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'new-q' })      // seq3
+  // 设 recap 覆盖 seq1-2
+  db.prepare('UPDATE workbench_conversations SET recap=?, summarizedUpTo=? WHERE id=?').run('老对话摘要', 2, conv.id)
+  const conv2 = getConversation(db, conv.id)
+  const h = buildHistory(db, conv2)
+  assert.equal(h[0].role, 'system'); assert.match(h[0].content, /老对话摘要/)
+  assert.equal(h[1].role, 'user'); assert.equal(h[1].content, 'new-q')  // 只剩 seq3 全文
+  assert.equal(h.length, 2)
 })

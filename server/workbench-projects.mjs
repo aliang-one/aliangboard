@@ -179,6 +179,20 @@ export function getMaxSeq(db, conversationId) {
   return db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(conversationId).m ?? 0
 }
 
+// 多轮上下文装配(T2):recap 段(if any)在前 + summarizedUpTo<seq 的全文消息。
+// 纯函数,读 listMessages;conv.summarizedUpTo 旧行可能 null → 默认 0。
+export function buildHistory(db, conv) {
+  const msgs = listMessages(db, conv.id)
+  const upTo = conv.summarizedUpTo ?? 0
+  const history = []
+  if (conv.recap) history.push({ role: 'system', content: `Earlier in this conversation (summary):\n${conv.recap}` })
+  for (const m of msgs) {
+    if (m.seq <= upTo) continue            // 已进 recap,跳过全文
+    history.push({ role: m.role, content: m.content })
+  }
+  return history
+}
+
 // 项目当前活跃对话(每项目一条):set 覆盖,get 无则 null。
 export function setActiveConversation(db, projectId, conversationId) {
   db.prepare('UPDATE workbench_projects SET activeConversationId=? WHERE id=?').run(conversationId, projectId)
