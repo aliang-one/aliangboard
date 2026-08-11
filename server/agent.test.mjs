@@ -1,7 +1,7 @@
 // Agent loop 测试(mock chat + mock execTool;写操作走 checkpoint/resume 人审)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createAgent, formatToolError } from './agent.mjs'
+import { createAgent, formatToolError, trimMessages, clampToolContent } from './agent.mjs'
 
 // mock chat:按顺序返回一组 assistant message(最后一条若无 tool_calls 即终答)
 function mockChat(responses) {
@@ -134,4 +134,55 @@ test('formatToolError: PD 带 detail → 观察含 detail', () => {
 })
 test('formatToolError: 普通 error(无 detail)→ 含 message', () => {
   assert.match(formatToolError(new Error('缺 path')), /缺 path/)
+})
+
+test('clampToolContent: 短内容原样返回', () => {
+  assert.equal(clampToolContent('hello'), 'hello')
+})
+
+test('clampToolContent: 超长内容截断 + 尾标', () => {
+  const big = 'x'.repeat(9000)
+  const out = clampToolContent(big, 8192)
+  assert.ok(out.startsWith('x'.repeat(8192)))
+  assert.ok(out.includes('truncated'))
+})
+
+test('trimMessages: 预算内不动 + truncated=false', () => {
+  const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'hi' }]
+  const { messages, truncated } = trimMessages(msgs, 100000)
+  assert.equal(messages.length, 2)
+  assert.equal(truncated, false)
+})
+
+test('trimMessages: 超预算丢最旧 user/tool,保 system + 尾部', () => {
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'A'.repeat(20000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'B'.repeat(20000) },
+    { role: 'user', content: 'recent' },
+  ]
+  const { messages, truncated } = trimMessages(msgs, 10000)
+  assert.equal(truncated, true)
+  assert.equal(messages[0].role, 'system')              // system 保住
+  assert.equal(messages[messages.length - 1].content, 'recent') // 最近保住
+  // 丢掉的 tool(c1)对应的 assistant.tool_calls 应被清;若 assistant 无 content 且 tool_calls 空了 → 一并丢
+  const orphan = messages.find(m => m.role === 'assistant' && m.tool_calls?.some(tc => tc.id === 'c1'))
+  assert.equal(orphan, undefined)
+})
+
+test('trimMessages: 丢 tool 时连带清 assistant.tool_calls 的悬空 id', () => {
+  const msgs = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'keep', type: 'function', function: { name: 'g', arguments: '{}' } },
+      { id: 'drop', type: 'function', function: { name: 'f', arguments: '{}' } },
+    ] },
+    { role: 'tool', tool_call_id: 'drop', content: 'X'.repeat(30000) },
+    { role: 'tool', tool_call_id: 'keep', content: 'short' },
+    { role: 'user', content: 'q' },
+  ]
+  const { messages } = trimMessages(msgs, 5000)
+  const asst = messages.find(m => m.role === 'assistant')
+  assert.deepEqual(asst.tool_calls.map(t => t.id), ['keep'])  // drop 被清,keep 留
 })
