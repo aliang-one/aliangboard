@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, listConversations, appendMessage, listMessages, getMaxSeq, setActiveConversation, getActiveConversationId } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -81,4 +81,39 @@ test('pending_distills:set/get/clear(每集群一条,最新覆盖,stats JSON)', 
   clearPendingDistill(db, 'c1')
   assert.equal(getPendingDistill(db, 'c1'), null)
   assert.equal(getPendingDistill(db, 'c2').proposed, '别的', '清 c1 不影响 c2')
+})
+
+test('appendMessage/listMessages/getMaxSeq: seq 单调递增,按序返回', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  createConversation(db, { projectId: proj.id, system: '', userMessage: 'first' })
+  const conv = listConversations(db, proj.id)[0]
+  const u = appendMessage(db, { conversationId: conv.id, role: 'user', content: 'hi' })
+  const a = appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'yo' })
+  assert.equal(u.seq, 1); assert.equal(a.seq, 2)
+  assert.equal(getMaxSeq(db, conv.id), 2)
+  const all = listMessages(db, conv.id)
+  assert.equal(all.length, 2); assert.equal(all[0].role, 'user'); assert.equal(all[1].content, 'yo')
+})
+
+test('activeConversation: setActive/get 一 project 一活跃', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  setActiveConversation(db, proj.id, 'c1')
+  assert.equal(getActiveConversationId(db, proj.id), 'c1')
+  setActiveConversation(db, proj.id, 'c2')
+  assert.equal(getActiveConversationId(db, proj.id), 'c2')
+})
+
+test('迁移:conversation 有 recap/summarizedUpTo 列', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  createConversation(db, { projectId: proj.id, system: '', userMessage: 'x' })
+  const conv = listConversations(db, proj.id)[0]
+  // 列存在 + 默认值
+  const row = db.prepare('SELECT recap, summarizedUpTo FROM workbench_conversations WHERE id=?').get(conv.id)
+  assert.equal(row.summarizedUpTo, 0); assert.equal(row.recap, null)
 })

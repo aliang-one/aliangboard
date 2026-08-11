@@ -12,6 +12,8 @@ export function createWorkbenchSchema(db) {
     createdAt INTEGER NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_projects_owner ON workbench_projects(ownerId)`)
+  // 迁移加列:项目当前活跃对话(每项目一条)。idempotent——列已存在时 ALTER 抛错被吞。
+  try { db.exec('ALTER TABLE workbench_projects ADD COLUMN activeConversationId TEXT') } catch { /* 列已存在 */ }
   // 项目对话历史(跨会话;不进 git repo——决策 5:隐私 + repo 只放工程产物)
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_history (
     projectId TEXT NOT NULL,
@@ -47,6 +49,16 @@ export function createConversationsSchema(db) {
     updatedAt INTEGER NOT NULL
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_conversations_proj ON workbench_conversations(projectId, createdAt)`)
+  // 消息实体(T1):每条消息一行,seq 单调递增(按对话隔离)。
+  db.exec(`CREATE TABLE IF NOT EXISTS workbench_messages (
+    id TEXT PRIMARY KEY, conversationId TEXT NOT NULL, role TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '', refs TEXT, trace TEXT,
+    seq INTEGER NOT NULL, createdAt INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_wb_messages_conv ON workbench_messages(conversationId, seq)`)
+  // 迁移加列(既有库可能没有;idempotent——列已存在时 ALTER 抛错被吞):
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN recap TEXT') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN summarizedUpTo INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }
 }
 
 export function createConversation(db, { projectId, system, userMessage }) {
@@ -147,4 +159,31 @@ export function getLastReconcile(db, projectId) {
   const r = db.prepare('SELECT * FROM last_reconcile WHERE projectId=?').get(projectId)
   if (r) { try { r.result = JSON.parse(r.result || '{}') } catch { r.result = {} } }
   return r || null
+}
+
+// 消息 CRUD(T1):每条消息一行,seq 按对话隔离单调递增。
+// node:sqlite 拒绝 undefined 绑定 → refs/trace 显式落 null(不传 undefined)。
+export function appendMessage(db, { conversationId, role, content, refs, trace, seq }) {
+  const finalSeq = seq ?? (getMaxSeq(db, conversationId) + 1)
+  const id = randomUUID()
+  db.prepare(`INSERT INTO workbench_messages (id,conversationId,role,content,refs,trace,seq,createdAt) VALUES (?,?,?,?,?,?,?,?)`)
+    .run(id, conversationId, role, content ?? '', refs ? JSON.stringify(refs) : null, trace ?? null, finalSeq, Date.now())
+  return db.prepare('SELECT * FROM workbench_messages WHERE id=?').get(id)
+}
+
+export function listMessages(db, conversationId) {
+  return db.prepare('SELECT * FROM workbench_messages WHERE conversationId=? ORDER BY seq ASC').all(conversationId)
+}
+
+export function getMaxSeq(db, conversationId) {
+  return db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(conversationId).m ?? 0
+}
+
+// 项目当前活跃对话(每项目一条):set 覆盖,get 无则 null。
+export function setActiveConversation(db, projectId, conversationId) {
+  db.prepare('UPDATE workbench_projects SET activeConversationId=? WHERE id=?').run(conversationId, projectId)
+}
+
+export function getActiveConversationId(db, projectId) {
+  return db.prepare('SELECT activeConversationId FROM workbench_projects WHERE id=?').get(projectId)?.activeConversationId ?? null
 }
