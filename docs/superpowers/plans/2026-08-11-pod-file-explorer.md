@@ -410,7 +410,7 @@ import CodeViewer from '../common/CodeViewer.vue'
 
 test('CodeViewer: go 语言加载并产出 Prism token', async () => {
   const w = mount(CodeViewer, { props: { code: 'package main\nfunc main() {}\n', lang: 'go' } })
-  await flushPromises() // 等 Prism 懒加载 + watchEffect 高亮
+  await flushPromises(); await flushPromises() // Prism 多段懒加载链 + watchEffect 高亮
   expect(w.html()).toContain('token')
 })
 
@@ -457,6 +457,7 @@ function loadPrism() {
       await import('prismjs/components/prism-go')
       await import('prismjs/components/prism-rust')
       await import('prismjs/components/prism-sql')
+      await import('prismjs/components/prism-markup-templating') // prism-php 依赖
       await import('prismjs/components/prism-php')
       await import('prismjs/components/prism-ruby')
       await import('prismjs/components/prism-markdown')
@@ -676,15 +677,17 @@ git commit -m "feat(pod-files): FileTree+FileTreeNode 递归懒加载树(inject 
 ```js
 import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { i18n } from '@/i18n'
 import FolderPreview from '../common/FolderPreview.vue'
 
 const api = {
   childrenOf: (p) => p === '/app' ? [{ name: 'a.go', type: 'file' }, { name: 'sub', type: 'dir' }] : [],
   selectNode: vi.fn(),
 }
+const mountWith = (props) => mount(FolderPreview, { props, global: { plugins: [i18n], provide: { fileExplorer: api } } })
 
 test('FolderPreview: 列条目 + 点文件触发 selectNode', async () => {
-  const w = mount(FolderPreview, { props: { path: '/app' }, global: { provide: { fileExplorer: api } } })
+  const w = mountWith({ path: '/app' })
   expect(w.text()).toContain('a.go')
   expect(w.text()).toContain('sub')
   const rows = w.findAll('button.fb-item')
@@ -693,12 +696,12 @@ test('FolderPreview: 列条目 + 点文件触发 selectNode', async () => {
 })
 
 test('FolderPreview: 空目录文案', () => {
-  const w = mount(FolderPreview, { props: { path: '/empty' }, global: { provide: { fileExplorer: api } } })
-  expect(w.text()).toContain('emptyDir') // i18n 键兜底（测试环境无 t，渲染键名）
+  const w = mountWith({ path: '/empty' })
+  expect(w.text()).toContain('空目录') // t('component.fileBrowser.emptyDir') 的 zh 译文
 })
 ```
 
-> 说明：测试环境未装 i18n 插件时 `$t(key)` 抛错或返回键——本组件用 `useI18n()` 的 `t`，测试需挂 i18n 插件。若测试因 i18n 报错，给 mount 加 `global: { plugins: [i18n], provide:... }`（参考 `_allComponentsMount.test.js` 顶部对 `i18n` 的引入）。执行时若发现此问题，把 `import { i18n } from '@/i18n'` 加入并 `plugins: [i18n]`。
+> 说明：组件用 `useI18n()`，测试统一 `plugins: [i18n]`（参考 `_allComponentsMount.test.js` 对 `i18n` 的引入）。文案断言用 zh 译文关键词（默认 locale=zh）。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -762,7 +765,7 @@ git commit -m "feat(pod-files): FolderPreview 右栏文件夹条目列表"
 - Test: `src/components/__tests__/FilePreview.test.js`
 
 **Interfaces:**
-- Consumes（inject `'fileExplorer'`）：`ctx`、`readFile(ctx,path)`、`writeFile(ctx,path,bytes)`、`download(ctx,path)`、`invalidate`。另 `import { langFor } from '@/logic/fileLang'`、`CodeViewer`、`useToast`。
+- Consumes（inject `'fileExplorer'`）：`readFile(path)`、`writeFile(path,bytes)`、`download(path)`（编排器已绑定 ctx，组件不直接接触 ctx）。另 `import { langFor } from '@/logic/fileLang'`、`CodeViewer`、`useToast`。
 - Produces：`FilePreview`（props：`path: string`）。`path` 变化 → 自动 `readFile`；查看态 `CodeViewer`（`lang=langFor(name)`）；编辑态 `<textarea>` + `[保存][取消]`；二进制→占位+下载；截断→提示条+下载。
 
 - [ ] **Step 1: 写失败测试**
@@ -779,11 +782,9 @@ import { notify } from '@/composables/useToast'
 
 function api(file) {
   return {
-    ctx: { namespace: 'ns', pod: 'p', container: 'c' },
     readFile: vi.fn().mockResolvedValue(file),
     writeFile: vi.fn().mockResolvedValue(),
     download: vi.fn().mockResolvedValue(new Blob(['x'])),
-    invalidate: vi.fn(),
   }
 }
 
@@ -816,7 +817,7 @@ test('FilePreview: 二进制→占位 + 下载按钮', async () => {
   const a = api({ name: 'a.bin', path: '/a.bin', content: '', truncated: false, binary: true })
   const w = mount(FilePreview, { props: { path: '/a.bin' }, global: { plugins: [i18n], provide: { fileExplorer: a } } })
   await flushPromises()
-  expect(w.text()).toContain('binaryHint') // i18n 键兜底或文案
+  expect(w.text()).toContain('二进制') // t('...binary')/binaryHint 的 zh 关键词
   expect(w.find('textarea').exists()).toBe(false)
 })
 
@@ -824,7 +825,7 @@ test('FilePreview: 截断→显示提示', async () => {
   const a = api({ name: 'big.log', path: '/big.log', content: 'x'.repeat(10), truncated: true, binary: false })
   const w = mount(FilePreview, { props: { path: '/big.log' }, global: { plugins: [i18n], provide: { fileExplorer: a } } })
   await flushPromises()
-  expect(w.text()).toContain('truncated')
+  expect(w.text()).toContain('截断') // t('...truncated') 的 zh 关键词
 })
 ```
 
@@ -868,7 +869,7 @@ const editable = computed(() => !!file.value && !file.value.binary && !file.valu
 async function load() {
   loading.value = true; error.value = ''; editing.value = false
   try {
-    file.value = await x.readFile(x.ctx, props.path)
+    file.value = await x.readFile(props.path)
   } catch (e) { error.value = e.message || t('component.fileBrowser.readFailed') }
   finally { loading.value = false }
 }
@@ -879,7 +880,7 @@ function cancelEdit() { editing.value = false }
 async function saveEdit() {
   saving.value = true
   try {
-    await x.writeFile(x.ctx, file.value.path, new TextEncoder().encode(editContent.value))
+    await x.writeFile(file.value.path, new TextEncoder().encode(editContent.value))
     notify('success', t('component.fileBrowser.saved'))
     file.value = { ...file.value, content: editContent.value }
     editing.value = false
@@ -888,7 +889,7 @@ async function saveEdit() {
 }
 async function download() {
   try {
-    const blob = await x.download(x.ctx, file.value.path)
+    const blob = await x.download(file.value.path)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = file.value.name; a.click(); URL.revokeObjectURL(url)
   } catch (e) { notify('error', e.message || t('component.fileBrowser.downloadFailed')) }
@@ -960,7 +961,7 @@ git commit -m "feat(pod-files): FilePreview 查看/编辑/下载/二进制/截�
 
 **Interfaces:**
 - Consumes：Task 2 的 `usePodFiles`、Task 4-6 的子组件、`SplitPane`、`useToast`、`podFileApi`。
-- Produces：`FileBrowserBody`（props 不变：`namespace/pod/container`；根 `h-full min-h-0`）。`provide('fileExplorer', { ctx, selected, isExpanded, isLoading, childrenOf, selectNode, toggleNode, readFile, writeFile, download, dirCache })`。
+- Produces：`FileBrowserBody`（props 不变：`namespace/pod/container`；根 `h-full min-h-0`）。`provide('fileExplorer', { selected, isExpanded, isLoading, childrenOf, selectNode, toggleNode, readFile(path), writeFile(path,bytes), download(path), dirCache })`（read/write/download 已绑定 ctx，不暴露 ctx 给子组件）。
 
 **新增 i18n 键**（zh.json 与 en.json 的 `component.fileBrowser` 对象内追加）：
 
@@ -1082,8 +1083,11 @@ async function toggleNode(path) {
 }
 
 provide('fileExplorer', {
-  ctx, selected, isExpanded, isLoading, childrenOf, selectNode, toggleNode,
-  readFile: files.readFile, writeFile: files.writeFile, download: files.download, dirCache: files.dirCache,
+  selected, isExpanded, isLoading, childrenOf, selectNode, toggleNode,
+  readFile: (path, opts) => files.readFile(ctx.value, path, opts),
+  writeFile: (path, bytes) => files.writeFile(ctx.value, path, bytes),
+  download: (path) => files.download(ctx.value, path),
+  dirCache: files.dirCache,
 })
 
 // 上传：写入到「当前选中文件夹」或其父目录
