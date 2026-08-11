@@ -95,7 +95,15 @@
       "readOnly": "Read-only",
       "serverPlaceholder": "server IP/hostname",
       "exportPathPlaceholder": "export path /export",
-      "fileNamePlaceholder": "filename path"
+      "fileNamePlaceholder": "filename path",
+      "newPvc": "New"
+    },
+    "createPvc": {
+      "title": "New PVC",
+      "hint": "Will be created in namespace {ns}",
+      "nameRequired": "Name is required",
+      "creating": "Creating…",
+      "createFailed": "Failed to create — see notification"
     },
     "annotationKey": {
       "selectPlaceholder": "— Select annotation —",

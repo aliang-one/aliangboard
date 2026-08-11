@@ -95,7 +95,15 @@
       "readOnly": "只读",
       "serverPlaceholder": "server IP/主机",
       "exportPathPlaceholder": "导出路径 /export",
-      "fileNamePlaceholder": "文件名 path"
+      "fileNamePlaceholder": "文件名 path",
+      "newPvc": "新建"
+    },
+    "createPvc": {
+      "title": "新建 PVC",
+      "hint": "将在命名空间 {ns} 下创建",
+      "nameRequired": "请输入名称",
+      "creating": "创建中…",
+      "createFailed": "创建失败,请查看提示"
     },
     "annotationKey": {
       "selectPlaceholder": "— 选择注解 —",
