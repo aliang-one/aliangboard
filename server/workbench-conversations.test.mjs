@@ -13,6 +13,9 @@ import {
   appendMessage,
   getMaxSeq,
   buildHistory,
+  setActiveConversation,
+  getActiveConversationId,
+  listMessages,
 } from './workbench-projects.mjs'
 
 function freshDb() {
@@ -117,3 +120,51 @@ test('多轮:摘要触发后 recap + 近期全文共存的 history', () => {
 function listConvId(db) {
   return db.prepare("SELECT id FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC LIMIT 1").get(p1Id(db)).id
 }
+
+// T5:POST /conversations 新建线程后调 setActiveConversation → GET project 的 activeConversationId 指向新线程。
+test('T5:新建线程 setActiveConversation 后,getActiveConversationId 返回该线程', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  const conv = createConversation(db, { projectId: pid, system: '', userMessage: 'hi' })
+  // 模拟 POST /conversations 的 setActiveConversation(db, projectId, conv.id)
+  setActiveConversation(db, pid, conv.id)
+  assert.equal(getActiveConversationId(db, pid), conv.id, 'active 指向新线程')
+  // 切到另一线程后 active 跟着变
+  const conv2 = createConversation(db, { projectId: pid, system: '', userMessage: 'hi2' })
+  setActiveConversation(db, pid, conv2.id)
+  assert.equal(getActiveConversationId(db, pid), conv2.id, 'active 切到最新线程')
+  // 未 set 过的项目返回 null(GET project 字段为 null,前端无活跃线程)
+  createProject(db, { name: 'p2', clusterId: 'c1', ownerId: 'u1' })
+  const p2id = db.prepare("SELECT id FROM workbench_projects WHERE name='p2'").get().id
+  assert.equal(getActiveConversationId(db, p2id), null, '无活跃线程 → null')
+})
+
+// T5:GET /conversations/:id 返 messages + recap + summarizedUpTo。
+// 验证 listMessages + getConversation(含 recap/summarizedUpTo 列)供 GET 端点拼装响应。
+test('T5:GET conversation 的 messages/recap/summarizedUpTo 字段拼装', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  createConversation(db, { projectId: pid, system: '', userMessage: 'q0' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q0' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a0', trace: '[]' })
+
+  // GET conversation 响应拼装(与 index.mjs GET /:id 响应体字段一致)
+  const response = {
+    id: conv.id, status: conv.status,
+    recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+    messages: listMessages(db, conv.id),
+  }
+  assert.equal(response.recap, null, '未摘要前 recap 为 null')
+  assert.equal(response.summarizedUpTo, 0, '未摘要前 summarizedUpTo 为 0 (列默认值,recap=null 表无摘要)')
+  assert.equal(response.messages.length, 2, '2 条消息:user + assistant')
+  assert.equal(response.messages[0].role, 'user')
+  assert.equal(response.messages[0].content, 'q0')
+  assert.equal(response.messages[1].role, 'assistant')
+
+  // 摘要后 recap/summarizedUpTo 落库 → getConversation 再读出来即新值
+  updateConversation(db, conv.id, { recap: '早期总结', summarizedUpTo: 2 })
+  const conv2 = getConversation(db, conv.id)
+  assert.equal(conv2.recap, '早期总结', 'recap 已落库')
+  assert.equal(conv2.summarizedUpTo, 2, 'summarizedUpTo 已落库')
+})

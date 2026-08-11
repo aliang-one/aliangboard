@@ -17,7 +17,7 @@ import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
@@ -1165,6 +1165,8 @@ async function handle(req, res) {
       const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
 
       const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message) })
+      // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
+      setActiveConversation(db, input.projectId, conv.id)
       // T4:首条 user 消息写入 workbench_messages(@-ref context 拼进 content,供 buildHistory 读到)。
       const firstContent = refsCtx ? `${refsCtx}\n\n${input.message}` : String(input.message)
       appendMessage(db, { conversationId: conv.id, role: 'user', content: firstContent, refs: Array.isArray(input.references) ? input.references : null })
@@ -1217,6 +1219,8 @@ async function handle(req, res) {
       content: conv.content, error: conv.error,
       pendingApproval: conv.pendingApproval, trace: conv.trace,
       userMessage: conv.userMessage,
+      recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+      messages: listMessages(db, id),
     })
   }
 
@@ -1294,7 +1298,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && seg.length === 1) {
       let files = [], commits = []
       try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
-      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id) })
+      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
     }
 
     // 文件读写 :id/files/<path>
