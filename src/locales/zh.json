@@ -152,7 +152,12 @@
       "truncated": "已截断",
       "download": "下载",
       "emptyDir": "空目录",
-      "contentTruncated": "…（内容过长已截断，完整内容请下载）"
+      "contentTruncated": "…（内容过长已截断，完整内容请下载）",
+      "emptyHint": "选择左侧的文件或文件夹查看内容",
+      "folderItems": "{count} 项",
+      "binaryHint": "二进制文件不提供预览，可下载查看",
+      "collapse": "折叠",
+      "expand": "展开"
     },
     "asyncState": {
       "loadFailed": "加载失败，请稍后重试",

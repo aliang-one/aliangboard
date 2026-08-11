@@ -152,7 +152,12 @@
       "truncated": "Truncated",
       "download": "Download",
       "emptyDir": "Empty directory",
-      "contentTruncated": "…(content too long and truncated, download for full content)"
+      "contentTruncated": "…(content too long and truncated, download for full content)",
+      "emptyHint": "Select a file or folder on the left to view",
+      "folderItems": "{count} items",
+      "binaryHint": "Binary file — preview unavailable, download to view",
+      "collapse": "Collapse",
+      "expand": "Expand"
     },
     "asyncState": {
       "loadFailed": "Load failed, please retry later",
