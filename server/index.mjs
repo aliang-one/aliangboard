@@ -25,6 +25,7 @@ import { reconcileProject } from './reconcile.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -491,6 +492,25 @@ function k8sClient() {
   return _k8sClient
 }
 
+// tmux availability cache: probeKey -> { present, at }. TTL-bounded; cleared on error.
+const tmuxProbeCache = new Map()
+const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
+
+// idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt }
+const idleTracker = new Map()
+
+async function isTmuxAvailable(session, namespace, pod, container) {
+  const key = probeKey(namespace, pod, container)
+  const hit = tmuxProbeCache.get(key)
+  if (hit && Date.now() - hit.at < TMUX_PROBE_TTL) return hit.present
+  let present = false
+  try {
+    present = isTmuxPresent(await execCapture(session, namespace, pod, container, tmuxProbeCommand()))
+  } catch { present = false }
+  tmuxProbeCache.set(key, { present, at: Date.now() })
+  return present
+}
+
 function buildKubeConfig(KubeConfig, session) {
   const kc = new KubeConfig()
   // 注意：client-node 的 caData/certData/keyData 期望 **base64**（内部 bufferFromFileOrString 会 base64 解码）；
@@ -521,7 +541,7 @@ function buildKubeConfig(KubeConfig, session) {
 
 // exec 浏览器↔网关 二进制帧首字节（流标识），客户端按首字节解帧
 const CH_STDIN = 1, CH_RESIZE = 2
-const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4
+const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5
 
 // 把 exec 的 stdout/stderr 字节流写入浏览器 WS（带通道前缀）；
 // 兼具「可缩放」语义（rows/columns + resize 事件）以触发 client-node 自动转发终端尺寸。
@@ -550,6 +570,16 @@ async function handleExec(ws, session, url) {
   const mode = url.searchParams.get('mode')   // 'attach' = 连接主进程 stdio；否则 exec 开新 shell
   const command = (url.searchParams.get('command') || '/bin/sh').trim().split(/\s+/)
   const tty = url.searchParams.get('tty') !== 'false'
+  const sid = url.searchParams.get('sid') || ''           // 稳定会话标识 = 前端 terminal.id
+  const token = url.searchParams.get('session') || ''     // k8s session token（WS 鉴权同一值）
+
+  // 决定执行命令 + 持久性：tmux 可用且有 sid → 包成 new-session -A（attach-or-create）
+  const present = mode === 'attach' ? false : await isTmuxAvailable(session, namespace, pod, container)
+  const planned = planExec({ mode, tmuxPresent: present, sid, token, cols: 80, rows: 24, command })
+  wsSend(ws, CH_MODE, JSON.stringify({ persistent: planned.persistent }))   // 告知前端是否持久（徽标）
+  const sessionName = tmuxSessionName(token, sid)
+  if (planned.persistent) idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
+  const execCommand = planned.command
 
   const { KubeConfig, Exec, Attach } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
@@ -561,14 +591,15 @@ async function handleExec(ws, session, url) {
 
   try {
     if (mode === 'attach') {
-      // kubectl attach：连接容器主进程（PID 1）的 stdio，不开新 shell
       conn = await new Attach(kc).attach(namespace, pod, container, stdout, stderr, stdin, tty)
     } else {
-      conn = await new Exec(kc).exec(namespace, pod, container, command, stdout, stderr, stdin, tty, status => {
+      conn = await new Exec(kc).exec(namespace, pod, container, execCommand, stdout, stderr, stdin, tty, status => {
         wsSend(ws, CH_EXIT, JSON.stringify({ status: status?.status || 'Success', code: status?.code ?? null }))
       })
     }
   } catch (error) {
+    // 探测命中缓存但实际不可用（镜像刚换/缓存 stale）→ 失效缓存,下次重探
+    if (planned.kind === 'tmux') tmuxProbeCache.delete(probeKey(namespace, pod, container))
     wsSend(ws, CH_ERROR, error?.message || `${mode === 'attach' ? 'attach' : 'exec'} 会话建立失败（容器可能未就绪或镜像内无 shell）`)
     return ws.close()
   }
@@ -581,7 +612,11 @@ async function handleExec(ws, session, url) {
     if (!buf.length) return
     const type = buf[0]
     const payload = buf.subarray(1)
-    if (type === CH_STDIN) { try { stdin.write(payload) } catch { /* noop */ } }
+    if (type === CH_STDIN) {
+      const m = planned.persistent ? idleTracker.get(sessionName) : null
+      if (m) m.lastActiveAt = Date.now()
+      try { stdin.write(payload) } catch { /* noop */ }
+    }
     else if (type === CH_RESIZE) {
       try { const { cols, rows } = JSON.parse(payload.toString('utf8')); stdout.columns = cols; stdout.rows = rows; stdout.emit('resize') } catch { /* 帧格式错误 */ }
     }
