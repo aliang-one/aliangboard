@@ -2763,6 +2763,7 @@
       "roleYou": "You",
       "roleAgent": "Agent",
       "toolDenied": "denied",
+      "recapSummary": "Earlier (summary)",
       "convStatus": {
         "running": "Running",
         "paused": "Awaiting Approval",

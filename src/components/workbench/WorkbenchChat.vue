@@ -16,6 +16,7 @@ const props = defineProps({
   projectId: String,
   projectName: String,
   conversationId: { type: String, default: null },
+  activeConversationId: { type: String, default: null },
 })
 const emit = defineEmits(['conversation-created'])
 
@@ -34,6 +35,7 @@ let turnSeq = 0
 const conversationId = ref(null)
 const pollTimer = ref(null)
 const convStatus = ref(null)
+const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
 
 // --- @-mention state ---
 const refs = ref([])
@@ -159,6 +161,7 @@ watch(() => props.conversationId, async (convId) => {
   turns.value = []
   conversationId.value = null
   convStatus.value = null
+  recap.value = ''
   pendingApproval.value = null
   errorBanner.value = ''
   if (convId) {
@@ -179,6 +182,7 @@ async function pollOnce(id) {
   try {
     const conv = await workbenchApi.conversations.get(id)
     convStatus.value = conv.status
+    recap.value = conv.recap || ''
     // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 user+agent turn,
     // 否则 status 分支里 `if (agentTurn)` 全落空、什么都不渲染。
     if (!turns.value.length) {
@@ -235,16 +239,26 @@ async function send() {
       payload.references = refs.value.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
       refs.value = []
     }
-    const { id, references } = await workbenchApi.conversations.create(payload)
-    conversationId.value = id
-    convStatus.value = 'running'
-    // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
-    if (Array.isArray(references) && references.length) {
-      const ut = turns.value.find(x => x._id === userId)
-      if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+    // 续接既有对话(append) vs 新建对话(create):
+    // activeConversationId 来自父级(选中的对话)— 有则 POST /messages 续接,不 emit conversation-created;
+    // 无则 POST /conversations 新建并通知父级刷新列表。
+    if (props.activeConversationId) {
+      await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
+      conversationId.value = props.activeConversationId
+      convStatus.value = 'running'
+      startPolling(props.activeConversationId)
+    } else {
+      const { id, references } = await workbenchApi.conversations.create(payload)
+      conversationId.value = id
+      convStatus.value = 'running'
+      // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
+      if (Array.isArray(references) && references.length) {
+        const ut = turns.value.find(x => x._id === userId)
+        if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+      }
+      emit('conversation-created', id)
+      startPolling(id)
     }
-    emit('conversation-created', id)
-    startPolling(id)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
     if (e.status === 503) errorBanner.value = e.message
@@ -297,7 +311,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
+function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null; recap.value = '' }
 </script>
 
 <template>
@@ -324,6 +338,15 @@ function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = 
           </button>
         </div>
       </div>
+
+      <!-- Recap card: earlier conversation summary (collapsible, shown only when conv.recap exists) -->
+      <details v-if="recap" class="mx-md mt-md bg-surface-container-low border border-outline-variant rounded-lg">
+        <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base text-primary/60">summarize</span>
+          {{ t('workbench.chat.recapSummary') }}
+        </summary>
+        <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
+      </details>
 
       <!-- Conversation -->
       <div v-for="turn in turns" :key="turn._id">
