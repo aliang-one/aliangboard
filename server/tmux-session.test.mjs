@@ -81,7 +81,7 @@ test('pickStaleSids: returns names whose lastActiveAt older than ttl', () => {
   const tracker = {
     'ab1-termA': { token: 't1', lastActiveAt: 9_000 },   // fresh
     'ab1-termB': { token: 't2', lastActiveAt: 1_000 },   // stale
-    'ab1-termC': { token: 't3', lastActiveAt: 4_999 },   // exactly ttl → not stale
+    'ab1-termC': { token: 't3', lastActiveAt: 5_000 },   // exactly ttl → not stale
   }
   assert.deepEqual(pickStaleSids(now, tracker, 5_000), ['ab1-termB'])
   assert.deepEqual(pickStaleSids(now, {}, 5_000), [])

@@ -59,6 +59,6 @@ export function planExec({ mode, tmuxPresent, sid, token, cols, rows, command })
 // Pure: which session names are past the idle TTL. tracker: { name: { token, lastActiveAt, ... } }
 export function pickStaleSids(now, tracker, ttlMs) {
   return Object.entries(tracker)
-    .filter(([, m]) => now - m.lastActiveAt > ttlMs + 1)
+    .filter(([, m]) => now - m.lastActiveAt > ttlMs)
     .map(([name]) => name)
 }
