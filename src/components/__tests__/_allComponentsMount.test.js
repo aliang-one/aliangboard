@@ -53,6 +53,7 @@ const SKIP_INJECT = new Set([
   'components/common/FileTree.vue',
   'components/common/FileTreeNode.vue',
   'components/common/FolderPreview.vue',
+  'components/common/FilePreview.vue',
 ])
 
 const mods = import.meta.glob('/src/components/**/*.vue')
