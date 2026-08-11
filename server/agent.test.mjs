@@ -186,3 +186,22 @@ test('trimMessages: 丢 tool 时连带清 assistant.tool_calls 的悬空 id', ()
   const asst = messages.find(m => m.role === 'assistant')
   assert.deepEqual(asst.tool_calls.map(t => t.id), ['keep'])  // drop 被清,keep 留
 })
+
+test('agent 把 onDelta 透传给 chat 的第三参 opts.onDelta', async () => {
+  let captured
+  const chat = async (messages, tools, opts) => { captured = opts?.onDelta; return final('done') }
+  const deltas = []
+  const run = createAgent({ chat, execTool: async () => '' }).run
+  await run({ system: 's', history: [{ role: 'user', content: 'x' }], onDelta: t => deltas.push(t) })
+  assert.equal(typeof captured, 'function')
+  captured('你'); captured('好')
+  assert.deepEqual(deltas, ['你', '好'])
+})
+
+test('agent 无 onDelta 时,chat 第三参为 undefined(回退非流式)', async () => {
+  let captured
+  const chat = async (messages, tools, opts) => { captured = opts; return final('done') }
+  const run = createAgent({ chat, execTool: async () => '' }).run
+  await run({ system: 's', history: [{ role: 'user', content: 'x' }] })
+  assert.deepEqual(captured, {})
+})
