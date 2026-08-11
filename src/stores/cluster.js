@@ -343,9 +343,10 @@ export const useClusterStore = defineStore('cluster', () => {
     }
 
     async function add(item) {
-      await remoteCreate(yamlOf(item), `${kind}/${item.name}`)
+      const r = await remoteCreate(yamlOf(item), `${kind}/${item.name}`)
       if (sideEffects?.onAdd) sideEffects.onAdd(item)
       invalidateResource(plural)
+      return r // { ok } from remoteCreate;失败时已 toast,调用方可据 r.ok 决定后续(见 CreatePvcDialog)
     }
     async function update(name, ns, updates) {
       if (skipRemoteUpdate) return
