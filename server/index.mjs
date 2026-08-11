@@ -26,7 +26,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -497,6 +497,7 @@ function k8sClient() {
 // tmux availability cache: probeKey -> { present, at }. TTL-bounded; cleared on error.
 const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
+const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
 // idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt }
 const idleTracker = new Map()
@@ -603,7 +604,18 @@ async function handleExec(ws, session, url) {
   wsSend(ws, CH_MODE, JSON.stringify({ persistent: planned.persistent }))   // 告知前端是否持久（徽标）
   const sessionName = tmuxSessionName(token, sid)
   if (planned.persistent) idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
-  const execCommand = planned.command
+  let execCommand = planned.command   // 默认 new-session -A(create-or-attach)
+  if (planned.persistent) {
+    // 增强 B:重连回放 scrollback。capture-pane 兼任存在性探测(execCapture 不返回退出码)。
+    const label = tmuxLabel(token)
+    try {
+      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES))
+      if (hasHistoryFromCapture(cap)) {
+        wsSend(ws, CH_STDOUT, cap.stdout)                         // 回放历史 → xterm
+        execCommand = tmuxAttachOnlyCommand(label, sessionName)   // 续接已存在会话
+      }
+    } catch { /* 会话不存在/捕获失败 → 保持 new-session -A */ }
+  }
 
   const { KubeConfig, Exec, Attach } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
