@@ -507,8 +507,9 @@ const idleSweeper = setInterval(() => {
     const now = Date.now()
     for (const name of pickStaleSids(now, idleTracker, IDLE_TTL_MS)) {
       const meta = idleTracker.get(name)
+      if (!meta) continue                                   // already gone
+      if (Date.now() - meta.lastActiveAt <= IDLE_TTL_MS) continue   // re-attached since pick → leave it alone
       idleTracker.delete(name)
-      if (!meta) continue
       const session = sessions.get(meta.token)
       if (session) {
         try { await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name)) }
@@ -516,7 +517,7 @@ const idleSweeper = setInterval(() => {
       }
       try { db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(meta.terminalId, meta.token) } catch { /* noop */ }
     }
-  })()
+  })().catch(() => {})
 }, 60 * 1000)
 idleSweeper.unref()
 

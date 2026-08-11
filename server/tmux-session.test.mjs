@@ -78,11 +78,11 @@ test('planExec: exec + tmux + sid → persistent tmux wrap', () => {
 
 test('pickStaleSids: returns names whose lastActiveAt older than ttl', () => {
   const now = 10_000
-  const tracker = {
-    'ab1-termA': { token: 't1', lastActiveAt: 9_000 },   // fresh
-    'ab1-termB': { token: 't2', lastActiveAt: 1_000 },   // stale
-    'ab1-termC': { token: 't3', lastActiveAt: 5_000 },   // exactly ttl → not stale
-  }
+  const tracker = new Map([
+    ['ab1-termA', { token: 't1', lastActiveAt: 9_000 }],   // fresh
+    ['ab1-termB', { token: 't2', lastActiveAt: 1_000 }],   // stale
+    ['ab1-termC', { token: 't3', lastActiveAt: 5_000 }],   // exactly ttl → not stale
+  ])
   assert.deepEqual(pickStaleSids(now, tracker, 5_000), ['ab1-termB'])
-  assert.deepEqual(pickStaleSids(now, {}, 5_000), [])
+  assert.deepEqual(pickStaleSids(now, new Map(), 5_000), [])
 })
