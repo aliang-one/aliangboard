@@ -609,7 +609,7 @@ async function handleExec(ws, session, url) {
     // 增强 B:重连回放 scrollback。capture-pane 兼任存在性探测(execCapture 不返回退出码)。
     const label = tmuxLabel(token)
     try {
-      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES))
+      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES), true)
       if (hasHistoryFromCapture(cap)) {
         wsSend(ws, CH_STDOUT, cap.stdout)                         // 回放历史 → xterm
         execCommand = tmuxAttachOnlyCommand(label, sessionName)   // 续接已存在会话
@@ -663,7 +663,7 @@ async function handleExec(ws, session, url) {
 
 // 一次性 exec（tty=false，捕获 stdout/stderr）：用于文件浏览（ls / cat / 写入）。
 // command 以数组传入（exec 直接执行，不经 shell，无需转义路径）。
-async function execCapture(session, namespace, pod, container, command) {
+async function execCapture(session, namespace, pod, container, command, raw = false) {
   const { KubeConfig, Exec } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
   const exec = new Exec(kc)
@@ -687,9 +687,10 @@ async function execCapture(session, namespace, pod, container, command) {
   await new Promise(resolve => conn.on('close', resolve))
   try { stdin.destroy() } catch { /* noop */ }
   await new Promise(r => setImmediate(r))
-  const raw = Buffer.concat(stdout).toString('utf8')
-  const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
-  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${raw.length} clean=${clean.length} head=${JSON.stringify(clean.slice(0, 80))}`)
+  if (raw) return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
+  const rawStr = Buffer.concat(stdout).toString('utf8')
+  const clean = rawStr.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
+  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${rawStr.length} clean=${clean.length} head=${JSON.stringify(clean.slice(0, 80))}`)
   return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
 }
 
