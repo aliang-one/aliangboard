@@ -15,6 +15,7 @@ import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './aud
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
+import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
@@ -171,8 +172,10 @@ function loadPersistedPlatformSessions() {
     if (rows.length) console.log(`[auth] 已恢复 ${rows.length} 个平台会话`)
   } catch (e) { console.error('[auth] 恢复平台会话失败', e?.message) }
 }
+// 提取平台 token:extractPlatformToken(抽出到 ./platform-auth.mjs 便于单测)。
+// 优先 x-platform-token header;缺失时回退 ?token= query(EventSource 不能加自定义 header,SSE 走 query)。
 function platformUserFromRequest(req) {
-  const token = req.headers['x-platform-token']
+  const token = extractPlatformToken(req)
   if (!token) return null
   const ps = platformSessions.get(token)
   if (!ps) return null

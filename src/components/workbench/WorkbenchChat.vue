@@ -8,9 +8,10 @@
 // 审批 modal 展 path+content。
 import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { workbenchApi } from '@/api/client'
+import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
+import { applyStreamEvent } from './conv-stream'
 
 const props = defineProps({
   projectId: String,
@@ -34,6 +35,9 @@ let turnSeq = 0
 const conversationId = ref(null)
 const pollTimer = ref(null)
 const convStatus = ref(null)
+
+// --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
+let es = null
 
 // --- @-mention state ---
 const refs = ref([])
@@ -117,7 +121,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling() })
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming() })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
@@ -156,6 +160,7 @@ function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); 
 // Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
 watch(() => props.conversationId, async (convId) => {
   stopPolling()
+  stopStreaming()
   turns.value = []
   conversationId.value = null
   convStatus.value = null
@@ -164,7 +169,7 @@ watch(() => props.conversationId, async (convId) => {
   if (convId) {
     conversationId.value = convId
     await pollOnce(convId)
-    if (convStatus.value === 'running') startPolling(convId)
+    if (convStatus.value === 'running') startStreaming(convId)
   }
 }, { immediate: true })
 
@@ -218,6 +223,80 @@ async function pollOnce(id) {
   }
 }
 
+// --- SSE streaming(T8:优先路径,EventSource 收实时事件 → applyStreamEvent 归约 → updateTurn) ---
+// 断线/降级兜底:es.onerror → 关流 + pollOnce(id) 对齐一次 + startPolling 继续轮询。
+function stopStreaming() { if (es) { es.close(); es = null } }
+
+function agentTurnDoneOrFinal() {
+  const at = turns.value.find(x => x.role === 'assistant')
+  if (!at) return true
+  return at.status === 'done' || at.status === 'error' || at.status === 'pending_approval'
+}
+
+function startStreaming(id) {
+  stopStreaming()
+  stopPolling()
+  const token = getPlatformToken()
+  // EventSource 不能加自定义 header;走 ?token= query(服务端 requirePlatform 已支持 query 回退)。
+  const url = `/api/workbench/conversations/${encodeURIComponent(id)}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  try {
+    es = new EventSource(url)
+  } catch {
+    // EventSource 不可用(降级):回退轮询
+    startPolling(id)
+    return
+  }
+  es.onmessage = (ev) => {
+    let evt
+    try { evt = JSON.parse(ev.data) } catch { return }
+    const agentTurn = turns.value.find(x => x.role === 'assistant')
+    if (!agentTurn) return
+    // 归约事件 → 新状态快照
+    const next = applyStreamEvent({
+      status: agentTurn.status,
+      content: agentTurn.content,
+      trace: agentTurn.trace || [],
+      steps: agentTurn.steps,
+      denied: agentTurn.denied || [],
+      truncated: !!agentTurn.truncated,
+      pendingApproval: pendingApproval.value,
+      error: agentTurn.error || '',
+    }, evt)
+    updateTurn(agentTurn._id, next)
+    // 同步 convStatus 状态栏
+    if (evt.type === 'hello' || evt.type === 'status') {
+      if (evt.status === 'running') convStatus.value = 'running'
+      else if (evt.status === 'done' || evt.status === 'failed' || evt.status === 'paused') convStatus.value = evt.status
+    }
+    // 审批事件:弹 modal
+    if (evt.type === 'approval' && evt.pending) {
+      pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
+    }
+    // delta 事件:自动滚到底
+    if (evt.type === 'delta') scrollToBottom()
+    // 终态:关流
+    if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
+      stopStreaming(); sending.value = false; scrollToBottom()
+    }
+    // end 事件:若已到终态则关流,否则也关(连接终结)
+    if (evt.type === 'end') {
+      stopStreaming(); sending.value = false
+      // 兜底:若 end 到达但状态仍非终态(race),pollOnce 对齐一次
+      if (!agentTurnDoneOrFinal()) pollOnce(id)
+    }
+  }
+  es.onerror = () => {
+    // 连接异常(EventSource 默认会自动重连,这里主动关闭避免重复连接)
+    stopStreaming()
+    // 已到终态:无需降级
+    if (agentTurnDoneOrFinal()) { sending.value = false; return }
+    // 未到终态:降级到轮询兜底(pollOnce 对齐一次 + startPolling 继续)
+    pollOnce(id).then(() => {
+      if (!agentTurnDoneOrFinal() && convStatus.value === 'running') startPolling(id)
+    })
+  }
+}
+
 async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
@@ -244,7 +323,7 @@ async function send() {
       if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
     }
     emit('conversation-created', id)
-    startPolling(id)
+    startStreaming(id)
   } catch (e) {
     updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
     if (e.status === 503) errorBanner.value = e.message
@@ -264,7 +343,7 @@ async function decideApproval(approved) {
     else { await workbenchApi.conversations.deny(id) }
     convStatus.value = 'running'
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
-    startPolling(id)
+    startStreaming(id)
   } catch (e) {
     if (pa.turnId) updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
     sending.value = false
@@ -297,7 +376,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
+function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null }
 </script>
 
 <template>
