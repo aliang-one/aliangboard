@@ -10,8 +10,11 @@ import { pvcFileApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import ProgressBar from '@/components/common/ProgressBar.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import { usePvcUsage } from '@/composables/usePvcUsage'
+import { formatBytes } from '@/utils/bytes'
 
 const { t } = useI18n()
 
@@ -28,6 +31,9 @@ const pvcDetail = useResourceDetail({
   options: { refetchInterval: 15000 },
 })
 const pvc = computed(() => pvcDetail.data.value)
+const usageQ = usePvcUsage(route.params.namespace)
+const usage = computed(() => usageQ.data.value?.usage?.get(route.params.name) || null)
+const noStatsAccess = computed(() => !!usageQ.data.value?.noStatsAccess)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
 })
@@ -167,6 +173,19 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.namespace') }}</p>
               <p class="text-body-md text-on-surface">{{ pvc.namespace }}</p>
+            </div>
+            <div class="p-md rounded-lg bg-surface-container-low">
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.storage.usageTitle') }}</p>
+              <template v-if="usage && usage.percent != null">
+                <ProgressBar :value="usage.percent" showLabel size="md" :label="t('ns.storage.usageTitle')" />
+                <p class="text-body-sm text-on-surface-variant mt-xs font-mono">
+                  {{ formatBytes(usage.usedBytes) }} {{ t('ns.storage.used') }} / {{ formatBytes(usage.capacityBytes) }} ({{ usage.percent }}%)
+                </p>
+              </template>
+              <p v-else-if="usage && usage.mounted" class="text-body-sm text-on-surface-variant">
+                {{ noStatsAccess ? t('ns.storage.usageNoPermission') : t('ns.storage.usageNoData') }}
+              </p>
+              <p v-else class="text-body-sm text-on-surface-variant">{{ t('ns.storage.notMounted') }}</p>
             </div>
           </div>
         </div>

@@ -199,6 +199,7 @@ export const TABLE_CATALOG = [
       { key: 'name', labelKey: 'ns.storage.thPvcName', label: 'Name' },
       { key: 'status', labelKey: 'ns.storage.thStatus', label: 'Status' },
       { key: 'capacity', labelKey: 'ns.storage.thCapacity', label: 'Capacity' },
+      { key: 'used', labelKey: 'ns.storage.thUsed', label: 'Used' },
       { key: 'accessModes', labelKey: 'ns.storage.thAccess', label: 'Access' },
       { key: 'storageClass', labelKey: 'ns.storage.thStorageClass', label: 'StorageClass' },
       { key: 'volume', labelKey: 'ns.storage.thVolume', label: 'Volume' },
