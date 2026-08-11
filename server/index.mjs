@@ -26,6 +26,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
+import { k8sSystemPrompt } from './k8s-prompt.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -967,10 +968,7 @@ async function handle(req, res) {
         })
       } else {
         const history = Array.isArray(input.history) ? input.history : []
-        const canWrite = keyRow.tier === 'operator' || keyRow.tier === 'admin'
-        const system = canWrite
-          ? '你是 aliangboard 集群 debug/运维 助手。先用只读工具(list_resources/get_resource/get_pod_logs/get_events)调查问题。需要扩缩容(scale)或滚动重启(restart)时直接调用——平台会弹出审批,用户批准后才执行,被拒会告知你。'
-          : '你是 aliangboard 集群 debug 助手。用提供的工具(list_resources/get_resource/get_pod_logs/get_events)调查用户的问题,给出简洁诊断。你只能读,不能改资源。'
+        const system = k8sSystemPrompt(keyRow.tier)
         out = await run({
           system,
           history: [...history, { role: 'user', content: String(input.message) }],
