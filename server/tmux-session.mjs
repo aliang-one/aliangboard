@@ -64,3 +64,19 @@ export function pickStaleSids(now, tracker, ttlMs) {
   }
   return out
 }
+
+// capture-pane: -e 保留 ANSI/颜色; -p 输出到 stdout; -S -lines 抓 viewport 上方 lines 行历史。
+export function tmuxCaptureCommand(label, name, lines) {
+  return ['tmux', '-L', label, 'capture-pane', '-e', '-p', '-S', String(-Math.max(1, lines)), '-t', name]
+}
+
+// attach-session 到「已存在」的会话(不带 -A / 不新建)。重连回放后续接实时流用。
+export function tmuxAttachOnlyCommand(label, name) {
+  return ['tmux', '-L', label, 'attach-session', '-t', name]
+}
+
+// capture 兼任存在性探测(execCapture 不返回退出码):stdout 非空 ⇒ 会话有历史(重连)。
+export function hasHistoryFromCapture(captureResult) {
+  const out = captureResult?.stdout
+  return !!out && Buffer.isBuffer(out) && out.toString('utf8').trim().length > 0
+}
