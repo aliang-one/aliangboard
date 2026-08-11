@@ -801,7 +801,9 @@ test('formatBytes: 边界与二进制单位', () => {
   assert.equal(formatBytes(512), '512 B')
   assert.equal(formatBytes(1023), '1023 B')
   assert.equal(formatBytes(2048), '2 Ki')
-  assert.equal(formatBytes(3221225472), '3.0 Gi')          // 3 GiB
+  assert.equal(formatBytes(3221225472), '3 Gi')           // 3 GiB,无小数
+  assert.equal(formatBytes(5368709120), '5 Gi')           // 5 GiB,无小数
+  assert.equal(formatBytes(2621440), '2.5 Mi')            // 2.5 MiB,带小数
   assert.equal(formatBytes(10737418240), '10 Gi')          // 10 GiB
   assert.equal(formatBytes(1649267441664), '1.5 Ti')       // 1.5 TiB
 })
