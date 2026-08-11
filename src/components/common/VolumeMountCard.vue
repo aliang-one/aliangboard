@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import CreatePvcDialog from '@/components/common/CreatePvcDialog.vue'
 
 const { t } = useI18n()
 
@@ -22,6 +23,16 @@ const store = useClusterStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
 const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+
+// PVC 内联快速创建:下拉旁「新建」开 CreatePvcDialog;创建后写回 entry.pvcName 并把新名并入 options,
+// 使自动选中即时生效(不依赖父列表刷新时机、不受 namespace 过滤差异影响)。
+const showCreatePvc = ref(false)
+const createdPvcName = ref('')
+const pvcOptions = computed(() => [...new Set([...props.pvcs, createdPvcName.value].filter(Boolean))])
+function onPvcCreated(name) {
+  createdPvcName.value = name
+  entry.value.pvcName = name
+}
 
 const TYPES = [
   { value: 'emptyDir', label: 'emptyDir', icon: 'folder' },
@@ -80,10 +91,18 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       </div>
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.source') }}</label>
-        <select v-if="entry.type === 'pvc'" v-model="entry.pvcName" :class="fld">
-          <option value="">{{ t('component.volumeMount.selectPvc') }}</option>
-          <option v-for="p in pvcs" :key="p" :value="p">{{ p }}</option>
-        </select>
+        <div v-if="entry.type === 'pvc'" class="flex gap-xs">
+          <select v-model="entry.pvcName" :class="fld" class="flex-1">
+            <option value="">{{ t('component.volumeMount.selectPvc') }}</option>
+            <option v-for="p in pvcOptions" :key="p" :value="p">{{ p }}</option>
+          </select>
+          <button type="button" :disabled="!namespace" @click="showCreatePvc = true"
+            :title="t('component.volumeMount.newPvc')"
+            class="shrink-0 px-sm rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-high hover:text-primary disabled:opacity-40 transition-colors">
+            <span class="material-symbols-outlined text-sm">add</span>
+          </button>
+          <CreatePvcDialog v-model="showCreatePvc" :namespace="namespace" @created="onPvcCreated" />
+        </div>
         <input v-else-if="entry.type === 'hostPath'" v-model="entry.hostPath" :class="fld" placeholder="/var/lib/data" />
         <div v-else-if="entry.type === 'nfs'" class="grid grid-cols-2 gap-xs">
           <input v-model="entry.server" :class="fld" :placeholder="t('component.volumeMount.serverPlaceholder')" />
