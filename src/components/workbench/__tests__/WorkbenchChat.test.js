@@ -135,3 +135,38 @@ test('multi-turn: empty messages falls back to single-turn from userMessage', as
   expect(html).toContain('legacy question')
   expect(html).toContain('legacy answer')
 })
+
+// Finding #1 regression: multi-turn CONTINUE must update the LAST (thinking) assistant turn,
+// not the FIRST (old, done) one. Before the fix, pollOnce's else-branch did
+// turns.find(assistant) → returned the first old assistant → overwrote it and left the
+// new thinking turn stuck (perpetual spinner, duplicated answer).
+test('multi-turn continue: pollOnce(done) updates the thinking assistant, not the prior done one', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-c' })
+  // --- turn 1: send + poll done ---
+  api.conversations.append.mockResolvedValue({ status: 'running' })
+  api.conversations.get.mockResolvedValueOnce({
+    id: 'conv-c', status: 'done', content: 'first answer', trace: '[]', steps: 1, recap: '',
+  })
+  await w.find('textarea').setValue('question 1')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  await flushPromises()
+  // first assistant turn should be done with 'first answer'
+  expect(w.html()).toContain('first answer')
+
+  // --- turn 2: continue + poll done ---
+  api.conversations.get.mockResolvedValueOnce({
+    id: 'conv-c', status: 'done', content: 'second answer', trace: '[]', steps: 2, recap: '',
+  })
+  await w.find('textarea').setValue('question 2')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  await flushPromises()
+
+  const html = w.html()
+  // Both answers present (first turn untouched, second turn updated)
+  expect(html).toContain('first answer')
+  expect(html).toContain('second answer')
+  // No stuck thinking spinner on either assistant turn (ChatTurn renders "Thinking..." for thinking status)
+  expect(html).not.toContain('Thinking...')
+})

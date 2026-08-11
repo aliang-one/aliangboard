@@ -1039,11 +1039,12 @@ async function handle(req, res) {
     namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
   }
   async function buildRefsContext(project, references) {
-    if (!Array.isArray(references) || !references.length) return ''
+    if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
-    if (!cluster) return '' // 项目绑定的集群不存在 → 无 @-ref 可拉
+    if (!cluster) return { ctx: '', resources: [] } // 项目绑定的集群不存在 → 无 @-ref 可拉
     const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
     const blocks = []
+    const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
       const pathFn = KIND_API_PATH[ref.kind]
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
@@ -1054,11 +1055,12 @@ async function handle(req, res) {
         const body = res?.body
         if (body == null) { blocks.push(`${label}: (空响应)`); continue }
         blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
+        resources.push(body)
       } catch (e) {
         blocks.push(`${label}: (not found)`)
       }
     }
-    return `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
+    return { ctx: `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`, resources }
   }
 
   // checkpoint → paused; done → done + history
@@ -1145,21 +1147,8 @@ async function handle(req, res) {
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
-      // @-ref 资源:拉一份原始 body 给前端 ResourceCard,同时用 buildRefsContext 拼 agent 注入串。
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
-      const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
-      const fetchedResources = []
-      if (Array.isArray(input.references) && input.references.length && k8sSession) {
-        for (const ref of input.references) {
-          const pathFn = KIND_API_PATH[ref.kind]
-          if (!pathFn) continue
-          try {
-            const res2 = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-            if (res2?.body != null) fetchedResources.push(res2.body)
-          } catch { /* not found → 不进 fetchedResources */ }
-        }
-      }
-      const refsCtx = await buildRefsContext(project, input.references)
+      // @-ref 资源:单次拉取(buildRefsContext 同时返回 agent 注入串 + 原始 body 供前端 ResourceCard)。
+      const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
       const refContext = refsCtx ? `\n\n${refsCtx}` : ''
 
       const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。' + refContext
@@ -1189,11 +1178,13 @@ async function handle(req, res) {
       if (project.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问' })
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
+      // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
+      setActiveConversation(db, conv.projectId, id)
       // 1) append user 消息(干净 content;refs 存原始,资源另拉注入 content)
       const cleanMessage = String(input.message ?? '')
       appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references : null })
       // 2) @-ref 资源拉取 → 拼进刚 append 的 user 消息 content(buildHistory 读 content → agent 可见)
-      const refsCtx = await buildRefsContext(project, input.references)
+      const { ctx: refsCtx } = await buildRefsContext(project, input.references)
       if (refsCtx) {
         const maxSeq = getMaxSeq(db, id)
         db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')

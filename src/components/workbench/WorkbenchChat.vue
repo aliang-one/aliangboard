@@ -222,11 +222,15 @@ async function pollOnce(id) {
         turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
       }
     }
-    // 从 messages 重建时,turns 已是终态(done/failed 不需再改);
-    // running/paused 需操作末尾的 thinking turn(刚补的)。否则取首个 assistant(单轮 fallback)。
+    // 从 messages 重建时,turns 已是终态(done/failed 不需再改,各 turn 自带 per-message content);
+    // running/paused 需操作末尾的 thinking turn(刚补的)。
+    // 非重建(send/续接路径,turns 由 send() 填充):多轮续接时 turns 已含历史 done assistant,
+    // 必须取最后一个 thinking assistant(running/paused 刚补的占位),否则取首个会把旧 turn 覆盖、
+    // 新 thinking turn 卡死(永久 spinner + 答案重复)。无 thinking 则回退最后一个 assistant。
     const agentTurn = rebuiltFromMessages
       ? [...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
-      : turns.value.find(x => x.role === 'assistant')
+      : ([...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
+        ?? [...turns.value].reverse().find(x => x.role === 'assistant'))
     // 更新 trace(running/paused 时的 live trace;done+rebuilt 时各 turn 已自带 trace,不覆盖)
     if (agentTurn) {
       let trace = []
