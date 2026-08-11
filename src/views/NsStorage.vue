@@ -10,7 +10,10 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import ProgressBar from '@/components/common/ProgressBar.vue'
 import { usePagination } from '@/composables/usePagination'
+import { usePvcUsage } from '@/composables/usePvcUsage'
+import { formatBytes } from '@/utils/bytes'
 import { useI18n } from 'vue-i18n'
 
 const route = useRoute()
@@ -22,6 +25,8 @@ const { t } = useI18n()
 const { tableColumns } = useTableColumns()
 const pvcHeaders = computed(() => tableColumns('nsStoragePVC'))
 const scHeaders = computed(() => tableColumns('nsStorageSC'))
+const usageQ = usePvcUsage(route.params.namespace)
+const noStatsAccess = computed(() => !!usageQ.data.value?.noStatsAccess)
 
 // cluster id（取 currentCluster）；供 useResourceList key 用，须先于任何 key 声明，否则 TDZ
 const cid = computed(() => (store.currentCluster || 'cluster'))
@@ -51,6 +56,12 @@ const filteredPVCs = computed(() => {
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filteredPVCs, { resetDeps: [searchQuery] })
+
+// 合并 PVC 用量(rows → DataTable)。usageQ 来自 usePvcUsage(Task 2),按 claimName 取 {usedBytes, capacityBytes, percent, mounted}。
+const rowsWithUsage = computed(() => (paginated.value || []).map(p => {
+  const u = usageQ.data.value?.usage?.get(p.name)
+  return { ...p, usedBytes: u?.usedBytes ?? null, capacityBytes: u?.capacityBytes ?? null, percent: u?.percent ?? null, mounted: u?.mounted ?? false }
+}))
 
 // Create PVC
 const showCreatePVC = ref(false)
@@ -163,7 +174,7 @@ function goSCDetail(row) {
         <span class="text-body-sm text-on-surface-variant">{{ filteredPVCs.length }} / {{ nsPVCs.length }}</span>
       </div>
 
-      <DataTable :headers="pvcHeaders" :rows="paginated" column-key="nsStoragePVC" @row-click="goPVCDetail">
+      <DataTable :headers="pvcHeaders" :rows="rowsWithUsage" column-key="nsStoragePVC" @row-click="goPVCDetail">
         <template #name="{ row }">
           <div class="flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">storage</span>
@@ -172,6 +183,14 @@ function goSCDetail(row) {
         </template>
         <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
         <template #capacity="{ row }"><span class="font-mono text-code-sm font-semibold">{{ row.capacity }}</span></template>
+        <template #used="{ row }">
+          <div v-if="row.percent != null" class="flex flex-col gap-0.5 min-w-[84px]">
+            <ProgressBar :value="row.percent" size="sm" />
+            <span class="text-[10px] text-on-surface-variant font-mono">{{ formatBytes(row.usedBytes) }} / {{ formatBytes(row.capacityBytes) }}</span>
+          </div>
+          <span v-else-if="!row.mounted" class="text-xs text-on-surface-variant/60">{{ t('ns.storage.notMounted') }}</span>
+          <span v-else :title="noStatsAccess ? t('ns.storage.usageNoPermission') : t('ns.storage.usageNoData')" class="text-xs text-on-surface-variant/60 cursor-help">—</span>
+        </template>
         <template #accessModes="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant" :title="accessModeLabels[row.accessModes] || row.accessModes">{{ row.accessModes }}</span></template>
         <template #storageClass="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-body-sm border border-outline-variant">{{ row.storageClass }}</span></template>
         <template #volume="{ row }"><span class="font-mono text-code-sm text-primary">{{ row.volume || '-' }}</span></template>
