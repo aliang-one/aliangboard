@@ -60,7 +60,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filteredPVCs, 
 // 合并 PVC 用量(rows → DataTable)。usageQ 来自 usePvcUsage(Task 2),按 claimName 取 {usedBytes, capacityBytes, percent, mounted}。
 const rowsWithUsage = computed(() => (paginated.value || []).map(p => {
   const u = usageQ.data.value?.usage?.get(p.name)
-  return { ...p, usedBytes: u?.usedBytes ?? null, capacityBytes: u?.capacityBytes ?? null, percent: u?.percent ?? null, mounted: u?.mounted ?? false }
+  return { ...p, usedBytes: u?.usedBytes ?? null, capacityBytes: u?.capacityBytes ?? null, percent: u?.percent ?? null, mounted: u?.mounted ?? false, shared: u?.shared ?? false }
 }))
 
 // Create PVC
@@ -184,7 +184,8 @@ function goSCDetail(row) {
         <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
         <template #capacity="{ row }"><span class="font-mono text-code-sm font-semibold">{{ row.capacity }}</span></template>
         <template #used="{ row }">
-          <div v-if="row.percent != null" class="flex flex-col gap-0.5 min-w-[84px]">
+          <span v-if="row.shared" :title="t('ns.storage.nfsShared')" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-on-surface-variant bg-surface-container border border-outline-variant cursor-help">NFS</span>
+          <div v-else-if="row.percent != null" class="flex flex-col gap-0.5 min-w-[84px]">
             <ProgressBar :value="row.percent" size="sm" />
             <span class="text-[10px] text-on-surface-variant font-mono">{{ formatBytes(row.usedBytes) }} / {{ formatBytes(row.capacityBytes) }}</span>
           </div>

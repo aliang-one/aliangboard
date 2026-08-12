@@ -771,7 +771,8 @@
       "usageTitle": "Storage usage",
       "notMounted": "Not mounted",
       "usageNoPermission": "Requires nodes/stats permission",
-      "usageNoData": "Usage data unavailable"
+      "usageNoData": "Usage data unavailable",
+      "nfsShared": "NFS shared storage (per-PVC usage unavailable)"
     },
     "pods": {
       "deletedPod": "Deleted Pod {name}, controller will recreate and re-pull image",
