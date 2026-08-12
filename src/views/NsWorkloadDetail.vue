@@ -1312,7 +1312,7 @@ function podStatusBorder(s) {
           <div class="flex items-center justify-between"><p class="text-xs text-on-surface-variant">{{ $t('workload.summary.image') }}</p><button v-if="canMutate" @click="openImageTagEditor" class="text-xs text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">swap_horiz</span>{{ $t('workload.rollout.changeTag') }}</button></div>
           <p class="font-mono text-code-sm truncate mt-0.5"><span class="text-on-surface-variant">{{ imgBase(workload.image) }}</span><span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
           <div v-if="metricsAvailable" class="flex items-center gap-md mt-1 text-xs text-on-surface-variant">
-            <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-primary">memory</span><b class="text-primary font-mono">{{ metricsNow.cpu }}</b>m</span>
+            <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-primary">memory</span><b class="text-primary font-mono">{{ metricsNow.cpu != null ? Math.round(metricsNow.cpu * 100) / 100 : 0 }}</b>m</span>
             <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-secondary">storage</span><b class="text-secondary font-mono">{{ metricsNow.mem }}</b>Mi</span>
             <span class="text-on-surface-variant/40">{{ $t('workload.summary.realtimeAggregate') }}</span>
           </div>
