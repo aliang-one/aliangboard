@@ -6,6 +6,8 @@ export function toMilli(q) {
   if (q == null) return 0
   if (typeof q === 'number') return q
   const s = String(q)
+  if (s.endsWith('n')) return Math.round(Number(s.slice(0, -1)) / 1e6)   // nanocores → m(metrics.k8s.io 实际格式,与 cpuToMilli 对齐)
+  if (s.endsWith('u')) return Math.round(Number(s.slice(0, -1)) / 1e3)   // microcores → m
   if (s.endsWith('m')) return parseInt(s) || 0
   const n = parseFloat(s)
   return isNaN(n) ? 0 : Math.round(n * 1000)
