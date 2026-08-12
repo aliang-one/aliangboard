@@ -4,7 +4,7 @@ import {
   hashToken, tmuxLabel, tmuxSessionName, probeKey,
   tmuxProbeCommand, isTmuxPresent, tmuxKillCommand, tmuxAttachCommand,
   planExec, pickStaleSids,
-  tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture,
+  tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, hasHistoryFromCapture,
   archFromUname, injectDestCandidates, withTermInfo,
 } from './tmux-session.mjs'
 
@@ -164,4 +164,16 @@ test('planExec threads terminfoDir into the attach command', () => {
   const r = planExec({ mode: null, tmuxPresent: true, tmuxBin: '/x/tmux', terminfoDir: '/d/.ti', sid: 't1', token: 'tok', cols: 80, rows: 24, command: ['sh'] })
   assert.equal(r.command[0], 'env', 'env prefix applied when terminfoDir set')
   assert.equal(r.command[1], 'TERMINFO=/d/.ti')
+})
+
+test('tmuxNewSessionDetached: new-session -d (detached create) with env prefix', () => {
+  // no terminfoDir → plain (no env)
+  assert.deepEqual(tmuxNewSessionDetached({ tmuxBin: '/x/tmux', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] }),
+    ['/x/tmux', '-L', 'L', 'new-session', '-d', '-s', 'N', '-x', '80', '-y', '24', '--', 'sh'])
+  // with terminfoDir → env prefix + -d (not -A)
+  const c = tmuxNewSessionDetached({ tmuxBin: '/dev/shm/.ab-tmux-amd64', terminfoDir: '/dev/shm/.ab-terminfo', label: 'ab1', name: 's1', cols: 100, rows: 30, shell: ['bash'] })
+  assert.equal(c[0], 'env')
+  assert.equal(c.at(-1), 'bash')
+  assert.ok(c.includes('-d'), 'detached (-d), not -A')
+  assert.ok(!c.includes('-A'), 'must NOT have -A')
 })

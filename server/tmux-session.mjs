@@ -52,6 +52,13 @@ export function tmuxAttachCommand({ tmuxBin = 'tmux', terminfoDir = '', label, n
     '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
 }
 
+// new-session -d: detached 建会话(不 attach)。handleExec 先用它探测 tmux 能否起 server+pane,
+// 成功后再 attach;失败(只读/noexec/无 pty/server 崩)则降级一次性 exec。shell spread after `--`。
+export function tmuxNewSessionDetached({ tmuxBin = 'tmux', terminfoDir = '', label, name, cols, rows, shell }) {
+  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'new-session', '-d', '-s', name,
+    '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
+}
+
 // Decide the exec command + persistence flag for a connect.
 // command is the array the frontend chose (e.g. ['sh']); returned command is what K8s exec runs.
 export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', terminfoDir = '', sid, token, cols, rows, command }) {

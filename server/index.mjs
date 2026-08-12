@@ -34,7 +34,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -675,25 +675,37 @@ async function handleExec(ws, session, url) {
   const sid = url.searchParams.get('sid') || ''           // 稳定会话标识 = 前端 terminal.id
   const token = url.searchParams.get('session') || ''     // k8s session token（WS 鉴权同一值）
 
-  // 决定执行命令 + 持久性：tmux 可用且有 sid → 包成 new-session -A（attach-or-create）
+  // 决定执行命令 + 持久性。tmux 可用且有 sid → 先 detached 建会话(探测 tmux 能否起 server+pane);
+  // 成功 → 回放历史 + attach;失败(最小镜像限制:只读/noexec/无 pty/server 崩 等)→ 降级一次性 exec,
+  // 刷新不保留但 shell 不挂(planExec 只用于持久性判定)。
   const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux', terminfoDir: '' } : await resolveTmux(session, namespace, pod, container)
   const present = resolved.kind === 'system' || resolved.kind === 'injected'
-  const planned = planExec({ mode, tmuxPresent: present, tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, sid, token, cols: 80, rows: 24, command })
-  wsSend(ws, CH_MODE, JSON.stringify({ persistent: planned.persistent }))   // 告知前端是否持久（徽标）
+  const planned = planExec({ mode, tmuxPresent: present, sid })
+  const label = tmuxLabel(token)
   const sessionName = tmuxSessionName(token, sid)
-  if (planned.persistent) idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
-  let execCommand = planned.command   // 默认 new-session -A(create-or-attach)
+  let execCommand = command   // 默认:一次性 shell(降级 / 非 tmux 路径)
+  let persistent = false
   if (planned.persistent) {
-    // 增强 B:重连回放 scrollback。capture-pane 兼任存在性探测(execCapture 不返回退出码)。
-    const label = tmuxLabel(token)
     try {
-      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin, resolved.terminfoDir), true)
-      if (hasHistoryFromCapture(cap)) {
-        wsSend(ws, CH_STDOUT, cap.stdout)                         // 回放历史 → xterm
-        execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin, resolved.terminfoDir)   // 续接已存在会话
-      }
-    } catch { /* 会话不存在/捕获失败 → 保持 new-session -A */ }
+      // 先 detached 建会话(= 探测 tmux 能否起 server+pane)。execCapture 现返回退出状态:
+      // tmux 非零退出(server 起不来/无 pty/只读)或 exec 连接失败(throw)→ catch 降级一次性 exec。
+      const made = await execCapture(session, namespace, pod, container,
+        tmuxNewSessionDetached({ tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, label, name: sessionName, cols: 80, rows: 24, shell: command }), true)
+      if (made?.status?.status !== 'Success') throw new Error('tmux new-session failed')
+      // 成功:回放 scrollback(B),再 attach
+      try {
+        const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin, resolved.terminfoDir), true)
+        if (hasHistoryFromCapture(cap)) wsSend(ws, CH_STDOUT, cap.stdout)   // 回放历史 → xterm
+      } catch { /* 首次连接无历史 */ }
+      execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin, resolved.terminfoDir)
+      persistent = true
+      idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
+    } catch {
+      // tmux 起不来 → 降级一次性 exec(刷新不保留),shell 仍可用
+      execCommand = command
+    }
   }
+  wsSend(ws, CH_MODE, JSON.stringify({ persistent }))   // 告知前端最终是否持久(徽标)
 
   const { KubeConfig, Exec, Attach } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
@@ -749,11 +761,12 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
   const stdoutSink = new Writable({ write(c, _e, cb) { stdout.push(Buffer.from(c)); cb() } })
   const stderrSink = new Writable({ write(c, _e, cb) { stderr.push(Buffer.from(c)); cb() } })
   const stdin = new PassThrough() // 不立即 end：过早 EOF 会让本集群 kubelet 在命令执行前关闭 exec 会话
+  let exitStatus = null   // 命令退出状态(client-node status 回调,execCapture 不抛于非零退出)
   let conn
   try {
     // tty=true：与终端同路径。本集群 client-node 在 tty=false 下 exec 立即 close 无数据；
     // tty 下输出会带 ANSI/CR，统一剔除后再解析
-    conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true)
+    conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true, status => { exitStatus = status })
   } catch (e) {
     const raw = e?.message || String(e)
     // 500 通常=目标容器已终止(Succeeded/Failed),exec 无法进入;给出可读提示而非裸 ws 报错
@@ -765,11 +778,11 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
   await new Promise(resolve => conn.on('close', resolve))
   try { stdin.destroy() } catch { /* noop */ }
   await new Promise(r => setImmediate(r))
-  if (raw) return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
+  if (raw) return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status: exitStatus }
   const rawStr = Buffer.concat(stdout).toString('utf8')
   const clean = rawStr.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
   console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${rawStr.length} clean=${clean.length} head=${JSON.stringify(clean.slice(0, 80))}`)
-  return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: null }
+  return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: exitStatus }
 }
 
 // PVC 浏览专用 exec：遇 500 自愈一次。500 = helper 容器已终止/不可 exec（sleep 24h 到期、被驱逐、
