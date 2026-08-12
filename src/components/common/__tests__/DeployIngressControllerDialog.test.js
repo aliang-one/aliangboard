@@ -42,7 +42,10 @@ function mountDlg() {
 test('打开即拉 catalog 并渲染控制器卡片', async () => {
   const w = mountDlg()
   await flushPromises()
-  expect(w.text()).toContain('nginx-ingress')
+  // 不依赖 i18n 回退文本(labelKey 未翻译时恰好含 'nginx-ingress' 子串,Task 6 加翻译后会失效);
+  // 改用稳定的 testid + 非 i18n 字段(version/variant)断言卡片已渲染。
+  expect(w.find('[data-testid="controller-card"]').exists()).toBe(true)
+  expect(w.text()).toContain('v1 · bare-metal')
 })
 
 test('选控制器后载入清单到编辑器(props.manifest 调用一次)', async () => {
