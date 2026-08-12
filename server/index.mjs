@@ -522,8 +522,10 @@ const idleSweeper = setInterval(() => {
       idleTracker.delete(name)
       const session = sessions.get(meta.token)
       if (session) {
-        try { await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name)) }
-        catch { /* pod 不在 / token 已过期 —— 忽略 */ }
+        try {
+          const { bin } = await resolveTmux(session, meta.ns, meta.pod, meta.container || '')
+          await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name, bin))
+        } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
       try { db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(meta.terminalId, meta.token) } catch { /* noop */ }
     }
@@ -1957,8 +1959,9 @@ async function handle(req, res) {
         idleTracker.delete(tmuxSessionName(token, id))
         if (row) {
           try {
+            const { bin } = await resolveTmux(session, row.namespace, row.podName, row.container || '')
             await execCapture(session, row.namespace, row.podName, row.container || '',
-              tmuxKillCommand(tmuxLabel(token), tmuxSessionName(token, id)))
+              tmuxKillCommand(tmuxLabel(token), tmuxSessionName(token, id), bin))
           } catch { /* pod 已不在 / 无 tmux —— 忽略 */ }
         }
         return sendJson(res, 200, { ok: true })
