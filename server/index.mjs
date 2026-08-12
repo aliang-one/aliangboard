@@ -19,13 +19,13 @@ import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
-import { eventsForResult } from './conv-events.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendTrace, appendMessage, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
 import { maybeSummarize } from './workbench-summarize.mjs'
+import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -1174,119 +1174,8 @@ async function handle(req, res) {
     return { ctx: `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`, resources }
   }
 
-  // checkpoint → paused; done → done + history
-  function handleAgentResult(convId, project, out) {
-    if (out.status === 'pending_approval') {
-      updateConversation(db, convId, {
-        status: 'paused',
-        messages: JSON.stringify(out.messages),
-        queue: JSON.stringify(out.queue),
-        denied: JSON.stringify(out.denied),
-        pendingApproval: JSON.stringify(out.pending),
-        steps: out.steps,
-      })
-    } else {
-      updateConversation(db, convId, {
-        status: 'done', messages: JSON.stringify(out.messages),
-        content: out.content, steps: out.steps,
-      })
-      // T4:多轮核心 —— done 时追加 assistant 消息到 workbench_messages(供下一轮 buildHistory 读取)。
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', trace: JSON.stringify(out.trace || []) })
-      appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
-      appendHistory(db, project.id, 'assistant', out.content || '')
-    }
-  }
-
-  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。
-  // T4:改吃 buildHistory —— 多轮上下文(recap? + 近期全文 messages,末条是新 user 消息)。
-  // 新建对话首条 user 消息由 POST /conversations 在 createConversation 前 append;
-  // 续接对话新 user 消息由 POST /:id/messages append。runConversation 只读不写消息。
-  // 对话终态 → bus 事件序列(pending_approval → paused 不 dispose;done → dispose)。T7。
-  function finalizeConvEmit(convId, out) {
-    const { events, dispose } = eventsForResult(out)
-    for (const evt of events) busEmit(convId, evt)
-    if (dispose) busDispose(convId)
-  }
-
-  // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
-  // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
-  async function runConversation(convId, llmClient) {
-    try {
-      const conv = getConversation(db, convId)
-      if (!conv) return
-      const project = getProject(db, conv.projectId)
-      if (!project) {
-        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
-        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
-        busEmit(convId, { type: 'end' })
-        busDispose(convId)
-        return
-      }
-      busEmit(convId, { type: 'status', status: 'running' })
-      const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx })
-      const k8sSession = buildK8sSession(project.clusterId)
-      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
-      const history = buildHistory(db, conv)
-      const out = await run({
-        system: conv.system,
-        history,
-        refreshSystem,
-        onDelta: text => busEmit(convId, { type: 'delta', text }),
-        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
-      })
-      handleAgentResult(convId, project, out)
-      finalizeConvEmit(convId, out)
-    } catch (err) {
-      updateConversation(db, convId, { status: 'failed', error: err.message })
-      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
-      busEmit(convId, { type: 'end' })
-      busDispose(convId)
-    }
-  }
-
-  // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
-  // T7:全程把事件透到 conv-bus,与 runConversation 对称。
-  async function resumeConversation(convId, approved, llmClient) {
-    try {
-      const conv = getConversation(db, convId)
-      if (!conv) return
-      const project = getProject(db, conv.projectId)
-      if (!project) {
-        updateConversation(db, convId, { status: 'failed', error: '项目不存在' })
-        busEmit(convId, { type: 'status', status: 'failed', error: '项目不存在' })
-        busEmit(convId, { type: 'end' })
-        busDispose(convId)
-        return
-      }
-      updateConversation(db, convId, { status: 'running', pendingApproval: null })
-      busEmit(convId, { type: 'status', status: 'running' })
-      const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx })
-      const k8sSession = buildK8sSession(project.clusterId)
-      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
-      const pending = JSON.parse(conv.pendingApproval)
-      const out = await run({
-        resume: {
-          messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
-          denied: JSON.parse(conv.denied), steps: conv.steps,
-          toolCallId: pending.toolCallId, approved,
-        },
-        refreshSystem,
-        onDelta: text => busEmit(convId, { type: 'delta', text }),
-        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
-      })
-      handleAgentResult(convId, project, out)
-      finalizeConvEmit(convId, out)
-    } catch (err) {
-      updateConversation(db, convId, { status: 'failed', error: err.message })
-      busEmit(convId, { type: 'status', status: 'failed', error: err.message })
-      busEmit(convId, { type: 'end' })
-      busDispose(convId)
-    }
-  }
+  // SP2: agent loop 抽到 workbench-agent.mjs(factory,可单测)。零行为变更。
+  const wbAgent = createWorkbenchAgent({ db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose })
 
   // POST /api/workbench/conversations — 创建对话 + 后台执行(detached)
   if (url.pathname === '/api/workbench/conversations' && req.method === 'POST') {
@@ -1312,7 +1201,7 @@ async function handle(req, res) {
       setActiveConversation(db, input.projectId, conv.id)
       // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
       appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references : null })
-      runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
+      wbAgent.runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
       return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
   }
@@ -1346,7 +1235,7 @@ async function handle(req, res) {
       // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
       updateConversation(db, id, { status: 'running' })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-      runConversation(id, llmClient) // detached — 不 await
+      wbAgent.runConversation(id, llmClient) // detached — 不 await
       maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
       return sendJson(res, 200, { status: 'running' })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '续接失败' }) }
@@ -1412,7 +1301,7 @@ async function handle(req, res) {
     const cfg = getLlmConfig()
     if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
     const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-    resumeConversation(id, true, llmClient) // detached — 不 await
+    wbAgent.resumeConversation(id, true, llmClient) // detached — 不 await
     return sendJson(res, 200, { status: 'running' })
   }
 
@@ -1425,7 +1314,7 @@ async function handle(req, res) {
     const cfg = getLlmConfig()
     if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
     const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-    resumeConversation(id, false, llmClient) // detached — 不 await
+    wbAgent.resumeConversation(id, false, llmClient) // detached — 不 await
     return sendJson(res, 200, { status: 'running' })
   }
 

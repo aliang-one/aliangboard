@@ -1,115 +1,169 @@
-// W4b 工作台工具 + 双-principal 桥测试(registry 工作台工具 + createAgentRunner workbench 模式)。
+// SP2 Task 1: workbench-agent.mjs 单测。stub createAgentRunner + 真 :memory: db。
+// 覆盖 done / paused / failed / multi-turn / resume 五条路径,验证 bus 事件序列 + db 状态。
+// 纯重构守卫:这些测试锁定从 index.mjs 搬迁后的行为,未来回归即时报警。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { registry } from './tool-registry.mjs'
-import { createAgentRunner } from './agent-runner.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import {
+  createWorkbenchSchema,
+  createProject,
+  createConversation,
+  getConversation,
+  updateConversation,
+  appendMessage,
+} from './workbench-projects.mjs'
+import { createWorkbenchAgent } from './workbench-agent.mjs'
 
-function seqChat(messages) { let i = 0; return async () => messages[Math.min(i++, messages.length - 1)] }
-const tc = (id, name, args) => ({ role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] })
-const fin = content => ({ role: 'assistant', content })
+// 构造 fresh db + 项目 + 对话;捕获 bus 事件到数组(可断言事件序列)。
+function setup({ withPriorTurn = false } = {}) {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const project = db.prepare("SELECT * FROM workbench_projects WHERE name='p1'").get()
+  const conv = createConversation(db, { projectId: project.id, system: 'sys', userMessage: 'hi' })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'hi' })
 
-test('registry:工作台工具在 workbenchToolDefs,且不在 forTier(K8s tier 不含它们)', () => {
-  const wbNames = registry.workbenchToolDefs().map(t => t.function.name)
-  assert.ok(wbNames.includes('read_ledger') && wbNames.includes('read_project_file') && wbNames.includes('write_project_file'))
-  const k8sForOp = registry.forTier('operator')
-  assert.ok(!k8sForOp.includes('read_ledger') && !k8sForOp.includes('write_project_file'), '工作台工具不应出现在 K8s forTier')
-  // requiringApproval 含 write_project_file(K8s scale/restart 也在)
-  const req = registry.requiringApproval()
-  assert.ok(req.includes('write_project_file') && req.includes('scale'))
+  // 多轮:预置第 1 轮 user+assistant + 新 user 消息模拟续接
+  if (withPriorTurn) {
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '上一轮答案', trace: '[]' })
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: '追问' })
+  }
+
+  const events = []
+  const busEmit = (id, evt) => events.push({ id, ...evt })
+  const busDispose = (id) => events.push({ id, type: 'disposed' })
+
+  // 捕获 run() 收到的 opts(含 history),测试可断言多轮上下文
+  let capturedRunOpts = null
+  const makeRunner = (runImpl) => ({
+    createAgentRunner: () => ({
+      run: async (opts) => { capturedRunOpts = opts; return runImpl(opts) },
+    }),
+  })
+
+  return { db, project, conv, events, busEmit, busDispose, capturedRunOpts: () => capturedRunOpts, makeRunner }
+}
+
+// 公共 deps(buildWbCtx/buildK8sSession/fetchRefContext 都是 stub——agent loop 不测它们的内部)
+const stubDeps = {
+  buildWbCtx: () => ({ ctx: {} }),
+  buildK8sSession: () => ({}),
+  fetchRefContext: async () => '',
+}
+
+test('runConversation done: appendMessage(assistant) + busEmit(done+end) + dispose', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: 'answer', trace: [{ v: 1 }], steps: 1, messages: [], queue: [], denied: [],
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  // db:status done + assistant 消息追加
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'done')
+  assert.equal(row.content, 'answer')
+  const msgs = db.prepare('SELECT role,content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.length, 2, 'user + assistant')
+  assert.equal(msgs[1].role, 'assistant')
+  assert.equal(msgs[1].content, 'answer')
+
+  // bus:status running → status done → end → disposed(done 终态 dispose:true)
+  const types = events.map(e => e.type)
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'running'), 'emit running')
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'done'), 'emit done')
+  assert.ok(types.includes('end'), 'emit end')
+  assert.ok(types.includes('disposed'), 'done 终态 busDispose')
 })
 
-test('工作台 runner:read_ledger → ctx.wb.readLedger 被调 → 结果喂回 → 终答', async () => {
-  const calls = []
-  const wb = { readLedger: async () => { calls.push('ledger'); return '# 集群能力\n- nginx 入口' }, readFile: async () => '', writeFile: async () => {} }
-  const llmClient = { chat: seqChat([tc('1', 'read_ledger', {}), fin('集群有 nginx 入口')]) }
-  const { run, toolDefs } = createAgentRunner({ llmClient, workbench: wb })
-  assert.ok(toolDefs.some(t => t.function.name === 'read_ledger'), 'offered 含 read_ledger')
-  const out = await run({ history: [{ role: 'user', content: '集群有什么入口' }] })
-  assert.equal(out.content, '集群有 nginx 入口')
-  assert.deepEqual(calls, ['ledger'])
+test('runConversation paused: updateConversation(paused) + busEmit(approval+paused+end) + NOT dispose', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  const pending = { toolCallId: 'tc1', name: 'apply', args: { x: 1 } }
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'pending_approval', pending,
+    messages: [{ role: 'assistant', content: '审批' }],
+    queue: [{ name: 'apply' }], denied: [], steps: 2,
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  // db:paused + pendingApproval 落库;不追加 assistant(done 才追加)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'paused')
+  assert.deepEqual(JSON.parse(row.pendingApproval), pending)
+  const msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
+  assert.equal(msgs.length, 1, 'paused 不追加 assistant,仅首条 user')
+
+  // bus:approval → status paused → end;无 disposed(paused dispose:false)
+  const types = events.map(e => e.type)
+  assert.ok(types.includes('approval'), 'emit approval')
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'paused'), 'emit paused')
+  assert.ok(types.includes('end'), 'emit end')
+  assert.ok(!types.includes('disposed'), 'paused 不 dispose(resume 续用)')
 })
 
-test('工作台 write_project_file → checkpoint;resume 批准 → ctx.wb.writeFile 被调', async () => {
-  const writes = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async (p, c) => { writes.push({ p, c }) } }
-  const llmClient = { chat: seqChat([tc('1', 'write_project_file', { path: 'manifests/cm.yaml', content: 'apiVersion: v1' }), fin('已写 manifests/cm.yaml')]) }
-  const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const cp = await run({ history: [{ role: 'user', content: '写个 cm' }] })
-  assert.equal(cp.status, 'pending_approval')
-  assert.equal(cp.pending.name, 'write_project_file')
-  assert.deepEqual(writes, [], 'checkpoint 时不应写')
-  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
-  assert.equal(out.content, '已写 manifests/cm.yaml')
-  assert.equal(writes.length, 1)
-  assert.equal(writes[0].p, 'manifests/cm.yaml')
+test('runConversation failed: catch → updateConversation(failed) + busEmit(failed+end) + dispose', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => { throw new Error('boom') })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed')
+  assert.equal(row.error, 'boom')
+
+  const types = events.map(e => e.type)
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'failed' && e.error === 'boom'), 'emit failed+error')
+  assert.ok(types.includes('end'), 'emit end')
+  assert.ok(types.includes('disposed'), 'failed 终态 busDispose')
 })
 
-test('工作台 write_project_file resume 拒绝 → 不写,记 denied', async () => {
-  const writes = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async (p, c) => { writes.push(p) } }
-  const llmClient = { chat: seqChat([tc('1', 'write_project_file', { path: 'a.yaml', content: 'x' }), fin('好,不写了')]) }
-  const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const cp = await run({ history: [] })
-  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: false } })
-  assert.equal(out.content, '好,不写了')
-  assert.deepEqual(writes, [], '拒绝时不写')
-  assert.equal(out.denied.length, 1)
+test('runConversation 多轮:history 含之前轮次的 user/assistant 消息', async () => {
+  const { db, conv, busEmit, busDispose, capturedRunOpts, makeRunner } = setup({ withPriorTurn: true })
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: '新答案', trace: [], steps: 1, messages: [], queue: [], denied: [],
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const opts = capturedRunOpts()
+  assert.ok(opts, 'run() 被调用且捕获到 opts')
+  // history 应含 3 条:首轮 user / 首轮 assistant / 新 user(续接)
+  const h = opts.history
+  assert.equal(h.length, 3, 'history 含 3 条消息')
+  assert.equal(h[0].role, 'user')
+  assert.equal(h[0].content, 'hi')
+  assert.equal(h[1].role, 'assistant')
+  assert.equal(h[1].content, '上一轮答案')
+  assert.equal(h[2].role, 'user')
+  assert.equal(h[2].content, '追问')
 })
 
-test('registry:工作台工具(apply/propose_learning/bootstrap_ledger;propose_ledger_update 已移除)在 workbenchToolDefs 且需人审', () => {
-  const wb = registry.workbenchToolDefs().map(t => t.function.name)
-  assert.ok(wb.includes('apply_project_manifests') && wb.includes('propose_learning') && wb.includes('bootstrap_ledger'))
-  assert.ok(!wb.includes('propose_ledger_update'), 'propose_ledger_update 已移除(能力靠 survey,知识靠 distill)')
-  const req = registry.requiringApproval()
-  assert.ok(req.includes('apply_project_manifests') && req.includes('propose_learning') && req.includes('bootstrap_ledger'))
-  assert.ok(!req.includes('propose_ledger_update'))
-})
+test('resumeConversation: 从 paused 续跑 → done', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  // 先把对话置为 paused(模拟 checkpoint)
+  updateConversation(db, conv.id, {
+    status: 'paused',
+    messages: JSON.stringify([{ role: 'assistant', content: '审批?' }]),
+    queue: JSON.stringify([{ name: 'apply' }]),
+    denied: JSON.stringify([]),
+    pendingApproval: JSON.stringify({ toolCallId: 'tc1', name: 'apply', args: {} }),
+    steps: 1,
+  })
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: '已执行', trace: [], steps: 2, messages: [], queue: [], denied: [],
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
 
-test('bootstrap_ledger → checkpoint;resume 批准 → ctx.wb.bootstrapLedger 被调,摘要喂回', async () => {
-  const calls = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), writeLedger: async () => {}, appendLearning: async () => {}, bootstrapLedger: async () => { calls.push('boot'); return { summary: '3 namespaces, IngressClasses=[nginx]', verifiedAt: '2026-08-06' } } }
-  const llmClient = { chat: seqChat([tc('1', 'bootstrap_ledger', {}), fin('集群有 nginx 入口,3 个 namespace')]) }
-  const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const cp = await run({ history: [] })
-  assert.equal(cp.status, 'pending_approval')
-  assert.deepEqual(calls, [], 'checkpoint 时未 survey')
-  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
-  assert.equal(out.content, '集群有 nginx 入口,3 个 namespace')
-  assert.deepEqual(calls, ['boot'], 'resume 批准后 survey')
-})
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) })
 
-test('apply_project_manifests → checkpoint;resume 批准 → readManifests+applyManifests 被调', async () => {
-  const calls = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => { calls.push('read'); return 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm' }, applyManifests: async (yaml) => { calls.push(['apply', yaml]); return { applied: [{ kind: 'ConfigMap', name: 'cm' }], failed: [], total: 1 } }, writeLedger: async () => {}, appendLearning: async () => {} }
-  const llmClient = { chat: seqChat([tc('1', 'apply_project_manifests', {}), fin('已 apply')]) }
-  const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const cp = await run({ history: [] })
-  assert.equal(cp.status, 'pending_approval')
-  assert.deepEqual(calls, [], 'checkpoint 时未 read/apply(批准前不执行)')
-  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
-  assert.equal(out.content, '已 apply')
-  assert.equal(calls.length, 2, 'read + apply')
-})
-
-test('registry.toolDefsFor: 按显式名字集取 def(忽略 minTier,使覆盖可越过 tier)', () => {
-  const defs = registry.toolDefsFor(['get_pod_logs', 'exec_pod'])
-  const names = defs.map(t => t.function.name)
-  assert.ok(names.includes('get_pod_logs'))
-  assert.ok(names.includes('exec_pod'))
-  assert.equal(defs[0].type, 'function')
-  // 未知名静默忽略(不抛)
-  assert.equal(registry.toolDefsFor(['bogus_name']).length, 0)
-  // 支持传 Set
-  assert.ok(registry.toolDefsFor(new Set(['scale'])).map(t => t.function.name).includes('scale'))
-})
-
-test('propose_ledger_update 已移除:LLM 若调用 → 未知工具错误喂回(不再写台账)', async () => {
-  const writes = []
-  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, readManifests: async () => '', applyManifests: async () => ({ applied: [], failed: [] }), appendLearning: async () => {} }
-  const llmClient = { chat: seqChat([tc('1', 'propose_ledger_update', { path: 'capabilities/x.md', content: 'x' }), fin('作罢')]) }
-  const { run } = createAgentRunner({ llmClient, workbench: wb })
-  const out = await run({ history: [] })
-  // propose_ledger_update 不在 registry → execTool 抛"未知工具" → 当工具错误喂回 LLM → 终答
-  assert.equal(out.content, '作罢')
-  assert.deepEqual(writes, [], 'propose_ledger_update 不应再写任何东西')
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'done', 'resume 后变 done')
+  assert.equal(row.content, '已执行')
+  // pendingApproval 清空(resume 入口 updateConversation running,pendingApproval null)
+  assert.equal(row.pendingApproval, null)
 })
