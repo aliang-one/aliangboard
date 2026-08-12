@@ -28,6 +28,7 @@ import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
+import { WORKBENCH_SYSTEM_PROMPT } from './workbench-prompt.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
@@ -1068,7 +1069,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+          const system = WORKBENCH_SYSTEM_PROMPT
 
           // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
           let messageContent = String(input.message)
