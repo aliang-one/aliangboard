@@ -1,0 +1,223 @@
+// 工作台项目 CRUD + 搜索 + 台账 + 蒸馏 + reconcile HTTP 端点从 server/index.mjs 抽出。
+// handler/dispatcher 模式。零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
+import { join } from 'node:path'
+import {
+  listProjects, createProject, getProject,
+  getLastReconcile, getPendingDistill, clearPendingDistill,
+  getActiveConversationId,
+} from '../workbench-projects.mjs'
+import {
+  initRepo, hasRepo, writeFile as wbWriteFile,
+  readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit,
+  recentCommits as wbRecentCommits, readManifests as wbReadManifests,
+} from '../workbench-repos.mjs'
+import { verifiedAt } from '../workbench-ledger.mjs'
+import { runDistill } from '../distill.mjs'
+import { reconcileProject } from '../reconcile.mjs'
+
+export function createWorkbenchProjectRoutes(deps) {
+  const {
+    db, sendJson, readBody, requirePlatform, requireAdmin,
+    WORKBENCH_DIR, getLlmConfig, createLlmClient,
+    buildCallContext, requestKubernetes, applyYamlPartial,
+    bootstrapLedgerForCluster,
+  } = deps
+
+  // 匹配工作台非对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
+  async function handle(req, res, url) {
+    // ====== 项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
+    if (url.pathname.startsWith('/api/workbench/projects')) {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
+      // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
+      const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
+      const id = seg[0]
+
+      if (!id) {
+        // 列表 / 创建
+        if (req.method === 'GET') {
+          const projects = listProjects(db, { userId: ps.userId, role: ps.role }).map(p => ({ ...p, clusterName: clusterNameOf(p.clusterId) }))
+          sendJson(res, 200, { projects }); return true
+        }
+        if (req.method === 'POST') {
+          try {
+            const input = await readBody(req)
+            if (!input.name || !input.clusterId) { sendJson(res, 400, { message: '缺 name / clusterId' }); return true }
+            if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: '集群不存在' }); return true }
+            const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
+            const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+            await initRepo(repo)
+            await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
+            await wbCommit(repo, `初始化项目 ${p.name}`)
+            sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) } })
+            return true
+          } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '创建失败' }); return true }
+        }
+        sendJson(res, 405, { message: 'method not allowed' }); return true
+      }
+
+      // 以下均需项目 + ownership
+      const p = getProject(db, id)
+      if (!p) { sendJson(res, 404, { message: '项目不存在' }); return true }
+      if (p.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问该项目' }); return true }
+      const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+
+      // 详情:文件树 + 最近提交
+      if (req.method === 'GET' && seg.length === 1) {
+        let files = [], commits = []
+        try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
+        sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
+        return true
+      }
+
+      // 文件读写 :id/files/<path>
+      if (seg[1] === 'files') {
+        const relPath = decodeURIComponent(seg.slice(2).join('/'))
+        if (!relPath) { sendJson(res, 400, { message: '缺文件路径' }); return true }
+        try {
+          if (req.method === 'GET') { sendJson(res, 200, { path: relPath, content: await wbReadFile(repo, relPath) }); return true }
+          if (req.method === 'PUT') {
+            const input = await readBody(req)
+            await wbWriteFile(repo, relPath, input.content ?? '') // wbWriteFile 内置路径禁闭
+            sendJson(res, 200, { ok: true }); return true
+          }
+        } catch (e) { sendJson(res, 400, { message: e?.message || '文件操作失败' }); return true }
+        sendJson(res, 405, { message: 'method not allowed' }); return true
+      }
+
+      // 提交 :id/commit
+      if (seg[1] === 'commit' && req.method === 'POST') {
+        try {
+          const input = await readBody(req)
+          const r = await wbCommit(repo, input.message || 'update')
+          sendJson(res, 200, r)
+          return true
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '提交失败' }); return true }
+      }
+
+      // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
+      if (seg[1] === 'reconcile' && req.method === 'POST') {
+        try {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+          if (!cluster) { sendJson(res, 404, { message: '项目绑定的集群不存在' }); return true }
+          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+          sendJson(res, 200, r)
+          return true
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || 'reconcile 失败' }); return true }
+      }
+
+      sendJson(res, 404, { message: '未知的工作台路由' })
+      return true
+    }
+
+    // ====== 项目集群资源搜索(P3 @-mention)。GET /api/workbench/search?projectId=X&kind=pod&q=nginx ======
+    if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const projectId = url.searchParams.get('projectId')
+      const kind = url.searchParams.get('kind') || 'pods'
+      const q = (url.searchParams.get('q') || '').toLowerCase()
+      if (!projectId) { sendJson(res, 400, { message: '缺 projectId' }); return true }
+      const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
+      if (!p) { sendJson(res, 404, { message: '项目不存在' }); return true }
+      if (!p.clusterId) { sendJson(res, 400, { message: '项目未绑定集群' }); return true }
+      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
+      if (!cluster) { sendJson(res, 404, { message: '项目绑定的集群不存在' }); return true }
+
+      // kind → K8s list path
+      const KIND_PATH = {
+        pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps',
+        secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
+        deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
+        ingresses: '/apis/networking.k8s.io/v1/ingresses',
+      }
+      const listPath = KIND_PATH[kind]
+      if (!listPath) { sendJson(res, 400, { message: '不支持的 kind: ' + kind }); return true }
+
+      try {
+        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+        const resp = await requestKubernetes(k8sSession, listPath)
+        const items = (resp?.body?.items || []).map(it => ({
+          name: it.metadata?.name || '',
+          namespace: it.metadata?.namespace || '',
+          kind,
+        }))
+        const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
+        sendJson(res, 200, { items: filtered.slice(0, 50) })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '搜索失败' }); return true }
+    }
+
+    // ====== 集群台账(W3)。cluster-context repo,每集群一份。======
+    if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const clusterId = url.searchParams.get('clusterId')
+      if (!clusterId) { sendJson(res, 400, { message: '缺 clusterId' }); return true }
+      const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
+      let files = [], index = null, learnings = null
+      if (await hasRepo(repo)) {
+        files = await wbListFiles(repo)
+        try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
+        try { learnings = await wbReadFile(repo, 'learnings.md') } catch { learnings = null }
+      }
+      sendJson(res, 200, { exists: !!index, files, index, learnings, pending: getPendingDistill(db, clusterId) })
+      return true
+    }
+    if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        const r = await bootstrapLedgerForCluster(cluster)
+        sendJson(res, 200, { index: r.index, files: r.files })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }); return true }
+    }
+
+    // ====== 台账 distill(D2,自我学习;admin)======
+    if (url.pathname === '/api/workbench/distill' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        const cfg = getLlmConfig()
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: 'LLM 未配置(蒸馏需要 LLM)' }); return true }
+        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+        const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
+        sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }); return true }
+    }
+    if (url.pathname === '/api/workbench/distill/apply' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
+        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
+        if (!(await hasRepo(repo))) await initRepo(repo)
+        await wbWriteFile(repo, 'learnings.md', input.learnings || '')
+        await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
+        clearPendingDistill(db, input.clusterId)
+        sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '应用失败' }); return true }
+    }
+    if (url.pathname === '/api/workbench/distill/dismiss' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        clearPendingDistill(db, input.clusterId)
+        sendJson(res, 200, { ok: true })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || '失败' }); return true }
+    }
+
+    return false // 无匹配
+  }
+
+  return { handle }
+}
