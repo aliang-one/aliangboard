@@ -4,6 +4,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
+// vi.mock 被 vitest 提升(hoist)到文件顶部,普通 const 在 mock 工厂内不可见;
+// 用 vi.hoisted 让 mock 工厂能引用同一个 spy(RBAC 测试要断言调用次数)。
+const { checkAccessMock } = vi.hoisted(() => ({ checkAccessMock: vi.fn(async () => ({ allowed: true })) }))
+
 vi.mock('@/api/client', () => ({
   api: {
     ingressControllers: {
@@ -11,13 +15,14 @@ vi.mock('@/api/client', () => ({
         { id: 'nginx-ingress', labelKey: 'ingressController.nginx-ingress.label', version: 'v1', variant: 'bare-metal', controller: 'k8s.io/ingress-nginx', defaultClassName: 'nginx' },
       ] })),
       manifest: vi.fn(async () => ({ yaml: 'apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: nginx\n' })),
-      applyYaml: vi.fn(async () => ({ applied: [], failed: [], total: 0 })),
     },
+    // Task 5:组件直接调 api.applyYaml(顶层),不走 ingressControllers.applyYaml。
+    applyYaml: vi.fn(async () => ({ applied: [], failed: [], total: 0 })),
     k8s: vi.fn(async () => ({ status: { allowed: true } })),
   },
 }))
 vi.mock('@/stores/cluster', () => ({
-  useClusterStore: () => ({ currentCluster: 'demo', checkAccessServer: vi.fn(async () => ({ allowed: true })) }),
+  useClusterStore: () => ({ currentCluster: 'demo', checkAccessServer: checkAccessMock }),
 }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () => ({ push: () => {} }) }))
 
@@ -56,3 +61,34 @@ test('选控制器后载入清单到编辑器(props.manifest 调用一次)', asy
   await flushPromises()
   expect(api.ingressControllers.manifest).toHaveBeenCalledWith('nginx-ingress')
 })
+
+// ===== Task 5: RBAC 预检 + apply 进度 + applied emit =====
+// 注:Task 6 才补 ingressController.* i18n 键,故此处不断言翻译文案(会拿到回退的原始 key 路径),
+// 改用稳定的 testid + mock 调用次数断言。
+
+test('RBAC 预检: 选控制器后自动跑 9 次 SelfSubjectAccessReview 并渲染 testid', async () => {
+  checkAccessMock.mockClear()
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()   // pick → checkRbac 完成
+  // REQUIRED_RBAC 9 项 cluster-scoped 资源,verb=create, namespace=''
+  expect(checkAccessMock).toHaveBeenCalledTimes(9)
+  // 预检结果块渲染(i18n 未翻译时显示原始 key 路径,testid 仍稳定)
+  expect(w.find('[data-testid="rbac-check"]').exists()).toBe(true)
+})
+
+test('apply: 回 applied/failed/total,有成功则 emit applied + 进度摘要', async () => {
+  const { api } = await import('@/api/client')
+  api.applyYaml = vi.fn(async () => ({ applied: [{ kind: 'Namespace', name: 'x' }], failed: [], total: 1 }))
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(api.applyYaml).toHaveBeenCalled()
+  expect(w.emitted().applied).toBeTruthy()
+  expect(w.text()).toContain('1/1')   // 进度摘要(非 i18n)
+})
+
