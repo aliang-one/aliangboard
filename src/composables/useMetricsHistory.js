@@ -6,11 +6,13 @@ export function toMilli(q) {
   if (q == null) return 0
   if (typeof q === 'number') return q
   const s = String(q)
-  if (s.endsWith('n')) return Number(s.slice(0, -1)) / 1e6   // nanocores → m(保留亚毫核精度,避免 round 到 0;显示侧再格式化)
-  if (s.endsWith('u')) return Number(s.slice(0, -1)) / 1e3   // microcores → m
-  if (s.endsWith('m')) return parseInt(s) || 0
-  const n = parseFloat(s)
-  return isNaN(n) ? 0 : Math.round(n * 1000)
+  let m
+  if (s.endsWith('n')) m = Number(s.slice(0, -1)) / 1e6          // nanocores → m
+  else if (s.endsWith('u')) m = Number(s.slice(0, -1)) / 1e3     // microcores → m
+  else if (s.endsWith('m')) m = Number(s.slice(0, -1)) || 0      // millicores
+  else { const n = parseFloat(s); m = isNaN(n) ? 0 : n * 1000 }  // cores → m
+  // 标准整数毫核(1000m=1 核),对齐 kubectl top:非零用量至少显示 1m,避免 0.02m 被 round 抹成 0m
+  return m > 0 ? Math.max(1, Math.round(m)) : 0
 }
 export function toMi(q) {
   if (q == null) return 0
