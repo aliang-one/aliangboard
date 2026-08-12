@@ -44,6 +44,7 @@ async function toggleNode(path) {
 
 provide('fileExplorer', {
   selected, isExpanded, isLoading, childrenOf, selectNode, toggleNode,
+  listDir: (path, opts) => files.listDir(ctx.value, path, opts),
   readFile: (path, opts) => files.readFile(ctx.value, path, opts),
   writeFile: (path, bytes) => files.writeFile(ctx.value, path, bytes),
   download: (path) => files.download(ctx.value, path),

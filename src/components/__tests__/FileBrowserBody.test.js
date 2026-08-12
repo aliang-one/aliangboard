@@ -23,8 +23,11 @@ beforeEach(() => {
 afterEach(() => { if (_ls) globalThis.localStorage = _ls })
 import FileBrowserBody from '../common/FileBrowserBody.vue'
 
-test('FileBrowserBody: 挂载加载根；点文件→FilePreview；点文件夹→FolderPreview', async () => {
-  podFileApi.list.mockResolvedValue({ entries: [{ name: 'app', type: 'dir' }, { name: 'readme.md', type: 'file' }] })
+test('FileBrowserBody: 挂载加载根；点文件→FilePreview；点文件夹→FolderPreview 并加载其内容', async () => {
+  podFileApi.list.mockImplementation(({ path }) => {
+    if (path === '/app') return Promise.resolve({ entries: [{ name: 'inner.go', type: 'file' }] })
+    return Promise.resolve({ entries: [{ name: 'app', type: 'dir' }, { name: 'readme.md', type: 'file' }] })
+  })
   podFileApi.read.mockResolvedValue({ path: '/readme.md', content: '# hi', truncated: false, binary: false })
   const w = mount(FileBrowserBody, { props: { namespace: 'ns', pod: 'p', container: 'c' }, global: { plugins: [i18n] } })
   await flushPromises()
@@ -35,11 +38,12 @@ test('FileBrowserBody: 挂载加载根；点文件→FilePreview；点文件夹�
   await fileRow.trigger('click')
   await flushPromises()
   expect(podFileApi.read).toHaveBeenCalledWith(expect.objectContaining({ path: '/readme.md' }))
-  // 点文件夹
+  // 点文件夹 → FolderPreview 必须加载并渲染该目录的子条目(回归 guard:选中未缓存目录不再显示空)
   const dirRow = w.findAll('.fb-row').filter(r => r.text().includes('app'))[0]
   await dirRow.trigger('click')
   await flushPromises()
-  expect(w.text()).toContain('app') // FolderPreview 头部仍含路径
+  expect(podFileApi.list).toHaveBeenCalledWith(expect.objectContaining({ path: '/app' }))
+  expect(w.text()).toContain('inner.go') // /app 子条目在右栏渲染
 })
 
 test('FileBrowserBody: toggleNode 展开→懒加载子并渲染；折叠→不重复 list', async () => {
