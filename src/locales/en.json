@@ -262,6 +262,11 @@
       "label": "NGINX Ingress",
       "desc": "Community ingress-nginx, bare-metal NodePort",
       "notes": "IngressClass=nginx appears in dropdowns after install"
+    },
+    "haproxy": {
+      "label": "HAProxy Ingress",
+      "desc": "Community haproxy-ingress, RBAC + namespace example install",
+      "notes": "Official recommends Helm; this is the raw-manifest path, IngressClass=haproxy"
     }
   },
   "nav": {

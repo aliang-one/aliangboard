@@ -1,0 +1,158 @@
+# Source (verbatim): https://raw.githubusercontent.com/jcmoraisjr/haproxy-ingress/master/examples/rbac/ingress-controller-rbac.yml
+# This is the official haproxy-ingress RBAC example (Namespace + SA + ClusterRole/Role + Bindings).
+# The project's getting-started guide recommends Helm; this raw-manifest path is the official example-based install.
+# Appended below: IngressClass (haproxy-ingress's RBAC manifest does not include one).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-controller
+  namespace: ingress-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-controller
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - endpoints
+      - nodes
+      - pods
+      - secrets
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingressclasses
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingress-controller
+  namespace: ingress-controller
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - pods
+      - secrets
+      - namespaces
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - create
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-controller
+subjects:
+  - kind: ServiceAccount
+    name: ingress-controller
+    namespace: ingress-controller
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ingress-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingress-controller
+  namespace: ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ingress-controller
+subjects:
+  - kind: ServiceAccount
+    name: ingress-controller
+    namespace: ingress-controller
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ingress-controller
+---
+# IngressClass (appended; official RBAC manifest does not include one).
+# haproxy-ingress watches IngressClass with spec.controller = haproxy-ingress.github.io/controller
+# per --controller-class default (v0.12+), see command-line docs.
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: haproxy
+spec:
+  controller: haproxy-ingress.github.io/controller

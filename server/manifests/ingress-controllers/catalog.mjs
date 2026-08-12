@@ -14,6 +14,18 @@ export const INGRESS_CONTROLLER_TEMPLATES = [
     defaultClassName: 'nginx',
     file: 'nginx-ingress.yaml',
   },
+  {
+    id: 'haproxy',
+    labelKey: 'ingressController.haproxy.label',
+    descKey: 'ingressController.haproxy.desc',
+    notesKey: 'ingressController.haproxy.notes',
+    version: 'master',                              // examples/rbac 无 release tag,跟踪 master
+    source: 'https://raw.githubusercontent.com/jcmoraisjr/haproxy-ingress/master/examples/rbac/ingress-controller-rbac.yml',
+    variant: 'RBAC + namespace (示例式安装)',
+    controller: 'haproxy-ingress.github.io/controller',  // 必须 = 清单 IngressClass.spec.controller (--controller-class 默认)
+    defaultClassName: 'haproxy',
+    file: 'haproxy.yaml',
+  },
 ]
 
 export function findControllerTemplate(id) {

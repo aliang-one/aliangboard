@@ -262,6 +262,11 @@
       "label": "NGINX Ingress",
       "desc": "社区 ingress-nginx,bare-metal NodePort 变体",
       "notes": "装完 IngressClass=nginx 出现在下拉"
+    },
+    "haproxy": {
+      "label": "HAProxy Ingress",
+      "desc": "社区 haproxy-ingress,RBAC + namespace 示例式安装",
+      "notes": "官方推荐 Helm;此为原始清单路径,IngressClass=haproxy"
     }
   },
   "nav": {
