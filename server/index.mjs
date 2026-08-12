@@ -1337,7 +1337,7 @@ async function handle(req, res) {
       const cleanMessage = String(input.message ?? '')
       appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references : null })
       // 2) @-ref 资源拉取 → 拼进刚 append 的 user 消息 content(buildHistory 读 content → agent 可见)
-      const { ctx: refsCtx } = await buildRefsContext(project, input.references)
+      const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
       if (refsCtx) {
         const maxSeq = getMaxSeq(db, id)
         db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
@@ -1348,7 +1348,7 @@ async function handle(req, res) {
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       runConversation(id, llmClient) // detached — 不 await
       maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
-      return sendJson(res, 200, { status: 'running' })
+      return sendJson(res, 200, { status: 'running', references: fetchedResources })
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '续接失败' }) }
   }
 
@@ -1383,6 +1383,16 @@ async function handle(req, res) {
     })
     const send = (evt) => { try { res.write('data: ' + JSON.stringify(evt) + '\n\n') } catch { /* 客户端已断 */ } }
     send({ type: 'hello', convId: id, status: conv.status })
+    // 连上时已 paused:approval 事件可能在 SSE 建连前 emit 丢失,补推当前 pendingApproval(治审批不弹)
+    if (conv.status === 'paused') {
+      let pa = null
+      try { pa = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch {}
+      if (pa) send({ type: 'approval', pending: pa })
+      send({ type: 'status', status: 'paused' })
+      send({ type: 'end' })
+      res.end()
+      return
+    }
     if (conv.status === 'done' || conv.status === 'failed') {
       send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
       send({ type: 'end' })

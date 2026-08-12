@@ -364,9 +364,13 @@ async function send() {
     // 无则 POST /conversations 新建并通知父级刷新列表。
     // feature LLM 硬化:startStreaming(EventSource SSE)为 主路径;es.onerror 降级到 pollOnce + startPolling 兜底。
     if (props.activeConversationId) {
-      await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
+      const { references } = await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
+      if (Array.isArray(references) && references.length) {
+        const ut = turns.value.find(x => x._id === userId)
+        if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+      }
       startStreaming(props.activeConversationId)
     } else {
       const { id, references } = await workbenchApi.conversations.create(payload)
