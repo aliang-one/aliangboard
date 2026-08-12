@@ -42,7 +42,8 @@
     "copy": "Copy",
     "copySuccess": "Copied",
     "copyFailed": "Failed to copy",
-    "applyFailed": "Apply failed"
+    "applyFailed": "Apply failed",
+    "applying": "Applying…"
   },
   "api": {
     "requestFailed": "Request failed: HTTP {status}",
@@ -249,6 +250,18 @@
       "thType": "Type",
       "thReplicas": "Replicas",
       "thImage": "Image"
+    }
+  },
+  "ingressController": {
+    "deployBtn": "Deploy Controller",
+    "dialogTitle": "Deploy Ingress Controller",
+    "deploy": "Deploy",
+    "rbacOk": "RBAC precheck passed",
+    "rbacMissing": "Gateway token lacks create on (apply may 403 on these)",
+    "nginx-ingress": {
+      "label": "NGINX Ingress",
+      "desc": "Community ingress-nginx, bare-metal NodePort",
+      "notes": "IngressClass=nginx appears in dropdowns after install"
     }
   },
   "nav": {

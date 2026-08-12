@@ -42,7 +42,8 @@
     "copy": "复制",
     "copySuccess": "已复制",
     "copyFailed": "复制失败",
-    "applyFailed": "应用失败"
+    "applyFailed": "应用失败",
+    "applying": "应用中…"
   },
   "api": {
     "requestFailed": "请求失败：HTTP {status}",
@@ -249,6 +250,18 @@
       "thType": "类型",
       "thReplicas": "副本",
       "thImage": "镜像"
+    }
+  },
+  "ingressController": {
+    "deployBtn": "部署控制器",
+    "dialogTitle": "部署 Ingress 控制器",
+    "deploy": "部署",
+    "rbacOk": "RBAC 预检通过",
+    "rbacMissing": "网关 token 缺少以下 create 权限(继续可能在对应资源 403)",
+    "nginx-ingress": {
+      "label": "NGINX Ingress",
+      "desc": "社区 ingress-nginx,bare-metal NodePort 变体",
+      "notes": "装完 IngressClass=nginx 出现在下拉"
     }
   },
   "nav": {
