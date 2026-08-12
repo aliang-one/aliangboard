@@ -337,6 +337,7 @@
     "recentEvents": "最近事件",
     "metricsUnavailable": "指标不可用",
     "metricsUnavailableHint": "集群未安装 metrics-server 或当前凭证无 metrics 读取权限",
+    "liveWindow": "会话内 · 最近 5min",
     "nodePressureHint": "节点存在压力条件（Disk/Memory/PID）",
     "showMoreEvents": "显示更多事件",
     "ready": "Ready",
