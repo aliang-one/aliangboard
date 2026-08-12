@@ -33,26 +33,26 @@ export function isTmuxPresent(probeResult) {
   return !!out && Buffer.isBuffer(out) && out.toString('utf8').trim().length > 0
 }
 
-export function tmuxKillCommand(label, name) {
-  return ['tmux', '-L', label, 'kill-session', '-t', name]
+export function tmuxKillCommand(label, name, tmuxBin = 'tmux') {
+  return [tmuxBin, '-L', label, 'kill-session', '-t', name]
 }
 
 // -A = attach if session exists, else create. shell array is spread after `--`.
-export function tmuxAttachCommand({ label, name, cols, rows, shell }) {
-  return ['tmux', '-L', label, 'new-session', '-A', '-s', name,
+export function tmuxAttachCommand({ tmuxBin = 'tmux', label, name, cols, rows, shell }) {
+  return [tmuxBin, '-L', label, 'new-session', '-A', '-s', name,
     '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])]
 }
 
 // Decide the exec command + persistence flag for a connect.
 // command is the array the frontend chose (e.g. ['sh']); returned command is what K8s exec runs.
-export function planExec({ mode, tmuxPresent, sid, token, cols, rows, command }) {
+export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', sid, token, cols, rows, command }) {
   if (mode === 'attach') return { persistent: false, kind: 'attach', command }
   if (!tmuxPresent) return { persistent: false, kind: 'ephemeral', command }
   if (!sid) return { persistent: false, kind: 'ephemeral', command }
   return {
     persistent: true,
     kind: 'tmux',
-    command: tmuxAttachCommand({ label: tmuxLabel(token), name: tmuxSessionName(token, sid), cols, rows, shell: command }),
+    command: tmuxAttachCommand({ tmuxBin, label: tmuxLabel(token), name: tmuxSessionName(token, sid), cols, rows, shell: command }),
   }
 }
 
@@ -66,17 +66,30 @@ export function pickStaleSids(now, tracker, ttlMs) {
 }
 
 // capture-pane: -e 保留 ANSI/颜色; -p 输出到 stdout; -S -lines 抓 viewport 上方 lines 行历史。
-export function tmuxCaptureCommand(label, name, lines) {
-  return ['tmux', '-L', label, 'capture-pane', '-e', '-p', '-S', String(-Math.max(1, lines)), '-t', name]
+export function tmuxCaptureCommand(label, name, lines, tmuxBin = 'tmux') {
+  return [tmuxBin, '-L', label, 'capture-pane', '-e', '-p', '-S', String(-Math.max(1, lines)), '-t', name]
 }
 
 // attach-session 到「已存在」的会话(不带 -A / 不新建)。重连回放后续接实时流用。
-export function tmuxAttachOnlyCommand(label, name) {
-  return ['tmux', '-L', label, 'attach-session', '-t', name]
+export function tmuxAttachOnlyCommand(label, name, tmuxBin = 'tmux') {
+  return [tmuxBin, '-L', label, 'attach-session', '-t', name]
 }
 
 // capture 兼任存在性探测(execCapture 不返回退出码):stdout 非空 ⇒ 会话有历史(重连)。
 export function hasHistoryFromCapture(captureResult) {
   const out = captureResult?.stdout
   return !!out && Buffer.isBuffer(out) && out.toString('utf8').trim().length > 0
+}
+
+// Map `uname -m` output to our bundled arch, or null if unsupported.
+export function archFromUname(unameOutput) {
+  const s = String(unameOutput || '').trim().toLowerCase()
+  if (s === 'x86_64' || s === 'amd64') return 'amd64'
+  if (s === 'aarch64' || s === 'arm64') return 'arm64'
+  return null
+}
+
+// Writable+exec candidate dests for the injected binary (prefer /dev/shm — survives RO rootfs).
+export function injectDestCandidates(arch) {
+  return [`/dev/shm/.ab-tmux-${arch}`, `/tmp/.ab-tmux-${arch}`]
 }

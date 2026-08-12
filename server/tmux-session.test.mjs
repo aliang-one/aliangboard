@@ -5,6 +5,7 @@ import {
   tmuxProbeCommand, isTmuxPresent, tmuxKillCommand, tmuxAttachCommand,
   planExec, pickStaleSids,
   tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture,
+  archFromUname, injectDestCandidates,
 } from './tmux-session.mjs'
 
 test('hashToken: first 8 hex of sha256, stable', () => {
@@ -106,4 +107,35 @@ test('hasHistoryFromCapture: true iff stdout is a non-empty trimmed Buffer', () 
   assert.equal(hasHistoryFromCapture({ stdout: 'not-a-buffer' }), false, 'non-Buffer stdout → false')
   assert.equal(hasHistoryFromCapture({}), false)
   assert.equal(hasHistoryFromCapture(null), false)
+})
+
+test('archFromUname: x86_64/amd64 → amd64; aarch64/arm64 → arm64; else null', () => {
+  assert.equal(archFromUname('x86_64'), 'amd64')
+  assert.equal(archFromUname('AMD64'), 'amd64')
+  assert.equal(archFromUname('aarch64'), 'arm64')
+  assert.equal(archFromUname('arm64\n'), 'arm64')
+  assert.equal(archFromUname('armv7l'), null)
+  assert.equal(archFromUname('s390x'), null)
+  assert.equal(archFromUname(''), null)
+  assert.equal(archFromUname(null), null)
+})
+
+test('injectDestCandidates: /dev/shm first (RO-rootfs-safe), then /tmp', () => {
+  assert.deepEqual(injectDestCandidates('amd64'), ['/dev/shm/.ab-tmux-amd64', '/tmp/.ab-tmux-amd64'])
+})
+
+test('command builders accept trailing tmuxBin (default tmux, backward-compat)', () => {
+  assert.deepEqual(tmuxKillCommand('L', 'N'), ['tmux', '-L', 'L', 'kill-session', '-t', 'N'])
+  assert.deepEqual(tmuxKillCommand('L', 'N', '/dev/shm/.ab-tmux-amd64'),
+    ['/dev/shm/.ab-tmux-amd64', '-L', 'L', 'kill-session', '-t', 'N'])
+  assert.deepEqual(tmuxAttachOnlyCommand('L', 'N', '/x/tmux'),
+    ['/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
+  assert.deepEqual(tmuxCaptureCommand('L', 'N', 2000, '/x/tmux')[0], '/x/tmux')
+  assert.deepEqual(tmuxAttachCommand({ tmuxBin: '/x/tmux', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })[0], '/x/tmux')
+})
+
+test('planExec threads tmuxBin into the attach command', () => {
+  const r = planExec({ mode: null, tmuxPresent: true, tmuxBin: '/dev/shm/.ab-tmux-arm64', sid: 't1', token: 'tok', cols: 80, rows: 24, command: ['sh'] })
+  assert.equal(r.persistent, true)
+  assert.equal(r.command[0], '/dev/shm/.ab-tmux-arm64', 'planExec uses the injected bin as argv[0]')
 })
