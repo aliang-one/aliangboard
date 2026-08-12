@@ -26,6 +26,7 @@ import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
 import { maybeSummarize } from './workbench-summarize.mjs'
 import { createWorkbenchAgent } from './workbench-agent.mjs'
+import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -1179,198 +1180,18 @@ async function handle(req, res) {
     }
   }
 
-  // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
-  // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
-  // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
-  const KIND_API_PATH = {
-    pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-    services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-    configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-    secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-    deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-    statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-    daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-    ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-    namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-  }
-  async function buildRefsContext(project, references) {
-    if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
-    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
-    if (!cluster) return { ctx: '', resources: [] } // 项目绑定的集群不存在 → 无 @-ref 可拉
-    const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-    const blocks = []
-    const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
-    for (const ref of references) {
-      const pathFn = KIND_API_PATH[ref.kind]
-      const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-      if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
-      try {
-        const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-        // requestKubernetes 返回 {status,headers,body};资源在 body(guard:可能 undefined)
-        const body = res?.body
-        if (body == null) { blocks.push(`${label}: (空响应)`); continue }
-        blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
-        resources.push(body)
-      } catch (e) {
-        blocks.push(`${label}: (not found)`)
-      }
-    }
-    return { ctx: `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`, resources }
-  }
-
   // SP2: agent loop 抽到 workbench-agent.mjs(factory,可单测)。零行为变更。
   const wbAgent = createWorkbenchAgent({ db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose })
-
-  // POST /api/workbench/conversations — 创建对话 + 后台执行(detached)
-  if (url.pathname === '/api/workbench/conversations' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const project = getProject(db, input.projectId)
-      if (!project) return sendJson(res, 404, { message: '项目不存在' })
-      if (project.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-
-      // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
-      // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
-      // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
-      const { resources: fetchedResources } = await buildRefsContext(project, input.references)
-
-      const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
-
-      const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
-      // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
-      setActiveConversation(db, input.projectId, conv.id)
-      // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
-      appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references : null })
-      wbAgent.runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
-      return sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }) }
-  }
-
-  // POST /api/workbench/conversations/:id/messages — 续接对话(多轮核心,T4)。
-  // 必须在 GET /:id 之前注册(路径更具体,先匹配)。
-  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/messages$/) && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/messages
-      const input = await readBody(req)
-      const conv = getConversation(db, id)
-      if (!conv) return sendJson(res, 404, { message: '对话不存在' })
-      const project = getProject(db, conv.projectId)
-      if (!project) return sendJson(res, 404, { message: '项目不存在' })
-      if (project.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问' })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
-      // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
-      setActiveConversation(db, conv.projectId, id)
-      // 1) append user 消息(干净 content;refs 存原始,资源另拉注入 content)
-      const cleanMessage = String(input.message ?? '')
-      appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references : null })
-      // 2) @-ref 资源拉取 → 拼进刚 append 的 user 消息 content(buildHistory 读 content → agent 可见)
-      const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
-      if (refsCtx) {
-        const maxSeq = getMaxSeq(db, id)
-        db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
-          .run(`${refsCtx}\n\n${cleanMessage}`, id, maxSeq)
-      }
-      // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
-      updateConversation(db, id, { status: 'running' })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-      wbAgent.runConversation(id, llmClient) // detached — 不 await
-      maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
-      return sendJson(res, 200, { status: 'running', references: fetchedResources })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '续接失败' }) }
-  }
-
-  // GET /api/workbench/conversations/:id — 单条对话状态(轮询用)
-  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = url.pathname.split('/').pop()
-    const conv = getConversation(db, id)
-    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
-    return sendJson(res, 200, {
-      id: conv.id, status: conv.status, steps: conv.steps,
-      content: conv.content, error: conv.error,
-      pendingApproval: conv.pendingApproval, trace: conv.trace,
-      userMessage: conv.userMessage,
-      recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
-      messages: listMessages(db, id),
-    })
-  }
-
-  // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
-  // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
-  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/stream
-    const conv = getConversation(db, id)
-    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
-    res.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      'connection': 'keep-alive',
-      'x-accel-buffering': 'no',
-    })
-    const send = (evt) => { try { res.write('data: ' + JSON.stringify(evt) + '\n\n') } catch { /* 客户端已断 */ } }
-    send({ type: 'hello', convId: id, status: conv.status })
-    // 连上时已 paused:approval 事件可能在 SSE 建连前 emit 丢失,补推当前 pendingApproval(治审批不弹)
-    if (conv.status === 'paused') {
-      let pa = null
-      try { pa = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch {}
-      if (pa) send({ type: 'approval', pending: pa })
-      send({ type: 'status', status: 'paused' })
-      send({ type: 'end' })
-      res.end()
-      return
-    }
-    if (conv.status === 'done' || conv.status === 'failed') {
-      send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
-      send({ type: 'end' })
-      res.end()
-      return
-    }
-    busSubscribe(id, send)
-    const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
-    req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })
-    return
-  }
-
-  // GET /api/workbench/conversations?projectId=X — 列表(slim)
-  if (url.pathname === '/api/workbench/conversations' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const projectId = url.searchParams.get('projectId')
-    if (!projectId) return sendJson(res, 400, { message: '缺 projectId' })
-    return sendJson(res, 200, { conversations: listConversations(db, projectId) })
-  }
-
-  // POST /api/workbench/conversations/:id/approve — resume(detached)
-  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/approve$/) && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
-    const conv = getConversation(db, id)
-    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
-    const cfg = getLlmConfig()
-    if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
-    const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-    wbAgent.resumeConversation(id, true, llmClient) // detached — 不 await
-    return sendJson(res, 200, { status: 'running' })
-  }
-
-  // POST /api/workbench/conversations/:id/deny — resume(detached)
-  if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
-    const conv = getConversation(db, id)
-    if (!conv) return sendJson(res, 404, { message: '对话不存在' })
-    const cfg = getLlmConfig()
-    if (!cfg.baseURL || !cfg.model) return sendJson(res, 400, { message: 'LLM 未配置' })
-    const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-    wbAgent.resumeConversation(id, false, llmClient) // detached — 不 await
-    return sendJson(res, 200, { status: 'running' })
-  }
+  // SP3: 7 个工作台对话 HTTP 端点 + buildRefsContext 抽到 routes/workbench-conversations.mjs(handler/dispatcher)。
+  // 零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
+  const convRoutes = createWorkbenchConvRoutes({
+    db, sendJson, readBody, requireAdmin, wbAgent,
+    getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
+    busSubscribe, busUnsubscribe,
+  })
+  // SP3: 工作台对话端点 dispatcher(7 端点抽到 routes/workbench-conversations.mjs)。命中即 return。
+  // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。
+  if (await convRoutes.handle(req, res, url)) return
 
   // ====== 工作台:项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
   if (url.pathname.startsWith('/api/workbench/projects')) {
