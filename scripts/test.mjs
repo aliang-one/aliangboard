@@ -21,6 +21,7 @@ import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
 import { formatBytes } from '../src/utils/bytes.js'
+import { deriveClusterCounts } from '../src/logic/clusterCounts.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -813,6 +814,26 @@ test('formatBytes: 非法/空值 → 占位', () => {
   assert.equal(formatBytes(undefined), '—')
   assert.equal(formatBytes(NaN), '—')
   assert.equal(formatBytes(-1), '—')
+})
+
+// --- 集群汇总计数:从 Vue Query 缓存快照派生(computeClusterMetrics 用)---
+test('deriveClusterCounts: 数组取长度(含空数组=0)', () => {
+  assert.deepEqual(
+    deriveClusterCounts({ nodes: [{}, {}], pods: [{}], events: [{}, {}, {}] }),
+    { nodeCount: 2, podCount: 1, activeEvents: 3 }
+  )
+  assert.deepEqual(
+    deriveClusterCounts({ nodes: [], pods: [], events: [] }),
+    { nodeCount: 0, podCount: 0, activeEvents: 0 }
+  )
+})
+
+test('deriveClusterCounts: 非数组/缺省 → null(未命中,供调用方回退)', () => {
+  assert.deepEqual(deriveClusterCounts(), { nodeCount: null, podCount: null, activeEvents: null })
+  assert.deepEqual(
+    deriveClusterCounts({ nodes: null, pods: 'oops', events: undefined }),
+    { nodeCount: null, podCount: null, activeEvents: null }
+  )
 })
 
 // --- 汇总 ---
