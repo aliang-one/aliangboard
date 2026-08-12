@@ -33,26 +33,32 @@ export function isTmuxPresent(probeResult) {
   return !!out && Buffer.isBuffer(out) && out.toString('utf8').trim().length > 0
 }
 
+// 最小镜像无 terminfo 库 → tmux 报 "can't find terminfo database"。有 terminfoDir 时给命令前缀
+// env TERMINFO/TERM,指向注入的 terminfo 目录(kill 等纯 socket 命令不需要 tty,故只在 tty 命令上用)。
+export function withTermInfo(terminfoDir, argv) {
+  return terminfoDir ? ['env', `TERMINFO=${terminfoDir}`, 'TERM=xterm-256color', ...argv] : argv
+}
+
 export function tmuxKillCommand(label, name, tmuxBin = 'tmux') {
   return [tmuxBin, '-L', label, 'kill-session', '-t', name]
 }
 
 // -A = attach if session exists, else create. shell array is spread after `--`.
-export function tmuxAttachCommand({ tmuxBin = 'tmux', label, name, cols, rows, shell }) {
-  return [tmuxBin, '-L', label, 'new-session', '-A', '-s', name,
-    '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])]
+export function tmuxAttachCommand({ tmuxBin = 'tmux', terminfoDir = '', label, name, cols, rows, shell }) {
+  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'new-session', '-A', '-s', name,
+    '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
 }
 
 // Decide the exec command + persistence flag for a connect.
 // command is the array the frontend chose (e.g. ['sh']); returned command is what K8s exec runs.
-export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', sid, token, cols, rows, command }) {
+export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', terminfoDir = '', sid, token, cols, rows, command }) {
   if (mode === 'attach') return { persistent: false, kind: 'attach', command }
   if (!tmuxPresent) return { persistent: false, kind: 'ephemeral', command }
   if (!sid) return { persistent: false, kind: 'ephemeral', command }
   return {
     persistent: true,
     kind: 'tmux',
-    command: tmuxAttachCommand({ tmuxBin, label: tmuxLabel(token), name: tmuxSessionName(token, sid), cols, rows, shell: command }),
+    command: tmuxAttachCommand({ tmuxBin, terminfoDir, label: tmuxLabel(token), name: tmuxSessionName(token, sid), cols, rows, shell: command }),
   }
 }
 
@@ -66,13 +72,13 @@ export function pickStaleSids(now, tracker, ttlMs) {
 }
 
 // capture-pane: -e 保留 ANSI/颜色; -p 输出到 stdout; -S -lines 抓 viewport 上方 lines 行历史。
-export function tmuxCaptureCommand(label, name, lines, tmuxBin = 'tmux') {
-  return [tmuxBin, '-L', label, 'capture-pane', '-e', '-p', '-S', String(-Math.max(1, lines)), '-t', name]
+export function tmuxCaptureCommand(label, name, lines, tmuxBin = 'tmux', terminfoDir = '') {
+  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'capture-pane', '-e', '-p', '-S', String(-Math.max(1, lines)), '-t', name])
 }
 
 // attach-session 到「已存在」的会话(不带 -A / 不新建)。重连回放后续接实时流用。
-export function tmuxAttachOnlyCommand(label, name, tmuxBin = 'tmux') {
-  return [tmuxBin, '-L', label, 'attach-session', '-t', name]
+export function tmuxAttachOnlyCommand(label, name, tmuxBin = 'tmux', terminfoDir = '') {
+  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'attach-session', '-t', name])
 }
 
 // capture 兼任存在性探测(execCapture 不返回退出码):stdout 非空 ⇒ 会话有历史(重连)。

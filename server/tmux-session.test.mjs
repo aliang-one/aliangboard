@@ -5,7 +5,7 @@ import {
   tmuxProbeCommand, isTmuxPresent, tmuxKillCommand, tmuxAttachCommand,
   planExec, pickStaleSids,
   tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture,
-  archFromUname, injectDestCandidates,
+  archFromUname, injectDestCandidates, withTermInfo,
 } from './tmux-session.mjs'
 
 test('hashToken: first 8 hex of sha256, stable', () => {
@@ -138,4 +138,28 @@ test('planExec threads tmuxBin into the attach command', () => {
   const r = planExec({ mode: null, tmuxPresent: true, tmuxBin: '/dev/shm/.ab-tmux-arm64', sid: 't1', token: 'tok', cols: 80, rows: 24, command: ['sh'] })
   assert.equal(r.persistent, true)
   assert.equal(r.command[0], '/dev/shm/.ab-tmux-arm64', 'planExec uses the injected bin as argv[0]')
+})
+
+test('withTermInfo: passthrough when no terminfoDir; prepend env when set', () => {
+  assert.deepEqual(withTermInfo('', ['tmux', '-V']), ['tmux', '-V'])
+  assert.deepEqual(withTermInfo('/dev/shm/.ab-terminfo', ['/x/tmux', '-L', 'ab1']),
+    ['env', 'TERMINFO=/dev/shm/.ab-terminfo', 'TERM=xterm-256color', '/x/tmux', '-L', 'ab1'])
+})
+
+test('tty builders thread terminfoDir; kill does NOT (socket-only)', () => {
+  // no terminfoDir → no env prefix (backward compat)
+  assert.deepEqual(tmuxAttachOnlyCommand('L', 'N', '/x/tmux'), ['/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
+  // terminfoDir → env prefix on attach / capture / new-session
+  assert.deepEqual(tmuxAttachOnlyCommand('L', 'N', '/x/tmux', '/d/.ti'),
+    ['env', 'TERMINFO=/d/.ti', 'TERM=xterm-256color', '/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
+  assert.equal(tmuxCaptureCommand('L', 'N', 2000, '/x/tmux', '/d/.ti')[0], 'env')
+  assert.equal(tmuxAttachCommand({ tmuxBin: '/x/tmux', terminfoDir: '/d/.ti', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })[0], 'env')
+  // kill ignores terminfoDir entirely (no tty) — still 3-arg shape
+  assert.deepEqual(tmuxKillCommand('L', 'N', '/x/tmux'), ['/x/tmux', '-L', 'L', 'kill-session', '-t', 'N'])
+})
+
+test('planExec threads terminfoDir into the attach command', () => {
+  const r = planExec({ mode: null, tmuxPresent: true, tmuxBin: '/x/tmux', terminfoDir: '/d/.ti', sid: 't1', token: 'tok', cols: 80, rows: 24, command: ['sh'] })
+  assert.equal(r.command[0], 'env', 'env prefix applied when terminfoDir set')
+  assert.equal(r.command[1], 'TERMINFO=/d/.ti')
 })
