@@ -9,9 +9,8 @@ import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
-import { createApiKeysSchema, listKeys, mintKey, revokeKey } from './auth-keys.mjs'
-import { normalizeToolOverrides, normalizeAllowedNamespaces } from './authorize.mjs'
-import { createAuditSchema, activeKeys, queryAuditLog, verifyChain } from './audit.mjs'
+import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
+import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { checkRate } from './rate-limit.mjs'
@@ -19,14 +18,17 @@ import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, getLastReconcile, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, getActiveConversationId, listMessages } from './workbench-projects.mjs'
+import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
-import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, recentCommits as wbRecentCommits, readManifests as wbReadManifests } from './workbench-repos.mjs'
+import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
 import { maybeSummarize } from './workbench-summarize.mjs'
 import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
+import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
+import { createAdminRoutes } from './routes/admin.mjs'
+import { createAuthRoutes } from './routes/auth.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -978,10 +980,6 @@ async function handle(req, res) {
   if (req.method === 'OPTIONS') return sendJson(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
-  if (req.method === 'GET' && url.pathname === '/api/health') {
-    return sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString() })
-  }
-
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
   if (url.pathname === '/mcp') {
     if (req.method !== 'OPTIONS' && getSetting('mcp_enabled') === 'false') return sendJson(res, 503, { jsonrpc: '2.0', error: { code: -32000, message: 'MCP service disabled by admin' } })
@@ -1103,56 +1101,6 @@ async function handle(req, res) {
     } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
   }
 
-  // ====== Admin: LLM 配置(baseURL/apiKey/model 存 DB;env 回退;GET 不回传 key)======
-  if (url.pathname === '/api/admin/llm-config' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const dbBase = getSetting('llm.baseURL'), dbKey = getSetting('llm.apiKey'), dbModel = getSetting('llm.model')
-    const src = (db, env) => db ? 'db' : (env ? 'env' : 'none')
-    return sendJson(res, 200, {
-      baseURL: dbBase || process.env.LLM_BASE_URL || '',
-      model: dbModel || process.env.LLM_MODEL || '',
-      baseURLSource: src(dbBase, process.env.LLM_BASE_URL),
-      modelSource: src(dbModel, process.env.LLM_MODEL),
-      hasApiKey: !!(dbKey || process.env.LLM_API_KEY),
-      apiKeySource: src(dbKey, process.env.LLM_API_KEY),
-    })
-  }
-  if (url.pathname === '/api/admin/llm-config' && req.method === 'PUT') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      setSetting('llm.baseURL', input.baseURL || '')
-      setSetting('llm.model', input.model || '')
-      if (typeof input.apiKey === 'string' && input.apiKey) setSetting('llm.apiKey', input.apiKey) // 留空 = 不修改
-      return sendJson(res, 200, { ok: true })
-    } catch (e) { return sendJson(res, 500, { message: e?.message || '保存失败' }) }
-  }
-  if (url.pathname === '/api/admin/llm-config/test' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req).catch(() => ({})) || {}
-      const saved = getLlmConfig()
-      // 表单值优先(支持"填完即测,不必先保存");空字段(apiKey 留空=不改)回退已保存
-      const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 200, { ok: false, message: '先填 baseURL + model(保存、或在上方填入后测试)' })
-      const client = createLlmClient({ ...cfg, timeoutMs: 20000 })
-      const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
-      return sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
-    } catch (e) { return sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }) }
-  }
-  if (url.pathname === '/api/admin/mcp-config' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    return sendJson(res, 200, { enabled: getSetting('mcp_enabled') !== 'false' })
-  }
-  if (url.pathname === '/api/admin/mcp-config' && req.method === 'PUT') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      setSetting('mcp_enabled', input.enabled === false ? 'false' : 'true')
-      return sendJson(res, 200, { ok: true, enabled: input.enabled !== false })
-    } catch (e) { return sendJson(res, 400, { message: e.message }) }
-  }
-
   // ====== 工作台:有状态对话(P5)——5 端点 + 后台执行(detached Promise) ======
 
   // 构建 workbench context(复用现有 agent chat 的 projectId 分支逻辑)
@@ -1193,185 +1141,29 @@ async function handle(req, res) {
   // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。
   if (await convRoutes.handle(req, res, url)) return
 
-  // ====== 工作台:项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
-  if (url.pathname.startsWith('/api/workbench/projects')) {
-    const ps = requirePlatform(req, res); if (!ps) return
-    const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
-    // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
-    const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
-    const id = seg[0]
-
-    if (!id) {
-      // 列表 / 创建
-      if (req.method === 'GET') {
-        const projects = listProjects(db, { userId: ps.userId, role: ps.role }).map(p => ({ ...p, clusterName: clusterNameOf(p.clusterId) }))
-        return sendJson(res, 200, { projects })
-      }
-      if (req.method === 'POST') {
-        try {
-          const input = await readBody(req)
-          if (!input.name || !input.clusterId) return sendJson(res, 400, { message: '缺 name / clusterId' })
-          if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) return sendJson(res, 404, { message: '集群不存在' })
-          const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
-          const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
-          await initRepo(repo)
-          await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
-          await wbCommit(repo, `初始化项目 ${p.name}`)
-          return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) } })
-        } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '创建失败' }) }
-      }
-      return sendJson(res, 405, { message: 'method not allowed' })
-    }
-
-    // 以下均需项目 + ownership
-    const p = getProject(db, id)
-    if (!p) return sendJson(res, 404, { message: '项目不存在' })
-    if (p.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
-    const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
-
-    // 详情:文件树 + 最近提交
-    if (req.method === 'GET' && seg.length === 1) {
-      let files = [], commits = []
-      try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
-      return sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
-    }
-
-    // 文件读写 :id/files/<path>
-    if (seg[1] === 'files') {
-      const relPath = decodeURIComponent(seg.slice(2).join('/'))
-      if (!relPath) return sendJson(res, 400, { message: '缺文件路径' })
-      try {
-        if (req.method === 'GET') return sendJson(res, 200, { path: relPath, content: await wbReadFile(repo, relPath) })
-        if (req.method === 'PUT') {
-          const input = await readBody(req)
-          await wbWriteFile(repo, relPath, input.content ?? '') // wbWriteFile 内置路径禁闭
-          return sendJson(res, 200, { ok: true })
-        }
-      } catch (e) { return sendJson(res, 400, { message: e?.message || '文件操作失败' }) }
-      return sendJson(res, 405, { message: 'method not allowed' })
-    }
-
-    // 提交 :id/commit
-    if (seg[1] === 'commit' && req.method === 'POST') {
-      try {
-        const input = await readBody(req)
-        const r = await wbCommit(repo, input.message || 'update')
-        return sendJson(res, 200, r)
-      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '提交失败' }) }
-    }
-
-    // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
-    if (seg[1] === 'reconcile' && req.method === 'POST') {
-      try {
-        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
-        if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
-        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-        const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
-        return sendJson(res, 200, r)
-      } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'reconcile 失败' }) }
-    }
-
-    return sendJson(res, 404, { message: '未知的工作台路由' })
-  }
-
-  // ====== 工作台:项目集群资源搜索(P3 @-mention)。GET /api/workbench/search?projectId=X&kind=pod&q=nginx ======
-  if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const projectId = url.searchParams.get('projectId')
-    const kind = url.searchParams.get('kind') || 'pods'
-    const q = (url.searchParams.get('q') || '').toLowerCase()
-    if (!projectId) return sendJson(res, 400, { message: '缺 projectId' })
-    const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
-    if (!p) return sendJson(res, 404, { message: '项目不存在' })
-    if (!p.clusterId) return sendJson(res, 400, { message: '项目未绑定集群' })
-    const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
-    if (!cluster) return sendJson(res, 404, { message: '项目绑定的集群不存在' })
-
-    // kind → K8s list path
-    const KIND_PATH = {
-      pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps',
-      secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
-      deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
-      ingresses: '/apis/networking.k8s.io/v1/ingresses',
-    }
-    const listPath = KIND_PATH[kind]
-    if (!listPath) return sendJson(res, 400, { message: '不支持的 kind: ' + kind })
-
-    try {
-      const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-      const resp = await requestKubernetes(k8sSession, listPath)
-      const items = (resp?.body?.items || []).map(it => ({
-        name: it.metadata?.name || '',
-        namespace: it.metadata?.namespace || '',
-        kind,
-      }))
-      const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
-      return sendJson(res, 200, { items: filtered.slice(0, 50) })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '搜索失败' }) }
-  }
-
-  // ====== 工作台:集群台账(W3)。cluster-context repo,每集群一份。======
-  if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
-    const ps = requirePlatform(req, res); if (!ps) return
-    const clusterId = url.searchParams.get('clusterId')
-    if (!clusterId) return sendJson(res, 400, { message: '缺 clusterId' })
-    const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
-    let files = [], index = null, learnings = null
-    if (await hasRepo(repo)) {
-      files = await wbListFiles(repo)
-      try { index = await wbReadFile(repo, 'INDEX.md') } catch { index = null }
-      try { learnings = await wbReadFile(repo, 'learnings.md') } catch { learnings = null }
-    }
-    return sendJson(res, 200, { exists: !!index, files, index, learnings, pending: getPendingDistill(db, clusterId) })
-  }
-  if (url.pathname === '/api/workbench/ledger/bootstrap' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const r = await bootstrapLedgerForCluster(cluster)
-      return sendJson(res, 200, { index: r.index, files: r.files })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }) }
-  }
-
-  // ====== 工作台:台账 distill(D2,自我学习;admin)======
-  if (url.pathname === '/api/workbench/distill' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(蒸馏需要 LLM)' })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-      const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
-      const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
-      return sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }) }
-  }
-  if (url.pathname === '/api/workbench/distill/apply' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
-      if (!(await hasRepo(repo))) await initRepo(repo)
-      await wbWriteFile(repo, 'learnings.md', input.learnings || '')
-      await wbCommit(repo, `蒸馏 learnings · ${verifiedAt()}`)
-      clearPendingDistill(db, input.clusterId)
-      return sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || '应用失败' }) }
-  }
-  if (url.pathname === '/api/workbench/distill/dismiss' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      clearPendingDistill(db, input.clusterId)
-      return sendJson(res, 200, { ok: true })
-    } catch (e) { return sendJson(res, 500, { message: e?.message || '失败' }) }
-  }
+  // SP4: 离散路由抽出 — auth / admin / workbench-projects(handler/dispatcher 模式)。零行为变更。
+  // 构造放 handle() 内(与 convRoutes 一致:closure deps 此处可见)。dispatch 顺序无要求(路由不重叠)。
+  const authRoutes = createAuthRoutes({
+    db, sendJson, readBody, requirePlatform,
+    platformSessions, sessions, persistSession,
+    verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
+  })
+  const adminRoutes = createAdminRoutes({
+    db, sendJson, readBody, requireAdmin,
+    getSetting, setSetting, getLlmConfig, createLlmClient,
+    clusterProber, randomUUID,
+    parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
+    hashPassword,
+  })
+  const projectRoutes = createWorkbenchProjectRoutes({
+    db, sendJson, readBody, requirePlatform, requireAdmin,
+    WORKBENCH_DIR, getLlmConfig, createLlmClient,
+    buildCallContext, requestKubernetes, applyYamlPartial,
+    bootstrapLedgerForCluster,
+  })
+  if (await authRoutes.handle(req, res, url)) return
+  if (await adminRoutes.handle(req, res, url)) return
+  if (await projectRoutes.handle(req, res, url)) return
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
@@ -1843,273 +1635,6 @@ async function handle(req, res) {
     return sendJson(res, error.status || 502, { message: error.message || 'Kubernetes API 请求失败', details: error.details })
   }
   } // end if (isK8s)
-
-  // ====== 平台认证 API ======
-  if (url.pathname === '/api/auth/login' && req.method === 'POST') {
-    try {
-      const { username, password } = await readBody(req)
-      if (!username || !password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
-      const user = db.prepare('SELECT * FROM platform_users WHERE username=?').get(username)
-      if (!user || user.disabled || !verifyPassword(password, user.passwordHash))
-        return sendJson(res, 401, { message: '用户名或密码错误' })
-      const token = randomUUID()
-      const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
-      platformSessions.set(token, ps)
-      db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
-      return sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
-    } catch (e) { return sendJson(res, 500, { message: e?.message || '登录失败' }) }
-  }
-  if (url.pathname === '/api/auth/me' && req.method === 'GET') {
-    const ps = requirePlatform(req, res); if (!ps) return
-    const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
-    return sendJson(res, 200, { user })
-  }
-  if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
-    const token = req.headers['x-platform-token']
-    if (token) { platformSessions.delete(token); try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ } }
-    return sendJson(res, 200, { ok: true })
-  }
-
-  // ====== 集群选择（Layer 2） ======
-  if (url.pathname === '/api/my-clusters' && req.method === 'GET') {
-    const ps = requirePlatform(req, res); if (!ps) return
-    let rows
-    if (ps.role === 'admin') {
-      rows = db.prepare('SELECT id,name,apiServer,version,authMethod,createdAt FROM clusters ORDER BY name').all()
-    } else {
-      rows = db.prepare(`SELECT c.id,c.name,c.apiServer,c.version,c.authMethod,c.createdAt FROM clusters c
-        JOIN user_clusters uc ON uc.clusterId=c.id WHERE uc.userId=? ORDER BY c.name`).all(ps.userId)
-    }
-    return sendJson(res, 200, { clusters: rows })
-  }
-  if (url.pathname === '/api/connect-cluster' && req.method === 'POST') {
-    const ps = requirePlatform(req, res); if (!ps) return
-    try {
-      const { clusterId } = await readBody(req)
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
-      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
-      if (ps.role !== 'admin') {
-        const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps.userId, clusterId)
-        if (!assigned) return sendJson(res, 403, { message: '无权访问此集群' })
-      }
-      // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致;经 buildCallContext 统一形状）
-      const apiServer = normalizeServer(cluster.apiServer)
-      const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-      const probe = await requestKubernetes(k8sSession, '/version')
-      k8sSession.version = probe.body?.gitVersion || 'unknown'
-      const k8sToken = randomUUID()
-      sessions.set(k8sToken, k8sSession)
-      persistSession(k8sToken, k8sSession)
-      // 更新平台会话的 k8sSessionToken
-      ps.k8sSessionToken = k8sToken
-      platformSessions.set(req.headers['x-platform-token'], ps)
-      db.prepare('UPDATE platform_sessions SET k8sSessionToken=? WHERE token=?').run(k8sToken, req.headers['x-platform-token'])
-      return sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version } })
-    } catch (e) { return sendJson(res, e.status || 502, { message: e?.message || '连接集群失败' }) }
-  }
-
-  // ====== Admin: 集群管理 ======
-  if (url.pathname === '/api/admin/clusters' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    // 取凭据列(authHeader/ca/cert/key/insecure)仅用于探测,绝不回传前端(见下方白名单 map)。
-    const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,createdBy,createdAt,authHeader,ca,cert,key FROM clusters ORDER BY createdAt DESC').all()
-    const force = url.searchParams.get('refresh') === '1'
-    const probed = await clusterProber.probeAll(
-      rows,
-      r => buildCallContext({ apiServer: r.apiServer, authHeader: r.authHeader, ca: r.ca, cert: r.cert, key: r.key, insecure: !!r.insecure }),
-      { force },
-    )
-    // 白名单回传:前端需要的字段 + 实时探测的 status/nodeCount/podCount(凭据不入列)。
-    const clusters = probed.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }))
-    return sendJson(res, 200, { clusters })
-  }
-  if (url.pathname === '/api/admin/clusters' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      if (!input.name) return sendJson(res, 400, { message: '集群名称不能为空' })
-      // 解析凭据（复用 POST /api/session 的逻辑）
-      let apiServer, authHeader = null, ca, cert, key
-      if (input.kubeconfig) {
-        const parsed = parseKubeconfig(input.kubeconfig)
-        apiServer = normalizeServer(parsed.server)
-        ca = certMaterial(parsed.cluster, 'certificate-authority-data', 'certificate-authority')
-        cert = certMaterial(parsed.user, 'client-certificate-data', 'client-certificate')
-        key = certMaterial(parsed.user, 'client-key-data', 'client-key')
-        if (parsed.user?.token) authHeader = `Bearer ${parsed.user.token}`
-        else if (parsed.user?.username != null) authHeader = `Basic ${Buffer.from(`${parsed.user.username}:${parsed.user.password || ''}`).toString('base64')}`
-      } else if (input.token) {
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Bearer ${input.token}`
-      } else if (input.username) {
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Basic ${Buffer.from(`${input.username}:${input.password || ''}`).toString('base64')}`
-      } else if (input.cert || input.authHeader) {
-        // 直接传 PEM 凭据（客户端证书 / 已构造的 authHeader）
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = input.authHeader || null
-        ca = input.ca || null
-        cert = input.cert || null
-        key = input.key || null
-      } else { return sendJson(res, 400, { message: '缺少凭据（token / 账密 / kubeconfig / 客户端证书）' }) }
-      const insecure = input.insecure === true
-      // 探测版本（经 buildCallContext 构造调用上下文）
-      const probe = await requestKubernetes(buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), '/version')
-      const version = probe.body?.gitVersion || 'unknown'
-      const id = randomUUID()
-      db.prepare('INSERT INTO clusters (id,name,apiServer,authMethod,authHeader,ca,cert,key,insecure,version,createdBy,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, input.name, apiServer.toString(), input.kubeconfig ? 'kubeconfig' : input.token ? 'token' : 'basic', authHeader, ca || null, cert || null, key || null, insecure ? 1 : 0, version, ps.username, Date.now())
-      return sendJson(res, 200, { cluster: { id, name: input.name, apiServer: apiServer.toString().replace(/\/$/, ''), version } })
-    } catch (e) { return sendJson(res, e.status || 502, { message: e?.message || '添加集群失败（凭据无效或无法连接）' }) }
-  }
-  if (url.pathname.startsWith('/api/admin/clusters/') && req.method === 'DELETE') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = decodeURIComponent(url.pathname.slice('/api/admin/clusters/'.length))
-    db.prepare('DELETE FROM clusters WHERE id=?').run(id)
-    db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
-    clusterProber.invalidate(id)
-    return sendJson(res, 200, { ok: true })
-  }
-
-  // ====== Admin: API Keys 管理(T13:签发/列表/吊销,逻辑见 ./auth-keys.mjs)======
-  if (url.pathname === '/api/admin/apikeys' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    return sendJson(res, 200, { apikeys: listKeys(db) })
-  }
-  if (url.pathname === '/api/admin/apikeys' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const k = mintKey(db, {
-        owner: input.owner || ps.username,
-        clusterId: input.clusterId,
-        boundSA_namespace: input.boundSA_namespace,
-        boundSA_name: input.boundSA_name,
-        tier: input.tier || 'read',
-        tool_overrides: input.tool_overrides ?? null,
-        allowed_namespaces: input.allowed_namespaces ?? null,
-        label: input.label || null,
-        createdBy: ps.username,
-      })
-      // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
-      return sendJson(res, 200, { apikey: k })
-    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '签发 API key 失败' }) }
-  }
-  if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/overrides$/)) {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const id = decodeURIComponent(url.pathname.split('/')[4])
-      const input = await readBody(req)
-      const json = normalizeToolOverrides(input.tool_overrides)  // strict: 坏→抛
-      const changes = db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id).changes
-      if (!changes) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
-      return sendJson(res, 200, { ok: true, id, tool_overrides: json })
-    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '更新覆盖失败' }) }
-  }
-  if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/namespaces$/)) {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const id = decodeURIComponent(url.pathname.split('/')[4])
-      const input = await readBody(req)
-      const key = db.prepare('SELECT boundSA_namespace FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
-      if (!key) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
-      const json = normalizeAllowedNamespaces(input.allowed_namespaces, key.boundSA_namespace)  // strict: 坏→抛
-      db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ?').run(json, id)
-      return sendJson(res, 200, { ok: true, id, allowed_namespaces: json })
-    } catch (e) { return sendJson(res, e.status || 400, { message: e.message || '更新 ns allowlist 失败' }) }
-  }
-  if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = decodeURIComponent(url.pathname.slice('/api/admin/apikeys/'.length))
-    const revoked = revokeKey(db, id)
-    return sendJson(res, 200, { ok: true, revoked })
-  }
-
-  // ====== Admin: 审计流水(active/log/verify;Task 5)======
-  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log/active') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const windowSec = Math.min(Math.max(Number(url.searchParams.get('window')) || 900, 1), 86400)
-    const source = url.searchParams.get('source') || null
-    return sendJson(res, 200, { active: activeKeys(db, { windowSec, source }) })
-  }
-  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const q = url.searchParams
-    const out = queryAuditLog(db, {
-      keyId: q.get('key') || undefined, owner: q.get('owner') || undefined, clusterId: q.get('cluster') || undefined,
-      tool: q.get('tool') || undefined, result: q.get('result') || undefined, source: q.get('source') || undefined,
-      since: q.get('since') || undefined, until: q.get('until') || undefined,
-      page: q.get('page') || undefined, size: q.get('size') || undefined,
-    })
-    return sendJson(res, 200, out)
-  }
-  if (req.method === 'GET' && url.pathname === '/api/admin/audit-log/verify') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    return sendJson(res, 200, verifyChain(db))
-  }
-
-  // ====== Admin: 用户管理 ======
-  if (url.pathname === '/api/admin/users' && req.method === 'GET') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const users = db.prepare('SELECT id,username,role,displayName,createdAt,disabled FROM platform_users ORDER BY createdAt').all()
-    for (const u of users) u.clusterIds = db.prepare('SELECT clusterId FROM user_clusters WHERE userId=?').all(u.id).map(r => r.clusterId)
-    return sendJson(res, 200, { users })
-  }
-  if (url.pathname === '/api/admin/users' && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    try {
-      const { username, password, role, displayName } = await readBody(req)
-      if (!username || !password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
-      if (role && !['admin', 'user'].includes(role)) return sendJson(res, 400, { message: '角色只能是 admin 或 user' })
-      const existing = db.prepare('SELECT 1 FROM platform_users WHERE username=?').get(username)
-      if (existing) return sendJson(res, 409, { message: '用户名已存在' })
-      const id = randomUUID()
-      db.prepare('INSERT INTO platform_users (id,username,passwordHash,role,displayName,createdAt) VALUES (?,?,?,?,?,?)')
-        .run(id, username, hashPassword(password), role || 'user', displayName || null, Date.now())
-      return sendJson(res, 200, { user: { id, username, role: role || 'user', displayName, createdAt: Date.now(), clusterIds: [] } })
-    } catch (e) { return sendJson(res, 500, { message: e?.message || '创建用户失败' }) }
-  }
-  if (url.pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
-    const target = db.prepare('SELECT role FROM platform_users WHERE id=?').get(id)
-    if (!target) return sendJson(res, 404, { message: '用户不存在' })
-    const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
-    if (target.role === 'admin' && adminCount <= 1) return sendJson(res, 400, { message: '不能删除最后一个管理员' })
-    db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
-    db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
-    return sendJson(res, 200, { ok: true })
-  }
-  if (url.pathname.startsWith('/api/admin/users/') && req.method === 'PATCH') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
-    const input = await readBody(req)
-    const fields = [], vals = []
-    for (const k of ['role', 'displayName', 'disabled']) { if (input[k] != null) { fields.push(`${k}=?`); vals.push(input[k]) } }
-    if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
-    vals.push(id)
-    db.prepare(`UPDATE platform_users SET ${fields.join(',')} WHERE id=?`).run(...vals)
-    return sendJson(res, 200, { ok: true })
-  }
-  if (url.pathname.match(/\/api\/admin\/users\/[^/]+\/reset-password$/) && req.method === 'POST') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const userId = url.pathname.split('/')[4]
-    const { newPassword } = await readBody(req)
-    if (!newPassword) return sendJson(res, 400, { message: '新密码不能为空' })
-    db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
-    return sendJson(res, 200, { ok: true })
-  }
-  if (url.pathname.match(/\/api\/admin\/users\/[^/]+\/clusters$/) && req.method === 'PUT') {
-    const ps = requireAdmin(req, res); if (!ps) return
-    const userId = url.pathname.split('/')[4]
-    const { clusterIds } = await readBody(req)
-    db.prepare('DELETE FROM user_clusters WHERE userId=?').run(userId)
-    if (Array.isArray(clusterIds)) {
-      const stmt = db.prepare('INSERT INTO user_clusters (userId,clusterId,assignedBy,assignedAt) VALUES (?,?,?,?)')
-      for (const cid of clusterIds) stmt.run(userId, cid, ps.username, Date.now())
-    }
-    return sendJson(res, 200, { clusterIds: clusterIds || [] })
-  }
 
   // 兜底:未匹配的路由返 404。否则 handle() 直接 return、响应永不结束 → 前端 fetch 挂起
   // (如旧 gateway 缺新端点时,LLM 配置页一直转圈)。所有路由块都显式 return,此处只在无匹配时触发。
