@@ -1,6 +1,7 @@
 // SP3: 工作台对话 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // 7 端点 + buildRefsContext 辅助逐字搬迁,仅依赖引用改走 deps 注入。
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
+import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -75,7 +76,7 @@ export function createWorkbenchConvRoutes(deps) {
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
         const { resources: fetchedResources } = await buildRefsContext(project, input.references)
 
-        const system = '你是 aliangboard 工作台助手。流程:read_ledger 读集群台账(INDEX 能力 + learnings 团队知识/踩坑,复用能力与经验)→ read_project_file/write_project_file 在 manifests/ 写 yaml(server-side apply 格式)→ apply_project_manifests 部署到集群(部分失败会上报)→ propose_learning 把这次踩坑记进台账(以后所有项目复用,越用越聪明)。重要:若 read_ledger 显示台账未 bootstrap/为空,或用户问"集群有什么能力/资源""更新台账",先调 bootstrap_ledger(平台 survey 集群 → 重写 INDEX.md,verified_at 刷新,需人审)→ 再 read_ledger 看详情。写文件、apply、台账更新、bootstrap 都需用户审批,被拒会告知你。'
+        const system = WORKBENCH_SYSTEM_PROMPT
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
