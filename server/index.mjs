@@ -35,7 +35,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -688,11 +688,15 @@ async function handleExec(ws, session, url) {
   let persistent = false
   if (planned.persistent) {
     try {
-      // 先 detached 建会话(= 探测 tmux 能否起 server+pane)。execCapture 现返回退出状态:
-      // tmux 非零退出(server 起不来/无 pty/只读)或 exec 连接失败(throw)→ catch 降级一次性 exec。
-      const made = await execCapture(session, namespace, pod, container,
-        tmuxNewSessionDetached({ tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, label, name: sessionName, cols: 80, rows: 24, shell: command }), true)
-      if (made?.status?.status !== 'Success') throw new Error('tmux new-session failed')
+      // 会话已存在(重连)? has-session 退出码判断(execCapture 现返回 status)。
+      const has = await execCapture(session, namespace, pod, container,
+        tmuxHasSessionCommand(label, sessionName, resolved.bin, resolved.terminfoDir), true)
+      if (has?.status?.status !== 'Success') {
+        // 首次连接:detached 建会话(探测 tmux 能否起)。失败 → throw → catch 降级。
+        const made = await execCapture(session, namespace, pod, container,
+          tmuxNewSessionDetached({ tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, label, name: sessionName, cols: 80, rows: 24, shell: command }), true)
+        if (made?.status?.status !== 'Success') throw new Error('tmux new-session failed')
+      }
       // 成功:回放 scrollback(B),再 attach
       try {
         const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin, resolved.terminfoDir), true)

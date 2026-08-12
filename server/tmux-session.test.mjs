@@ -4,7 +4,7 @@ import {
   hashToken, tmuxLabel, tmuxSessionName, probeKey,
   tmuxProbeCommand, isTmuxPresent, tmuxKillCommand, tmuxAttachCommand,
   planExec, pickStaleSids,
-  tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, hasHistoryFromCapture,
+  tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture,
   archFromUname, injectDestCandidates, withTermInfo,
 } from './tmux-session.mjs'
 
@@ -176,4 +176,13 @@ test('tmuxNewSessionDetached: new-session -d (detached create) with env prefix',
   assert.equal(c.at(-1), 'bash')
   assert.ok(c.includes('-d'), 'detached (-d), not -A')
   assert.ok(!c.includes('-A'), 'must NOT have -A')
+})
+
+test('tmuxHasSessionCommand: has-session -t name (with env for socket dir)', () => {
+  assert.deepEqual(tmuxHasSessionCommand('L', 'N', '/x/tmux'),
+    ['/x/tmux', '-L', 'L', 'has-session', '-t', 'N'])
+  const c = tmuxHasSessionCommand('L', 'N', '/dev/shm/.ab-tmux-amd64', '/dev/shm/.ab-terminfo')
+  assert.equal(c[0], 'env')
+  assert.ok(c.includes('TMUX_TMPDIR=/dev/shm'), 'sets TMUX_TMPDIR so it finds the injected socket')
+  assert.ok(c.includes('has-session'))
 })

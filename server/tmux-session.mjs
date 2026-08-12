@@ -59,6 +59,11 @@ export function tmuxNewSessionDetached({ tmuxBin = 'tmux', terminfoDir = '', lab
     '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
 }
 
+// has-session: 查会话是否存在(socket-only,但要 TMUX_TMPDIR 找对 socket)。退出码区分重连 vs 首次。
+export function tmuxHasSessionCommand(label, name, tmuxBin = 'tmux', terminfoDir = '') {
+  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'has-session', '-t', name])
+}
+
 // Decide the exec command + persistence flag for a connect.
 // command is the array the frontend chose (e.g. ['sh']); returned command is what K8s exec runs.
 export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', terminfoDir = '', sid, token, cols, rows, command }) {
