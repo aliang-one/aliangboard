@@ -182,6 +182,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
                   {{ formatBytes(usage.usedBytes) }} {{ t('ns.storage.used') }} / {{ formatBytes(usage.capacityBytes) }} ({{ usage.percent }}%)
                 </p>
               </template>
+              <p v-else-if="usage && usage.shared" class="text-body-sm text-on-surface-variant">{{ t('ns.storage.nfsShared') }}</p>
               <p v-else-if="usage && usage.mounted" class="text-body-sm text-on-surface-variant">
                 {{ noStatsAccess ? t('ns.storage.usageNoPermission') : t('ns.storage.usageNoData') }}
               </p>

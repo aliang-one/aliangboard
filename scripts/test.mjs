@@ -20,7 +20,7 @@ import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, paramsMapToRows, 
 import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
-import { formatBytes } from '../src/utils/bytes.js'
+import { formatBytes, parseSizeToBytes } from '../src/utils/bytes.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -813,6 +813,29 @@ test('formatBytes: 非法/空值 → 占位', () => {
   assert.equal(formatBytes(undefined), '—')
   assert.equal(formatBytes(NaN), '—')
   assert.equal(formatBytes(-1), '—')
+})
+
+// --- PVC 用量:K8s 容量字符串 → 字节(用于 NFS 共享检测的 capacity vs requested 对比)---
+test('parseSizeToBytes: 二进制后缀', () => {
+  assert.equal(parseSizeToBytes('10Gi'), 10737418240)
+  assert.equal(parseSizeToBytes('512Mi'), 536870912)
+  assert.equal(parseSizeToBytes('1Ti'), 1099511627776)
+  assert.equal(parseSizeToBytes('1.5Ti'), 1649267441664)
+  assert.equal(parseSizeToBytes('1Ki'), 1024)
+})
+
+test('parseSizeToBytes: 十进制后缀与裸数字', () => {
+  assert.equal(parseSizeToBytes('1K'), 1000)          // K8s:K/M/G 为十进制(1000 进)
+  assert.equal(parseSizeToBytes('1M'), 1000000)
+  assert.equal(parseSizeToBytes('1024'), 1024)
+  assert.equal(parseSizeToBytes(2048), 2048)          // 数字入参
+})
+
+test('parseSizeToBytes: 非法 → null', () => {
+  assert.equal(parseSizeToBytes('abc'), null)
+  assert.equal(parseSizeToBytes(''), null)
+  assert.equal(parseSizeToBytes(null), null)
+  assert.equal(parseSizeToBytes(undefined), null)
 })
 
 // --- 汇总 ---
