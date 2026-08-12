@@ -539,6 +539,26 @@ function readTmuxBinary(arch) {
   try { return existsSync(p) ? readFileSync(p) : null } catch { return null }
 }
 
+// 读取随镜像打包的 terminfo 压缩包(server/bin/ab-terminfo.tar)。最小镜像缺 terminfo 库,注入 tmux 时一并灌进去。
+function readTerminfoTar() {
+  const p = join(import.meta.dirname, 'bin', 'ab-terminfo.tar')
+  try { return existsSync(p) ? readFileSync(p) : null } catch { return null }
+}
+
+// 把 terminfo tar 经 stdin 灌进 pod:tar -xf - 读 stdin,解压到 terminfoDir。需 pod 有 tar(busybox/GNU 均可)。
+async function execInjectTerminfo(session, namespace, pod, container, tarBytes, terminfoDir) {
+  const { KubeConfig, Exec } = await k8sClient()
+  const kc = buildKubeConfig(KubeConfig, session)
+  const exec = new Exec(kc)
+  const stdin = new PassThrough()
+  try {
+    const conn = await exec.exec(namespace, pod, container, ['sh', '-c', 'mkdir -p "$1" && tar -xf - -C "$1"', 'ab-ti', terminfoDir], null, null, stdin, false)
+    stdin.end(tarBytes)
+    await new Promise(resolve => conn.on('close', resolve))
+    return true
+  } catch { return false }
+}
+
 // 把二进制字节经一次性 exec 灌进 pod(cat > dest && chmod +x)。复用 podfile-write 的 stdin 注入模式。
 async function execInject(session, namespace, pod, container, bytes, destPath) {
   const { KubeConfig, Exec } = await k8sClient()
@@ -566,9 +586,9 @@ async function resolveTmux(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
   const hit = tmuxProbeCache.get(key)
   if (hit && Date.now() - hit.at < TMUX_PROBE_TTL) return hit.res
-  let res = { kind: 'none', bin: 'tmux' }
+  let res = { kind: 'none', bin: 'tmux', terminfoDir: '' }
   try {
-    if (isTmuxPresent(await execCapture(session, namespace, pod, container, tmuxProbeCommand()))) res = { kind: 'system', bin: 'tmux' }
+    if (isTmuxPresent(await execCapture(session, namespace, pod, container, tmuxProbeCommand()))) res = { kind: 'system', bin: 'tmux', terminfoDir: '' }
   } catch { /* probe 失败 → 尝试注入 */ }
   if (res.kind === 'none') {
     let arch = null
@@ -577,7 +597,11 @@ async function resolveTmux(session, namespace, pod, container) {
     if (arch && binary) {
       for (const dest of injectDestCandidates(arch)) {
         if (await execInject(session, namespace, pod, container, binary, dest) && await verifyTmuxBin(session, namespace, pod, container, dest)) {
-          res = { kind: 'injected', bin: dest }; break
+          // 最小镜像缺 terminfo 库 → 一并注入(server/bin/ab-terminfo.tar),terminfoDir 与 binary 同目录
+          const terminfoDir = dest.slice(0, dest.lastIndexOf('/') + 1) + '.ab-terminfo'
+          const ti = readTerminfoTar()
+          if (ti) { try { await execInjectTerminfo(session, namespace, pod, container, ti, terminfoDir) } catch { /* terminfo 失败不致命 */ } }
+          res = { kind: 'injected', bin: dest, terminfoDir }; break
         }
       }
     }
@@ -649,9 +673,9 @@ async function handleExec(ws, session, url) {
   const token = url.searchParams.get('session') || ''     // k8s session token（WS 鉴权同一值）
 
   // 决定执行命令 + 持久性：tmux 可用且有 sid → 包成 new-session -A（attach-or-create）
-  const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux' } : await resolveTmux(session, namespace, pod, container)
+  const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux', terminfoDir: '' } : await resolveTmux(session, namespace, pod, container)
   const present = resolved.kind === 'system' || resolved.kind === 'injected'
-  const planned = planExec({ mode, tmuxPresent: present, tmuxBin: resolved.bin, sid, token, cols: 80, rows: 24, command })
+  const planned = planExec({ mode, tmuxPresent: present, tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, sid, token, cols: 80, rows: 24, command })
   wsSend(ws, CH_MODE, JSON.stringify({ persistent: planned.persistent }))   // 告知前端是否持久（徽标）
   const sessionName = tmuxSessionName(token, sid)
   if (planned.persistent) idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
@@ -660,10 +684,10 @@ async function handleExec(ws, session, url) {
     // 增强 B:重连回放 scrollback。capture-pane 兼任存在性探测(execCapture 不返回退出码)。
     const label = tmuxLabel(token)
     try {
-      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin), true)
+      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin, resolved.terminfoDir), true)
       if (hasHistoryFromCapture(cap)) {
         wsSend(ws, CH_STDOUT, cap.stdout)                         // 回放历史 → xterm
-        execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin)   // 续接已存在会话
+        execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin, resolved.terminfoDir)   // 续接已存在会话
       }
     } catch { /* 会话不存在/捕获失败 → 保持 new-session -A */ }
   }
