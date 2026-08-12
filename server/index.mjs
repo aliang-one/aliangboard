@@ -32,6 +32,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
+import { listControllerTemplates, readControllerManifest } from './ingress-controller-templates.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -1003,6 +1004,19 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
     return sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString() })
+  }
+
+  // Ingress 控制器模板目录 / 清单（平台内置静态资产，不需 K8s session；清单 apply 仍走需 session 的 /api/apply）
+  if (req.method === 'GET' && url.pathname === '/api/ingress-controllers/catalog') {
+    return sendJson(res, 200, { templates: listControllerTemplates() })
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/ingress-controllers/manifest/')) {
+    const id = decodeURIComponent(url.pathname.slice('/api/ingress-controllers/manifest/'.length))
+    try {
+      return sendJson(res, 200, { yaml: readControllerManifest(id) })
+    } catch (e) {
+      return sendJson(res, 404, { message: e?.message || '未知模板' })
+    }
   }
 
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
