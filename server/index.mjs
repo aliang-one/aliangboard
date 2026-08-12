@@ -29,9 +29,9 @@ import { maybeSummarize } from './workbench-summarize.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -501,7 +501,7 @@ function k8sClient() {
   return _k8sClient
 }
 
-// tmux availability cache: probeKey -> { present, at }. TTL-bounded; cleared on error.
+// tmux availability cache: probeKey -> { res: {kind, bin}, at }. TTL-bounded; cleared on error.
 const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
@@ -531,16 +531,57 @@ const idleSweeper = setInterval(() => {
 }, 60 * 1000)
 idleSweeper.unref()
 
-async function isTmuxAvailable(session, namespace, pod, container) {
+// 读取随镜像打包的静态 tmux 二进制(server/bin/tmux-<arch>)。缺失 → null(resolveTmux 降级为 ephemeral)。
+function readTmuxBinary(arch) {
+  const p = join(import.meta.dirname, 'bin', `tmux-${arch}`)
+  try { return existsSync(p) ? readFileSync(p) : null } catch { return null }
+}
+
+// 把二进制字节经一次性 exec 灌进 pod(cat > dest && chmod +x)。复用 podfile-write 的 stdin 注入模式。
+async function execInject(session, namespace, pod, container, bytes, destPath) {
+  const { KubeConfig, Exec } = await k8sClient()
+  const kc = buildKubeConfig(KubeConfig, session)
+  const exec = new Exec(kc)
+  const stdin = new PassThrough()
+  try {
+    const conn = await exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1" && chmod +x "$1"', 'ab-inject', destPath], null, null, stdin, false)
+    stdin.end(bytes)                       // 写完二进制 + EOF,让 cat 收尾
+    await new Promise(resolve => conn.on('close', resolve))
+    return true
+  } catch { return false }
+}
+
+// 验证注入的二进制能跑:<dest> -V 输出含 "tmux <ver>"。
+async function verifyTmuxBin(session, namespace, pod, container, binPath) {
+  try {
+    const r = await execCapture(session, namespace, pod, container, [binPath, '-V'], true)  // raw
+    return /tmux\s+\d/.test(r?.stdout?.toString('utf8') || '')
+  } catch { return false }
+}
+
+// 决定持久化用的 tmux:系统有 → system;否则探测架构 + 注入 → injected;否则 none。
+async function resolveTmux(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
   const hit = tmuxProbeCache.get(key)
-  if (hit && Date.now() - hit.at < TMUX_PROBE_TTL) return hit.present
-  let present = false
+  if (hit && Date.now() - hit.at < TMUX_PROBE_TTL) return hit.res
+  let res = { kind: 'none', bin: 'tmux' }
   try {
-    present = isTmuxPresent(await execCapture(session, namespace, pod, container, tmuxProbeCommand()))
-  } catch { present = false }
-  tmuxProbeCache.set(key, { present, at: Date.now() })
-  return present
+    if (isTmuxPresent(await execCapture(session, namespace, pod, container, tmuxProbeCommand()))) res = { kind: 'system', bin: 'tmux' }
+  } catch { /* probe 失败 → 尝试注入 */ }
+  if (res.kind === 'none') {
+    let arch = null
+    try { arch = archFromUname((await execCapture(session, namespace, pod, container, ['uname', '-m'])).stdout.toString('utf8')) } catch { /* */ }
+    const binary = arch ? readTmuxBinary(arch) : null
+    if (arch && binary) {
+      for (const dest of injectDestCandidates(arch)) {
+        if (await execInject(session, namespace, pod, container, binary, dest) && await verifyTmuxBin(session, namespace, pod, container, dest)) {
+          res = { kind: 'injected', bin: dest }; break
+        }
+      }
+    }
+  }
+  tmuxProbeCache.set(key, { res, at: Date.now() })
+  return res
 }
 
 function buildKubeConfig(KubeConfig, session) {
@@ -606,8 +647,9 @@ async function handleExec(ws, session, url) {
   const token = url.searchParams.get('session') || ''     // k8s session token（WS 鉴权同一值）
 
   // 决定执行命令 + 持久性：tmux 可用且有 sid → 包成 new-session -A（attach-or-create）
-  const present = mode === 'attach' ? false : await isTmuxAvailable(session, namespace, pod, container)
-  const planned = planExec({ mode, tmuxPresent: present, sid, token, cols: 80, rows: 24, command })
+  const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux' } : await resolveTmux(session, namespace, pod, container)
+  const present = resolved.kind === 'system' || resolved.kind === 'injected'
+  const planned = planExec({ mode, tmuxPresent: present, tmuxBin: resolved.bin, sid, token, cols: 80, rows: 24, command })
   wsSend(ws, CH_MODE, JSON.stringify({ persistent: planned.persistent }))   // 告知前端是否持久（徽标）
   const sessionName = tmuxSessionName(token, sid)
   if (planned.persistent) idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
@@ -616,10 +658,10 @@ async function handleExec(ws, session, url) {
     // 增强 B:重连回放 scrollback。capture-pane 兼任存在性探测(execCapture 不返回退出码)。
     const label = tmuxLabel(token)
     try {
-      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES), true)
+      const cap = await execCapture(session, namespace, pod, container, tmuxCaptureCommand(label, sessionName, TMUX_SCROLLBACK_LINES, resolved.bin), true)
       if (hasHistoryFromCapture(cap)) {
         wsSend(ws, CH_STDOUT, cap.stdout)                         // 回放历史 → xterm
-        execCommand = tmuxAttachOnlyCommand(label, sessionName)   // 续接已存在会话
+        execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin)   // 续接已存在会话
       }
     } catch { /* 会话不存在/捕获失败 → 保持 new-session -A */ }
   }
