@@ -383,7 +383,9 @@ function stopAutoRefresh() { if (autoTimer) { clearTimeout(autoTimer); autoTimer
 function startAutoRefresh() {
   if (autoTimer) return
   const tick = async () => {
-    try { await store.invalidateAllClusterQueries() } catch { /* 忽略 */ }
+    // 只刷本页部署进度真正需要的两个 query(workloads ready 副本 + pods 状态);
+    // 不再 store.invalidateAllClusterQueries()——那会每 5s 全 cluster 失效(~10 个 limit=5000 重列表并发)→ gateway→K8s 超时 503 + 其余 refetch 静默失败→界面停旧。
+    try { await Promise.all([workloadsQuery.refetch(), podsQuery.refetch()]) } catch { /* 忽略 */ }
   }
   // 自重排 setTimeout：部署中 5s 看进度；稳定后 10s 保新鲜（消除「健康即变旧」的迟钝感）。离开页面停止。
   const schedule = () => {

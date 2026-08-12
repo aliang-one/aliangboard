@@ -32,14 +32,19 @@ export function useMetricsHistory(namespaceRef, podNamesRef, opts = {}) {
   const current = ref({ cpu: 0, mem: 0 })
   const sampling = ref(false)
   const available = ref(true)
+  const failThreshold = opts.failThreshold ?? 3   // 连续失败 N 次进入退避
+  const failBackoff = opts.failBackoff ?? 30000   // 退避间隔:metrics endpoint 挂了(503)别每 5s 空转刷屏
   let timer = null
   let stopped = false
+  let failStreak = 0
+
+  function scheduleNext(delay) { if (!stopped) timer = setTimeout(tick, delay) }
 
   async function tick() {
     if (stopped) return
     const ns = namespaceRef.value
     const names = new Set(podNamesRef.value || [])
-    if (!ns || !names.size) return
+    if (!ns || !names.size) { scheduleNext(interval); return }
     sampling.value = true
     try {
       const data = await api.k8s(`/apis/metrics.k8s.io/v1beta1/namespaces/${encodeURIComponent(ns)}/pods`)
@@ -55,14 +60,18 @@ export function useMetricsHistory(namespaceRef, podNamesRef, opts = {}) {
       cpuSeries.value = [...cpuSeries.value, cpu].slice(-max)
       memSeries.value = [...memSeries.value, mem].slice(-max)
       available.value = true
+      failStreak = 0
     } catch {
       available.value = false
+      failStreak++
     } finally {
       sampling.value = false
     }
+    // 连续失败 → 退避(避免对不可用的 metrics endpoint 每秒级空转);一旦成功 failStreak 复原回基础间隔
+    scheduleNext(failStreak >= failThreshold ? failBackoff : interval)
   }
-  function start() { if (timer || stopped) return; tick(); timer = setInterval(tick, interval) }
-  function stop() { stopped = true; if (timer) clearInterval(timer); timer = null }
+  function start() { if (timer || stopped) return; scheduleNext(interval) }
+  function stop() { stopped = true; if (timer) clearTimeout(timer); timer = null }
   onUnmounted(stop)
   return { cpuSeries, memSeries, current, sampling, available, start, stop }
 }
