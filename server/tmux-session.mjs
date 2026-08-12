@@ -33,10 +33,13 @@ export function isTmuxPresent(probeResult) {
   return !!out && Buffer.isBuffer(out) && out.toString('utf8').trim().length > 0
 }
 
-// 最小镜像无 terminfo 库 → tmux 报 "can't find terminfo database"。有 terminfoDir 时给命令前缀
-// env TERMINFO/TERM,指向注入的 terminfo 目录(kill 等纯 socket 命令不需要 tty,故只在 tty 命令上用)。
+// 最小镜像无 terminfo 库 → tmux 报 "can't find terminfo database";只读 /tmp 的 pod → tmux 建不了 socket。
+// 有 terminfoDir 时给命令前缀 env TERMINFO/TMUX_TMPDIR/TERM:TMUX_TMPDIR 取注入用的可写基目录
+// (= terminfoDir 去掉 /.ab-terminfo 后缀),让 socket 也落到 /dev/shm 之类可写处。kill 纯 socket,不用。
 export function withTermInfo(terminfoDir, argv) {
-  return terminfoDir ? ['env', `TERMINFO=${terminfoDir}`, 'TERM=xterm-256color', ...argv] : argv
+  if (!terminfoDir) return argv
+  const tmpDir = terminfoDir.replace(/\/\.ab-terminfo$/, '')
+  return ['env', `TERMINFO=${terminfoDir}`, `TMUX_TMPDIR=${tmpDir}`, 'TERM=xterm-256color', ...argv]
 }
 
 export function tmuxKillCommand(label, name, tmuxBin = 'tmux') {

@@ -143,7 +143,9 @@ test('planExec threads tmuxBin into the attach command', () => {
 test('withTermInfo: passthrough when no terminfoDir; prepend env when set', () => {
   assert.deepEqual(withTermInfo('', ['tmux', '-V']), ['tmux', '-V'])
   assert.deepEqual(withTermInfo('/dev/shm/.ab-terminfo', ['/x/tmux', '-L', 'ab1']),
-    ['env', 'TERMINFO=/dev/shm/.ab-terminfo', 'TERM=xterm-256color', '/x/tmux', '-L', 'ab1'])
+    ['env', 'TERMINFO=/dev/shm/.ab-terminfo', 'TMUX_TMPDIR=/dev/shm', 'TERM=xterm-256color', '/x/tmux', '-L', 'ab1'])
+  // terminfoDir without /.ab-terminfo suffix → tmpDir = terminfoDir as-is (no strip)
+  assert.equal(withTermInfo('/d/.ti', ['/x/tmux'])[2], 'TMUX_TMPDIR=/d/.ti')
 })
 
 test('tty builders thread terminfoDir; kill does NOT (socket-only)', () => {
@@ -151,7 +153,7 @@ test('tty builders thread terminfoDir; kill does NOT (socket-only)', () => {
   assert.deepEqual(tmuxAttachOnlyCommand('L', 'N', '/x/tmux'), ['/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
   // terminfoDir → env prefix on attach / capture / new-session
   assert.deepEqual(tmuxAttachOnlyCommand('L', 'N', '/x/tmux', '/d/.ti'),
-    ['env', 'TERMINFO=/d/.ti', 'TERM=xterm-256color', '/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
+    ['env', 'TERMINFO=/d/.ti', 'TMUX_TMPDIR=/d/.ti', 'TERM=xterm-256color', '/x/tmux', '-L', 'L', 'attach-session', '-t', 'N'])
   assert.equal(tmuxCaptureCommand('L', 'N', 2000, '/x/tmux', '/d/.ti')[0], 'env')
   assert.equal(tmuxAttachCommand({ tmuxBin: '/x/tmux', terminfoDir: '/d/.ti', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })[0], 'env')
   // kill ignores terminfoDir entirely (no tty) — still 3-arg shape
