@@ -744,20 +744,25 @@ async function saveExpose() {
   } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
 }
 const showIngressMapModal = ref(false)
-const ingressMapForm = ref({ host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
+const ingressMapForm = ref({ name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
 function openIngressMap() {
   const svc = relatedServices.value[0]
   const firstPort = svc?.ports?.split(',')[0]?.split(':')[0] || '80'
-  ingressMapForm.value = { host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
+  // 默认名避重：支持连续多次「+」创建多个 Ingress（与 openExpose 同策略；按命名空间内全量 Ingress 去重，避免与同名清单冲突）
+  const base = workload.value?.name || 'app'
+  const existing = new Set(ingressList.value.map(i => i.name))
+  let name = `${base}-ingress`, n = 2
+  while (existing.has(name)) name = `${base}-ingress-${n++}`
+  ingressMapForm.value = { name, host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
   showIngressMapModal.value = true
 }
 async function saveIngressMap() {
   const f = ingressMapForm.value
   if (!f.serviceName) { notify('error', t('workload.notify.selectService')); return }
-  try {
-    await store.addIngress({ name: `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: f.host, path: f.path, pathType: f.pathType, serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 }] })
-    notify('success', t('workload.notify.createdIngress', { host: f.host || '*', path: f.path, service: f.serviceName, port: f.servicePort })); showIngressMapModal.value = false
-  } catch (e) { notify('error', e.message || t('workload.notify.createIngressFailed')) }
+  // addIngress 失败返回 {ok:false}（store 已 toast 错误，不抛异常）：据 r.ok 决定后续，失败时保留弹窗、不误报成功
+  const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: f.host, http: { paths: [{ path: f.path, pathType: f.pathType, backend: { serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 } }] } }] })
+  if (r && r.ok === false) return
+  notify('success', t('workload.notify.createdIngress', { host: f.host || '*', path: f.path, service: f.serviceName, port: f.servicePort })); showIngressMapModal.value = false
 }
 
 // === Edit（结构化深编辑：与创建 DeployApp 字段对齐）===

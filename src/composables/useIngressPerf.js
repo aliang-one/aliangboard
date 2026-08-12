@@ -5,8 +5,6 @@
 // 保持模块纯净（不引 @/i18n，scripts/test.mjs 可直 import），消费方渲染时 t(...Key) 翻译。
 // test.mjs 只校验 buildIngressAnnotations 的数据形态，不读文案，故存键不影响。
 
-export const INGRESS_CLASSES = ['nginx', 'traefik', 'kong', 'haproxy', 'nginx-ingress', 'istio', 'gce', 'aliyun-alb']
-
 // 分组：tab = perf(性能调优) | extra(安全与其它)；field.key 即注解后缀；options→下拉，area→多行
 export const PERF_GROUPS = [
   { tab: 'perf', titleKey: 'ingressPerf.groupTimeout', icon: 'schedule', fields: [

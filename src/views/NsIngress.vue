@@ -13,7 +13,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import { usePagination } from '@/composables/usePagination'
-import { INGRESS_CLASSES, PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,6 +37,9 @@ const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i
 const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
+// IngressClass 下拉源走 Vue Query（集群级，真实网关类；不再用硬编码列表，避免指向集群里不存在的类）
+const icQ = useResourceList({ key: ['cluster', cid.value, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+const allIngressClasses = computed(() => icQ.data.value || [])
 
 // 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索
 function flattenRules(row) {
@@ -73,7 +76,7 @@ const showCreateModal = ref(false)
 const createTab = ref('basic')   // basic | perf | extra
 const createForm = ref({
   name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80',
-  enableTLS: true, tlsSecret: '', className: 'nginx',
+  enableTLS: true, tlsSecret: '', className: '',
 })
 // 当前 ns Service 名候选（serviceName 下拉）
 const nsServiceNames = computed(() => nsServices.value.map(s => s.name))
@@ -89,7 +92,7 @@ const customAnnotations = ref([])
 
 
 function resetCreate() {
-  createForm.value = { name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80', enableTLS: true, tlsSecret: '', className: 'nginx' }
+  createForm.value = { name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80', enableTLS: true, tlsSecret: '', className: '' }
   adv.value = {}
   customAnnotations.value = []
   createTab.value = 'basic'
@@ -241,7 +244,8 @@ async function handleDelete() {
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.classLabel') }}</label>
           <select v-model="createForm.className" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-            <option v-for="c in INGRESS_CLASSES" :key="c" :value="c">{{ c }}</option>
+            <option value="">{{ t('ns.ingress.classDefaultOption') }}</option>
+            <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? t('ns.ingress.defaultClass') : '' }}</option>
           </select>
         </div>
       </div>

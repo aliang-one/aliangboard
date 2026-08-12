@@ -510,6 +510,8 @@
       "tabExtra": "Security & Others",
       "nameLabel": "Ingress Name *",
       "classLabel": "Ingress Class",
+      "classDefaultOption": "Cluster default",
+      "defaultClass": "(default)",
       "hostLabel": "Host *",
       "pathLabel": "Path",
       "pathTypeLabel": "Path Type",
@@ -1396,6 +1398,8 @@
     "targetPortHint": "Fill container ports in the Containers step first",
     "createIngress": "Create Ingress",
     "ingressClass": "Ingress Class",
+    "ingressClassDefaultOption": "Cluster default",
+    "ingressClassDefault": "(default)",
     "ingressRules": "Routing Rules (multi-domain + multi-path per host)",
     "tlsLabel": "TLS (HTTPS)",
     "tlsSecretPlaceholder": "TLS secret name (auto-generated if empty)",
@@ -1824,7 +1828,6 @@
       "createServiceFailed": "Failed to create Service",
       "selectService": "Please select a target Service",
       "createdIngress": "Created Ingress {host}{path} → {service}:{port}",
-      "createIngressFailed": "Failed to create Ingress",
       "fixErrors": "Please fix: "
     },
     "validation": {

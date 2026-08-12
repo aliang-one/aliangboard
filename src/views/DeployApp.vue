@@ -38,6 +38,9 @@ const serviceAccountsQuery = useResourceList({
   fetcher: () => store.fetchServiceAccounts(),
   options: { refetchInterval: 30000 },
 })
+// IngressClass 下拉源（集群级真实网关类；弃用硬编码 nginx/traefik/kong，避免指向集群里不存在的类）
+const ingressClassQ = useResourceList({ key: ['cluster', cid.value, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+const allIngressClasses = computed(() => ingressClassQ.data.value || [])
 
 const ns = computed(() => route.params.namespace)
 
@@ -89,7 +92,7 @@ function makeForm() {
   servicePorts: [{ name: 'http', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }],
   externalName: '',
   createIngress: false,
-  ingressClassName: 'nginx',
+  ingressClassName: '',
   ingressRules: [{ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }],
   ingressAdv: {},
   ingressCustomAnnotations: [],
@@ -1343,10 +1346,8 @@ async function handleDeploy() {
             <div class="mb-xs">
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressClass') }}</label>
               <select v-model="form.ingressClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">None</option>
-                <option>nginx</option>
-                <option>traefik</option>
-                <option>kong</option>
+                <option value="">{{ $t('deploy.ingressClassDefaultOption') }}</option>
+                <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('deploy.ingressClassDefault') : '' }}</option>
               </select>
             </div>
 

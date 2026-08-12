@@ -510,6 +510,8 @@
       "tabExtra": "安全与其它",
       "nameLabel": "Ingress Name *",
       "classLabel": "Ingress Class",
+      "classDefaultOption": "集群默认",
+      "defaultClass": "（默认）",
       "hostLabel": "Host *",
       "pathLabel": "Path",
       "pathTypeLabel": "Path Type",
@@ -1396,6 +1398,8 @@
     "targetPortHint": "先在上方 Containers 步骤填写容器端口",
     "createIngress": "创建 Ingress",
     "ingressClass": "Ingress Class",
+    "ingressClassDefaultOption": "集群默认",
+    "ingressClassDefault": "（默认）",
     "ingressRules": "路由规则 Rules（多域名 + 每 host 多 path）",
     "tlsLabel": "TLS（HTTPS）",
     "tlsSecretPlaceholder": "tls secret 名（留空自动生成）",
@@ -1824,7 +1828,6 @@
       "createServiceFailed": "创建 Service 失败",
       "selectService": "请选择目标 Service",
       "createdIngress": "已创建 Ingress {host}{path} → {service}:{port}",
-      "createIngressFailed": "创建 Ingress 失败",
       "fixErrors": "请修正："
     },
     "validation": {
