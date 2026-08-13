@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -31,6 +31,9 @@ const workloadsQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const workloadList = computed(() => workloadsQuery.data.value || [])
+
+// 进页即触发 metrics 拉取 + 集群汇总刷新,让顶部 CPU%/podCount 显示真实值(computeClusterMetrics 从缓存派生)
+onMounted(() => { store.refreshMetrics().catch(() => {}) })
 
 const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)

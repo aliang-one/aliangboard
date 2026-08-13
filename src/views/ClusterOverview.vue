@@ -1,13 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import MiniChart from '@/components/common/MiniChart.vue'
 import { useResourceList } from '@/composables/useK8sQuery'
 
 const router = useRouter()
 const store = useClusterStore()
-const timeRange = ref('24h')
 
 // Cluster ID (demo for mock, cluster name for remote)
 const cid = computed(() => (store.currentCluster || 'cluster'))
@@ -19,6 +19,14 @@ const nodesQuery = useResourceList({
   options: { refetchInterval: 30000 }
 })
 const nodeList = computed(() => nodesQuery.data.value || [])
+
+// Pods query (Vue Query)
+const podsQuery = useResourceList({
+  key: ['cluster', cid.value, 'pods'],
+  fetcher: () => store.fetchPods(),
+  options: { refetchInterval: 30000 },
+})
+const podList = computed(() => podsQuery.data.value || [])
 
 // Events query (Vue Query)
 const eventsQuery = useResourceList({
@@ -39,6 +47,22 @@ function gaugeClass(cpu) {
 function hasPressure(node) {
   return Boolean(node.conditions?.DiskPressure || node.conditions?.MemoryPressure || node.conditions?.PIDPressure)
 }
+// 趋势采样:每 10s refreshMetrics + 收 cluster CPU/Mem 到 30 点滚动窗口喂 MiniChart(移植自 MonitoringCenter)
+const cpuSeries = ref([])
+const memSeries = ref([])
+const SAMPLE_MAX = 30
+let metricsTimer = null
+async function tick() {
+  try {
+    await store.refreshMetrics()
+    const cpu = store.cluster.cpuUsage
+    const mem = store.cluster.memoryUsage
+    if (cpu != null) cpuSeries.value = [...cpuSeries.value, cpu].slice(-SAMPLE_MAX)
+    if (mem != null) memSeries.value = [...memSeries.value, mem].slice(-SAMPLE_MAX)
+  } catch { /* 静默:保留上次 series */ }
+}
+onMounted(() => { tick(); metricsTimer = setInterval(tick, 10000) })
+onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
 </script>
 
 <template>
@@ -54,7 +78,7 @@ function hasPressure(node) {
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.totalNodes') }}</p>
-          <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.nodeCount }}</h3>
+          <h3 class="text-headline-md text-primary font-bold">{{ nodeList.length }}</h3>
           <p class="text-body-sm flex items-center gap-xs mt-xs"
             :class="{ 'text-primary': store.clusterHealth.severity === 'ok', 'text-tertiary-container': store.clusterHealth.severity === 'warn', 'text-error': store.clusterHealth.severity === 'crit' || store.clusterHealth.severity === 'none' }">
             <span class="material-symbols-outlined text-base">{{ store.clusterHealth.severity === 'ok' ? 'check_circle' : 'warning' }}</span>
@@ -67,7 +91,7 @@ function hasPressure(node) {
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.totalPods') }}</p>
-          <h3 class="text-headline-md text-primary font-bold">{{ store.cluster.podCount }}</h3>
+          <h3 class="text-headline-md text-primary font-bold">{{ podList.length }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">cached</span> {{ $t('cluster.runningSmoothly') }}
           </p>
@@ -78,7 +102,7 @@ function hasPressure(node) {
       <div class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-card flex items-center justify-between hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('cluster.activeEvents') }}</p>
-          <h3 class="text-headline-md text-tertiary font-bold">{{ store.cluster.activeEvents }}</h3>
+          <h3 class="text-headline-md text-tertiary font-bold">{{ eventList.length }}</h3>
           <p class="text-body-sm text-on-surface-variant flex items-center gap-xs mt-xs">
             <span class="material-symbols-outlined text-base">info</span> {{ $t('cluster.last60Minutes') }}
           </p>
@@ -101,15 +125,7 @@ function hasPressure(node) {
               <span v-if="!store.cluster.metricsAvailable" class="flex items-center gap-xs text-xs text-tertiary-container bg-tertiary-container/10 px-sm py-xs rounded-full" :title="$t('cluster.metricsUnavailableHint')">
                 <span class="material-symbols-outlined text-sm">sensors_off</span> {{ $t('cluster.metricsUnavailable') }}
               </span>
-              <div class="flex gap-xs">
-                <span
-                  v-for="range in ['24h', '7d', '30d']"
-                  :key="range"
-                  @click="timeRange = range"
-                  class="px-md py-1 rounded-full text-body-sm cursor-pointer transition-colors"
-                  :class="timeRange === range ? 'bg-surface-container text-on-surface' : 'text-on-surface-variant hover:bg-surface-container-low'"
-                >{{ range }}</span>
-              </div>
+              <span class="text-xs text-on-surface-variant">{{ $t('cluster.liveWindow') }}</span>
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-md p-md">
@@ -124,13 +140,8 @@ function hasPressure(node) {
                   <span class="material-symbols-outlined text-base">{{ store.cluster.cpuTrendUp ? 'trending_up' : 'trending_down' }}</span> {{ store.cluster.cpuTrend }}
                 </p>
               </div>
-              <div class="h-32 w-full bg-gradient-to-b from-primary/10 to-transparent relative border-b border-outline-variant overflow-hidden rounded-lg">
-                <svg class="w-full h-full stroke-primary fill-none stroke-2" preserveAspectRatio="none" viewBox="0 0 400 100">
-                  <path d="M0,80 Q50,70 100,75 T200,40 T300,50 T400,20" vector-effect="non-scaling-stroke" />
-                </svg>
-              </div>
-              <div class="flex justify-between font-mono text-code-sm text-on-surface-variant">
-                <span>{{ $t('cluster.timeAgo') }}</span><span>{{ $t('cluster.timeNow') }}</span>
+              <div class="h-32 w-full">
+                <MiniChart :series="cpuSeries" color="var(--md-sys-color-primary)" :height="128" />
               </div>
             </div>
             <!-- Memory Chart -->
@@ -144,13 +155,8 @@ function hasPressure(node) {
                   <span class="material-symbols-outlined text-base">{{ store.cluster.memoryTrendUp ? 'trending_up' : 'trending_down' }}</span> {{ store.cluster.memoryTrend }}
                 </p>
               </div>
-              <div class="h-32 w-full bg-surface-container-low rounded-lg relative border-b border-outline-variant overflow-hidden">
-                <svg class="w-full h-full stroke-primary fill-none stroke-2 opacity-60" preserveAspectRatio="none" viewBox="0 0 400 100">
-                  <path d="M0,60 Q50,65 100,55 T200,70 T300,60 T400,65" vector-effect="non-scaling-stroke" />
-                </svg>
-              </div>
-              <div class="flex justify-between font-mono text-code-sm text-on-surface-variant">
-                <span>{{ $t('cluster.timeAgo') }}</span><span>{{ $t('cluster.timeNow') }}</span>
+              <div class="h-32 w-full">
+                <MiniChart :series="memSeries" color="var(--md-sys-color-primary)" :height="128" />
               </div>
             </div>
           </div>

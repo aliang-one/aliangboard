@@ -337,13 +337,12 @@
     "recentEvents": "Recent Events",
     "metricsUnavailable": "Metrics unavailable",
     "metricsUnavailableHint": "Metrics-server not installed or current credentials lack metrics read permission",
+    "liveWindow": "Session · last 5min",
     "nodePressureHint": "Node has pressure conditions (Disk/Memory/PID)",
     "showMoreEvents": "Show More Events",
     "ready": "Ready",
     "notReady": "NotReady",
-    "mem": "Mem",
-    "timeAgo": "24h ago",
-    "timeNow": "Now"
+    "mem": "Mem"
   },
   "nodes": {
     "title": "Nodes",

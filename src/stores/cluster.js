@@ -14,6 +14,7 @@ import { queryClient } from '@/queryClient'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
 import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
+import { deriveClusterCounts } from '@/logic/clusterCounts'
 
 // YAML 强制双引号序列化：metadata.name/namespace/标签值/容器名等必须是字符串,
 // 裸 ${name} 在 name 形如数字(如 123)时会被 YAML 解析成 int → K8s "expected string"。
@@ -59,20 +60,20 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === 基础数据 ===
   const cluster = ref({
-    name: 'Production-Cluster-01',
+    name: '',
     version: 'k8s v1.28.2',
     apiServer: 'https://api.prod-cluster.kubezen.io:6443',
     status: 'Healthy',
-    nodeCount: 8,
-    podCount: 247,
-    activeEvents: 18,
-    cpuUsage: 62,
-    cpuTrend: '+4.2%',
-    cpuTrendUp: true,
-    memoryUsage: 58,
-    memoryTrend: '-2.1%',
-    memoryTrendUp: false,
-    metricsAvailable: true,
+    nodeCount: 0,
+    podCount: 0,
+    activeEvents: 0,
+    cpuUsage: null,
+    cpuTrend: '—',
+    cpuTrendUp: null,
+    memoryUsage: null,
+    memoryTrend: '—',
+    memoryTrendUp: null,
+    metricsAvailable: false,
   })
   const nodeList = ref([])
   const workloadList = ref([])
@@ -1107,11 +1108,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const cpuT = trendOf(cpuUsage, prevClusterMetrics.cpu)
     const memT = trendOf(memoryUsage, prevClusterMetrics.mem)
     prevClusterMetrics = { cpu: cpuUsage, mem: memoryUsage }
+    const _cid = currentCluster.value || 'cluster'
+    const counts = deriveClusterCounts({
+      nodes: queryClient.getQueryData(['cluster', _cid, 'nodes']),
+      pods: queryClient.getQueryData(['cluster', _cid, 'pods']),
+      events: queryClient.getQueryData(['cluster', _cid, 'events']),
+    })
     cluster.value = {
       ...cluster.value,
-      nodeCount: nodeList.value.length,
-      podCount: podList.value.length,
-      activeEvents: eventList.value.length,
+      nodeCount: counts.nodeCount ?? nodeList.value.length,
+      podCount: counts.podCount ?? podList.value.length,
+      activeEvents: counts.activeEvents ?? eventList.value.length,
       metricsAvailable,
       cpuUsage, memoryUsage,
       cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
