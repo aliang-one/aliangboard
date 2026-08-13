@@ -171,6 +171,23 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           return { count: all.length, returned: items.length, items }
         } })
     },
+    describe_resource: async (keyRow, cluster, a, source) => {
+      const kind = String(a.kind || 'pods').toLowerCase()
+      const getter = GET_PATH[kind]
+      if (!getter) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${kind}` })
+      return runBoundedTool({ keyRow, cluster, tool: 'describe_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `describe ${kind}/${a.name}`,
+        fn: async (saCtx) => {
+          const { body: resBody } = await requestFn(saCtx, getter(a.namespace, a.name))
+          if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
+          let events = []
+          try {
+            const eventsUrl = `/api/v1/namespaces/${enc(a.namespace)}/events?fieldSelector=${enc('involvedObject.name=' + a.name)}`
+            const { body: evtBody } = await requestFn(saCtx, eventsUrl)
+            events = (evtBody?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
+          } catch { /* events 拉取失败不阻塞 */ }
+          return { resource: resBody, events: { count: events.length, items: events } }
+        } })
+    },
     can_i: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'can_i', source, namespace: a.namespace, verb: 'can_i', resource: `${a.verb || '?'}/${a.resource || '?'}`,
       summary: `can ${a.verb || '?'} ${a.group ? a.group + '/' : ''}${a.resource || '?'}`,
