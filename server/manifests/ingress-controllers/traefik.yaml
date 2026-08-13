@@ -1,7 +1,10 @@
 # Source: helm template traefik traefik/traefik --version 41.2.0
 # Repo:   https://traefik.github.io/charts  (chart: traefik/traefik)
 # App:    Traefik v3.7.10  (chart 41.2.0)
-# Render: namespace=ingress-traefik, service.spec.type=NodePort
+# Render: namespace=ingress-traefik, service.spec.type=NodePort,
+#         ingressClass.isDefaultClass=false (避免与已有默认 IngressClass 双 claim;
+#           chart 仍会渲染默认类注解(值为 "false"),已手动剥离——"false" 与缺失语义等价,
+#           K8s 仅认 "true" 为默认类声明,缺失/"false" 均不参与默认类竞争)
 #         (chart renders IngressClass by default via ingressClass.enabled=true; no manual append needed.
 #          namespaced resources already carry metadata.namespace via --namespace; no post-injection needed)
 ---
@@ -283,8 +286,6 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
-  annotations:
-    ingressclass.kubernetes.io/is-default-class: "true"
   labels:
     app.kubernetes.io/name: traefik
     app.kubernetes.io/instance: traefik-ingress-traefik

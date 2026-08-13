@@ -33,7 +33,7 @@ export const INGRESS_CONTROLLER_TEMPLATES = [
     notesKey: 'ingressController.traefik.notes',
     version: '41.2.0',                              // traefik chart 版本(app v3.7.10)
     source: 'https://traefik.github.io/charts (chart traefik/traefik@41.2.0)',
-    variant: 'helm-rendered bare-metal NodePort (chart renders IngressClass by default)',
+    variant: 'helm-rendered bare-metal NodePort (IngressClass non-default)',
     controller: 'traefik.io/ingress-controller',   // = 清单 IngressClass.spec.controller(chart 默认 ingressClass.enabled=true)
     defaultClassName: 'traefik',
     file: 'traefik.yaml',
