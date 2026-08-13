@@ -24,7 +24,7 @@ function enterNamespace() {
   router.push({ name: 'NamespaceOverview', params: { namespace: nsName.value } })
 }
 const nsDetail = useResourceDetail({
-  key: ['cluster', cid, 'namespaces', nsName.value],
+  key: ['cluster', cid, 'namespaces', nsName],
   fetcher: () => store.fetchNamespace(nsName.value),
   options: { enabled: Boolean(nsName.value) },
 })

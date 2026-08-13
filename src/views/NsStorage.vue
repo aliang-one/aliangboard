@@ -78,7 +78,7 @@ function resetCreate() {
 
 async function handleCreatePVC() {
   const f = createForm.value
-  await store.addPVC({
+  const r = await store.addPVC({
     name: f.name,
     namespace: route.params.namespace,
     status: 'Pending',
@@ -88,6 +88,7 @@ async function handleCreatePVC() {
     volume: '',
     age: 'Just now',
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
   queryClient.invalidateQueries({ queryKey: pvcsKey })
   showCreatePVC.value = false
   resetCreate()

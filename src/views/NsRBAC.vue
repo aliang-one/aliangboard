@@ -77,12 +77,13 @@ function createRole() {
   showCreateRoleModal.value = false
 }
 
-function createSA() {
+async function createSA() {
   if (!newSA.value.name) return
-  store.addServiceAccount({
+  const r = await store.addServiceAccount({
     name: newSA.value.name,
     namespace: route.params.namespace,
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
   newSA.value = { name: '' }
   showCreateSAModal.value = false
 }

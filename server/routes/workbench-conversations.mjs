@@ -11,17 +11,7 @@ import { maybeSummarize } from '../workbench-summarize.mjs'
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
 // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
-const KIND_API_PATH = {
-  pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-  services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-  configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-  secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-  deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-  statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-  daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-  namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-}
+import { KIND_API_PATH } from '../kind-paths.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
