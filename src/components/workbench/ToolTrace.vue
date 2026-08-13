@@ -24,6 +24,6 @@ function toggle(i) { expanded.value = expanded.value === i ? null : i }
       <span v-else class="text-status-success">✓</span>
     </button>
     <pre v-if="expanded !== null && fmtResult(trace[expanded].result)"
-      class="w-full mt-xs font-mono text-body-xs text-on-surface-variant bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-xs max-h-32 overflow-y-auto whitespace-pre-wrap break-all">{{ fmtResult(trace[expanded].result) }}</pre>
+      class="w-full mt-xs font-mono text-body-xs bg-[#0b1c30] text-[#cfe3ff] border border-outline-variant/30 rounded-lg p-sm max-h-40 overflow-y-auto whitespace-pre-wrap break-all leading-[18px]">{{ fmtResult(trace[expanded].result) }}</pre>
   </div>
 </template>
