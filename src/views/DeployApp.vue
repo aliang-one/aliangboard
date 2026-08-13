@@ -881,6 +881,7 @@ async function handleDeploy() {
       <div v-if="currentStep === 1">
         <h3 class="text-headline-sm font-bold mb-md">{{ $t('deploy.containerConfigTitle') }}</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
+          <!-- 身份 -->
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.containerName') }}</label>
             <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="main" />
@@ -889,11 +890,24 @@ async function handleDeploy() {
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imageUrl') }}</label>
             <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
           </div>
+          <!-- 镜像获取 -->
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.pullPolicy') }}</label>
             <select v-model="form.pullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>IfNotPresent</option><option>Always</option><option>Never</option>
             </select>
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
+            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+              <option value="">None</option>
+              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </div>
+          <!-- 进程执行 -->
+          <div>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
+            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
           </div>
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.command') }}</label>
@@ -903,27 +917,9 @@ async function handleDeploy() {
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
             <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="--port 8080 --debug" />
           </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
-            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
-          </div>
-          <div class="flex items-center gap-md pt-sm">
+          <div class="md:col-span-2 flex items-center gap-md pt-sm">
             <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-xs">stdin</span></label>
             <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-xs">{{ $t('deploy.ttyLabel') }}</span></label>
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
-            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">None</option>
-              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountLabel') }}</label>
-            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">Default</option>
-              <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
-            </select>
           </div>
         </div>
 
@@ -1058,6 +1054,15 @@ async function handleDeploy() {
             <span class="text-xs text-primary font-medium">{{ showAdvanced ? $t('deploy.collapse') : $t('deploy.expand') }}</span>
           </button>
           <div v-show="showAdvanced" class="p-md border-t border-outline-variant">
+        <!-- Service Account (pod 级身份) -->
+        <div class="mb-md">
+          <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountLabel') }}</label>
+          <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+            <option value="">Default</option>
+            <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
+          </select>
+        </div>
+
         <!-- 健康探针 -->
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.healthProbes') }}</h4>
         <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
