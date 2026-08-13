@@ -1481,7 +1481,7 @@ async function handle(req, res) {
       }
       if (req.method === 'POST') {
         const input = await readBody(req)
-        const id = `term-${randomUUID().slice(0, 8)}`
+        const id = input.id || `term-${randomUUID().slice(0, 8)}`   // 用前端 id(=WS sid),刷新后重连同会话
         const term = {
           id, sessionToken: token,
           name: input.name || `${input.podName}/${input.container || 'main'}`,
