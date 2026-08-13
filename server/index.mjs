@@ -20,6 +20,7 @@ import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
 import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
+import { KIND_API_PATH } from './kind-paths.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill } from './distill.mjs'
@@ -989,24 +990,6 @@ function listForwards(sessionId) {
 
 // ====== T5: @-ref 漂移修复——提取的 helpers(KIND_API_PATH / withTimeout / fetchRefContext / buildK8sSession)======
 // 原 POST 端点内联;现抽取为模块级,run/resumeConversation 也用它每轮刷新 ref context。
-const KIND_API_PATH = {
-  pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-  services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-  configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-  secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-  deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-  statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-  daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-  namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-  // SP3 扩展:集群级 + 存储 + 网络 + 身份
-  nodes: (_ns, name) => `/api/v1/nodes/${name}`,
-  persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${name}`,
-  persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`,
-  storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${name}`,
-  networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/networkpolicies/${name}`,
-  serviceaccounts: (ns, name) => `/api/v1/namespaces/${ns}/serviceaccounts/${name}`,
-}
 function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
 }
@@ -1092,17 +1075,6 @@ async function handle(req, res) {
           // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
           let messageContent = String(input.message)
           if (Array.isArray(input.references) && input.references.length && k8sSession) {
-            const KIND_API_PATH = {
-              pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`,
-              services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-              configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-              secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`,
-              deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
-              statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-              daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
-              ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-              namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-            }
             const blocks = []
             for (const ref of input.references) {
               const pathFn = KIND_API_PATH[ref.kind]
