@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
+import { useNavMode } from '@/composables/useNavMode'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
+const { isNsMode, isClusterMode } = useNavMode()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _nsQ = useResourceList({ key: ['cluster', _cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
@@ -48,7 +50,7 @@ const platformAdminNav = [
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
   { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
 ]
-const clusterNavOpen = ref(false)
+const clusterNavOpen = ref(true)
 
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
@@ -261,7 +263,7 @@ function nsStatusColor(status) {
     <!-- Scrollable Navigation -->
     <nav class="flex-1 overflow-y-auto px-md pb-md">
       <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
-      <div v-if="currentNs" class="animate-fade-in mb-md">
+      <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
         <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
         <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
           <div class="flex items-center gap-xs px-md pt-sm pb-xs">
@@ -284,13 +286,13 @@ function nsStatusColor(status) {
       </div>
 
       <!-- 集群管理：专门板块，可折叠；选中 ns 时默认折叠（让命名空间工作为主），无 ns 时自动展开 -->
-      <div class="flex flex-col gap-xs">
+      <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
         <button @click="clusterNavOpen = !clusterNavOpen"
           class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
-          <span class="material-symbols-outlined text-base transition-transform" :class="(clusterNavOpen || !currentNs) ? 'rotate-90' : ''">chevron_right</span>
+          <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
           <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
         </button>
-        <div v-show="clusterNavOpen || !currentNs" class="flex flex-col gap-xs">
+        <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
           <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
@@ -329,7 +331,7 @@ function nsStatusColor(status) {
     <!-- Bottom Actions -->
     <div class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
       <button
-        v-if="currentNs"
+        v-if="isNsMode"
         @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
         class="w-full py-sm px-md bg-primary text-on-primary rounded-lg font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-sm mb-sm"
       >
@@ -338,7 +340,7 @@ function nsStatusColor(status) {
       </button>
       <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
       <div class="flex items-stretch gap-xs">
-        <button v-if="currentNs" data-test="bottom-events"
+        <button v-if="isNsMode" data-test="bottom-events"
           @click="goNsRoute('events')"
           :title="$t('nav.events')" :aria-label="$t('nav.events')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"

@@ -23,7 +23,7 @@ vi.mock('@/composables/useK8sQuery', () => ({
   useResourceList: () => ({ data: { value: [] } }),
 }))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ path: '/ns/default', params: { namespace: currentNs }, name: 'NamespaceOverview' }),
+  useRoute: () => ({ path: '/ns/default', params: { namespace: currentNs }, name: 'NamespaceOverview', meta: { scope: currentNs ? 'namespace' : 'global' } }),
   useRouter: () => ({ push: pushSpy }),
 }))
 
