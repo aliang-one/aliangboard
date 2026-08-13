@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 
@@ -21,6 +22,8 @@ const props = defineProps({
 const name = defineModel('name', { default: '' })
 const dataKey = defineModel('dataKey', { default: '' })
 
+const { t } = useI18n()
+
 const store = useClusterStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
@@ -30,6 +33,10 @@ const list = computed(() => (props.kind === 'secret' ? (_secQ.data.value || []) 
 const resourceOptions = computed(() => list.value.filter(r => r.namespace === props.namespace).map(r => r.name))
 const selected = computed(() => list.value.find(r => r.name === name.value && r.namespace === props.namespace))
 const keyOptions = computed(() => Object.keys(selected.value?.data || {}))
+
+// ④ ns 漂移警示:name 非空 && 列表已成功加载 && 当前 ns 无精确匹配(不拦提交,尊重跨 ns 手输)
+const listLoaded = computed(() => (props.kind === 'secret' ? _secQ.isSuccess.value : _cmQ.isSuccess.value))
+const nsMissing = computed(() => Boolean(name.value && name.value.trim()) && listLoaded.value && !selected.value)
 
 const openName = ref(false)
 const openKey = ref(false)
@@ -44,6 +51,9 @@ const filterKey = computed(() => {
   return q ? opts.filter(o => o.toLowerCase().includes(q)) : opts
 })
 
+const activeName = ref(-1)
+const activeKey = ref(-1)
+
 const nameWrap = ref(null)
 const keyWrap = ref(null)
 function onDocMousedown(e) {
@@ -53,8 +63,33 @@ function onDocMousedown(e) {
 onMounted(() => document.addEventListener('mousedown', onDocMousedown))
 onUnmounted(() => document.removeEventListener('mousedown', onDocMousedown))
 
-function pickName(o) { name.value = o; openName.value = false }
+function pickName(o) { name.value = o; openName.value = false; clearDataKey() }
 function pickKey(o) { dataKey.value = o; openKey.value = false }
+
+// ② 用户换资源(键入或下拉重选)→ 清空 key;程序化赋值(复制 workload 回填)不触发 input 事件,不受影响
+function clearDataKey() { if (props.withKey) dataKey.value = '' }
+
+// ⑥ 键盘导航:↑/↓ 高亮、Enter 选中、Esc 关闭;失焦关闭(下拉选项 mousedown.prevent 保焦,不触发 blur)
+function onNameFocus() { openName.value = true; activeName.value = -1 }
+function onNameBlur() { openName.value = false }
+function onNameKeydown(e) {
+  const opts = filterName.value
+  if (e.key === 'Escape') { openName.value = false; return }
+  if (!openName.value || !opts.length) return
+  if (e.key === 'ArrowDown') { e.preventDefault(); activeName.value = (activeName.value + 1) % opts.length }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); activeName.value = (activeName.value - 1 + opts.length) % opts.length }
+  else if (e.key === 'Enter') { e.preventDefault(); const o = opts[activeName.value]; if (o) pickName(o) }
+}
+function onKeyFocus() { openKey.value = true; activeKey.value = -1 }
+function onKeyBlur() { openKey.value = false }
+function onKeyKeydown(e) {
+  const opts = filterKey.value
+  if (e.key === 'Escape') { openKey.value = false; return }
+  if (!openKey.value || !opts.length) return
+  if (e.key === 'ArrowDown') { e.preventDefault(); activeKey.value = (activeKey.value + 1) % opts.length }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); activeKey.value = (activeKey.value - 1 + opts.length) % opts.length }
+  else if (e.key === 'Enter') { e.preventDefault(); const o = opts[activeKey.value]; if (o) pickKey(o) }
+}
 
 const inputClass = computed(() => props.size === 'md'
   ? 'w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors'
@@ -64,28 +99,37 @@ const optClass = 'w-full text-left px-sm py-xs hover:bg-primary-container/15 tex
 </script>
 
 <template>
-  <div class="flex gap-xs min-w-0">
-    <!-- 资源名 combobox -->
-    <div ref="nameWrap" class="relative flex-1 min-w-0">
-      <input
-        v-model="name" :class="inputClass"
-        @focus="openName = true"
-        :placeholder="kind === 'secret' ? 'Secret' : 'ConfigMap'"
-      />
-      <div v-if="openName && filterName.length" :class="panelClass">
-        <button type="button" v-for="o in filterName" :key="o" @mousedown.prevent="pickName(o)" :class="optClass" :title="o">{{ o }}</button>
+  <div class="min-w-0 w-full">
+    <div class="flex gap-xs min-w-0">
+      <!-- 资源名 combobox -->
+      <div ref="nameWrap" class="relative flex-1 min-w-0">
+        <input
+          v-model="name" :class="inputClass"
+          @focus="onNameFocus"
+          @input="clearDataKey"
+          @keydown="onNameKeydown"
+          @blur="onNameBlur"
+          :placeholder="kind === 'secret' ? 'Secret' : 'ConfigMap'"
+        />
+        <div v-if="openName && filterName.length" :class="panelClass">
+          <button type="button" v-for="(o, i) in filterName" :key="o" @mousedown.prevent="pickName(o)" :class="[optClass, i === activeName ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
+        </div>
+      </div>
+      <!-- key combobox -->
+      <div v-if="withKey" ref="keyWrap" class="relative flex-1 min-w-0">
+        <input
+          v-model="dataKey" :class="inputClass"
+          @focus="onKeyFocus"
+          @keydown="onKeyKeydown"
+          @blur="onKeyBlur"
+          placeholder="key"
+        />
+        <div v-if="openKey && filterKey.length" :class="panelClass">
+          <button type="button" v-for="(o, i) in filterKey" :key="o" @mousedown.prevent="pickKey(o)" :class="[optClass, i === activeKey ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
+        </div>
       </div>
     </div>
-    <!-- key combobox -->
-    <div v-if="withKey" ref="keyWrap" class="relative flex-1 min-w-0">
-      <input
-        v-model="dataKey" :class="inputClass"
-        @focus="openKey = true"
-        placeholder="key"
-      />
-      <div v-if="openKey && filterKey.length" :class="panelClass">
-        <button type="button" v-for="o in filterKey" :key="o" @mousedown.prevent="pickKey(o)" :class="optClass" :title="o">{{ o }}</button>
-      </div>
-    </div>
+    <!-- ④ ns 漂移警示 -->
+    <div v-if="nsMissing" class="mt-xs text-xs text-error/80">{{ t('envSource.nsMissing') }}</div>
   </div>
 </template>
