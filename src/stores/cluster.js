@@ -345,7 +345,7 @@ export const useClusterStore = defineStore('cluster', () => {
 
     async function add(item) {
       const r = await remoteCreate(yamlOf(item), `${kind}/${item.name}`)
-      if (sideEffects?.onAdd) sideEffects.onAdd(item)
+      if (r.ok && sideEffects?.onAdd) sideEffects.onAdd(item) // 失败不触发 sideEffects(修 services 计数漂移)
       invalidateResource(plural)
       return r // { ok } from remoteCreate;失败时已 toast,调用方可据 r.ok 决定后续(见 CreatePvcDialog)
     }
@@ -364,9 +364,10 @@ export const useClusterStore = defineStore('cluster', () => {
       invalidateResource(plural)
     }
     async function remove(name, ns) {
-      await remoteDeletePath(itemApi(name, ns), `${kind}/${name}`)
-      if (sideEffects?.onDelete) sideEffects.onDelete(name, ns)
+      const r = await remoteDeletePath(itemApi(name, ns), `${kind}/${name}`)
+      if (r.ok && sideEffects?.onDelete) sideEffects.onDelete(name, ns)
       invalidateResource(plural)
+      return r
     }
     return { add, update, delete: remove }
   }
@@ -375,8 +376,10 @@ export const useClusterStore = defineStore('cluster', () => {
   async function remoteDeletePath(path, label) {
     try {
       await api.k8s(path, { method: 'DELETE' })
+      return { ok: true }
     } catch (e) {
       notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: label || i18n.global.t('store.resource'), msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+      return { ok: false }
     }
   }
 
