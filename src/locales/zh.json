@@ -320,7 +320,9 @@
     "refreshPage": "刷新当前页",
     "refreshPageData": "刷新当前页数据",
     "activityLog": "活动记录",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "backToCluster": "返回集群管理",
+    "enterNamespace": "进入命名空间"
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",

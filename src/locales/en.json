@@ -320,7 +320,9 @@
     "refreshPage": "Refresh current page",
     "refreshPageData": "Refresh current page data",
     "activityLog": "Activity Log",
-    "logout": "Logout"
+    "logout": "Logout",
+    "backToCluster": "Back to cluster",
+    "enterNamespace": "Enter namespace"
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
