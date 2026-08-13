@@ -342,9 +342,7 @@
     "showMoreEvents": "Show More Events",
     "ready": "Ready",
     "notReady": "NotReady",
-    "mem": "Mem",
-    "timeAgo": "24h ago",
-    "timeNow": "Now"
+    "mem": "Mem"
   },
   "nodes": {
     "title": "Nodes",

@@ -342,9 +342,7 @@
     "showMoreEvents": "显示更多事件",
     "ready": "Ready",
     "notReady": "NotReady",
-    "mem": "内存",
-    "timeAgo": "24 小时前",
-    "timeNow": "现在"
+    "mem": "内存"
   },
   "nodes": {
     "title": "Nodes",
