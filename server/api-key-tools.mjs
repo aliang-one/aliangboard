@@ -101,16 +101,18 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     get_pod_logs: async (keyRow, cluster, a, source) => {
       const tailN = Math.min(Math.max(Number(a.tail) || LOG_TAIL_MAX, 1), LOG_TAIL_MAX)
       return runBoundedTool({ keyRow, cluster, tool: 'get_pod_logs', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}`,
-        summary: `pod=${a.pod} container=${a.container || ''} tail=${tailN}`,
+        summary: `pod=${a.pod} container=${a.container || ''} tail=${tailN}${a.previous ? ' previous' : ''}${a.timestamps ? ' ts' : ''}`,
         fn: async (saCtx) => {
           const q = new URLSearchParams({ tailLines: String(tailN) }); if (a.container) q.set('container', a.container)
+          if (a.previous) q.set('previous', 'true')
+          if (a.timestamps) q.set('timestamps', 'true')
           const { body } = await requestFn(saCtx, `/api/v1/namespaces/${enc(a.namespace)}/pods/${enc(a.pod)}/log?${q}`)
           // 字节上限(codex #11):单行巨大的日志也会撑爆输出。截断 + 标志,让 AI 知道要更小 tail 重试。
           const buf = Buffer.from(typeof body === 'string' ? body : String(body ?? ''), 'utf8')
           const originalBytes = buf.length
           const truncated = originalBytes > LOG_BYTE_MAX
           const logs = truncated ? buf.subarray(0, LOG_BYTE_MAX).toString('utf8') : buf.toString('utf8')
-          return { logs, tail: tailN, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
+          return { logs, tail: tailN, previous: !!a.previous, timestamps: !!a.timestamps, truncated, originalBytes, byteCap: LOG_BYTE_MAX }
         } })
     },
     list_resources: async (keyRow, cluster, a, source) => {
