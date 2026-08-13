@@ -146,7 +146,7 @@ const HINTS = computed(() => [
   t('workbench.chat.hintListFiles'),
 ])
 
-const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns' }
+const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns', Node:'memory', Persistentvolume:'sd_storage', Persistentvolumeclaim:'save', Storageclass:'database', Networkpolicy:'shield', Serviceaccount:'badge' }
 function refIcon(kind) {
   if (!kind) return 'label'
   const k = kind.charAt(0).toUpperCase() + kind.slice(1).replace(/s$/, '')
