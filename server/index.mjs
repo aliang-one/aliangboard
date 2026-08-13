@@ -1165,6 +1165,26 @@ async function handle(req, res) {
     const ledgerRepo = join(WORKBENCH_DIR, project.clusterId, 'cluster-context')
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
+    // K8s 调查 helper:用项目绑定的集群凭据直连(不走 API key/tier),供 WB-principal 工具用
+    const WB_K8S_LIST_PATH = {
+      pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps', secrets: '/api/v1/secrets',
+      deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
+      nodes: '/api/v1/nodes', persistentvolumes: '/api/v1/persistentvolumes', persistentvolumeclaims: '/api/v1/persistentvolumeclaims',
+      storageclasses: '/apis/storage.k8s.io/v1/storageclasses', networkpolicies: '/apis/networking.k8s.io/v1/networkpolicies',
+      serviceaccounts: '/api/v1/serviceaccounts', ingresses: '/apis/networking.k8s.io/v1/ingresses', namespaces: '/api/v1/namespaces',
+    }
+    const WB_K8S_GET_PATH = {
+      pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`, services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
+      deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`, statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+      daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`, configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
+      secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`, nodes: (_ns, name) => `/api/v1/nodes/${name}`,
+      persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${name}`, persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`,
+      storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${name}`, networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/networkpolicies/${name}`,
+      serviceaccounts: (ns, name) => `/api/v1/namespaces/${ns}/serviceaccounts/${name}`, ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+      namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+    }
+    const enc = encodeURIComponent
+    const LOG_TAIL = 200, LOG_MAX = 16384
     return {
       ctx: {
         readLedger: async () => {
@@ -1179,6 +1199,60 @@ async function handle(req, res) {
         applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
         appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
         bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
+        // === K8s 调查(workbench-principal,直连集群凭据) ===
+        listResources: async (kind, namespace) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || 'pods').toLowerCase()
+          const listPath = WB_K8S_LIST_PATH[k]
+          if (!listPath) throw new Error(`不支持的 kind: ${k}`)
+          const path = namespace && namespace !== '_' ? listPath.replace('/pods', `/namespaces/${enc(namespace)}/pods`).replace('/services', `/namespaces/${enc(namespace)}/services`).replace('/deployments', `/namespaces/${enc(namespace)}/deployments`).replace('/configmaps', `/namespaces/${enc(namespace)}/configmaps`).replace('/secrets', `/namespaces/${enc(namespace)}/secrets`).replace('/statefulsets', `/namespaces/${enc(namespace)}/statefulsets`).replace('/daemonsets', `/namespaces/${enc(namespace)}/daemonsets`).replace('/persistentvolumeclaims', `/namespaces/${enc(namespace)}/persistentvolumeclaims`).replace('/networkpolicies', `/namespaces/${enc(namespace)}/networkpolicies`).replace('/serviceaccounts', `/namespaces/${enc(namespace)}/serviceaccounts`).replace('/ingresses', `/namespaces/${enc(namespace)}/ingresses`) : listPath
+          const resp = await requestKubernetes(k8sSession, path)
+          const items = (resp?.body?.items || []).slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
+          return { kind: k, count: resp?.body?.items?.length || 0, returned: items.length, items }
+        },
+        getPodLogs: async (args) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const tailN = Math.min(Math.max(Number(args.tail) || LOG_TAIL, 1), LOG_TAIL)
+          const q = new URLSearchParams({ tailLines: String(tailN) })
+          if (args.container) q.set('container', args.container)
+          if (args.previous) q.set('previous', 'true')
+          if (args.timestamps) q.set('timestamps', 'true')
+          const resp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(args.namespace)}/pods/${enc(args.pod)}/log?${q}`)
+          const buf = Buffer.from(typeof resp === 'string' ? resp : String(resp ?? ''), 'utf8')
+          const truncated = buf.length > LOG_MAX
+          return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
+        },
+        describeResource: async (namespace, kind, name) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || 'pods').toLowerCase()
+          const getter = WB_K8S_GET_PATH[k]
+          if (!getter) throw new Error(`不支持的 kind: ${k}`)
+          const resResp = await requestKubernetes(k8sSession, getter(namespace, name))
+          const resBody = resResp?.body
+          if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
+          let events = []
+          try { const evtResp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}`); events = (evtResp?.body?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp })) } catch {}
+          return { resource: resBody, events: { count: events.length, items: events } }
+        },
+        getEvents: async (namespace, name) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const path = name ? `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}` : `/api/v1/namespaces/${enc(namespace)}/events`
+          const resp = await requestKubernetes(k8sSession, path)
+          const items = (resp?.body?.items || []).slice(0, 50).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
+          return { count: resp?.body?.items?.length || 0, returned: items.length, items }
+        },
+        rolloutStatus: async (namespace, name) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
+          const body = resp?.body
+          if (!body) throw new Error(`Deployment ${name} 不存在`)
+          const s = body.status || {}
+          const conditions = (s.conditions || []).map(c => ({ type: c.type, status: c.status, reason: c.reason, message: String(c.message || '').slice(0, 200) }))
+          const replicas = { desired: s.replicas ?? 0, ready: s.readyReplicas ?? 0, updated: s.updatedReplicas ?? 0, available: s.availableReplicas ?? 0, unavailable: s.unavailableReplicas ?? 0 }
+          const prog = conditions.find(c => c.type === 'Progressing')
+          const summary = `${replicas.ready}/${replicas.desired} ready, ${replicas.updated} updated${prog ? `, ${prog.reason || prog.status}` : ''}`
+          return { name: body.metadata?.name, replicas, conditions, summary }
+        },
       },
       k8sSession,
     }

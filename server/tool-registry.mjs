@@ -95,6 +95,27 @@ const WB = [
     description: '重新 survey 绑定集群(namespaces/节点/IngressClass/StorageClass/工作负载)→ 重写台账 INDEX.md(verified_at 刷新),回摘要。用于:台账为空/过时、用户问"集群有什么能力/资源"或"更新台账"时先调它,再 read_ledger 看详情。',
     inputSchema: { type: 'object', properties: {}, required: [] },
     exec: async (ctx) => ctx.wb.bootstrapLedger() },
+  // === K8s 调查工具(workbench-principal,用项目绑定的集群凭据直连,不走 API key/tier) ===
+  { name: 'wb_list_resources', requiresApproval: false,
+    description: '列出集群资源(按 kind: pods/services/deployments/configmaps/secrets 等 15+ kind)。返回 slim 名单。调查集群状态首选。',
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', description: '资源类型:pods/services/deployments/statefulsets/daemonsets/configmaps/secrets/nodes/persistentvolumes/persistentvolumeclaims/storageclasses/networkpolicies/serviceaccounts' }, namespace: { type: 'string' } }, required: ['kind'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.listResources(args.kind, args.namespace) } catch (e) { return `列出失败: ${e.message}` } } },
+  { name: 'wb_get_pod_logs', requiresApproval: false,
+    description: '获取 pod 日志(有界 tail)。CrashLoopBackOff 用 previous=true 看前一容器日志。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' }, previous: { type: 'boolean', description: 'true=前一容器日志(CrashLoopBackOff)' }, timestamps: { type: 'boolean' } }, required: ['namespace', 'pod'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.getPodLogs(args) } catch (e) { return `取日志失败: ${e.message}` } } },
+  { name: 'wb_describe_resource', requiresApproval: false,
+    description: 'kubectl describe 式:一次返回资源完整对象 + 关联事件。调查首选工具。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.describeResource(args.namespace, args.kind, args.name) } catch (e) { return `查询失败: ${e.message}` } } },
+  { name: 'wb_get_events', requiresApproval: false,
+    description: '列出 namespace 事件(可按资源 name 过滤)。Warning/Error 通常是根因线索。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' } }, required: ['namespace'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.getEvents(args.namespace, args.name) } catch (e) { return `查事件失败: ${e.message}` } } },
+  { name: 'wb_rollout_status', requiresApproval: false,
+    description: '查看 Deployment rollout 状态摘要(replicas + conditions)。判断滚动更新是否卡住。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'name'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.rolloutStatus(args.namespace, args.name) } catch (e) { return `查 rollout 失败: ${e.message}` } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]
