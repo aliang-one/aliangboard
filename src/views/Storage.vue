@@ -49,10 +49,10 @@ const createForm = ref({ name: '', namespace: 'default', capacity: '10Gi', acces
 function resetCreate() {
   createForm.value = { name: '', namespace: 'default', capacity: '10Gi', accessModes: 'RWO', storageClass: '' }
 }
-function handleCreatePVC() {
+async function handleCreatePVC() {
   const f = createForm.value
   if (!f.name || !f.namespace) return
-  store.addPVC({
+  const r = await store.addPVC({
     name: f.name,
     namespace: f.namespace,
     status: 'Pending',
@@ -62,6 +62,7 @@ function handleCreatePVC() {
     volume: '',
     age: 'Just now',
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
   showCreatePVC.value = false
   resetCreate()
 }

@@ -741,7 +741,8 @@ function openExpose() {
 }
 async function saveExpose() {
   try {
-    await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: { ...podLabels.value } })
+    const r = await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: { ...podLabels.value } })
+    if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
     notify('success', t('workload.notify.createdService', { name: exposeForm.value.name })); showExposeModal.value = false
   } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
 }

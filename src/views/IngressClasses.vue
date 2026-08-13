@@ -35,13 +35,14 @@ const createForm = ref({ name: '', controller: '', isDefault: false })
 function resetCreate() {
   createForm.value = { name: '', controller: '', isDefault: false }
 }
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addIngressClass({
+  const r = await store.addIngressClass({
     name: f.name,
     controller: f.controller || 'k8s.io/ingress-nginx',
     isDefault: !!f.isDefault,
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
   showCreateModal.value = false
   resetCreate()
 }
