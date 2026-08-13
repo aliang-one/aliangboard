@@ -22,7 +22,7 @@ const OPERATOR_MAP = {
 }
 
 // 把 cluster-wide 的 deployments/services/ingresses 按 namespace 分组(纯)
-export function groupWorkloads(deployments = [], services = [], ingresses = []) {
+export function groupWorkloads(deployments = [], services = [], ingresses = [], statefulsets = [], daemonsets = []) {
   const byNs = {}
   const push = (ns, kind, val) => { if (!val) return; (byNs[ns] ??= {})[kind] ??= []; byNs[ns][kind].push(val) }
   for (const d of deployments) push(d.metadata?.namespace || '-', 'deployments', d.metadata?.name)
@@ -32,11 +32,13 @@ export function groupWorkloads(deployments = [], services = [], ingresses = []) 
     const hosts = (i.spec?.rules || []).map(r => r.host).filter(Boolean).join(',')
     push(ns, 'ingresses', hosts || i.metadata?.name)
   }
+  for (const ss of statefulsets) push(ss.metadata?.namespace || '-', 'statefulsets', ss.metadata?.name)
+  for (const ds of daemonsets) push(ds.metadata?.namespace || '-', 'daemonsets', ds.metadata?.name)
   return byNs
 }
 
 // 生成 INDEX.md(markdown 字符串)。任一 survey 项可为 null(该集群无此资源/survey 失败)。
-export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses } = {}) {
+export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses, statefulsets, daemonsets, networkPolicies, clusterRoles, clusterRoleBindings, persistentVolumes } = {}) {
   const L = []
   L.push(`# ${clusterName || '集群'} 能力地图`)
   L.push('')
@@ -79,13 +81,39 @@ export function formatIndexMd({ clusterName, apiServer, verifiedAt: vat, namespa
     L.push('')
   }
 
-  const wl = groupWorkloads(deployments, services, ingresses)
+  // SP3: RBAC overview
+  if (clusterRoles) {
+    const userRoles = names(clusterRoles).filter(n => !n.startsWith('system:')).sort()
+    L.push(`## RBAC（ClusterRole ${(clusterRoles||[]).length} + Binding ${(clusterRoleBindings||[]).length}）`)
+    L.push(userRoles.length ? userRoles.slice(0, 30).map(r => `- ${r}`).join('\n') : '_(仅系统角色)_')
+    L.push('')
+  }
+  // SP3: NetworkPolicies
+  if (networkPolicies) {
+    const npByNs = {}
+    for (const np of networkPolicies) { const ns = np.metadata?.namespace || '-'; (npByNs[ns] ??= []).push(np.metadata?.name) }
+    L.push(`## NetworkPolicies (${(networkPolicies||[]).length})`)
+    L.push(Object.keys(npByNs).sort().map(ns => `- ${ns}: ${npByNs[ns].join(', ')}`).join('\n') || '_(无 — 集群网络无默认限制)_')
+    L.push('')
+  }
+  // SP3: PersistentVolumes
+  if (persistentVolumes) {
+    const pvStatus = {}
+    for (const pv of persistentVolumes) { const ph = pv.status?.phase || 'Unknown'; pvStatus[ph] = (pvStatus[ph] || 0) + 1 }
+    L.push(`## PersistentVolumes (${(persistentVolumes||[]).length})`)
+    L.push(Object.entries(pvStatus).map(([phase, n]) => `- ${phase}: ${n}`).join('\n') || '_(无)_')
+    L.push('')
+  }
+
+  const wl = groupWorkloads(deployments, services, ingresses, statefulsets, daemonsets)
   const wlNss = Object.keys(wl).sort()
   L.push(`## 工作负载概览(按 namespace,${wlNss.length} 个有工作负载)`)
   if (!wlNss.length) L.push('_(无)_')
   for (const ns of wlNss) {
     L.push(`### ${ns}`)
     if (wl[ns].deployments?.length) L.push(`- Deployments: ${wl[ns].deployments.join(', ')}`)
+    if (wl[ns].statefulsets?.length) L.push(`- StatefulSets: ${wl[ns].statefulsets.join(', ')}`)
+    if (wl[ns].daemonsets?.length) L.push(`- DaemonSets: ${wl[ns].daemonsets.join(', ')}`)
     if (wl[ns].services?.length) L.push(`- Services: ${wl[ns].services.join(', ')}`)
     if (wl[ns].ingresses?.length) L.push(`- Ingresses: ${wl[ns].ingresses.join(', ')}`)
     L.push('')

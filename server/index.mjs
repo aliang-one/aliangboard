@@ -475,21 +475,27 @@ async function applyYamlPartial(session, yaml) {
 async function bootstrapLedgerForCluster(cluster) {
   const session = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
   const safe = async (p) => { try { return (await requestKubernetes(session, p)).body?.items ?? null } catch { return null } }
-  const [namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses] = await Promise.all([
+  const [namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses,
+    statefulsets, daemonsets, networkPolicies, clusterRoles, clusterRoleBindings, persistentVolumes] = await Promise.all([
     safe('/api/v1/namespaces'), safe('/api/v1/nodes'),
     safe('/apis/networking.k8s.io/v1/ingressclasses'), safe('/apis/storage.k8s.io/v1/storageclasses'),
     safe('/apis/apiextensions.k8s.io/v1/customresourcedefinitions'),
     safe('/apis/apps/v1/deployments'), safe('/api/v1/services'), safe('/apis/networking.k8s.io/v1/ingresses'),
+    // SP3: 更丰富的集群 survey(StatefulSet/DaemonSet/NetworkPolicy/RBAC/PV)
+    safe('/apis/apps/v1/statefulsets'), safe('/apis/apps/v1/daemonsets'),
+    safe('/apis/networking.k8s.io/v1/networkpolicies'),
+    safe('/apis/rbac.authorization.k8s.io/v1/clusterroles'), safe('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings'),
+    safe('/api/v1/persistentvolumes'),
   ])
   const vat = verifiedAt()
-  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses })
+  const index = formatIndexMd({ clusterName: cluster.name, apiServer: cluster.apiServer, verifiedAt: vat, namespaces, nodes, ingressClasses, storageClasses, crds, deployments, services, ingresses, statefulsets, daemonsets, networkPolicies, clusterRoles, clusterRoleBindings, persistentVolumes })
   const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
   if (!(await hasRepo(repo))) await initRepo(repo)
   await wbWriteFile(repo, 'INDEX.md', index)
   await wbCommit(repo, `台账 bootstrap · ${vat}`)
   const list = (items) => (items || []).map(i => i.metadata?.name).filter(Boolean)
   const depNs = new Set((deployments || []).map(d => d.metadata?.namespace).filter(Boolean))
-  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} namespaces${nodes ? `, ${nodes.length} 节点` : ''};IngressClasses=[${list(ingressClasses).join(',') || '无'}];StorageClasses=[${list(storageClasses).join(',') || '无'}];扩展/CRD ${(crds || []).length} 个;有 Deployment 的 namespace ${depNs.size} 个。INDEX.md 已写入(含已安装扩展),read_ledger 可看详情。`
+  const summary = `台账已重建(verified_at ${vat}):${(namespaces || []).length} ns,${nodes ? `${nodes.length} 节点` : ''};CRD ${(crds || []).length};工作负载(Deploy ${depNs.size} ns + STS ${(statefulsets||[]).length} + DS ${(daemonsets||[]).length});NetPol ${(networkPolicies||[]).length};ClusterRole ${(clusterRoles||[]).length}+Binding ${(clusterRoleBindings||[]).length};PV ${(persistentVolumes||[]).length}。INDEX.md 已写入,read_ledger 可看详情。`
   return { index, files: await wbListFiles(repo), summary, verifiedAt: vat }
 }
 
