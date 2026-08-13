@@ -235,6 +235,18 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           .sort((x, y) => (Number(y.revision) || 0) - (Number(x.revision) || 0))
         return { namespace: a.namespace, deployment: a.name, currentRevision: curRev, revisions }
       } }),
+    rollout_status: async (keyRow, cluster, a, source) => runBoundedTool({
+      keyRow, cluster, tool: 'rollout_status', source, namespace: a.namespace, verb: 'get', resource: `Deployment/${a.name}`, summary: `rollout status ${a.name}`,
+      fn: async (saCtx) => {
+        const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)
+        if (!body) throw new Error(`Deployment ${a.name} 不存在`)
+        const s = body.status || {}
+        const conditions = (s.conditions || []).map(c => ({ type: c.type, status: c.status, reason: c.reason, message: String(c.message || '').slice(0, 200) }))
+        const replicas = { desired: s.replicas ?? 0, ready: s.readyReplicas ?? 0, updated: s.updatedReplicas ?? 0, available: s.availableReplicas ?? 0, unavailable: s.unavailableReplicas ?? 0 }
+        const prog = conditions.find(c => c.type === 'Progressing')
+        const summary = `${replicas.ready}/${replicas.desired} ready, ${replicas.updated} updated${prog ? `, ${prog.reason || prog.status}` : ''}`
+        return { name: body.metadata?.name, replicas, conditions, summary }
+      } }),
     rollout_undo: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'rollout_undo', source, namespace: a.namespace, verb: 'patch', resource: `Deployment/${a.name}/rollback`, summary: `deploy=${a.name} →rev=${a.toRevision}`,
       fn: async (saCtx) => {
