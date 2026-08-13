@@ -923,50 +923,57 @@ async function handleDeploy() {
           </div>
         </div>
 
-        <!-- 初始容器 (Init) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.initContainers') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+        <!-- 初始化 / 额外容器:左右并排 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-md mt-md">
+          <!-- 初始容器 (Init) -->
+          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.initContainers') }}</h4>
+            <div class="flex flex-col gap-sm">
+              <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
+                  <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
+                  <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm">
+                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                </div>
+                <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
+              </div>
+              <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addInitContainer') }}
+              </button>
             </div>
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
-              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addInitContainer') }}
-          </button>
-        </div>
 
-        <!-- 额外工作容器 (Sidecar) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.sidecarContainers') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+          <!-- 额外工作容器 (Sidecar) -->
+          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.sidecarContainers') }}</h4>
+            <div class="flex flex-col gap-sm">
+              <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
+                  <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm">
+                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                </div>
+                <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
+              </div>
+              <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSidecarContainer') }}
+              </button>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSidecarContainer') }}
-          </button>
         </div>
 
         <!-- Container Ports -->
