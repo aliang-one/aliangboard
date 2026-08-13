@@ -101,6 +101,28 @@ test('apply: 回 applied/failed/total,有成功则 emit applied + 进度摘要',
   expect(api.applyYaml).toHaveBeenCalled()
   expect(w.emitted().applied).toBeTruthy()
   expect(w.text()).toContain('1/1')   // 进度摘要(非 i18n)
+  // 全成功(failed 空)→ 关弹窗(update:modelValue false)+ 成功 toast 路径
+  const closes = w.emitted()['update:modelValue']
+  expect(closes?.[closes.length - 1]).toEqual([false])
+})
+
+// 成功反馈缺口(真实使用反馈:200 后"没反应"):部分失败 → 不关弹窗,进度 + failed 明细可见
+test('apply 部分失败: 不关弹窗,渲染 ok/total 进度 + failed 明细', async () => {
+  const { api } = await import('@/api/client')
+  api.applyYaml = vi.fn(async () => ({
+    applied: [{ kind: 'Namespace', name: 'x' }, { kind: 'ServiceAccount', name: 'y' }],
+    failed: [{ kind: 'Role', name: 'r', error: 'rbac boom' }],
+    total: 3,
+  }))
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(w.text()).toContain('2/3')
+  expect(w.text()).toContain('rbac boom')
+  expect(w.emitted()['update:modelValue']).toBeUndefined()   // 部分失败不关窗
 })
 
 // T5-m2: result.applied/failed 为 undefined 时不崩(null-guard)

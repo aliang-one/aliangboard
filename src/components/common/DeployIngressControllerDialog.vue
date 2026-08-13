@@ -53,9 +53,20 @@ async function deploy() {
   try {
     const r = await api.applyYaml(yaml.value)   // 服务端原始 {applied,failed,total}
     result.value = r
-    if ((r.applied || []).length) {
+    const okCount = (r.applied || []).length
+    const failCount = (r.failed || []).length
+    if (okCount) {
       emit('applied')
       qc.invalidateQueries({ queryKey: ['cluster', cid(), 'ingressclasses'] })
+      if (!failCount) {
+        // 全成功:成功 toast + 关弹窗,露出已刷新的 IngressClass 列表
+        // (真实使用反馈缺口:200 成功后弹窗不关、无提示,用户感知"没反应")
+        notify('success', t('ingressController.deploySuccess', { ok: okCount, total: r.total ?? okCount }))
+        close()
+      } else {
+        // 部分失败:错误 toast + 留窗,failed 明细在下方 result 块
+        notify('error', t('ingressController.deployPartial', { ok: okCount, fail: failCount }))
+      }
     }
   } catch (e) {
     // C1: applyYaml 在非 2xx 抛错(全失败时服务端返回 422);此处让现有 failed 块渲染错误,
