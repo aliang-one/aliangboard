@@ -2780,7 +2780,11 @@
       "reconcileSkipped": "Skipped ({reason})",
       "hasFailures": "has failures",
       "conversationHistory": "Conversation History",
-      "noConversations": "No conversations"
+      "noConversations": "No conversations",
+      "deleteConv": "Delete conversation",
+      "confirmDeleteConv": "Delete this conversation? This cannot be undone.",
+      "convDeleted": "Conversation deleted",
+      "deleteConvFailed": "Delete failed"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",

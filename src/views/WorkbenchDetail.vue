@@ -50,6 +50,15 @@ const relTime = ts => {
 
 function selectConversation(convId) { activeConversationId.value = convId }
 function newConversation() { activeConversationId.value = null }
+async function deleteConversation(convId) {
+  if (!confirm(t('workbench.detail.confirmDeleteConv'))) return
+  try {
+    await workbenchApi.conversations.delete(convId)
+    conversations.value = conversations.value.filter(c => c.id !== convId)
+    if (activeConversationId.value === convId) activeConversationId.value = null
+    notify('success', t('workbench.detail.convDeleted'))
+  } catch (e) { notify('error', e.message || t('workbench.detail.deleteConvFailed')) }
+}
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -169,22 +178,28 @@ function addFile() {
           </button>
         </div>
         <div class="flex-1 overflow-y-auto p-xs flex flex-col gap-0.5">
-          <button v-for="c in conversations" :key="c.id" @click="selectConversation(c.id)"
-            class="text-left px-sm py-sm rounded-lg transition-colors"
-            :class="activeConversationId === c.id ? 'bg-primary-container text-on-primary-container' : 'hover:bg-surface-container'">
-            <div class="flex items-center gap-xs mb-xs">
-              <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="{
-                'bg-status-running': c.status === 'running',
-                'bg-status-warning': c.status === 'paused',
-                'bg-on-surface-variant/30': c.status === 'done',
-                'bg-error': c.status === 'failed',
-              }"></span>
-              <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTime(c.updatedAt) }}</span>
-              <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
+          <div v-for="c in conversations" :key="c.id"
+            class="group text-left px-sm py-sm rounded-lg transition-colors cursor-pointer flex items-start gap-xs"
+            :class="activeConversationId === c.id ? 'bg-primary-container text-on-primary-container' : 'hover:bg-surface-container'"
+            @click="selectConversation(c.id)">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-xs mb-xs">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="{
+                  'bg-status-running': c.status === 'running',
+                  'bg-status-warning': c.status === 'paused',
+                  'bg-on-surface-variant/30': c.status === 'done',
+                  'bg-error': c.status === 'failed',
+                }"></span>
+                <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTime(c.updatedAt) }}</span>
+                <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
+              </div>
+              <p class="text-body-xs truncate">{{ c.userMessage || '(empty)' }}</p>
             </div>
-            <p class="text-body-xs truncate">{{ c.userMessage || '(empty)' }}</p>
-          </button>
-          <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant/50 px-sm py-md text-center">No conversations yet</p>
+            <button @click.stop="deleteConversation(c.id)" class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="t('workbench.detail.deleteConv')">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </div>
+          <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant/50 px-sm py-md text-center">{{ t('workbench.detail.noConversations') }}</p>
         </div>
       </div>
       <!-- Chat area (full width) -->

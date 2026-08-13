@@ -2779,7 +2779,11 @@
       "reconcileSkipped": "跳过({reason})",
       "hasFailures": "有失败",
       "conversationHistory": "对话历史",
-      "noConversations": "暂无对话"
+      "noConversations": "暂无对话",
+      "deleteConv": "删除对话",
+      "confirmDeleteConv": "确定删除这条对话？不可恢复。",
+      "convDeleted": "对话已删除",
+      "deleteConvFailed": "删除失败"
     },
     "ide": {
       "collapseFiles": "折叠文件树",
