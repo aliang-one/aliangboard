@@ -164,6 +164,14 @@ function submitDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
+          <button
+            @click.stop="router.push(`/ns/${row.name}`)"
+            :title="t('nav.enterNamespace')"
+            :aria-label="t('nav.enterNamespace')"
+            class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all"
+          >
+            <span class="material-symbols-outlined text-lg">login</span>
+          </button>
           <button @click.stop="router.push(`/namespaces/${row.name}`)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="View">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>

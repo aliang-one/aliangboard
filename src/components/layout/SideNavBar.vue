@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
+import { useNavMode } from '@/composables/useNavMode'
 
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
+const { isNsMode, isClusterMode } = useNavMode()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
@@ -17,7 +19,7 @@ const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
 // 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
-// 选中 namespace 时该板块默认折叠（让命名空间工作为主），无 namespace 时自动展开（此时它是唯一内容）。
+// 集群级导航——分三组，收进可折叠的「集群管理」板块（仅集群态渲染；命名空间态整组隐藏）。
 const clusterPrimaryNav = [
   { icon: 'dashboard', labelKey: 'nav.clusterOverview', route: '/cluster' },
   { icon: 'dns', labelKey: 'nav.nodes', route: '/nodes' },
@@ -48,7 +50,7 @@ const platformAdminNav = [
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
   { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
 ]
-const clusterNavOpen = ref(false)
+const clusterNavOpen = ref(true)
 
 // Namespace 作用域导航 - 按 Kuboard 分组
 const nsNavGroups = [
@@ -186,13 +188,30 @@ function nsStatusColor(status) {
 
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
-    <!-- Cluster Header -->
-    <div class="flex items-center gap-md p-md px-lg shrink-0">
+    <!-- Cluster Header:命名空间态=返回集群管理入口;集群态=静态展示 -->
+    <button
+      v-if="isNsMode"
+      data-test="cluster-home"
+      @click="router.push('/cluster')"
+      :title="$t('nav.backToCluster')"
+      :aria-label="$t('nav.backToCluster')"
+      class="w-full flex items-center gap-sm p-md px-lg shrink-0 hover:bg-surface-container transition-colors text-left"
+    >
+      <span class="material-symbols-outlined text-on-surface-variant">chevron_left</span>
       <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
         <span class="material-symbols-outlined text-lg filled">kubernetes</span>
       </div>
       <div class="min-w-0">
-        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name }}</h2>
+        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
+        <p class="text-body-sm text-on-surface-variant">{{ $t('nav.backToCluster') }}</p>
+      </div>
+    </button>
+    <div v-else class="flex items-center gap-md p-md px-lg shrink-0">
+      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
+        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
+      </div>
+      <div class="min-w-0">
+        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
         <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
       </div>
     </div>
@@ -261,7 +280,7 @@ function nsStatusColor(status) {
     <!-- Scrollable Navigation -->
     <nav class="flex-1 overflow-y-auto px-md pb-md">
       <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
-      <div v-if="currentNs" class="animate-fade-in mb-md">
+      <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
         <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
         <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
           <div class="flex items-center gap-xs px-md pt-sm pb-xs">
@@ -283,14 +302,14 @@ function nsStatusColor(status) {
         </div>
       </div>
 
-      <!-- 集群管理：专门板块，可折叠；选中 ns 时默认折叠（让命名空间工作为主），无 ns 时自动展开 -->
-      <div class="flex flex-col gap-xs">
+      <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
+      <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
         <button @click="clusterNavOpen = !clusterNavOpen"
           class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
-          <span class="material-symbols-outlined text-base transition-transform" :class="(clusterNavOpen || !currentNs) ? 'rotate-90' : ''">chevron_right</span>
+          <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
           <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
         </button>
-        <div v-show="clusterNavOpen || !currentNs" class="flex flex-col gap-xs">
+        <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
           <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
             class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
             :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
@@ -329,7 +348,7 @@ function nsStatusColor(status) {
     <!-- Bottom Actions -->
     <div class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
       <button
-        v-if="currentNs"
+        v-if="isNsMode"
         @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
         class="w-full py-sm px-md bg-primary text-on-primary rounded-lg font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-sm mb-sm"
       >
@@ -338,7 +357,7 @@ function nsStatusColor(status) {
       </button>
       <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
       <div class="flex items-stretch gap-xs">
-        <button v-if="currentNs" data-test="bottom-events"
+        <button v-if="isNsMode" data-test="bottom-events"
           @click="goNsRoute('events')"
           :title="$t('nav.events')" :aria-label="$t('nav.events')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"
