@@ -137,6 +137,22 @@ export function createWorkbenchConvRoutes(deps) {
       return true
     }
 
+    // DELETE /api/workbench/conversations/:id — 删除对话(+ 关联 messages;清 activeConversationId 若匹配)
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'DELETE') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const conv = getConversation(db, id)
+      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      if (conv.projectId) {
+        const proj = getProject(db, conv.projectId)
+        if (proj?.activeConversationId === id) setActiveConversation(db, conv.projectId, null)
+      }
+      db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(id)
+      db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(id)
+      sendJson(res, 200, { ok: true })
+      return true
+    }
+
     // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
     // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {
