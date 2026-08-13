@@ -18,7 +18,7 @@ const headers = computed(() => tableColumns('ingressClasses'))
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingressClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'ingressclasses'],
+  key: ['cluster', cid, 'ingressclasses'],
   fetcher: () => store.fetchIngressClasses(),
   options: { refetchInterval: 30000 },
 })

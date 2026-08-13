@@ -19,7 +19,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   select: list => list.filter(p => p.namespace === route.params.namespace),
 })

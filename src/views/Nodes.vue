@@ -24,7 +24,7 @@ const { t } = useI18n()
 const queryClient = useQueryClient()
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodesQuery = useResourceList({
-  key: ['cluster', cid.value, 'nodes'],
+  key: ['cluster', cid, 'nodes'],
   fetcher: () => store.fetchNodes(),
   options: { refetchInterval: 30000 },
 })

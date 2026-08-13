@@ -18,20 +18,20 @@ const { tableColumns } = useTableColumns()
 const activeTab = ref('roles')
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const rolesQuery = useResourceList({
-  key: ['cluster', cid.value, 'roles'],
+  key: ['cluster', cid, 'roles'],
   fetcher: () => store.fetchRoles(),
   options: { refetchInterval: 30000 },
 })
 const clusterRoleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'clusterrolebindings'],
+  key: ['cluster', cid, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
   options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
-  key: ['cluster', cid.value, 'serviceaccounts'],
+  key: ['cluster', cid, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
   options: { refetchInterval: 30000 },
 })

@@ -66,6 +66,6 @@ describe('NsHPA 创建须 await addHPA 后再 invalidate', () => {
     // 创建落库后才 invalidate(拉到含新 HPA 的列表)
     resolveAdd()
     await flushPromises()
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['cluster', 'c', 'hpas'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['cluster', expect.any(Object), 'hpas'] })
   })
 })

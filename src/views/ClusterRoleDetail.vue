@@ -15,13 +15,13 @@ const { applyYaml } = useResourceApply()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const roleDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'roles', route.params.name],
+  key: ['cluster', cid, 'roles', route.params.name],
   fetcher: () => store.fetchClusterRole(route.params.name),
   options: { refetchInterval: 15000 },
 })
 const role = computed(() => roleDetail.data.value)
 const clusterRoleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'clusterrolebindings'],
+  key: ['cluster', cid, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
   options: { refetchInterval: 30000 },
 })

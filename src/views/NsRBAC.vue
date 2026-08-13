@@ -21,22 +21,22 @@ store.setNamespace(route.params.namespace)
 const ns = computed(() => route.params.namespace)
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const rolesQuery = useResourceList({
-  key: ['cluster', cid.value, 'roles'],
+  key: ['cluster', cid, 'roles'],
   fetcher: () => store.fetchRoles(),
   options: { refetchInterval: 30000 },
 })
 const roleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'rolebindings'],
+  key: ['cluster', cid, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
   options: { refetchInterval: 30000 },
 })
 const clusterRoleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'clusterrolebindings'],
+  key: ['cluster', cid, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
   options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
-  key: ['cluster', cid.value, 'serviceaccounts'],
+  key: ['cluster', cid, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
   options: { refetchInterval: 30000 },
 })

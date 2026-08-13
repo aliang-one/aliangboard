@@ -21,7 +21,7 @@ const headers = computed(() => tableColumns('auditLogs'))
 // 集群级 Events 走 Vue Query（远端 30s 轮询 + 聚焦重拉 + watch live 桥接）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   options: { refetchInterval: 30000 },
 })

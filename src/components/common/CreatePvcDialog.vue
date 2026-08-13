@@ -16,7 +16,7 @@ const store = useClusterStore()
 
 // StorageClass 列表(集群级):弹窗自取,组件自包含、可复用,不依赖父组件喂入。
 const cid = computed(() => store.currentCluster || 'cluster')
-const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
+const scQ = useResourceList({ key: ['cluster', cid, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
 const allSCs = computed(() => scQ.data.value || [])
 
 const form = ref({ name: '', capacity: '10Gi', accessModes: 'RWO', storageClass: '' })

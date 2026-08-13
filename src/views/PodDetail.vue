@@ -29,7 +29,7 @@ if (route.params.namespace) store.setNamespace(route.params.namespace)
 // 主资源走 Vue Query（单资源 + 15s 轮询）；pod = query 优先、store 兜底（首屏 query 未就绪时用 hydrate 值，避免闪空）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const podDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'pods', route.params.name],
+  key: ['cluster', cid, 'pods', route.params.name],
   fetcher: () => store.fetchPod(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
@@ -38,13 +38,13 @@ const activeTab = ref('logs')
 
 // 归属 workload 查询（Vue Query；用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配）
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })
 // 事件查询（Vue Query；podEvents 计算属性按 involvedObject 过滤该 Pod 的事件）
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   options: { refetchInterval: 30000 },
 })

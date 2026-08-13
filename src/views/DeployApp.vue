@@ -27,20 +27,20 @@ const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const priorityClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'priorityclasses'],
+  key: ['cluster', cid, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
   options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
-  key: ['cluster', cid.value, 'serviceaccounts'],
+  key: ['cluster', cid, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
   options: { refetchInterval: 30000 },
 })
 // IngressClass 下拉源（集群级真实网关类；弃用硬编码 nginx/traefik/kong，避免指向集群里不存在的类）
-const ingressClassQ = useResourceList({ key: ['cluster', cid.value, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+const ingressClassQ = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
 const allIngressClasses = computed(() => ingressClassQ.data.value || [])
 
 const ns = computed(() => route.params.namespace)
@@ -247,9 +247,9 @@ const stepBlockReason = computed(() => {
 const canProceed = computed(() => !stepBlockReason.value)
 
 // Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）
-const _cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _cmQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {

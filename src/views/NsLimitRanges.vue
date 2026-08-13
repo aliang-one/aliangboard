@@ -22,7 +22,7 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const limitrangesKey = ['cluster', cid.value, 'limitranges']
+const limitrangesKey = ['cluster', cid, 'limitranges']
 const limitrangesQuery = useResourceList({
   key: limitrangesKey,
   fetcher: () => store.fetchLimitRanges(),

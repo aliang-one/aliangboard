@@ -23,7 +23,7 @@ store.setNamespace(route.params.namespace)
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('ingresses')，编辑后自动刷新。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const ingDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'ingresses', route.params.name],
+  key: ['cluster', cid, 'ingresses', route.params.name],
   fetcher: () => store.fetchIngress(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
@@ -31,17 +31,17 @@ const ing = computed(() => ingDetail.data.value)
 const yaml = computed(() => store.generateYAML('ingress', ing.value))
 
 const ingressClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'ingressclasses'],
+  key: ['cluster', cid, 'ingressclasses'],
   fetcher: () => store.fetchIngressClasses(),
   options: { refetchInterval: 30000 },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 // TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const allSecrets = computed(() => _secQ.data.value || [])
 
 const showDeleteModal = ref(false)

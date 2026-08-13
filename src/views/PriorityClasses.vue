@@ -18,7 +18,7 @@ const headers = computed(() => tableColumns('priorityClasses'))
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const priorityClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'priorityclasses'],
+  key: ['cluster', cid, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
   options: { refetchInterval: 30000 },
 })

@@ -10,7 +10,7 @@ const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _nsQ = useResourceList({ key: ['cluster', _cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
 
 const showNsDropdown = ref(false)

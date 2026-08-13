@@ -24,7 +24,7 @@ const queryClient = useQueryClient()
 
 // NetworkPolicies 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const networkpoliciesKey = ['cluster', cid.value, 'networkpolicies']
+const networkpoliciesKey = ['cluster', cid, 'networkpolicies']
 const networkpoliciesQuery = useResourceList({
   key: networkpoliciesKey,
   fetcher: () => store.fetchNetworkPolicies(),

@@ -24,21 +24,21 @@ function enterNamespace() {
   router.push({ name: 'NamespaceOverview', params: { namespace: nsName.value } })
 }
 const nsDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'namespaces', nsName.value],
+  key: ['cluster', cid, 'namespaces', nsName.value],
   fetcher: () => store.fetchNamespace(nsName.value),
   options: { enabled: Boolean(nsName.value) },
 })
 const ns = computed(() => nsDetail.data.value)
 
 const servicesQuery = useResourceList({
-  key: ['cluster', cid.value, 'services'],
+  key: ['cluster', cid, 'services'],
   fetcher: () => store.fetchServices(),
   select: (list) => (list || []).filter(s => s.namespace === nsName.value),
 })
 const nsServices = computed(() => servicesQuery.data.value || [])
 
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   select: (list) => (list || []).filter(w => w.namespace === nsName.value),
 })

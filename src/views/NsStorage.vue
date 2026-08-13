@@ -32,9 +32,9 @@ const noStatsAccess = computed(() => !!usageQ.data.value?.noStatsAccess)
 const cid = computed(() => (store.currentCluster || 'cluster'))
 // PVCs 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // StorageClasses 走 Vue Query（cluster-wide）
-const scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
+const scQ = useResourceList({ key: ['cluster', cid, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
 const allSCs = computed(() => scQ.data.value || [])
-const pvcsKey = ['cluster', cid.value, 'pvcs']
+const pvcsKey = ['cluster', cid, 'pvcs']
 const pvcsQuery = useResourceList({
   key: pvcsKey,
   fetcher: () => store.fetchPVCs(),

@@ -11,7 +11,7 @@ import { useEscClose } from '@/composables/useEscClose'
 const { t } = useI18n()
 const store = useClusterStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _wlsQ = useResourceList({ key: ['cluster', _cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
+const _wlsQ = useResourceList({ key: ['cluster', _cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || [])))
 
 const props = defineProps({

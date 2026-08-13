@@ -26,8 +26,8 @@ const { t } = useI18n()
 
 const store = useClusterStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
-const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _cmQ = useResourceList({ key: ['cluster', _cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', _cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 
 const list = computed(() => (props.kind === 'secret' ? (_secQ.data.value || []) : (_cmQ.data.value || [])))
 const resourceOptions = computed(() => list.value.filter(r => r.namespace === props.namespace).map(r => r.name))

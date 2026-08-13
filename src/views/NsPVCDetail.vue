@@ -26,7 +26,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const pvcDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'pvcs', route.params.name],
+  key: ['cluster', cid, 'pvcs', route.params.name],
   fetcher: () => store.fetchPVC(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
@@ -37,8 +37,8 @@ const noStatsAccess = computed(() => !!usageQ.data.value?.noStatsAccess)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/persistentvolumeclaims/${encodeURIComponent(route.params.name)}`,
 })
-const pvListQ = useResourceList({ key: ['cluster', cid.value, 'pvs'], fetcher: () => store.fetchPVs(), options: { refetchInterval: 30000 } })
-const scListQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
+const pvListQ = useResourceList({ key: ['cluster', cid, 'pvs'], fetcher: () => store.fetchPVs(), options: { refetchInterval: 30000 } })
+const scListQ = useResourceList({ key: ['cluster', cid, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { refetchInterval: 30000 } })
 const allSCs = computed(() => scListQ.data.value || [])
 const pv = computed(() => pvc.value?.volume ? (pvListQ.data.value || []).find(p => p.name === pvc.value.volume) : null)
 const sc = computed(() => pvc.value?.storageClass ? (scListQ.data.value || []).find(s => s.name === pvc.value.storageClass) : null)

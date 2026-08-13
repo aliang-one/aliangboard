@@ -19,7 +19,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const rqDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'resourcequotas', route.params.name],
+  key: ['cluster', cid, 'resourcequotas', route.params.name],
   fetcher: () => store.fetchResourceQuota(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

@@ -26,7 +26,7 @@ const queryClient = useQueryClient()
 
 // Ingress 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const ingressesKey = ['cluster', cid.value, 'ingresses']
+const ingressesKey = ['cluster', cid, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
@@ -34,11 +34,11 @@ const ingressesQuery = useResourceList({
 })
 const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 // IngressClass 下拉源走 Vue Query（集群级，真实网关类；不再用硬编码列表，避免指向集群里不存在的类）
-const icQ = useResourceList({ key: ['cluster', cid.value, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+const icQ = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
 const allIngressClasses = computed(() => icQ.data.value || [])
 
 // 把 Ingress 的 rules 展平为路由条目（host → path → backend），便于列表紧凑展示与搜索

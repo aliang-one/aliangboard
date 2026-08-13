@@ -19,14 +19,14 @@ const { t } = useI18n()
 const store = useClusterStore()
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodeDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'nodes', route.params.name],
+  key: ['cluster', cid, 'nodes', route.params.name],
   fetcher: () => store.fetchNode(route.params.name),
   options: { refetchInterval: 15000 },
 })
 const node = computed(() => nodeDetail.data.value)
 // Pods 走 Vue Query（集群范围）+ select 按节点过滤：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   select: list => list.filter(p => p.node === route.params.name),
   options: { refetchInterval: 30000 },

@@ -24,7 +24,7 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const resourcequotasKey = ['cluster', cid.value, 'resourcequotas']
+const resourcequotasKey = ['cluster', cid, 'resourcequotas']
 const resourcequotasQuery = useResourceList({
   key: resourcequotasKey,
   fetcher: () => store.fetchResourceQuotas(),

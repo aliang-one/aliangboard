@@ -15,22 +15,22 @@ const { t } = useI18n()
 // 集群级聚合查询（Vue Query，cluster-wide 单 key；eventWatch 桥接仍写同一缓存）
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const nodesQuery = useResourceList({
-  key: ['cluster', cid.value, 'nodes'],
+  key: ['cluster', cid, 'nodes'],
   fetcher: () => store.fetchNodes(),
   options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   options: { refetchInterval: 30000 },
 })
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   options: { refetchInterval: 30000 },
 })

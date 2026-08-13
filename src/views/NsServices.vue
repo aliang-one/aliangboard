@@ -28,7 +28,7 @@ const queryClient = useQueryClient()
 // Services 走 Vue Query（cluster-wide fetch + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 // hydrate 仍为其他页供数（过渡双源，后续收敛）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const servicesKey = ['cluster', cid.value, 'services']
+const servicesKey = ['cluster', cid, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
@@ -36,9 +36,9 @@ const servicesQuery = useResourceList({
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 // Endpoints：cluster-wide fetch + 按 row 过滤（store ref 在 remote 下孤立）
-const _endpointsQ = useResourceList({ key: ['cluster', cid.value, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
+const _endpointsQ = useResourceList({ key: ['cluster', cid, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
 // 容器端口（从 workloads 派生，替代 nsContainerPorts）
-const _wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
+const _wlsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
 const nsContainerPorts = computed(() => extractContainerPorts((_wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace)))
 
 const typeFilter = ref('All')

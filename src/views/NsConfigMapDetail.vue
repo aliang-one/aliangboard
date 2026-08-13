@@ -22,7 +22,7 @@ store.setNamespace(route.params.namespace)
 // cm = query 优先、store 兜底（首屏 query 未就绪时用 hydrate 值，避免闪「Not Found」）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const cmDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'configmaps', route.params.name],
+  key: ['cluster', cid, 'configmaps', route.params.name],
   fetcher: () => store.fetchConfigMap(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
