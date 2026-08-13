@@ -1727,7 +1727,8 @@ httpServer.listen(port, host, () => {
 })
 
 // 定时蒸馏 scheduler(D4):DISTILL_INTERVAL_MS 触发,对"近期有活动"的集群跑蒸馏 → 存待审 pending(不自动 commit)。
-const distillInterval = Number(process.env.DISTILL_INTERVAL_MS || 0)
+// 默认 1 小时(3600000ms);设 0 关闭。蒸馏是 agent 自学习的核心——定期从操作审计+对话蒸馏知识进 learnings.md。
+const distillInterval = Number(process.env.DISTILL_INTERVAL_MS ?? 3600000)
 if (distillInterval > 0) {
   const tickDistill = async () => {
     try {
