@@ -265,8 +265,8 @@
     },
     "haproxy": {
       "label": "HAProxy Ingress",
-      "desc": "Community haproxy-ingress, RBAC + namespace example install",
-      "notes": "Official recommends Helm; this is the raw-manifest path, IngressClass=haproxy"
+      "desc": "Community haproxy-ingress, helm-rendered full manifest (NodePort bare-metal)",
+      "notes": "Rendered from helm chart 0.16.1: Deployment/Service/RBAC/IngressClass included"
     }
   },
   "nav": {

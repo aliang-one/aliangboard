@@ -19,10 +19,10 @@ export const INGRESS_CONTROLLER_TEMPLATES = [
     labelKey: 'ingressController.haproxy.label',
     descKey: 'ingressController.haproxy.desc',
     notesKey: 'ingressController.haproxy.notes',
-    version: 'master',                              // examples/rbac 无 release tag,跟踪 master
-    source: 'https://raw.githubusercontent.com/jcmoraisjr/haproxy-ingress/master/examples/rbac/ingress-controller-rbac.yml',
-    variant: 'RBAC + namespace (示例式安装)',
-    controller: 'haproxy-ingress.github.io/controller',  // 必须 = 清单 IngressClass.spec.controller (--controller-class 默认)
+    version: 'v0.16.1',                             // haproxy-ingress app 版本(chart 0.16.1)
+    source: 'https://haproxy-ingress.github.io/charts (chart haproxy-ingress/haproxy-ingress@0.16.1)',
+    variant: 'helm-rendered bare-metal NodePort',
+    controller: 'haproxy-ingress.github.io/controller',  // = 清单 IngressClass.spec.controller(chart --controller-class 默认)
     defaultClassName: 'haproxy',
     file: 'haproxy.yaml',
   },

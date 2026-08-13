@@ -265,8 +265,8 @@
     },
     "haproxy": {
       "label": "HAProxy Ingress",
-      "desc": "社区 haproxy-ingress,RBAC + namespace 示例式安装",
-      "notes": "官方推荐 Helm;此为原始清单路径,IngressClass=haproxy"
+      "desc": "社区 haproxy-ingress,Helm 渲染完整清单(NodePort 裸金属)",
+      "notes": "helm chart 0.16.1 渲染,含 Deployment/Service/RBAC/IngressClass"
     }
   },
   "nav": {
