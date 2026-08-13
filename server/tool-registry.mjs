@@ -11,8 +11,8 @@ const rank = t => RANK[t] ?? 99 // 工作台工具无 minTier → rank 99 → �
 // 6 个已实现 K8s 工具。minTier = 最低可用档;requiresApproval = agent 调用时走 checkpoint 人审。
 const K8S = [
   { name: 'get_pod_logs', minTier: 'read', requiresApproval: false,
-    description: '获取 pod 日志(有界 tail,非 follow)。',
-    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' } }, required: ['namespace', 'pod'] } },
+    description: '获取 pod 日志(有界 tail,非 follow)。支持 previous(CrashLoopBackOff 前一容器日志)、timestamps(每行加时间戳)、container、tail。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' }, previous: { type: 'boolean', description: 'true=前一容器日志(CrashLoopBackOff 调试)' }, timestamps: { type: 'boolean', description: 'true=每行加 RFC3339 时间戳' } }, required: ['namespace', 'pod'] } },
   { name: 'list_resources', minTier: 'read', requiresApproval: false,
     description: '列出 namespace 内资源(slim 名单)。两种用法:(a) kind ∈ pods/services/configmaps/deployments/statefulsets/daemonsets(快捷,slim 含 phase/ready 等);(b) path 给 list 端点列任意 kind/CRD(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses),slim 项含 path 便于 get_resource_yaml。path 须在绑定 ns 内。capped 200。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, path: { type: 'string', description: 'list 端点(任意 kind,path 模式,优先于 kind)' } }, required: ['namespace'] } },
