@@ -999,6 +999,13 @@ const KIND_API_PATH = {
   daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
   ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
   namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
+  // SP3 扩展:集群级 + 存储 + 网络 + 身份
+  nodes: (_ns, name) => `/api/v1/nodes/${name}`,
+  persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${name}`,
+  persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`,
+  storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${name}`,
+  networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/networkpolicies/${name}`,
+  serviceaccounts: (ns, name) => `/api/v1/namespaces/${ns}/serviceaccounts/${name}`,
 }
 function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
