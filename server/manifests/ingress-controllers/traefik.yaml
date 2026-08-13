@@ -1,0 +1,302 @@
+# Source: helm template traefik traefik/traefik --version 41.2.0
+# Repo:   https://traefik.github.io/charts  (chart: traefik/traefik)
+# App:    Traefik v3.7.10  (chart 41.2.0)
+# Render: namespace=ingress-traefik, service.spec.type=NodePort,
+#         ingressClass.isDefaultClass=false (避免与已有默认 IngressClass 双 claim;
+#           chart 仍会渲染默认类注解(值为 "false"),已手动剥离——"false" 与缺失语义等价,
+#           K8s 仅认 "true" 为默认类声明,缺失/"false" 均不参与默认类竞争)
+#         (chart renders IngressClass by default via ingressClass.enabled=true; no manual append needed.
+#          namespaced resources already carry metadata.namespace via --namespace; no post-injection needed)
+---
+# Source: appended (helm template emits no Namespace; ensures one-shot apply on fresh clusters)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-traefik
+---
+# Source: traefik/templates/rbac/serviceaccount.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: traefik
+  namespace: ingress-traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+automountServiceAccountToken: false
+---
+# Source: traefik/templates/rbac/clusterrole.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: traefik-ingress-traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - nodes
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - discovery.k8s.io
+    resources:
+      - endpointslices
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingressclasses
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - traefik.io
+    resources:
+      - ingressroutes
+      - ingressroutetcps
+      - ingressrouteudps
+      - middlewares
+      - middlewaretcps
+      - serverstransports
+      - serverstransporttcps
+      - tlsoptions
+      - tlsstores
+      - traefikservices
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: traefik/templates/rbac/clusterrolebinding.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: traefik-ingress-traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-ingress-traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: ingress-traefik
+---
+# Source: traefik/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: ingress-traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+  ports:
+  - port: 80
+    name: web
+    targetPort: web
+    protocol: TCP
+  - port: 443
+    name: websecure
+    targetPort: websecure
+    protocol: TCP
+---
+# Source: traefik/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: ingress-traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+      app.kubernetes.io/instance: traefik-ingress-traefik
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  minReadySeconds: 0
+  
+  template: 
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9100"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/instance: traefik-ingress-traefik
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: traefik
+        helm.sh/chart: traefik-41.2.0
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --entryPoints.metrics.address=:9100/tcp
+        - --entryPoints.traefik.address=:8080/tcp
+        - --entryPoints.web.address=:8000/tcp
+        - --entryPoints.websecure.address=:8443/tcp
+        - --api.dashboard=true
+        - --ping=true
+        - --metrics.prometheus=true
+        - --metrics.prometheus.entrypoint=metrics
+        - --providers.kubernetescrd
+        - --providers.kubernetescrd.allowEmptyServices=true
+        - --providers.kubernetesingress
+        - --providers.kubernetesingress.allowEmptyServices=true
+        - --providers.kubernetesingress.ingressendpoint.publishedservice=ingress-traefik/traefik
+        - --entryPoints.websecure.http.tls=true
+        - --log.level=INFO
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: USER
+          value: traefik
+        image: docker.io/traefik:v3.7.10
+        imagePullPolicy: IfNotPresent
+        lifecycle: null
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ping
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 2
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        name: traefik
+        ports:
+        - containerPort: 9100
+          name: metrics
+          protocol: TCP
+        - containerPort: 8080
+          name: traefik
+          protocol: TCP
+        - containerPort: 8000
+          name: web
+          protocol: TCP
+        - containerPort: 8443
+          name: websecure
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 1
+          httpGet:
+            path: /ping
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 2
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources: null
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /data
+          name: data
+        - mountPath: /tmp
+          name: tmp
+      hostNetwork: false
+      securityContext:
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: traefik
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - emptyDir: {}
+        name: data
+      - emptyDir: {}
+        name: tmp
+---
+# Source: traefik/templates/ingressclass.yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-ingress-traefik
+    helm.sh/chart: traefik-41.2.0
+    app.kubernetes.io/managed-by: Helm
+  name: traefik
+spec:
+  controller: traefik.io/ingress-controller

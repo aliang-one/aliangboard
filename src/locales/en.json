@@ -42,7 +42,8 @@
     "copy": "Copy",
     "copySuccess": "Copied",
     "copyFailed": "Failed to copy",
-    "applyFailed": "Apply failed"
+    "applyFailed": "Apply failed",
+    "applying": "Applying…"
   },
   "api": {
     "requestFailed": "Request failed: HTTP {status}",
@@ -249,6 +250,35 @@
       "thType": "Type",
       "thReplicas": "Replicas",
       "thImage": "Image"
+    }
+  },
+  "ingressController": {
+    "deployBtn": "Deploy Controller",
+    "dialogTitle": "Deploy Ingress Controller",
+    "deploy": "Deploy",
+    "rbacOk": "RBAC precheck passed",
+    "rbacMissing": "Gateway token lacks create on (apply may 403 on these)",
+    "alreadyInstalled": "An IngressClass with this name already exists; re-applying updates it in place (idempotent)",
+    "backToSelect": "← Back to selection",
+    "nginx-ingress": {
+      "label": "NGINX Ingress",
+      "desc": "Community ingress-nginx, bare-metal NodePort",
+      "notes": "IngressClass=nginx appears in dropdowns after install"
+    },
+    "haproxy": {
+      "label": "HAProxy Ingress",
+      "desc": "Community haproxy-ingress, helm-rendered full manifest (NodePort bare-metal)",
+      "notes": "Rendered from helm chart 0.16.1: Deployment/Service/RBAC/IngressClass included"
+    },
+    "traefik": {
+      "label": "Traefik",
+      "desc": "Community Traefik, helm-rendered full manifest (NodePort bare-metal)",
+      "notes": "Rendered from helm chart 41.2.0: Deployment/Service/RBAC/IngressClass included"
+    },
+    "kong": {
+      "label": "Kong",
+      "desc": "Community Kong + KIC, helm-rendered full manifest (NodePort bare-metal, DB-less)",
+      "notes": "Rendered from helm chart 3.4.1: Deployment/Service/RBAC/IngressClass included, admission webhook self-signed"
     }
   },
   "nav": {

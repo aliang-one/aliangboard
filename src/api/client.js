@@ -120,6 +120,10 @@ export const api = {
   health: () => k8sHttp.request('/api/health'),
   applyYaml: yaml => k8sHttp.request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml }) }),
   k8s: (path, options) => k8sHttp.request(`/api/k8s${path}`, options),
+  ingressControllers: {
+    catalog: () => k8sHttp.request('/api/ingress-controllers/catalog'),
+    manifest: id => k8sHttp.request(`/api/ingress-controllers/manifest/${encodeURIComponent(id)}`),
+  },
 }
 
 // 端口转发管理（REST）：在网关主机开本地 TCP 监听转发到 Pod，等同 kubectl port-forward。

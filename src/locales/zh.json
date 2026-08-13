@@ -42,7 +42,8 @@
     "copy": "复制",
     "copySuccess": "已复制",
     "copyFailed": "复制失败",
-    "applyFailed": "应用失败"
+    "applyFailed": "应用失败",
+    "applying": "应用中…"
   },
   "api": {
     "requestFailed": "请求失败：HTTP {status}",
@@ -249,6 +250,35 @@
       "thType": "类型",
       "thReplicas": "副本",
       "thImage": "镜像"
+    }
+  },
+  "ingressController": {
+    "deployBtn": "部署控制器",
+    "dialogTitle": "部署 Ingress 控制器",
+    "deploy": "部署",
+    "rbacOk": "RBAC 预检通过",
+    "rbacMissing": "网关 token 缺少以下 create 权限(继续可能在对应资源 403)",
+    "alreadyInstalled": "已存在同名 IngressClass,再次部署将原位更新(幂等)",
+    "backToSelect": "← 返回选择",
+    "nginx-ingress": {
+      "label": "NGINX Ingress",
+      "desc": "社区 ingress-nginx,bare-metal NodePort 变体",
+      "notes": "装完 IngressClass=nginx 出现在下拉"
+    },
+    "haproxy": {
+      "label": "HAProxy Ingress",
+      "desc": "社区 haproxy-ingress,Helm 渲染完整清单(NodePort 裸金属)",
+      "notes": "helm chart 0.16.1 渲染,含 Deployment/Service/RBAC/IngressClass"
+    },
+    "traefik": {
+      "label": "Traefik",
+      "desc": "社区 Traefik,Helm 渲染完整清单(NodePort 裸金属)",
+      "notes": "helm chart 41.2.0 渲染,含 Deployment/Service/RBAC/IngressClass"
+    },
+    "kong": {
+      "label": "Kong",
+      "desc": "社区 Kong + KIC,Helm 渲染完整清单(NodePort 裸金属,DB-less)",
+      "notes": "helm chart 3.4.1 渲染,含 Deployment/Service/RBAC/IngressClass,admission webhook 自签证书"
     }
   },
   "nav": {

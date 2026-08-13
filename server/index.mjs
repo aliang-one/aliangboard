@@ -30,6 +30,7 @@ import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { WORKBENCH_SYSTEM_PROMPT } from './workbench-prompt.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -1209,9 +1210,11 @@ async function handle(req, res) {
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
   })
+  const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
+  if (await ingressControllerRoutes.handle(req, res, url)) return
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。

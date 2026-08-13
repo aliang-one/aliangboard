@@ -9,6 +9,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
+import DeployIngressControllerDialog from '@/components/common/DeployIngressControllerDialog.vue'
 
 const { t } = useI18n()
 const store = useClusterStore()
@@ -24,6 +25,9 @@ const ingressClassesQuery = useResourceList({
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 const yamlOf = (c) => store.generateYAML('ingressclass', c)
+
+// 部署 Ingress 控制器(applied 后列表由弹窗内 invalidateQueries 自动刷新,共享 key)
+const showDeployCtrl = ref(false)
 
 // 创建
 const showCreateModal = ref(false)
@@ -66,12 +70,18 @@ function handleDelete() {
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.ingressClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">{{ $t('admin.ingressClasses.subtitle', { count: ingressClasses.length }) }}</p>
       </div>
-      <button
-        @click="showCreateModal = true"
-        class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
-      >
-        <span class="material-symbols-outlined">add</span> {{ $t('admin.ingressClasses.createBtn') }}
-      </button>
+      <div class="flex items-center gap-sm">
+        <button data-testid="deploy-controller-btn" @click="showDeployCtrl = true"
+          class="flex items-center gap-sm px-md py-sm border border-primary text-primary rounded-lg hover:bg-primary-container transition-all">
+          <span class="material-symbols-outlined">rocket_launch</span> {{ $t('ingressController.deployBtn') }}
+        </button>
+        <button
+          @click="showCreateModal = true"
+          class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
+        >
+          <span class="material-symbols-outlined">add</span> {{ $t('admin.ingressClasses.createBtn') }}
+        </button>
+      </div>
     </div>
 
     <DataTable :headers="headers" :rows="ingressClasses" column-key="ingressClasses" expandable row-key="name">
@@ -144,4 +154,7 @@ function handleDelete() {
       <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('admin.ingressClasses.delete') }}</button>
     </template>
   </Modal>
+
+  <!-- 部署 Ingress 控制器 -->
+  <DeployIngressControllerDialog v-model="showDeployCtrl" />
 </template>
