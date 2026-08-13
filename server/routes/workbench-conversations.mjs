@@ -82,7 +82,7 @@ export function createWorkbenchConvRoutes(deps) {
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
         setActiveConversation(db, input.projectId, conv.id)
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
-        appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references : null })
+        appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         wbAgent.runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
         return true
@@ -105,16 +105,11 @@ export function createWorkbenchConvRoutes(deps) {
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
         // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
         setActiveConversation(db, conv.projectId, id)
-        // 1) append user 消息(干净 content;refs 存原始,资源另拉注入 content)
+        // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
-        appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references : null })
-        // 2) @-ref 资源拉取 → 拼进刚 append 的 user 消息 content(buildHistory 读 content → agent 可见)
         const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
-        if (refsCtx) {
-          const maxSeq = getMaxSeq(db, id)
-          db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
-            .run(`${refsCtx}\n\n${cleanMessage}`, id, maxSeq)
-        }
+        // 2) append user 消息(enriched refs + refsCtx 拼进 content 供 agent buildHistory 读;合并原两步 append+UPDATE)
+        appendMessage(db, { conversationId: id, role: 'user', content: refsCtx ? `${refsCtx}\n\n${cleanMessage}` : cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
         updateConversation(db, id, { status: 'running' })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
