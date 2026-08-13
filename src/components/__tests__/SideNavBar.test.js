@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
 
+// vi.hoisted 回调在 imports 解析前运行（此时 reactive 未定义，TDZ），故 reactive() 在外层应用
 const { _routeObj, pushMock } = vi.hoisted(() => ({
   _routeObj: { meta: { scope: 'global' }, path: '/cluster', params: {} },
   pushMock: vi.fn(),

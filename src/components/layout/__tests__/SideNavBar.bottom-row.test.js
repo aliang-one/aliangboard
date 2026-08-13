@@ -22,6 +22,7 @@ vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: false }) }))
 vi.mock('@/composables/useK8sQuery', () => ({
   useResourceList: () => ({ data: { value: [] } }),
 }))
+  // 桥接:旧的 currentNs 变量驱动新的 scope 门控(测 ns=有/无 两态)
 vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/ns/default', params: { namespace: currentNs }, name: 'NamespaceOverview', meta: { scope: currentNs ? 'namespace' : 'global' } }),
   useRouter: () => ({ push: pushSpy }),

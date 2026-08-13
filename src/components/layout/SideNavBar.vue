@@ -19,7 +19,7 @@ const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
 // 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
-// 选中 namespace 时该板块默认折叠（让命名空间工作为主），无 namespace 时自动展开（此时它是唯一内容）。
+// 集群级导航——分三组，收进可折叠的「集群管理」板块（仅集群态渲染；命名空间态整组隐藏）。
 const clusterPrimaryNav = [
   { icon: 'dashboard', labelKey: 'nav.clusterOverview', route: '/cluster' },
   { icon: 'dns', labelKey: 'nav.nodes', route: '/nodes' },
@@ -302,7 +302,7 @@ function nsStatusColor(status) {
         </div>
       </div>
 
-      <!-- 集群管理：专门板块，可折叠；选中 ns 时默认折叠（让命名空间工作为主），无 ns 时自动展开 -->
+      <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
       <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
         <button @click="clusterNavOpen = !clusterNavOpen"
           class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
