@@ -3,6 +3,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { api, clearSession, getSession, getPlatformToken } from '@/api/client'
+import { resolveWhenSessionMissing } from './clusterGate'
 
 const routes = [
   {
@@ -455,37 +456,37 @@ const routes = [
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/UserManagement.vue'),
-        meta: { titleKey: 'nav.userManagement', icon: 'group', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.userManagement', icon: 'group', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
         path: 'admin/clusters',
         name: 'AdminClusters',
         component: () => import('@/views/admin/ClusterManagement.vue'),
-        meta: { titleKey: 'nav.clusterManagement', icon: 'cloud', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.clusterManagement', icon: 'cloud', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
         path: 'admin/apikeys',
         name: 'AdminApiKeys',
         component: () => import('@/views/admin/ApiKeyManagement.vue'),
-        meta: { titleKey: 'nav.apiKeys', icon: 'vpn_key', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.apiKeys', icon: 'vpn_key', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
         path: 'admin/agent',
         name: 'AdminAgentConsole',
         component: () => import('@/views/admin/AgentConsole.vue'),
-        meta: { titleKey: 'nav.aiConsole', icon: 'smart_toy', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.aiConsole', icon: 'smart_toy', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
         path: 'admin/llm-config',
         name: 'AdminLlmConfig',
         component: () => import('@/views/admin/LlmConfig.vue'),
-        meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
         path: 'admin/audit-trail',
         name: 'AdminAuditTrail',
         component: () => import('@/views/admin/AuditTrail.vue'),
-        meta: { titleKey: 'nav.auditTrail', icon: 'shield', scope: 'global', requireAdmin: true }
+        meta: { titleKey: 'nav.auditTrail', icon: 'shield', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
     ]
   }
@@ -519,7 +520,10 @@ router.beforeEach(async (to) => {
   if (!getSession()) {
     const auto = await authStore.tryAutoConnect()
     if (!auto) {
-      if (!isPublic) return { name: 'SelectCluster' }
+      // 无 session 且连不上集群:平台管理类页面(meta.requiresCluster===false,不依赖集群)
+      // 放行,其余非 public 页面弹回选择页。放行时直接 return,跳过下方 api.session() 验证。
+      const redirect = resolveWhenSessionMissing(to, isPublic)
+      if (redirect) return redirect
       return
     }
     // 自动连接成功 → 设集群状态（setConnectedCluster 内部已置连接态），继续进入页面
