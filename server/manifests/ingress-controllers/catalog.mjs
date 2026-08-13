@@ -38,6 +38,18 @@ export const INGRESS_CONTROLLER_TEMPLATES = [
     defaultClassName: 'traefik',
     file: 'traefik.yaml',
   },
+  {
+    id: 'kong',
+    labelKey: 'ingressController.kong.label',
+    descKey: 'ingressController.kong.desc',
+    notesKey: 'ingressController.kong.notes',
+    version: '3.4.1',                               // kong chart 版本(app Kong 3.9 + KIC 3.5)
+    source: 'https://charts.konghq.com (chart kong/kong@3.4.1)',
+    variant: 'helm-rendered bare-metal NodePort (IngressClass non-default)',
+    controller: 'ingress-controllers.konghq.com/kong',  // = 清单 IngressClass.spec.controller(chart templates/ingress-class.yaml 原值;非 incubator.*)
+    defaultClassName: 'kong',
+    file: 'kong.yaml',
+  },
 ]
 
 export function findControllerTemplate(id) {
