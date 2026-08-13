@@ -8,6 +8,12 @@
 #         (chart renders IngressClass by default via ingressClass.enabled=true; no manual append needed.
 #          namespaced resources already carry metadata.namespace via --namespace; no post-injection needed)
 ---
+# Source: appended (helm template emits no Namespace; ensures one-shot apply on fresh clusters)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-traefik
+---
 # Source: traefik/templates/rbac/serviceaccount.yaml
 kind: ServiceAccount
 apiVersion: v1

@@ -5,7 +5,7 @@ import { loadAll as yamlLoadAll } from 'js-yaml'
 import { INGRESS_CONTROLLER_TEMPLATES } from './manifests/ingress-controllers/catalog.mjs'
 import { listControllerTemplates, readControllerManifest } from './ingress-controller-templates.mjs'
 
-const REQUIRED = ['id', 'labelKey', 'descKey', 'version', 'source', 'variant', 'controller', 'defaultClassName', 'file']
+const REQUIRED = ['id', 'labelKey', 'descKey', 'notesKey', 'version', 'source', 'variant', 'controller', 'defaultClassName', 'file']
 
 test('catalog: 每条字段齐全 + id 唯一', () => {
   const ids = new Set()

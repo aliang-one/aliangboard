@@ -4,6 +4,12 @@
 # Render: namespace=ingress-haproxy, controller.service.type=NodePort, controller.ingressClassResource.enabled=true
 #         (namespaced resources already carry metadata.namespace via --namespace; no post-injection needed)
 ---
+# Source: appended (helm template emits no Namespace; ensures one-shot apply on fresh clusters)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-haproxy
+---
 # Source: haproxy-ingress/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount

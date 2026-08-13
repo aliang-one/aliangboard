@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
@@ -36,12 +37,13 @@ const applying = ref(false)
 const result = ref(null)   // { applied, failed, total }
 
 async function checkRbac() {
-  const miss = []
-  for (const attrs of REQUIRED_RBAC) {
+  // 并发跑 9 项 SelfSubjectAccessReview;按 REQUIRED_RBAC 顺序收集 miss(保证稳定显示顺序)。
+  // calls[0][0] 参数形状测试稳定:Promise.all 立即发起全部调用,第一项最先发起。
+  const results = await Promise.all(REQUIRED_RBAC.map(async attrs => {
     const r = await store.checkAccessServer(attrs)
-    if (!r?.allowed) miss.push(attrs.resource)
-  }
-  rbacMissing.value = miss
+    return { resource: attrs.resource, allowed: r?.allowed }
+  }))
+  rbacMissing.value = results.filter(r => !r.allowed).map(r => r.resource)
   rbacChecked.value = true
 }
 
@@ -55,6 +57,11 @@ async function deploy() {
       emit('applied')
       qc.invalidateQueries({ queryKey: ['cluster', cid(), 'ingressclasses'] })
     }
+  } catch (e) {
+    // C1: applyYaml 在非 2xx 抛错(全失败时服务端返回 422);此处让现有 failed 块渲染错误,
+    // 并发 toast 兜底(无 toast 也不影响 result 块的可见反馈)。
+    result.value = { applied: [], failed: [{ kind: '-', name: '-', error: e?.message || String(e) }], total: 0 }
+    notify('error', t('common.applyFailed'))
   } finally { applying.value = false }
 }
 
@@ -67,10 +74,25 @@ watch(() => props.modelValue, async (open) => {
 async function pick(tpl) {
   pickedId.value = tpl.id
   loading.value = true
-  try { const r = await api.ingressControllers.manifest(tpl.id); yaml.value = r.yaml }
-  finally { loading.value = false }
-  // 清单载入后立即跑 RBAC 预检(逐项 SelfSubjectAccessReview)
-  await checkRbac()
+  try {
+    // I2: 清单载入失败时不能让 checkRbac 在空 yaml 上继续(checkRbac 自身不依赖 yaml,
+    // 但用户应看到 manifest 拉取失败的具体反馈,且后续 deploy 按钮已在模板层用 !yaml 兜底禁用)。
+    const r = await api.ingressControllers.manifest(tpl.id)
+    yaml.value = r.yaml
+    // 清单载入成功后立即跑 RBAC 预检(并发 9 项 SelfSubjectAccessReview)。
+    await checkRbac()
+  } catch (e) {
+    notify('error', e?.message || String(e))
+  } finally { loading.value = false }
+}
+
+// I1: 返回选择(mounted editor → catalog)——重置编辑器步骤的全部本地状态。
+function backToSelect() {
+  pickedId.value = ''
+  yaml.value = ''
+  result.value = null
+  rbacChecked.value = false
+  rbacMissing.value = []
 }
 function close() { emit('update:modelValue', false) }
 
@@ -99,9 +121,14 @@ const alreadyInstalled = computed(() => {
         <div class="font-semibold">{{ t(tpl.labelKey) }}</div>
         <div class="text-xs text-on-surface-variant">{{ tpl.version }} · {{ tpl.variant }}</div>
         <div v-if="tpl.descKey" data-testid="controller-desc" class="text-xs text-on-surface-variant mt-xs">{{ t(tpl.descKey) }}</div>
+        <div v-if="tpl.notesKey" data-testid="controller-notes" class="text-xs text-on-surface-variant/70 mt-xs">{{ t(tpl.notesKey) }}</div>
       </button>
     </div>
     <div v-else>
+      <!-- I1: 返回选择(重置编辑器步骤全部状态) -->
+      <button data-testid="back-to-select" class="text-body-sm text-primary mb-sm" @click="backToSelect">
+        {{ t('ingressController.backToSelect') }}
+      </button>
       <YamlEditor v-model="yaml" />
       <!-- Task 10: 已装检测(非阻塞,server-side apply 幂等) -->
       <div v-if="alreadyInstalled" data-testid="already-installed" class="text-body-sm text-on-surface-variant mt-md">
@@ -122,7 +149,7 @@ const alreadyInstalled = computed(() => {
     </div>
     <!-- Modal #actions slot:部署按钮 -->
     <template v-if="pickedId" #actions>
-      <button data-testid="deploy-btn" :disabled="applying || loading"
+      <button data-testid="deploy-btn" :disabled="applying || loading || !yaml"
         class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold disabled:opacity-50"
         @click="deploy">
         {{ applying ? t('common.applying') : t('ingressController.deploy') }}

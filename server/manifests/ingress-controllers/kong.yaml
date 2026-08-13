@@ -10,6 +10,12 @@
 #         (chart 默认 ingressClassAnnotations={} → 不声明 is-default-class,无需剥离;
 #           namespaced resources already carry metadata.namespace via --namespace; no post-injection needed)
 ---
+# Source: appended (helm template emits no Namespace; ensures one-shot apply on fresh clusters)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kong
+---
 # Source: kong/templates/service-account.yaml
 apiVersion: v1
 kind: ServiceAccount

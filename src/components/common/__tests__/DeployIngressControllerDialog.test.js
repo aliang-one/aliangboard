@@ -16,7 +16,7 @@ vi.mock('@/api/client', () => ({
   api: {
     ingressControllers: {
       catalog: vi.fn(async () => ({ templates: [
-        { id: 'nginx-ingress', labelKey: 'ingressController.nginx-ingress.label', descKey: 'ingressController.nginx-ingress.desc', version: 'v1', variant: 'bare-metal', controller: 'k8s.io/ingress-nginx', defaultClassName: 'nginx' },
+        { id: 'nginx-ingress', labelKey: 'ingressController.nginx-ingress.label', descKey: 'ingressController.nginx-ingress.desc', notesKey: 'ingressController.nginx-ingress.notes', version: 'v1', variant: 'bare-metal', controller: 'k8s.io/ingress-nginx', defaultClassName: 'nginx' },
       ] })),
       manifest: vi.fn(async () => ({ yaml: 'apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: nginx\n' })),
     },
@@ -61,7 +61,7 @@ test('打开即拉 catalog 并渲染控制器卡片', async () => {
   expect(w.text()).toContain('v1 · bare-metal')
 })
 
-test('选控制器后载入清单到编辑器(选控制器后 manifest(id) 被正确调用)', async () => {
+test('选控制器后 manifest(id) 被正确调用一次', async () => {
   const { api } = await import('@/api/client')
   const w = mountDlg()
   await flushPromises()
@@ -122,6 +122,43 @@ test('控制器卡片渲染描述(controller-desc testid 存在)', async () => {
   const w = mountDlg()
   await flushPromises()
   expect(w.find('[data-testid="controller-desc"]').exists()).toBe(true)
+})
+
+// M1: 控制器卡片渲染 notesKey(testid controller-notes 存在)
+test('控制器卡片渲染 notes(controller-notes testid 存在)', async () => {
+  const w = mountDlg()
+  await flushPromises()
+  expect(w.find('[data-testid="controller-notes"]').exists()).toBe(true)
+})
+
+// C1: applyYaml 抛错(全失败服务端返回 422)→ failed 块渲染错误,无未处理 rejection
+test('apply 失败: applyYaml reject 时 failed 块渲染错误文案(无未处理 rejection)', async () => {
+  const { api } = await import('@/api/client')
+  api.applyYaml = vi.fn(async () => { throw new Error('boom applyYaml') })
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(api.applyYaml).toHaveBeenCalled()
+  expect(w.find('[data-testid="deploy-result"]').exists()).toBe(true)
+  expect(w.text()).toContain('boom applyYaml')
+})
+
+// I1: pick → back-to-select → catalog cards 重新可见
+test('返回选择: pick 后点 back-to-select,卡片重新可见', async () => {
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  // editor 步骤:back 按钮存在;卡片此刻不可见(v-if="!pickedId")
+  expect(w.find('[data-testid="back-to-select"]').exists()).toBe(true)
+  expect(w.find('[data-testid="controller-card"]').exists()).toBe(false)
+  await w.find('[data-testid="back-to-select"]').trigger('click')
+  // 返回后 pickedId 清空,卡片重新渲染
+  expect(w.find('[data-testid="controller-card"]').exists()).toBe(true)
+  expect(w.find('[data-testid="back-to-select"]').exists()).toBe(false)
 })
 
 // Task 10: 已装检测 —— 集群已有同名 IngressClass 时显示 already-installed 提示
