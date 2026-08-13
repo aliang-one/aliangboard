@@ -16,7 +16,7 @@ const store = useClusterStore()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const crdsQuery = useResourceList({
-  key: ['cluster', cid.value, 'crds'],
+  key: ['cluster', cid, 'crds'],
   fetcher: () => store.fetchCRDs(),
   options: { refetchInterval: 30000 },
 })

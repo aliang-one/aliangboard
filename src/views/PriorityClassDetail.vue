@@ -14,7 +14,7 @@ const { applyYaml } = useResourceApply()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const pcDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'priorityclasses', route.params.name],
+  key: ['cluster', cid, 'priorityclasses', route.params.name],
   fetcher: () => store.fetchPriorityClass(route.params.name),
   options: { refetchInterval: 15000 },
 })

@@ -21,7 +21,7 @@ store.setNamespace(route.params.namespace)
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('secrets')，编辑后自动刷新。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const secretDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'secrets', route.params.name],
+  key: ['cluster', cid, 'secrets', route.params.name],
   fetcher: () => store.fetchSecret(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

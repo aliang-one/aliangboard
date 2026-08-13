@@ -20,9 +20,9 @@ store.setNamespace(route.params.namespace)
 // 聚合本命名空间下可归类的资源（带 _kind 用于跳转与默认归类）
 // workloads + services + ingresses 走 Vue Query（远端模式 store 已清空，必须走 Query）
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const wlQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
-const ingQ = useResourceList({ key: ['cluster', cid.value, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: 30000 } })
+const wlQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const ingQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: 30000 } })
 const nsWorkloads = computed(() => (wlQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const nsIngress = computed(() => (ingQ.data.value || []).filter(i => i.namespace === route.params.namespace))

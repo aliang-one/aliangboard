@@ -23,7 +23,7 @@ const queryClient = useQueryClient()
 
 // Secrets 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const secretsKey = ['cluster', cid.value, 'secrets']
+const secretsKey = ['cluster', cid, 'secrets']
 const secretsQuery = useResourceList({
   key: secretsKey,
   fetcher: () => store.fetchSecrets(),

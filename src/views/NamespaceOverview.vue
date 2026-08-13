@@ -22,7 +22,7 @@ store.setNamespace(route.params.namespace)
 
 // Workloads/Services/Ingresses 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const workloadsKey = ['cluster', cid.value, 'workloads']
+const workloadsKey = ['cluster', cid, 'workloads']
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),
@@ -34,7 +34,7 @@ const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w =>
 const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
 
-const servicesKey = ['cluster', cid.value, 'services']
+const servicesKey = ['cluster', cid, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
@@ -42,7 +42,7 @@ const servicesQuery = useResourceList({
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
-const ingressesKey = ['cluster', cid.value, 'ingresses']
+const ingressesKey = ['cluster', cid, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),

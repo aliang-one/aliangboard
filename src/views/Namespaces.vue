@@ -21,7 +21,7 @@ const { tableColumns } = useTableColumns()
 // Namespaces 走 Vue Query：远端按需重拉（staleTime 控制新鲜度）；mock 模式返回种子（不重拉）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const namespacesQuery = useResourceList({
-  key: ['cluster', cid.value, 'namespaces'],
+  key: ['cluster', cid, 'namespaces'],
   fetcher: () => store.fetchNamespaces(),
 })
 const namespaces = computed(() => namespacesQuery.data.value || [])

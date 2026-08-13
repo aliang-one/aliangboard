@@ -17,7 +17,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const lrDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'limitranges', route.params.name],
+  key: ['cluster', cid, 'limitranges', route.params.name],
   fetcher: () => store.fetchLimitRange(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

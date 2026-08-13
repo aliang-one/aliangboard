@@ -23,10 +23,10 @@ const { t } = useI18n()
 
 // Workloads 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })

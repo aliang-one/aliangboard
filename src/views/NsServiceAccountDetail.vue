@@ -20,16 +20,16 @@ store.setNamespace(route.params.namespace)
 // 主资源 serviceaccount + 关联 rolebindings 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
 // nsSecrets 故意保留 store（secrets 非 RBAC，本计划不裁剪）。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const allSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const saDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'serviceaccounts', route.params.name],
+  key: ['cluster', cid, 'serviceaccounts', route.params.name],
   fetcher: () => store.fetchServiceAccount(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
 const sa = computed(() => saDetail.data.value)
 const roleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'rolebindings'],
+  key: ['cluster', cid, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
   options: { refetchInterval: 30000 },
 })

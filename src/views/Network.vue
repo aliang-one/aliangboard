@@ -19,16 +19,16 @@ const activeTab = ref('services')
 
 // Services/Ingresses 走 Vue Query（集群范围）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const servicesQuery = useResourceList({
-  key: ['cluster', cid.value, 'services'],
+  key: ['cluster', cid, 'services'],
   fetcher: () => store.fetchServices(),
   options: { refetchInterval: 30000 },
 })
 const serviceList = computed(() => servicesQuery.data.value || [])
 const ingressesQuery = useResourceList({
-  key: ['cluster', cid.value, 'ingresses'],
+  key: ['cluster', cid, 'ingresses'],
   fetcher: () => store.fetchIngresses(),
   options: { refetchInterval: 30000 },
 })

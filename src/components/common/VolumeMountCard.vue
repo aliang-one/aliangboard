@@ -21,8 +21,8 @@ const entry = defineModel({ required: true })
 const emit = defineEmits(['remove'])
 const store = useClusterStore()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _cmQ = useResourceList({ key: ['cluster', _cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
-const _secQ = useResourceList({ key: ['cluster', _cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _cmQ = useResourceList({ key: ['cluster', _cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', _cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 
 // PVC 内联快速创建:下拉旁「新建」开 CreatePvcDialog;创建后写回 entry.pvcName 并把新名并入 options,
 // 使自动选中即时生效(不依赖父列表刷新时机、不受 namespace 过滤差异影响)。

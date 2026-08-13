@@ -32,16 +32,16 @@ store.setNamespace(route.params.namespace)
 // 详情走 Vue Query（单资源 + 15s 轮询）；store CRUD 已接 invalidateResource('services')，编辑后自动刷新。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const svcDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'services', route.params.name],
+  key: ['cluster', cid, 'services', route.params.name],
   fetcher: () => store.fetchService(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
 const svc = computed(() => svcDetail.data.value)
 
 // pods + workloads + events 走 Vue Query（store ref 在 remote 下孤立）
-const podsQ = useResourceList({ key: ['cluster', cid.value, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: 30000 } })
-const wlsQ = useResourceList({ key: ['cluster', cid.value, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
-const eventsQ = useResourceList({ key: ['cluster', cid.value, 'events'], fetcher: () => store.fetchEvents(), options: { refetchInterval: 30000 } })
+const podsQ = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: 30000 } })
+const wlsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
+const eventsQ = useResourceList({ key: ['cluster', cid, 'events'], fetcher: () => store.fetchEvents(), options: { refetchInterval: 30000 } })
 const nsPods = computed(() => (podsQ.data.value || []).filter(p => p.namespace === route.params.namespace))
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 // 容器端口（从 workloads 派生，替代 nsContainerPortGroups/nsContainerPorts）
@@ -67,7 +67,7 @@ const hasNodePort = computed(() => svc.value?.type === 'NodePort' || svc.value?.
 const forwardPorts = computed(() => portRows.value.map(p => Number(p.port)).filter(n => !isNaN(n)))
 
 // === Endpoints：从 cluster-wide Endpoints 列表按 ns/name 过滤（store ref 在 remote 下孤立）===
-const endpointsQ = useResourceList({ key: ['cluster', cid.value, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
+const endpointsQ = useResourceList({ key: ['cluster', cid, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
 const ep = computed(() => (endpointsQ.data.value || []).find(e => e.name === route.params.name && e.namespace === route.params.namespace))
 const epTargets = computed(() => ep.value?.targets || {})
 const podByIp = computed(() => {

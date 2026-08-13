@@ -38,19 +38,19 @@ store.setNamespace(route.params.namespace)
 // 与 Network/NsEvents 列表同源缓存——远端不再依赖 hydrate 填充的 store.serviceList/ingressList/nsEvents。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const servicesQuery = useResourceList({
-  key: ['cluster', cid.value, 'services'],
+  key: ['cluster', cid, 'services'],
   fetcher: () => store.fetchServices(),
   select: list => list.filter(s => s.namespace === route.params.namespace),
 })
 const serviceList = computed(() => servicesQuery.data.value || [])
 const ingressesQuery = useResourceList({
-  key: ['cluster', cid.value, 'ingresses'],
+  key: ['cluster', cid, 'ingresses'],
   fetcher: () => store.fetchIngresses(),
   select: list => list.filter(i => i.namespace === route.params.namespace),
 })
 const ingressList = computed(() => ingressesQuery.data.value || [])
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
@@ -60,12 +60,12 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 // Plan 3 移除 hydrateCoreResources 后 store.workloadList/podList 在远端为空，
 // workload/managedPods/configRefs 直读 store → 整页空白；改读 query.data。
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   options: { refetchInterval: 30000 },
 })
@@ -832,9 +832,9 @@ const containerTargets = computed(() => {
   ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
-const _cmQ2 = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
-const _secQ2 = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _cmQ2 = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ2 = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === route.params.namespace).map(p => p.name))
 const availableConfigMaps = computed(() => (_cmQ2.data.value || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
 const availableSecrets = computed(() => (_secQ2.data.value || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))

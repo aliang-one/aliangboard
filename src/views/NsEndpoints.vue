@@ -23,7 +23,7 @@ store.setNamespace(route.params.namespace)
 
 // Endpoints 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const endpointsKey = ['cluster', cid.value, 'endpoints']
+const endpointsKey = ['cluster', cid, 'endpoints']
 const endpointsQuery = useResourceList({
   key: endpointsKey,
   fetcher: () => store.fetchEndpoints(),
@@ -31,7 +31,7 @@ const endpointsQuery = useResourceList({
 })
 const nsEndpoints = computed(() => (endpointsQuery.data.value || []).filter(e => e.namespace === route.params.namespace))
 // Service 名查询（svcByName 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid.value, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 
 const search = ref('')

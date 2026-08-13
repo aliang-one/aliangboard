@@ -14,7 +14,7 @@ const cid = computed(() => (store.currentCluster || 'cluster'))
 
 // Nodes query (Vue Query)
 const nodesQuery = useResourceList({
-  key: ['cluster', cid.value, 'nodes'],
+  key: ['cluster', cid, 'nodes'],
   fetcher: () => store.fetchNodes(),
   options: { refetchInterval: 30000 }
 })
@@ -22,7 +22,7 @@ const nodeList = computed(() => nodesQuery.data.value || [])
 
 // Pods query (Vue Query)
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   options: { refetchInterval: 30000 },
 })
@@ -30,7 +30,7 @@ const podList = computed(() => podsQuery.data.value || [])
 
 // Events query (Vue Query)
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   options: { refetchInterval: 30000 }
 })

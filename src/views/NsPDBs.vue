@@ -22,7 +22,7 @@ store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const pdbsKey = ['cluster', cid.value, 'pdbs']
+const pdbsKey = ['cluster', cid, 'pdbs']
 const pdbsQuery = useResourceList({
   key: pdbsKey,
   fetcher: () => store.fetchPDBs(),

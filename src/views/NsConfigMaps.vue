@@ -23,7 +23,7 @@ const queryClient = useQueryClient()
 
 // ConfigMaps 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const configmapsKey = ['cluster', cid.value, 'configmaps']
+const configmapsKey = ['cluster', cid, 'configmaps']
 const configmapsQuery = useResourceList({
   key: configmapsKey,
   fetcher: () => store.fetchConfigMaps(),

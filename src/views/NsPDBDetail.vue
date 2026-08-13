@@ -18,7 +18,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const pdbDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'pdbs', route.params.name],
+  key: ['cluster', cid, 'pdbs', route.params.name],
   fetcher: () => store.fetchPDB(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

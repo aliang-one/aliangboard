@@ -17,9 +17,9 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 
-const pvDetail = useResourceDetail({ key: ['cluster', cid.value, 'pvs', route.params.name], fetcher: () => store.fetchPV(route.params.name), options: { refetchInterval: 30000 } })
+const pvDetail = useResourceDetail({ key: ['cluster', cid, 'pvs', route.params.name], fetcher: () => store.fetchPV(route.params.name), options: { refetchInterval: 30000 } })
 const pv = computed(() => pvDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/api/v1/persistentvolumes/${encodeURIComponent(route.params.name)}`,
@@ -32,7 +32,7 @@ const pvc = computed(() => {
   return nm ? (_pvcQ.data.value || []).find(p => p.name === nm && (!ns || p.namespace === ns)) : null
 })
 // SC：从 cluster-wide StorageClass 列表查（pv.storageClass 在 PV 加载后才确定，用列表过滤规避 reactive-key 难题）
-const _scQ = useResourceList({ key: ['cluster', cid.value, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { staleTime: 60_000 } })
+const _scQ = useResourceList({ key: ['cluster', cid, 'storageclasses'], fetcher: () => store.fetchStorageClasses(), options: { staleTime: 60_000 } })
 const sc = computed(() => pv.value?.storageClass ? (_scQ.data.value || []).find(s => s.name === pv.value.storageClass) : null)
 const accessModeLabels = { RWO: 'ReadWriteOnce', RWM: 'ReadWriteMany', ROM: 'ReadOnlyMany', RWOP: 'ReadWriteOncePod' }
 

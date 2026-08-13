@@ -7,6 +7,7 @@ import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
@@ -26,20 +27,20 @@ const store = useClusterStore()
 if (route.params.namespace) store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const priorityClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'priorityclasses'],
+  key: ['cluster', cid, 'priorityclasses'],
   fetcher: () => store.fetchPriorityClasses(),
   options: { refetchInterval: 30000 },
 })
 const serviceAccountsQuery = useResourceList({
-  key: ['cluster', cid.value, 'serviceaccounts'],
+  key: ['cluster', cid, 'serviceaccounts'],
   fetcher: () => store.fetchServiceAccounts(),
   options: { refetchInterval: 30000 },
 })
 // IngressClass 下拉源（集群级真实网关类；弃用硬编码 nginx/traefik/kong，避免指向集群里不存在的类）
-const ingressClassQ = useResourceList({ key: ['cluster', cid.value, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+const ingressClassQ = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
 const allIngressClasses = computed(() => ingressClassQ.data.value || [])
 
 const ns = computed(() => route.params.namespace)
@@ -246,9 +247,9 @@ const stepBlockReason = computed(() => {
 const canProceed = computed(() => !stepBlockReason.value)
 
 // Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）
-const _cmQ = useResourceList({ key: ['cluster', cid.value, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
-const _secQ = useResourceList({ key: ['cluster', cid.value, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _cmQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
+const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {
@@ -668,9 +669,11 @@ function validate() {
   f.initContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) }) }) })
   f.extraContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) }) }) })
   f.ports.forEach((p, i) => { if (!p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
-  f.envVars.forEach((e, i) => { if (!e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
-  f.envCMKeys.forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
-  f.envSecretKeys.forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
+  f.envVars.forEach((e, i) => { if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
+  f.envCMKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
+  f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
+  const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
+  if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
   return errs
 }
 async function handleDeploy() {
@@ -1030,6 +1033,7 @@ async function handleDeploy() {
             <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
           </div>
         </div>
+        <p class="text-xs text-on-surface-variant/80 -mt-sm mb-md">{{ $t('deploy.envFromHint') }}</p>
 
         <!-- 单 Key 引用 -->
         <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.singleKeyRef') }}</h4>

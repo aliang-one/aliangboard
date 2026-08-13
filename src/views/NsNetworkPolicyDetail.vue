@@ -19,7 +19,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const npDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'networkpolicies', route.params.name],
+  key: ['cluster', cid, 'networkpolicies', route.params.name],
   fetcher: () => store.fetchNetworkPolicy(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

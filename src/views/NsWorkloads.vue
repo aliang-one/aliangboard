@@ -33,7 +33,7 @@ const showCopyDialog = ref(false)
 
 // Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const workloadsKey = ['cluster', cid.value, 'workloads']
+const workloadsKey = ['cluster', cid, 'workloads']
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),

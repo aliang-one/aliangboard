@@ -19,7 +19,7 @@ store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const hpaDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'hpas', route.params.name],
+  key: ['cluster', cid, 'hpas', route.params.name],
   fetcher: () => store.fetchHPA(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })

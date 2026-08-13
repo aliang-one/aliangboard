@@ -10,15 +10,15 @@ const { t } = useI18n()
 const store = useClusterStore()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const nsQ = useResourceList({ key: ['cluster', cid.value, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 const roleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'rolebindings'],
+  key: ['cluster', cid, 'rolebindings'],
   fetcher: () => store.fetchRoleBindings(),
   options: { refetchInterval: 30000 },
 })
 const clusterRoleBindingsQuery = useResourceList({
-  key: ['cluster', cid.value, 'clusterrolebindings'],
+  key: ['cluster', cid, 'clusterrolebindings'],
   fetcher: () => store.fetchClusterRoleBindings(),
   options: { refetchInterval: 30000 },
 })

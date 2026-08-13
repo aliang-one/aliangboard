@@ -18,12 +18,12 @@ const store = useClusterStore()
 // 服务端状态归 Vue Query：workloads/pods/events 三查询，与列表页同源缓存。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const workloadsQuery = useResourceList({
-  key: ['cluster', cid.value, 'workloads'],
+  key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: 30000 },
 })
 const podsQuery = useResourceList({
-  key: ['cluster', cid.value, 'pods'],
+  key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
   select: list => list.filter(p => p.namespace === route.params.namespace),
 })
@@ -33,7 +33,7 @@ const workload = computed(() => (workloadsQuery.data.value || []).find(
 const pod = computed(() => (podsQuery.data.value || []).find((p) => p.name === route.params.name))
 const displayData = computed(() => pod.value || workload.value)
 const eventsQuery = useResourceList({
-  key: ['cluster', cid.value, 'events'],
+  key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })

@@ -20,13 +20,13 @@ store.setNamespace(route.params.namespace)
 // 主资源 rolebinding + 关联 role 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const rbDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'rolebindings', route.params.name],
+  key: ['cluster', cid, 'rolebindings', route.params.name],
   fetcher: () => store.fetchRoleBinding(route.params.name, route.params.namespace),
   options: { refetchInterval: 15000 },
 })
 const rb = computed(() => rbDetail.data.value)
 const rolesQuery = useResourceList({
-  key: ['cluster', cid.value, 'roles'],
+  key: ['cluster', cid, 'roles'],
   fetcher: () => store.fetchRoles(),
   options: { refetchInterval: 30000 },
 })

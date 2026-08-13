@@ -16,13 +16,13 @@ const { applyYaml } = useResourceApply()
 // 主资源 clusterrolebinding + 关联 role 查找走 Vue Query（15s/30s 轮询）；store CRUD 已接 invalidateResource，编辑后自动刷新。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const crbDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'clusterrolebindings', route.params.name],
+  key: ['cluster', cid, 'clusterrolebindings', route.params.name],
   fetcher: () => store.fetchClusterRoleBinding(route.params.name),
   options: { refetchInterval: 15000 },
 })
 const crb = computed(() => crbDetail.data.value)
 const rolesQuery = useResourceList({
-  key: ['cluster', cid.value, 'roles'],
+  key: ['cluster', cid, 'roles'],
   fetcher: () => store.fetchRoles(),
   options: { refetchInterval: 30000 },
 })

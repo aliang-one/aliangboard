@@ -16,9 +16,9 @@ const router = useRouter()
 const store = useClusterStore()
 const { applyYaml } = useResourceApply()
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const _pvcQ = useResourceList({ key: ['cluster', cid.value, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
+const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 
-const scDetail = useResourceDetail({ key: ['cluster', cid.value, 'storageclasses', route.params.name], fetcher: () => store.fetchStorageClass(route.params.name), options: { refetchInterval: 30000 } })
+const scDetail = useResourceDetail({ key: ['cluster', cid, 'storageclasses', route.params.name], fetcher: () => store.fetchStorageClass(route.params.name), options: { refetchInterval: 30000 } })
 const sc = computed(() => scDetail.data.value)
 const { yaml } = useLiveYaml({
   pathFn: () => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(route.params.name)}`,

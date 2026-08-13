@@ -19,13 +19,13 @@ const { t } = useI18n()
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const crdDetail = useResourceDetail({
-  key: ['cluster', cid.value, 'crds', route.params.name],
+  key: ['cluster', cid, 'crds', route.params.name],
   fetcher: () => store.fetchCRD(route.params.name),
   options: { refetchInterval: 15000 },
 })
 const crd = computed(() => crdDetail.data.value)
 const instancesQuery = useResourceList({
-  key: ['cluster', cid.value, 'crds', route.params.name, 'instances'],
+  key: ['cluster', cid, 'crds', route.params.name, 'instances'],
   fetcher: () => store.fetchCRInstances(crd.value),
   enabled: (!!crd.value && !!crd.value._plural),
   options: { refetchInterval: 30000 },

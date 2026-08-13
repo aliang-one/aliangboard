@@ -18,7 +18,7 @@ const headers = computed(() => tableColumns('runtimeClasses'))
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const runtimeClassesQuery = useResourceList({
-  key: ['cluster', cid.value, 'runtimeclasses'],
+  key: ['cluster', cid, 'runtimeclasses'],
   fetcher: () => store.fetchRuntimeClasses(),
   options: { refetchInterval: 30000 },
 })
