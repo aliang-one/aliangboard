@@ -53,3 +53,21 @@ test('cluster mode: 集群导航组显示、ns 资源组隐藏', () => {
   expect(w.find('[data-test="cluster-nav-section"]').exists()).toBe(true)
   expect(w.find('[data-test="ns-nav-section"]').exists()).toBe(false)
 })
+
+test('ns mode: 点 Cluster Header → push /cluster', async () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  pushMock.mockClear()
+  const w = mountSideNavBar()
+  const home = w.find('[data-test="cluster-home"]')
+  expect(home.exists()).toBe(true)
+  await home.trigger('click')
+  expect(pushMock).toHaveBeenCalledWith('/cluster')
+})
+
+test('cluster mode: Header 为静态、无 cluster-home', () => {
+  routeRef.meta.scope = 'global'
+  routeRef.path = '/cluster'
+  const w = mountSideNavBar()
+  expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
+})

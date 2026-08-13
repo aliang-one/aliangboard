@@ -188,13 +188,30 @@ function nsStatusColor(status) {
 
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
-    <!-- Cluster Header -->
-    <div class="flex items-center gap-md p-md px-lg shrink-0">
+    <!-- Cluster Header:命名空间态=返回集群管理入口;集群态=静态展示 -->
+    <button
+      v-if="isNsMode"
+      data-test="cluster-home"
+      @click="router.push('/cluster')"
+      :title="$t('nav.backToCluster')"
+      :aria-label="$t('nav.backToCluster')"
+      class="w-full flex items-center gap-sm p-md px-lg shrink-0 hover:bg-surface-container transition-colors text-left"
+    >
+      <span class="material-symbols-outlined text-on-surface-variant">chevron_left</span>
       <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
         <span class="material-symbols-outlined text-lg filled">kubernetes</span>
       </div>
       <div class="min-w-0">
-        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name }}</h2>
+        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
+        <p class="text-body-sm text-on-surface-variant">{{ $t('nav.backToCluster') }}</p>
+      </div>
+    </button>
+    <div v-else class="flex items-center gap-md p-md px-lg shrink-0">
+      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
+        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
+      </div>
+      <div class="min-w-0">
+        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
         <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
       </div>
     </div>
