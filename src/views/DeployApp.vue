@@ -7,6 +7,7 @@ import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
@@ -668,9 +669,11 @@ function validate() {
   f.initContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) }) }) })
   f.extraContainers.forEach((c, i) => { if (!c.image) errs.push({ step: 1, msg: t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) }) }) })
   f.ports.forEach((p, i) => { if (!p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
-  f.envVars.forEach((e, i) => { if (!e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
-  f.envCMKeys.forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
-  f.envSecretKeys.forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
+  f.envVars.forEach((e, i) => { if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
+  f.envCMKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
+  f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
+  const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
+  if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
   return errs
 }
 async function handleDeploy() {
@@ -1030,6 +1033,7 @@ async function handleDeploy() {
             <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
           </div>
         </div>
+        <p class="text-xs text-on-surface-variant/80 -mt-sm mb-md">{{ $t('deploy.envFromHint') }}</p>
 
         <!-- 单 Key 引用 -->
         <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.singleKeyRef') }}</h4>

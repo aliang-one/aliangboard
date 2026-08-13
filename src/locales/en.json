@@ -1443,6 +1443,8 @@
     "envMissingKey": "Environment variable #{idx}: missing KEY",
     "envCmMissing": "ConfigMap env {name}: needs ENV name / ConfigMap / key",
     "envSecretMissing": "Secret env {name}: needs ENV name / Secret / key",
+    "envDuplicateName": "Env var {name} is duplicated — env names must be unique within a container",
+    "envFromHint": "On collisions: individual env vars override envFrom; Secret wins over ConfigMap for the same key",
     "fixErrors": "Please fix: ",
     "portMustBeNumber": "Port must be a positive integer",
     "duplicateServicePort": "Duplicate Service port: the same port+protocol cannot appear more than once",
@@ -3233,5 +3235,8 @@
     "services": { "_t": "Services", "clusterIP": "Cluster IP", "externalIP": "External IP", "ports": "Ports" },
     "ingress": { "_t": "Ingress", "hosts": "Hosts", "path": "Path", "backend": "Backend", "tls": "TLS" },
     "rbac": { "_t": "RBAC", "bindings": "Bindings", "role": "Role", "subjects": "Subjects" }
+  },
+  "envSource": {
+    "nsMissing": "Resource not found in the current namespace (cross-namespace manual input allowed)"
   }
 }
