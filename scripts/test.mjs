@@ -834,6 +834,10 @@ test('deriveClusterCounts: 非数组/缺省 → null(未命中,供调用方回�
     deriveClusterCounts({ nodes: null, pods: 'oops', events: undefined }),
     { nodeCount: null, podCount: null, activeEvents: null }
   )
+  assert.deepEqual(
+    deriveClusterCounts({ nodes: 42, pods: { x: 1 }, events: 0 }),
+    { nodeCount: null, podCount: null, activeEvents: null }
+  )
 })
 
 // --- 汇总 ---
