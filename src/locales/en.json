@@ -258,6 +258,7 @@
     "deploy": "Deploy",
     "rbacOk": "RBAC precheck passed",
     "rbacMissing": "Gateway token lacks create on (apply may 403 on these)",
+    "alreadyInstalled": "An IngressClass with this name already exists; re-applying updates it in place (idempotent)",
     "nginx-ingress": {
       "label": "NGINX Ingress",
       "desc": "Community ingress-nginx, bare-metal NodePort",

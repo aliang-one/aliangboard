@@ -1,10 +1,11 @@
 <script setup>
 // src/components/common/DeployIngressControllerDialog.vue
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
@@ -72,6 +73,21 @@ async function pick(tpl) {
   await checkRbac()
 }
 function close() { emit('update:modelValue', false) }
+
+// ===== Task 10: 已装检测 =====
+// 拉集群当前 IngressClass 列表(30s staleTime,与 useResourceList 默认基座一致);
+// 选中模板后,若 defaultClassName 已在列表中,显示幂等提示(非阻塞)。
+const { data: ingressClasses } = useResourceList({
+  key: ['cluster', cid(), 'ingressclasses'],
+  fetcher: () => store.fetchIngressClasses(),
+  options: { staleTime: 30_000 },
+})
+const pickedTpl = computed(() => templates.value.find(t => t.id === pickedId.value) || null)
+const alreadyInstalled = computed(() => {
+  if (!pickedTpl.value?.defaultClassName) return false
+  const names = (ingressClasses.value || []).map(c => c.name)
+  return names.includes(pickedTpl.value.defaultClassName)
+})
 </script>
 
 <template>
@@ -82,10 +98,15 @@ function close() { emit('update:modelValue', false) }
         @click="pick(tpl)">
         <div class="font-semibold">{{ t(tpl.labelKey) }}</div>
         <div class="text-xs text-on-surface-variant">{{ tpl.version }} · {{ tpl.variant }}</div>
+        <div v-if="tpl.descKey" data-testid="controller-desc" class="text-xs text-on-surface-variant mt-xs">{{ t(tpl.descKey) }}</div>
       </button>
     </div>
     <div v-else>
       <YamlEditor v-model="yaml" />
+      <!-- Task 10: 已装检测(非阻塞,server-side apply 幂等) -->
+      <div v-if="alreadyInstalled" data-testid="already-installed" class="text-body-sm text-on-surface-variant mt-md">
+        {{ t('ingressController.alreadyInstalled') }}
+      </div>
       <!-- RBAC 预检结果(i18n 键由 Task 6 补) -->
       <div v-if="rbacChecked" data-testid="rbac-check" class="text-body-sm mt-md">
         <span v-if="!rbacMissing.length">{{ t('ingressController.rbacOk') }}</span>
@@ -93,8 +114,8 @@ function close() { emit('update:modelValue', false) }
       </div>
       <!-- apply 进度摘要 + 失败明细 -->
       <div v-if="result" data-testid="deploy-result" class="text-body-sm mt-md">
-        <div>{{ result.applied.length }}/{{ result.total }}</div>
-        <ul v-if="result.failed && result.failed.length" class="text-error mt-sm">
+        <div>{{ (result.applied || []).length }}/{{ result.total }}</div>
+        <ul v-if="(result.failed || []).length" class="text-error mt-sm">
           <li v-for="f in result.failed" :key="f.kind + f.name">{{ f.kind }}/{{ f.name }}: {{ f.error }}</li>
         </ul>
       </div>

@@ -258,6 +258,7 @@
     "deploy": "部署",
     "rbacOk": "RBAC 预检通过",
     "rbacMissing": "网关 token 缺少以下 create 权限(继续可能在对应资源 403)",
+    "alreadyInstalled": "已存在同名 IngressClass,再次部署将原位更新(幂等)",
     "nginx-ingress": {
       "label": "NGINX Ingress",
       "desc": "社区 ingress-nginx,bare-metal NodePort 变体",

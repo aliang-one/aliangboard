@@ -6,13 +6,17 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 // vi.mock 被 vitest 提升(hoist)到文件顶部,普通 const 在 mock 工厂内不可见;
 // 用 vi.hoisted 让 mock 工厂能引用同一个 spy(RBAC 测试要断言调用次数)。
-const { checkAccessMock } = vi.hoisted(() => ({ checkAccessMock: vi.fn(async () => ({ allowed: true })) }))
+// fetchIngressClassesMock 默认返回空数组(未安装);个别测试用 mockReturnValueOnce 注入已安装类。
+const { checkAccessMock, fetchIngressClassesMock } = vi.hoisted(() => ({
+  checkAccessMock: vi.fn(async () => ({ allowed: true })),
+  fetchIngressClassesMock: vi.fn(async () => []),
+}))
 
 vi.mock('@/api/client', () => ({
   api: {
     ingressControllers: {
       catalog: vi.fn(async () => ({ templates: [
-        { id: 'nginx-ingress', labelKey: 'ingressController.nginx-ingress.label', version: 'v1', variant: 'bare-metal', controller: 'k8s.io/ingress-nginx', defaultClassName: 'nginx' },
+        { id: 'nginx-ingress', labelKey: 'ingressController.nginx-ingress.label', descKey: 'ingressController.nginx-ingress.desc', version: 'v1', variant: 'bare-metal', controller: 'k8s.io/ingress-nginx', defaultClassName: 'nginx' },
       ] })),
       manifest: vi.fn(async () => ({ yaml: 'apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: nginx\n' })),
     },
@@ -22,7 +26,11 @@ vi.mock('@/api/client', () => ({
   },
 }))
 vi.mock('@/stores/cluster', () => ({
-  useClusterStore: () => ({ currentCluster: 'demo', checkAccessServer: checkAccessMock }),
+  useClusterStore: () => ({
+    currentCluster: 'demo',
+    checkAccessServer: checkAccessMock,
+    fetchIngressClasses: fetchIngressClassesMock,
+  }),
 }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () => ({ push: () => {} }) }))
 
@@ -53,13 +61,14 @@ test('打开即拉 catalog 并渲染控制器卡片', async () => {
   expect(w.text()).toContain('v1 · bare-metal')
 })
 
-test('选控制器后载入清单到编辑器(props.manifest 调用一次)', async () => {
+test('选控制器后载入清单到编辑器(选控制器后 manifest(id) 被正确调用)', async () => {
   const { api } = await import('@/api/client')
   const w = mountDlg()
   await flushPromises()
   await w.find('[data-testid="controller-card"]').trigger('click')
   await flushPromises()
   expect(api.ingressControllers.manifest).toHaveBeenCalledWith('nginx-ingress')
+  expect(api.ingressControllers.manifest).toHaveBeenCalledTimes(1)
 })
 
 // ===== Task 5: RBAC 预检 + apply 进度 + applied emit =====
@@ -74,6 +83,8 @@ test('RBAC 预检: 选控制器后自动跑 9 次 SelfSubjectAccessReview 并渲
   await flushPromises()   // pick → checkRbac 完成
   // REQUIRED_RBAC 9 项 cluster-scoped 资源,verb=create, namespace=''
   expect(checkAccessMock).toHaveBeenCalledTimes(9)
+  // T5-m1: 锁定 cluster-scoped 语义(verb=create, namespace='')
+  expect(checkAccessMock.mock.calls[0][0]).toMatchObject({ verb: 'create', namespace: '' })
   // 预检结果块渲染(i18n 未翻译时显示原始 key 路径,testid 仍稳定)
   expect(w.find('[data-testid="rbac-check"]').exists()).toBe(true)
 })
@@ -90,5 +101,48 @@ test('apply: 回 applied/failed/total,有成功则 emit applied + 进度摘要',
   expect(api.applyYaml).toHaveBeenCalled()
   expect(w.emitted().applied).toBeTruthy()
   expect(w.text()).toContain('1/1')   // 进度摘要(非 i18n)
+})
+
+// T5-m2: result.applied/failed 为 undefined 时不崩(null-guard)
+test('apply: 服务端返回缺 applied/failed 字段时不崩(progress 块渲染 0/total)', async () => {
+  const { api } = await import('@/api/client')
+  api.applyYaml = vi.fn(async () => ({ total: 0 }))   // 无 applied/failed 字段
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(w.find('[data-testid="deploy-result"]').exists()).toBe(true)
+  expect(w.text()).toContain('0/0')   // (applied||[]).length=0, total=0
+})
+
+// T6-m1: 控制器卡片渲染描述(descKey → testid controller-desc 存在)
+test('控制器卡片渲染描述(controller-desc testid 存在)', async () => {
+  const w = mountDlg()
+  await flushPromises()
+  expect(w.find('[data-testid="controller-desc"]').exists()).toBe(true)
+})
+
+// Task 10: 已装检测 —— 集群已有同名 IngressClass 时显示 already-installed 提示
+test('已装检测: 集群含 defaultClassName 时显示 already-installed 提示', async () => {
+  fetchIngressClassesMock.mockResolvedValueOnce([{ name: 'nginx', isDefault: false }])
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await flushPromises()   // 等 useResourceList 的 fetcher 完成
+  expect(w.find('[data-testid="already-installed"]').exists()).toBe(true)
+})
+
+// Task 10: 已装检测 —— 集群无同名 IngressClass 时不显示提示
+test('已装检测: 集群不含 defaultClassName 时不显示 already-installed 提示', async () => {
+  fetchIngressClassesMock.mockResolvedValueOnce([{ name: 'some-other', isDefault: false }])
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await flushPromises()
+  expect(w.find('[data-testid="already-installed"]').exists()).toBe(false)
 })
 
