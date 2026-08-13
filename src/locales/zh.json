@@ -267,6 +267,11 @@
       "label": "HAProxy Ingress",
       "desc": "社区 haproxy-ingress,Helm 渲染完整清单(NodePort 裸金属)",
       "notes": "helm chart 0.16.1 渲染,含 Deployment/Service/RBAC/IngressClass"
+    },
+    "traefik": {
+      "label": "Traefik",
+      "desc": "社区 Traefik,Helm 渲染完整清单(NodePort 裸金属)",
+      "notes": "helm chart 41.2.0 渲染,含 Deployment/Service/RBAC/IngressClass"
     }
   },
   "nav": {

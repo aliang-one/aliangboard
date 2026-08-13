@@ -267,6 +267,11 @@
       "label": "HAProxy Ingress",
       "desc": "Community haproxy-ingress, helm-rendered full manifest (NodePort bare-metal)",
       "notes": "Rendered from helm chart 0.16.1: Deployment/Service/RBAC/IngressClass included"
+    },
+    "traefik": {
+      "label": "Traefik",
+      "desc": "Community Traefik, helm-rendered full manifest (NodePort bare-metal)",
+      "notes": "Rendered from helm chart 41.2.0: Deployment/Service/RBAC/IngressClass included"
     }
   },
   "nav": {
