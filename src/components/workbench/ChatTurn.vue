@@ -43,8 +43,8 @@ onUpdated(() => nextTick(highlight))
     <div class="flex items-center gap-xs mb-xs">
       <span class="material-symbols-outlined text-sm" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? 'person' : 'smart_toy' }}</span>
       <span class="text-body-xs font-semibold" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? t('workbench.chat.roleYou') : t('workbench.chat.roleAgent') }}</span>
-      <span v-if="turn.role === 'assistant' && turn.steps" class="ml-auto text-body-xs text-on-surface-variant">{{ turn.steps }} steps</span>
-      <span v-if="turn.truncated" class="text-body-xs text-status-warning">⚠ truncated</span>
+      <span v-if="turn.role === 'assistant' && turn.steps" class="ml-auto text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
+      <span v-if="turn.truncated" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.contentTruncated') }}</span>
     </div>
 
     <!-- USER -->
@@ -68,12 +68,12 @@ onUpdated(() => nextTick(highlight))
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 150ms"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
         </span>
-        <span class="text-body-sm text-on-surface-variant">Thinking...</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.thinking') }}</span>
       </div>
 
       <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
         <span class="material-symbols-outlined text-base text-status-warning">pending_actions</span>
-        <span class="text-body-sm text-status-warning font-medium">Waiting for approval...</span>
+        <span class="text-body-sm text-status-warning font-medium">{{ t('workbench.chat.pendingApproval') }}</span>
       </div>
 
       <div v-else-if="turn.status === 'error'" class="flex items-start gap-sm px-md py-sm bg-error/5 border border-error/20 rounded-xl">

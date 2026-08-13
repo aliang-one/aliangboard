@@ -2465,6 +2465,7 @@
       "thinking": "Thinking…",
       "pendingApprovalHint": "Agent proposes a write op — please approve in the dialog",
       "stepsTaken": "{n} steps taken",
+      "contentTruncated": "Truncated",
       "truncated": "⚠ Max steps reached — no complete answer given",
       "writeOpsDenied": "⛔ {n} write op(s) denied",
       "inputPlaceholder": "Describe the issue to investigate/handle… (Enter to send, Shift+Enter for newline)",
