@@ -1258,13 +1258,15 @@ function podStatusBorder(s) {
               <span class="text-headline-sm text-on-surface-variant/40 font-mono">/ {{ rollout.desired }}</span>
             </div>
             <span class="text-xs text-on-surface-variant">{{ $t('workload.rollout.readyReplicas') }}</span>
-            <!-- 快速伸缩 ±1（Deployment/StatefulSet） -->
+            <!-- 快速伸缩 ±1（Deployment/StatefulSet）：active:scale 提供按压反馈，
+                 scaling 时两端都转圈（旧实现仅 + 转圈，点 − 像没反应）；desired 数值由
+                 store.scaleWorkload 的乐观 setQueryData 立即跳变，无需等轮询。 -->
             <div v-if="isScalable" class="flex items-center gap-0.5">
-              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="−1">
-                <span class="material-symbols-outlined" style="font-size:16px">remove</span>
+              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all" title="−1">
+                <span class="material-symbols-outlined" :class="scaling ? 'animate-spin' : ''" style="font-size:16px">{{ scaling ? 'progress_activity' : 'remove' }}</span>
               </button>
-              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors" title="+1">
-                <span class="material-symbols-outlined" style="font-size:16px">{{ scaling ? 'progress_activity' : 'add' }}</span>
+              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all" title="+1">
+                <span class="material-symbols-outlined" :class="scaling ? 'animate-spin' : ''" style="font-size:16px">{{ scaling ? 'progress_activity' : 'add' }}</span>
               </button>
             </div>
           </div>

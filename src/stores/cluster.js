@@ -644,19 +644,37 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource('workloads')
   }
 
+  // 伸缩副本数（Deployment/StatefulSet）：PATCH /scale。
+  // 数据层与 updateWorkload/updateWorkloadMeta 同源——getWorkloadForEdit 从 Vue Query 缓存取类型
+  // （缓存未命中逐类型探测），不再读 store.workloadList（远端为空 → 旧实现 find 返回 undefined →
+  // 误抛 scaleNotSupported，即概览页「+/- 调副本」偶尔提示「不支持调整」的真因）。
+  // 成功：乐观 setQueryData（desired 立即跳变，ready 不虚增）+ invalidateResource（后台纠偏）。
+  // 失败：invalidateResource 触发 refetch，真值覆盖乐观值，实现自动回滚。
   async function scaleWorkload(name, ns, replicas) {
-    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets' }[wl?.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.scaleNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })}`)
-    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}/scale`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/merge-patch+json' },
-      body: JSON.stringify({ spec: { replicas: Number(replicas) } }),
-    })
-    if (wl) {
-      const current = parseInt(wl.replicas?.split('/')[1] || '1')
-      wl.replicas = `${Math.min(replicas, current)}/${replicas}`
+    const wl = await getWorkloadForEdit(name, ns)
+    if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets' }[wl.type]
+    if (!plural) throw new Error(`${i18n.global.t('store.scaleNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
+    const next = Number(replicas)
+    const cid = currentCluster.value || 'cluster'
+    // 乐观：副本大数字（rollout.desired 读 raw.spec.replicas）+ 概览卡（workload.replicas 扁平串）立即跳变
+    queryClient.setQueryData(['cluster', cid, 'workloads'], old => (old || []).map(w => {
+      if (w.name !== name || w.namespace !== ns) return w
+      const ready = Number(String(w.replicas || '0/0').split('/')[0]) || 0
+      const raw = w.raw ? { ...w.raw, spec: { ...(w.raw.spec || {}), replicas: next } } : w.raw
+      return { ...w, raw, replicas: `${Math.min(ready, next)}/${next}` }
+    }))
+    try {
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}/scale`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/merge-patch+json' },
+        body: JSON.stringify({ spec: { replicas: next } }),
+      })
+    } catch (e) {
+      invalidateResource('workloads') // 失败回滚：refetch 用真值覆盖乐观值
+      throw e
     }
+    invalidateResource('workloads') // 成功后台纠偏（ready 副本数等控制器追上）
   }
 
   async function restartWorkload(name, ns) {
