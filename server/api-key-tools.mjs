@@ -52,6 +52,16 @@ const GET_PATH = {
   deployments: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/deployments/${enc(name)}`,
   statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/statefulsets/${enc(name)}`,
   daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/daemonsets/${enc(name)}`,
+  // SP3 扩展:让 agent 的 get_resource/describe_resource 也支持这些 kind
+  nodes: (_ns, name) => `/api/v1/nodes/${enc(name)}`,
+  persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${enc(name)}`,
+  persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${enc(ns)}/persistentvolumeclaims/${enc(name)}`,
+  storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${enc(name)}`,
+  networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${enc(ns)}/networkpolicies/${enc(name)}`,
+  serviceaccounts: (ns, name) => `/api/v1/namespaces/${enc(ns)}/serviceaccounts/${enc(name)}`,
+  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${enc(ns)}/ingresses/${enc(name)}`,
+  secrets: (ns, name) => `/api/v1/namespaces/${enc(ns)}/secrets/${enc(name)}`,
+  namespaces: (_ns, name) => `/api/v1/namespaces/${enc(name)}`,
 }
 const WORKLOADS = ['deployments', 'statefulsets', 'daemonsets']
 function slimPod(p) { return { name: p.metadata?.name, phase: p.status?.phase, ready: (p.status?.containerStatuses || []).map(c => ({ name: c.name, ready: c.ready })) } }

@@ -130,6 +130,10 @@ export function createWorkbenchProjectRoutes(deps) {
         secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
         deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
         ingresses: '/apis/networking.k8s.io/v1/ingresses',
+        // SP3 扩展:集群级 + 存储 + 网络 + 身份
+        nodes: '/api/v1/nodes', persistentvolumes: '/api/v1/persistentvolumes',
+        persistentvolumeclaims: '/api/v1/persistentvolumeclaims', storageclasses: '/apis/storage.k8s.io/v1/storageclasses',
+        networkpolicies: '/apis/networking.k8s.io/v1/networkpolicies', serviceaccounts: '/api/v1/serviceaccounts',
       }
       const listPath = KIND_PATH[kind]
       if (!listPath) { sendJson(res, 400, { message: '不支持的 kind: ' + kind }); return true }
