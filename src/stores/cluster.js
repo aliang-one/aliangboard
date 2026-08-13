@@ -501,12 +501,16 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function deleteWorkload(name, ns) {
-    const matchFn = w => w.name === name && w.namespace === ns
-    const workload = workloadList.value.find(matchFn)
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[workload?.type]
-    if (!plural) { notify('error', i18n.global.t('store.deleteNotSupported', { type: workload?.type || i18n.global.t('store.thisWorkload') })); return }
-    // 与其它资源一致：乐观删除 + 失败回滚 + 全局提示
-    await remoteDelete(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, workloadList, matchFn, i18n.global.t('store.workload'))
+    const wl = await getWorkloadForEdit(name, ns)
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
+    if (!plural) { notify('error', i18n.global.t('store.deleteNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })); return }
+    try {
+      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      invalidateResource('workloads')
+    } catch (e) {
+      // 与旧 remoteDelete 一致：失败只提示不抛（handleDelete 仍会跳列表页）
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: i18n.global.t('store.workload'), msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+    }
   }
 
   // 从 Vue Query 缓存或 API 取单个工作负载（all-real-data 真相源；替代旧 workloadList.findIndex）
@@ -606,8 +610,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function applyWorkloadTemplate(name, ns, template) {
-    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    if (!wl) throw new Error(i18n.global.t('store.workloadNotFound'))
+    const wl = await getWorkloadForEdit(name, ns)
+    if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
     if (!plural) throw new Error(`${i18n.global.t('store.deepEditNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
     const tag = aliangTag()
@@ -616,10 +620,7 @@ export const useClusterStore = defineStore('cluster', () => {
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify({ spec: { template }, metadata: { labels: tag.labels, annotations: tag.annotations } }),
     })
-    wl.raw = { ...(wl.raw || {}), spec: { ...(wl.raw?.spec || {}), template } }
-    const img = template?.spec?.containers?.[0]?.image
-    if (img) wl.image = img
-    wl.age = 'Just now'
+    invalidateResource('workloads')
   }
 
   // 业务元数据编辑：一次 merge-patch 同时写 Deployment.metadata.labels/annotations + Pod 模板 labels（与创建一致）。
@@ -677,33 +678,27 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource('workloads') // 成功后台纠偏（ready 副本数等控制器追上）
   }
 
+  // 重启（Deployment/StatefulSet/DaemonSet）：PATCH template 注解 restartedAt 触发滚动重启。
+  // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 restartNotSupported。
   async function restartWorkload(name, ns) {
-    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.restartNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })}`)
+    const wl = await getWorkloadForEdit(name, ns)
+    if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
+    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
+    if (!plural) throw new Error(`${i18n.global.t('store.restartNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
     await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() } } } } }),
     })
-    if (wl) {
-      wl.age = 'Just now'
-      // Simulate restart by updating SHA
-      const hash = Math.random().toString(16).substring(2, 9)
-      wl.sha = `sha:${hash}`
-      // 滚动重启产生新版本
-      if (Array.isArray(wl.revisions)) {
-        wl.revisions.forEach(r => r.current = false)
-        const nextRev = (wl.revisions[0]?.rev || 0) + 1
-        wl.revisions = [{ rev: nextRev, image: wl.image, sha: wl.sha, age: 'Just now', current: true, reason: i18n.global.t('store.rollingRestart') }, ...wl.revisions]
-      }
-    }
+    invalidateResource('workloads')
   }
 
   // 一键回滚到指定 revision（kubectl rollout undo --to-revision=N 语义）
+  // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 workloadNotFound。
+  // revisions 来自缓存的工作负载对象（mapWorkload 从 ReplicaSets 填充），target._template 携带完整模板。
   async function rollbackWorkload(name, ns, revNumber) {
-    const wl = workloadList.value.find(w => w.name === name && w.namespace === ns)
-    if (!wl) throw new Error(i18n.global.t('store.workloadNotFound'))
+    const wl = await getWorkloadForEdit(name, ns)
+    if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
     const target = (wl.revisions || []).find(r => r.rev === revNumber)
     if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev: revNumber }))
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
@@ -718,13 +713,7 @@ export const useClusterStore = defineStore('cluster', () => {
         body: JSON.stringify(body),
       })
     }
-    // 本地反映：标记旧版本非当前，追加一条「回滚到 revN」的当前版本（携带目标 template 以便连续回滚）
-    wl.revisions.forEach(r => r.current = false)
-    const nextRev = Math.max(0, ...(wl.revisions.map(r => r.rev))) + 1
-    wl.image = target.image
-    wl.sha = target.sha
-    wl.age = 'Just now'
-    wl.revisions = [{ rev: nextRev, image: target.image, sha: target.sha, age: 'Just now', current: true, reason: i18n.global.t('store.rollbackTo', { rev: revNumber }), _template: target._template }, ...wl.revisions]
+    invalidateResource('workloads')
   }
 
   // === CRUD: Pods ===
