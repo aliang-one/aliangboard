@@ -881,6 +881,7 @@ async function handleDeploy() {
       <div v-if="currentStep === 1">
         <h3 class="text-headline-sm font-bold mb-md">{{ $t('deploy.containerConfigTitle') }}</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
+          <!-- 身份 -->
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.containerName') }}</label>
             <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="main" />
@@ -889,6 +890,7 @@ async function handleDeploy() {
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imageUrl') }}</label>
             <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
           </div>
+          <!-- 镜像获取 -->
           <div>
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.pullPolicy') }}</label>
             <select v-model="form.pullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
@@ -896,81 +898,82 @@ async function handleDeploy() {
             </select>
           </div>
           <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.command') }}</label>
-            <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="/bin/sh -c" />
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
-            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="--port 8080 --debug" />
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
-            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
-          </div>
-          <div class="flex items-center gap-md pt-sm">
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-xs">stdin</span></label>
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-xs">{{ $t('deploy.ttyLabel') }}</span></label>
-          </div>
-          <div class="md:col-span-2">
             <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
             <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option value="">None</option>
               <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
             </select>
           </div>
+          <!-- 进程执行 -->
           <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountLabel') }}</label>
-            <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">Default</option>
-              <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
-            </select>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
+            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.command') }}</label>
+            <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
+            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="--port 8080 --debug" />
+          </div>
+          <div class="md:col-span-2 flex items-center gap-md pt-sm">
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-xs">stdin</span></label>
+            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-xs">{{ $t('deploy.ttyLabel') }}</span></label>
           </div>
         </div>
 
-        <!-- 初始容器 (Init) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.initContainers') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+        <!-- 初始化 / 额外容器:左右并排 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-md mt-md">
+          <!-- 初始容器 (Init) -->
+          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.initContainers') }}</h4>
+            <div class="flex flex-col gap-sm">
+              <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
+                  <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
+                  <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm">
+                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                </div>
+                <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
+              </div>
+              <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addInitContainer') }}
+              </button>
             </div>
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
-              <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addInitContainer') }}
-          </button>
-        </div>
 
-        <!-- 额外工作容器 (Sidecar) -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.sidecarContainers') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-md">
-            <div class="grid grid-cols-2 gap-sm mb-xs">
-              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
-              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+          <!-- 额外工作容器 (Sidecar) -->
+          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.sidecarContainers') }}</h4>
+            <div class="flex flex-col gap-sm">
+              <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
+                  <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm">
+                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
+                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
+                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
+                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                </div>
+                <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
+              </div>
+              <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSidecarContainer') }}
+              </button>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-              <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-              <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-              <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-              <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
-            </div>
-            <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSidecarContainer') }}
-          </button>
         </div>
 
         <!-- Container Ports -->
@@ -1058,91 +1061,100 @@ async function handleDeploy() {
             <span class="text-xs text-primary font-medium">{{ showAdvanced ? $t('deploy.collapse') : $t('deploy.expand') }}</span>
           </button>
           <div v-show="showAdvanced" class="p-md border-t border-outline-variant">
-        <!-- 健康探针 -->
-        <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.healthProbes') }}</h4>
-        <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
-          <label class="flex items-center justify-between px-md py-sm cursor-pointer">
-            <span class="flex items-center gap-sm text-body-sm font-medium capitalize">
-              <span class="material-symbols-outlined text-primary text-base">{{ pName === 'liveness' ? 'favorite' : pName === 'readiness' ? 'check_circle' : 'rocket_launch' }}</span>
-              {{ pName }} Probe
-            </span>
-            <input type="checkbox" v-model="form[pName].enabled" class="rounded text-primary h-4 w-4" />
-          </label>
-          <div v-if="form[pName].enabled" class="px-md pb-sm grid grid-cols-2 md:grid-cols-4 gap-sm">
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.probeType') }}</label>
-              <select v-model="form[pName].type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option>
+            <!-- Service Account (pod 级身份) -->
+            <div class="mb-md">
+              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountLabel') }}</label>
+              <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                <option value="">Default</option>
+                <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
               </select>
             </div>
-            <div v-if="form[pName].type === 'http'">
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.httpPath') }}</label>
-              <input v-model="form[pName].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" />
-            </div>
-            <div v-if="form[pName].type !== 'exec'">
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.port') }}</label>
-              <input v-model.number="form[pName].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-            <div v-if="form[pName].type === 'exec'" class="col-span-2">
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.execCommand') }}</label>
-              <input v-model="form[pName].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="cat /tmp/ready" />
-            </div>
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.initialDelay') }}</label>
-              <input v-model.number="form[pName].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.period') }}</label>
-              <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.timeout') }}</label>
-              <input v-model.number="form[pName].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.failureThreshold') }}</label>
-              <input v-model.number="form[pName].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-            <div>
-              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.successThreshold') }}</label>
-              <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
-            </div>
-          </div>
-        </div>
 
-        <!-- 安全上下文 -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.securityContext') }}</h4>
-        <div class="border border-outline-variant rounded-lg mb-md">
-          <label class="flex items-center justify-between px-md py-sm cursor-pointer">
-            <span class="text-body-sm font-medium">{{ $t('deploy.enableSecurityContext') }}</span>
-            <input type="checkbox" v-model="form.securityContext.enabled" class="rounded text-primary h-4 w-4" />
-          </label>
-          <div v-if="form.securityContext.enabled" class="px-md pb-sm grid grid-cols-2 gap-sm">
-            <div class="col-span-2 flex items-center gap-sm px-sm py-sm bg-error-container/10 border border-error/30 rounded-lg">
-              <input type="checkbox" v-model="form.securityContext.privileged" class="rounded text-error h-4 w-4" id="priv" />
-              <label for="priv" class="text-xs font-medium text-error flex items-center gap-xs"><span class="material-symbols-outlined text-sm">warning</span>{{ $t('deploy.privileged') }}</label>
+            <!-- 健康探针 -->
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.healthProbes') }}</h4>
+            <div v-for="pName in ['liveness', 'readiness', 'startup']" :key="pName" class="border border-outline-variant rounded-lg mb-sm">
+              <label class="flex items-center justify-between px-md py-sm cursor-pointer">
+                <span class="flex items-center gap-sm text-body-sm font-medium capitalize">
+                  <span class="material-symbols-outlined text-primary text-base">{{ pName === 'liveness' ? 'favorite' : pName === 'readiness' ? 'check_circle' : 'rocket_launch' }}</span>
+                  {{ pName }} Probe
+                </span>
+                <input type="checkbox" v-model="form[pName].enabled" class="rounded text-primary h-4 w-4" />
+              </label>
+              <div v-if="form[pName].enabled" class="px-md pb-sm grid grid-cols-2 md:grid-cols-4 gap-sm">
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.probeType') }}</label>
+                  <select v-model="form[pName].type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                    <option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option>
+                  </select>
+                </div>
+                <div v-if="form[pName].type === 'http'">
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.httpPath') }}</label>
+                  <input v-model="form[pName].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" />
+                </div>
+                <div v-if="form[pName].type !== 'exec'">
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.port') }}</label>
+                  <input v-model.number="form[pName].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+                <div v-if="form[pName].type === 'exec'" class="col-span-2">
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.execCommand') }}</label>
+                  <input v-model="form[pName].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="cat /tmp/ready" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.initialDelay') }}</label>
+                  <input v-model.number="form[pName].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.period') }}</label>
+                  <input v-model.number="form[pName].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.timeout') }}</label>
+                  <input v-model.number="form[pName].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.failureThreshold') }}</label>
+                  <input v-model.number="form[pName].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.successThreshold') }}</label>
+                  <input v-model.number="form[pName].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+                </div>
+              </div>
             </div>
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.runAsUser') }}</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.runAsGroup') }}</label><input v-model.number="form.securityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
-            <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-xs">{{ $t('deploy.runAsNonRootLabel') }}</label></div>
-            <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-xs">readOnlyRootFilesystem</label></div>
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.addCapabilities') }}</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="NET_BIND_SERVICE" /></div>
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.dropCapabilities') }}</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ALL" /></div>
-          </div>
-        </div>
 
-        <!-- 生命周期钩子 -->
-        <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.lifecycleHooks') }}</h4>
-        <div class="grid grid-cols-2 gap-sm">
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.postStart') }}</label>
-            <input v-model="form.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'echo started'" />
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.preStop') }}</label>
-            <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'sleep 10'" />
-          </div>
-        </div>
+            <!-- 安全上下文 -->
+            <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.securityContext') }}</h4>
+            <div class="border border-outline-variant rounded-lg mb-md">
+              <label class="flex items-center justify-between px-md py-sm cursor-pointer">
+                <span class="text-body-sm font-medium">{{ $t('deploy.enableSecurityContext') }}</span>
+                <input type="checkbox" v-model="form.securityContext.enabled" class="rounded text-primary h-4 w-4" />
+              </label>
+              <div v-if="form.securityContext.enabled" class="px-md pb-sm grid grid-cols-2 gap-sm">
+                <div class="col-span-2 flex items-center gap-sm px-sm py-sm bg-error-container/10 border border-error/30 rounded-lg">
+                  <input type="checkbox" v-model="form.securityContext.privileged" class="rounded text-error h-4 w-4" id="priv" />
+                  <label for="priv" class="text-xs font-medium text-error flex items-center gap-xs"><span class="material-symbols-outlined text-sm">warning</span>{{ $t('deploy.privileged') }}</label>
+                </div>
+                <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.runAsUser') }}</label><input v-model.number="form.securityContext.runAsUser" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+                <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.runAsGroup') }}</label><input v-model.number="form.securityContext.runAsGroup" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="1000" /></div>
+                <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.runAsNonPrivileged" class="rounded text-primary h-4 w-4" id="nonroot" /><label for="nonroot" class="text-xs">{{ $t('deploy.runAsNonRootLabel') }}</label></div>
+                <div class="flex items-center gap-sm pt-sm"><input type="checkbox" v-model="form.securityContext.readOnlyRootFilesystem" class="rounded text-primary h-4 w-4" id="rorfs" /><label for="rorfs" class="text-xs">readOnlyRootFilesystem</label></div>
+                <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.addCapabilities') }}</label><input v-model="form.securityContext.addCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="NET_BIND_SERVICE" /></div>
+                <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.dropCapabilities') }}</label><input v-model="form.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ALL" /></div>
+              </div>
+            </div>
+
+            <!-- 生命周期钩子 -->
+            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.lifecycleHooks') }}</h4>
+            <div class="grid grid-cols-2 gap-sm">
+              <div>
+                <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.postStart') }}</label>
+                <input v-model="form.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'echo started'" />
+              </div>
+              <div>
+                <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.preStop') }}</label>
+                <input v-model="form.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c 'sleep 10'" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
