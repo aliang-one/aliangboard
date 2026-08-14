@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
-import { exportYaml } from '@/api/client'
+import { exportYaml, api } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import PodCard from '@/components/common/PodCard.vue'
@@ -81,31 +81,39 @@ async function handleDelete() {
     notify('success', t('ns.pods.deletedPod', { name: p.name }))
     showDeleteModal.value = false
     deleteTarget.value = null
-    // Deployment/控制器会立即重建 Pod → 延时轻量刷新看到新 Pod（重新拉镜像）；开启 Live watch 时则自动更新
-    setTimeout(() => store.refreshPods(), 1500)
+    // deletePod 内已 invalidateResource('pods')：列表即时对齐；控制器重建的新 Pod 由 30s 轮询/Live watch 补
   } catch (e) {
     notify('error', e.message || t('ns.pods.deleteFailed'))
   }
 }
 
-// 创建 Pod
+// 创建 Pod（真实 API：POST 最小 Pod manifest + invalidate；P2-B 前 store.addPod 纯本地 push → 静默无效）
 const showCreateModal = ref(false)
+const creating = ref(false)
 const createForm = ref({ name: '', image: '', container: '' })
 function resetCreate() {
   createForm.value = { name: '', image: '', container: '' }
 }
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
   if (!f.name || !f.image) return
-  store.addPod({
-    name: f.name,
-    namespace: route.params.namespace,
-    image: f.image,
-    containers: [f.container || f.name],
-    labels: { app: f.name },
-  })
-  showCreateModal.value = false
-  resetCreate()
+  creating.value = true
+  try {
+    const manifest = {
+      apiVersion: 'v1', kind: 'Pod',
+      metadata: { name: f.name, namespace: route.params.namespace, labels: { app: f.name } },
+      spec: { containers: [{ name: f.container || f.name, image: f.image }] },
+    }
+    await api.k8s(`/api/v1/namespaces/${encodeURIComponent(route.params.namespace)}/pods`, {
+      method: 'POST', body: JSON.stringify(manifest),
+    })
+    store.invalidateResource('pods')
+    notify('success', t('ns.pods.createdPod', { name: f.name }))
+    showCreateModal.value = false
+    resetCreate()
+  } catch (e) {
+    notify('error', e.message || t('ns.pods.createFailed'))
+  } finally { creating.value = false }
 }
 </script>
 

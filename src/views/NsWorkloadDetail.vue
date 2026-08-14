@@ -651,6 +651,9 @@ async function ensureWorkload() {
   catch { /* 找不到则静默，页面 v-if=workload 自然显示空 */ }
 }
 watch(() => [route.params.type, route.params.name, route.params.namespace], () => ensureWorkload())
+// workloads 查询 30s refetch 用服务端列表（deployments/sts/ds，不含 Job/CronJob）覆盖缓存 →
+// 补齐的单体会消失 → 详情翻白。workload 翻 undefined 时重补一次（404 时静默，无循环）。
+watch(workload, w => { if (!w) ensureWorkload() })
 onMounted(() => { startMetrics(); startPodMetrics(); ensureWorkload(); startAutoRefresh() })
 // 注意：模板会把 ref 自动解包成数组再传入，所以参数是数组本身（不是 ref）
 function windowed(series) {

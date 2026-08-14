@@ -27,6 +27,12 @@ const podsQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const podList = computed(() => podsQuery.data.value || [])
+// P2-B：每节点 Pod 数从 pods 查询派生（旧 node.podCount 读孤儿 podList 回填 → 恒 0）
+const podCountByNode = computed(() => {
+  const m = {}
+  for (const p of podList.value) if (p.node) m[p.node] = (m[p.node] || 0) + 1
+  return m
+})
 
 // Events query (Vue Query)
 const eventsQuery = useResourceList({
@@ -224,7 +230,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
                     <div v-else class="h-1.5 bg-surface-container-high rounded-full"></div>
                   </div>
                   <span class="flex items-center gap-0.5 text-xs text-on-surface-variant flex-shrink-0" title="Pods">
-                    <span class="material-symbols-outlined text-sm">view_in_ar</span>{{ node.podCount ?? 0 }}
+                    <span class="material-symbols-outlined text-sm">view_in_ar</span>{{ podCountByNode[node.name] ?? 0 }}
                   </span>
                   <span v-if="node.taintCount" class="flex items-center gap-0.5 text-xs text-tertiary-container flex-shrink-0" :title="`${node.taintCount} taint(s)`">
                     <span class="material-symbols-outlined text-sm">block</span>{{ node.taintCount }}

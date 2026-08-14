@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
+import { useResourceList } from '@/composables/useK8sQuery'
 import StatusChip from '@/components/common/StatusChip.vue'
 
 const { t } = useI18n()
@@ -18,8 +19,15 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 
+// P2-B：引用反查改 Vue Query workloads（旧实现读孤儿 store.workloadList 恒空 → 面板空白）。
+// 与工作负载列表页同 key —— 共享缓存，零额外请求。
+const cid = computed(() => store.currentCluster || 'cluster')
+const workloadsQuery = useResourceList({
+  key: ['cluster', cid, 'workloads'],
+  fetcher: () => store.fetchWorkloads(),
+})
 const references = computed(() =>
-  store.getResourceReferences(props.kind, props.name, route.params.namespace)
+  store.findResourceReferences(workloadsQuery.data.value || [], props.kind, props.name, route.params.namespace)
 )
 
 // 按引用方式分组统计

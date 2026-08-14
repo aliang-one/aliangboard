@@ -155,17 +155,22 @@ export const useClusterStore = defineStore('cluster', () => {
     else localStorage.removeItem('aliangboard.namespace')
   }
 
-  // 按需拉取单个工作负载并 upsert 进 workloadList。
-  // Job/CronJob 不在 hydrateCoreResources 的批量拉取里；从 Pod 详情跳转或直接链接进入时用此补齐。
+  // 按需拉取单个工作负载并 upsert 进 workloads Query 缓存。
+  // Job/CronJob 不在 fetchWorkloads 批量列表里（deployments/sts/ds）；从 Pod 详情跳转或直接链接进入
+  // NsWorkloadDetail 时由 ensureWorkload 调此补齐——P2-B 前写孤儿 workloadList（无读者）→ 详情恒空白。
+  // 缓存里已有同名条目时跳过：批量列表带 attachRolloutHistory 的 revisions，单体 upsert 会覆盖丢失。
   async function fetchWorkload(type, name, ns) {
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
     if (!plural) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
     const gv = type === 'Job' || type === 'CronJob' ? '/apis/batch/v1' : '/apis/apps/v1'
     const data = await api.k8s(`${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
     const wl = mapWorkload(data, type)
-    const idx = workloadList.value.findIndex(w => w.name === name && w.namespace === ns && w.type === type)
-    if (idx >= 0) workloadList.value[idx] = wl
-    else workloadList.value.push(wl)
+    const _cid = currentCluster.value || 'cluster'
+    queryClient.setQueryData(['cluster', _cid, 'workloads'], old => {
+      const list = old || []
+      const exists = list.some(w => w.name === name && w.namespace === ns && w.type === type)
+      return exists ? list : [...list, wl]
+    })
     return wl
   }
 
@@ -229,16 +234,17 @@ export const useClusterStore = defineStore('cluster', () => {
     return refs
   }
 
-  // 反查：哪些 workload 引用了指定的 ConfigMap / Secret
+  // 反查：哪些 workload 引用了指定的 ConfigMap / Secret。纯函数——workloads 由调用方的
+  // useResourceList(workloads) 查询供（响应式 + 同 key 去重）。P2-B 前读孤儿 workloadList 恒空。
   // 返回 [{ workload, reference }]，按引用方式分组
-  function getResourceReferences(kind, name, ns) {
+  function findResourceReferences(workloads, kind, name, ns) {
     const namespace = ns || currentNamespace.value
     const results = []
-    workloadList.value.forEach(w => {
-      if (w.namespace !== namespace) return
+    for (const w of (workloads || [])) {
+      if (w.namespace !== namespace) continue
       const refs = extractWorkloadReferences(w.raw, w.type)
-      refs.filter(r => r.kind === kind && r.name === name).forEach(reference => results.push({ workload: w, reference }))
-    })
+      for (const r of refs) if (r.kind === kind && r.name === name) results.push({ workload: w, reference: r })
+    }
     return results
   }
 
@@ -606,10 +612,9 @@ export const useClusterStore = defineStore('cluster', () => {
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify({ metadata: { labels, annotations: { 'aliangboard.io/last-edited': new Date().toISOString() } } }),
     })
-    // 本地即时反映：NsLayers 的 items 直接引用这些对象的 labels，改了即重算 classifyResource
-    const list = res[2] === 'workload' ? workloadList : res[2] === 'service' ? serviceList : ingressList
-    const it = list.value.find(x => x.name === name && x.namespace === ns)
-    if (it) { it.labels = labels; if ('tier' in it) it.tier = layerKey }
+    // P2-B：NsLayers 已迁 Vue Query（store 孤儿列表无读者）→ PATCH 后失效对应查询，
+    // 页面 30s 轮询之外的即时对齐；乐观写 store 列表的旧路径删除。
+    invalidateResource(res[2] === 'workload' ? 'workloads' : res[2] === 'service' ? 'services' : 'ingresses')
   }
 
   async function applyWorkloadTemplate(name, ns, template) {
@@ -740,14 +745,9 @@ export const useClusterStore = defineStore('cluster', () => {
 
   async function deletePod(name, ns) {
     await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`, { method: 'DELETE' })
-    const idx = podList.value.findIndex(p => p.name === name && p.namespace === ns)
-    if (idx !== -1) {
-      const pod = podList.value[idx]
-      podList.value.splice(idx, 1)
-      const nsObj = namespaceList.value.find(n => n.name === ns)
-      if (nsObj) nsObj.pods = Math.max(0, (nsObj.pods || 0) - 1)
-      return pod
-    }
+    // P2-B：旧实现 splice 孤儿 podList（无读者、不触发列表刷新）；改失效 pods 查询，
+    // NsPods/PodDetail/NsWorkloadDetail 等 Query 消费者即时对齐（live watch 之外的第二道纠偏）。
+    invalidateResource('pods')
     return null
   }
 
@@ -1914,7 +1914,7 @@ status:
     runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Actions
     setNamespace, fetchWorkload, getWorkloadPods,
-    getResourceReferences, getWorkloadReferences,
+    findResourceReferences, getWorkloadReferences,
     // CRUD: Services
     addService, updateService, deleteService,
     // CRUD: Ingress
@@ -1935,7 +1935,7 @@ status:
     // CRUD: Workloads
     addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods
-    addPod, deletePod,
+    deletePod, invalidateResource,
     // CRUD: NetworkPolicies
     addNetworkPolicy, updateNetworkPolicy, deleteNetworkPolicy,
     // CRUD: HPAs

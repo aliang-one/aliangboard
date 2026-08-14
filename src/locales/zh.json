@@ -818,6 +818,8 @@
     "pods": {
       "deletedPod": "已删除 Pod {name}，控制器将重建并重新拉镜像",
       "deleteFailed": "删除 Pod 失败",
+      "createdPod": "已创建 Pod {name}",
+      "createFailed": "创建 Pod 失败",
       "title": "Pods",
       "subtitle": "{count} 个 pod，位于 {ns}",
       "liveOn": "正在实时监听 Pod 变化（watch），点击停止",

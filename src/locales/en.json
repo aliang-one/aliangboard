@@ -818,6 +818,8 @@
     "pods": {
       "deletedPod": "Deleted Pod {name}, controller will recreate and re-pull image",
       "deleteFailed": "Failed to delete Pod",
+      "createdPod": "Created Pod {name}",
+      "createFailed": "Failed to create Pod",
       "title": "Pods",
       "subtitle": "{count} pods in {ns}",
       "liveOn": "Currently watching Pod changes, click to stop",

@@ -29,6 +29,18 @@ const nodesQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const nodes = computed(() => nodesQuery.data.value || [])
+// P2-B：每节点 Pod 数从 pods 查询派生（mapNode 无 podCount，旧 store.recountNodePods 读孤儿
+// podList 恒 0）；同 key 与各列表页共享缓存，零额外请求
+const podsQuery = useResourceList({
+  key: ['cluster', cid, 'pods'],
+  fetcher: () => store.fetchPods(),
+  options: { refetchInterval: 30000 },
+})
+const podCountByNode = computed(() => {
+  const m = {}
+  for (const p of (podsQuery.data.value || [])) if (p.node) m[p.node] = (m[p.node] || 0) + 1
+  return m
+})
 const healthyCount = computed(() => nodes.value.filter(n => n.status === 'Ready').length)
 const loading = computed(() => nodesQuery.isLoading.value)
 
@@ -124,7 +136,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
         </div>
       </template>
       <template #pods="{ row }">
-        <span class="text-body-sm font-medium text-on-surface">{{ row.podCount ?? 0 }}<span v-if="row.podCapacity" class="text-on-surface-variant/60"> / {{ row.podCapacity }}</span></span>
+        <span class="text-body-sm font-medium text-on-surface">{{ podCountByNode[row.name] ?? 0 }}<span v-if="row.podCapacity" class="text-on-surface-variant/60"> / {{ row.podCapacity }}</span></span>
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">

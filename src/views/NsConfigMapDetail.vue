@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
@@ -52,8 +52,11 @@ watch([() => cm.value?.name, () => activeTab.value, () => dataEntries.value.leng
 watch(() => cm.value?.name, () => { selectedKey.value = ''; editingKey.value = null })
 
 // Number of Workloads referencing this ConfigMap
+// P2-B：改 Vue Query workloads（旧读孤儿 store.workloadList 恒空 → 计数恒 0）；与 ResourceReferences 组件同 key 去重
+const _cid = computed(() => store.currentCluster || 'cluster')
+const _workloadsQ = useResourceList({ key: ['cluster', _cid, 'workloads'], fetcher: () => store.fetchWorkloads() })
 const refCount = computed(() =>
-  store.getResourceReferences('ConfigMap', route.params.name, route.params.namespace).length
+  store.findResourceReferences(_workloadsQ.data.value || [], 'ConfigMap', route.params.name, route.params.namespace).length
 )
 
 // Config file type detection

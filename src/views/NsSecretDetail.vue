@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { detectSecretTemplate, SECRET_TEMPLATES } from '@/composables/useSecretTemplates'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -173,8 +173,10 @@ const typeBadge = computed(() => {
 })
 
 // Number of Workloads referencing this Secret
+// P2-B：改 Vue Query workloads（旧读孤儿 store.workloadList 恒空 → 计数恒 0）；与 ResourceReferences 组件同 key 去重
+const _workloadsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads() })
 const refCount = computed(() =>
-  store.getResourceReferences('Secret', route.params.name, route.params.namespace).length
+  store.findResourceReferences(_workloadsQ.data.value || [], 'Secret', route.params.name, route.params.namespace).length
 )
 </script>
 
