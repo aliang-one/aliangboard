@@ -19,6 +19,8 @@ export const WORKBENCH_SYSTEM_PROMPT = `你是 aliangboard 工作台助手,一�
 ## K8s 运维工具(直连集群,需人审)
 - **wb_scale**:扩缩容 Deployment/StatefulSet(replicas 钳到 1..20)。容量问题→扩容。
 - **wb_restart**:滚动重启 Deployment/StatefulSet/DaemonSet。卡死/配置不生效→重启。
+- **wb_update_image**:更新工作负载镜像。ImagePullBackOff(换正确镜像)、快速回滚镜像版本。
+- **wb_rollout_undo**:回滚 Deployment 到指定 revision(不传=上一版本)。新版本发布失败→回滚。返回 availableRevisions 列全部历史。
 - 改动前一句话说明意图("我要把 X 扩到 N 副本,因为…")。
 
 ## 知识与记忆
