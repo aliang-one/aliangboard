@@ -217,6 +217,7 @@ function nsStatusColor(status) {
             :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
           >
             <span class="material-symbols-outlined text-lg">folder_open</span>
+            <span v-if="isClusterMode" data-test="ns-enter" aria-hidden="true" class="material-symbols-outlined text-base text-on-surface-variant">arrow_forward</span>
             <span class="text-body-md font-medium truncate">{{ currentNs || 'Select Namespace' }}</span>
           </button>
           <button
@@ -344,6 +345,13 @@ function nsStatusColor(status) {
       </button>
       <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
       <div class="flex items-stretch gap-xs">
+        <button v-if="isNsMode" data-test="cluster-home"
+          @click="router.push('/cluster')"
+          :title="$t('nav.clusterOverview')" :aria-label="$t('nav.clusterOverview')"
+          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"
+          :class="isGlobalActive('/cluster') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+          <span class="material-symbols-outlined text-lg">dashboard</span>
+        </button>
         <button v-if="isNsMode" data-test="bottom-events"
           @click="goNsRoute('events')"
           :title="$t('nav.events')" :aria-label="$t('nav.events')"
@@ -364,18 +372,6 @@ function nsStatusColor(status) {
           <span class="material-symbols-outlined text-lg">settings</span>
         </a>
       </div>
-      <!-- 返回上层(仅 ns 态):安静链接,非响亮按钮 -->
-      <a
-        v-if="isNsMode"
-        data-test="cluster-home"
-        @click="router.push('/cluster')"
-        :title="$t('nav.clusterOverview')"
-        :aria-label="$t('nav.clusterOverview')"
-        class="mt-sm -mb-xs flex items-center gap-xs px-sm py-sm rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors cursor-pointer text-body-sm"
-      >
-        <span class="material-symbols-outlined text-base">arrow_back</span>
-        <span>{{ $t('nav.clusterOverview') }}</span>
-      </a>
     </div>
   </aside>
   <!-- Click-outside overlay -->

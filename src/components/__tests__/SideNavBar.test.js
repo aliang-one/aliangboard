@@ -90,3 +90,22 @@ test('cluster mode: 顶部有 cluster-brand + 底部无返回链接', () => {
   expect(w.find('[data-test="cluster-brand"]').exists()).toBe(true)
   expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(false)
 })
+
+test('ns mode: cluster-home 是 dashboard 图标、icon-only(无可见「集群概览」文本)', () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  const w = mountSideNavBar()
+  const home = w.find('[data-test="bottom-actions"] [data-test="cluster-home"]')
+  expect(home.exists()).toBe(true)
+  expect(home.find('.material-symbols-outlined').text()).toBe('dashboard')
+  expect(home.text()).not.toContain('集群概览')
+})
+
+test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {
+  routeRef.meta.scope = 'global'
+  routeRef.path = '/cluster'
+  expect(mountSideNavBar().find('[data-test="ns-enter"]').exists()).toBe(true)
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  expect(mountSideNavBar().find('[data-test="ns-enter"]').exists()).toBe(false)
+})
