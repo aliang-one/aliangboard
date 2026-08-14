@@ -250,6 +250,9 @@ async function pollOnce(id) {
       agentTurn.trace = trace
       agentTurn.steps = conv.steps ?? agentTurn.steps
     }
+    // 首次重建(打开/切换/刷新对话)后滚到底部:聊天约定落在最新消息,
+    // 此前停在顶部 → 用户被迫从最老历史一点点往下翻。
+    if (rebuiltFromMessages) await scrollToBottom()
     if (conv.status === 'paused') {
       stopPolling()
       let pa = null
