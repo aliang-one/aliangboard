@@ -1,8 +1,10 @@
 // W4b 工作台工具 + 双-principal 桥测试(registry 工作台工具 + createAgentRunner workbench 模式)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { DatabaseSync } from 'node:sqlite'
 import { registry } from './tool-registry.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
+import { createAuditSchema } from './audit.mjs'
 
 function seqChat(messages) { let i = 0; return async () => messages[Math.min(i++, messages.length - 1)] }
 const tc = (id, name, args) => ({ role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] })
@@ -112,4 +114,67 @@ test('propose_ledger_update 已移除:LLM 若调用 → 未知工具错误喂回
   // propose_ledger_update 不在 registry → execTool 抛"未知工具" → 当工具错误喂回 LLM → 终答
   assert.equal(out.content, '作罢')
   assert.deepEqual(writes, [], 'propose_ledger_update 不应再写任何东西')
+})
+
+test('audit:传 audit 上下文 → wb 工具执行写 reserve(started)+finalize(finalized)两行,source=workbench', async () => {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const wb = { readLedger: async () => '# 台账', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'read_ledger', {}), fin('done')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, audit: { db, owner: 'admin-liang', clusterId: 'c1' } })
+  await run({ history: [{ role: 'user', content: '看台账' }] })
+  const rows = db.prepare('SELECT status,owner,clusterId,tool,source,result,verb FROM audit_log ORDER BY seq').all()
+  assert.equal(rows.length, 2, 'reserve + finalize 各一行')
+  assert.deepEqual(rows.map(r => r.status), ['started', 'finalized'])
+  assert.equal(rows[1].tool, 'read_ledger')
+  assert.equal(rows[1].source, 'workbench')
+  assert.equal(rows[1].owner, 'admin-liang')
+  assert.equal(rows[1].clusterId, 'c1')
+  assert.equal(rows[1].result, 'ok')
+  assert.equal(rows[1].verb, 'read')
+})
+
+test('audit:不传 audit(API key 路径)→ 不写 audit_log(由 callTool 自带审计,不重复)', async () => {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const wb = { readLedger: async () => '# 台账', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'read_ledger', {}), fin('done')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  await run({ history: [{ role: 'user', content: '看台账' }] })
+  assert.equal(db.prepare('SELECT count(*) AS c FROM audit_log').get().c, 0, 'API key 路径不在此处审计')
+})
+
+test('audit:写工具 exec 返回 {error}(wb_scale 被拒)→ finalize result=error(带 reason)', async () => {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  // wb_scale 的 exec 包 try/catch:scale 抛错 → 返回 {error:msg};execTool 据此判 result=error
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, scale: async () => { throw new Error('RBAC denied') } }
+  const llmClient = { chat: seqChat([tc('1', 'wb_scale', { namespace: 'default', kind: 'deployments', name: 'nginx', replicas: 2 }), fin('扩容失败')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, audit: { db, owner: 'admin', clusterId: 'c1' } })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  const rows = db.prepare('SELECT status,verb,result,reason,namespace,resource FROM audit_log ORDER BY seq').all()
+  assert.equal(rows.length, 2, 'reserve + finalize')
+  assert.equal(rows[1].verb, 'write')
+  assert.equal(rows[1].result, 'error')
+  assert.ok(rows[1].reason.includes('RBAC'), 'error 行带 reason')
+  assert.equal(rows[1].namespace, 'default')
+  assert.equal(rows[1].resource, 'deployments/nginx')
+})
+
+test('audit:写工具(write_project_file resume 批准)→ finalized verb=write result=ok', async () => {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'write_project_file', { path: 'a.yaml', content: 'x' }), fin('已写')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, audit: { db, owner: 'admin', clusterId: 'c1' } })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  const rows = db.prepare('SELECT status,verb,result,resource FROM audit_log ORDER BY seq').all()
+  assert.equal(rows.length, 2)
+  assert.equal(rows[1].verb, 'write', 'write_project_file ∈ WRITE_TOOLS')
+  assert.equal(rows[1].result, 'ok')
+  assert.equal(rows[1].resource, 'a.yaml')
 })

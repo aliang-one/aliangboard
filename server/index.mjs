@@ -1253,6 +1253,45 @@ async function handle(req, res) {
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': ts } } } } }) })
           return { kind: k, name, restartedAt: ts, message: `${namespace}/${name} 已触发滚动重启` }
         },
+        updateImage: async (namespace, kind, name, image, container) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || '').toLowerCase()
+          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(`updateImage 仅支持 deployments/statefulsets/daemonsets,不是 ${k}`)
+          if (!image) throw new Error('image 不能为空')
+          const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`)
+          const body = resp?.body
+          if (!body) throw new Error(`${k}/${name} 不存在`)
+          const containers = body.spec?.template?.spec?.containers || []
+          const idx = container ? containers.findIndex(c => c.name === container) : 0
+          if (idx < 0) throw new Error(`容器 ${container} 不存在`)
+          const patch = { spec: { template: { spec: { containers: containers.map((c, i) => i === idx ? { ...c, image } : c) } } } }
+          await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
+          const updatedContainers = container ? [{ name: container, image }] : [{ name: containers[0]?.name || '', image }]
+          return { kind: k, name, containers: updatedContainers, message: `${namespace}/${name} 镜像更新为 ${image}` }
+        },
+        rolloutUndo: async (namespace, name, toRevision) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          // apps/v1 已移除 deployments/rollback 子资源,kubectl rollout undo 实为客户端行为:
+          // 取目标 revision 的 ReplicaSet 完整 template,merge-patch 回 Deployment(与前端 rollbackWorkload 同源)。
+          const depResp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
+          const dep = depResp?.body
+          if (!dep) throw new Error(`deployments/${name} 不存在`)
+          const uid = dep.metadata?.uid
+          const rsResp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/replicasets`)
+          const revisions = (rsResp?.body?.items || [])
+            .filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.uid === uid))
+            .map(rs => ({ rev: Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] || 0), template: rs.spec?.template, image: rs.spec?.template?.spec?.containers?.[0]?.image }))
+            .filter(r => r.rev > 0 && r.template)
+            .sort((a, b) => b.rev - a.rev)
+          if (!revisions.length) throw new Error(`${namespace}/${name} 没有可回滚的 revision`)
+          const target = toRevision ? revisions.find(r => r.rev === Number(toRevision)) : revisions[1]
+          if (!target) {
+            if (toRevision) throw new Error(`revision ${toRevision} 不存在,可用: ${revisions.map(r => r.rev).join(', ')}`)
+            throw new Error(`${namespace}/${name} 没有更早的 revision 可回滚`)
+          }
+          await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: target.template } }) })
+          return { name, fromRevision: revisions[0]?.rev, toRevision: target.rev, image: target.image, availableRevisions: revisions.map(r => r.rev), message: `${namespace}/${name} 已回滚到 revision ${target.rev}` }
+        },
       },
       k8sSession,
     }

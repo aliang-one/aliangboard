@@ -129,6 +129,14 @@ const WB = [
     description: '滚动重启(workbench):Deployment/StatefulSet/DaemonSet。需人审。用 rollout restart 触发。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: 'deployments/statefulsets/daemonsets' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.restart(args.namespace, args.kind, args.name) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_update_image', requiresApproval: true,
+    description: '更新工作负载镜像(workbench):Deployment/StatefulSet/DaemonSet。需人审。用于修 ImagePullBackOff(换正确镜像)、快速回滚镜像版本。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: 'deployments/statefulsets/daemonsets' }, name: { type: 'string' }, container: { type: 'string', description: '容器名(多容器时指定)' }, image: { type: 'string', description: '新镜像,如 nginx:1.25' } }, required: ['namespace', 'kind', 'name', 'image'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.updateImage(args.namespace, args.kind, args.name, args.image, args.container) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_rollout_undo', requiresApproval: true,
+    description: '回滚 Deployment(workbench):到指定 revision,不传则回滚上一版本(kubectl rollout undo 语义)。需人审。返回值带 availableRevisions 可列全部历史版本。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' }, toRevision: { type: 'number', description: '目标 revision;不传回滚到上一版本' } }, required: ['namespace', 'name'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.rolloutUndo(args.namespace, args.name, args.toRevision) } catch (e) { return { error: e.message } } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]

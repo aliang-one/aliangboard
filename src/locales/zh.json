@@ -2816,6 +2816,7 @@
       "atMentionSearching": "搜索中…",
       "roleYou": "你",
       "roleAgent": "Agent",
+      "collapse": "收起",
       "toolDenied": "已拒绝",
       "recapSummary": "之前的对话摘要",
       "convStatus": {
@@ -3232,6 +3233,7 @@
     "sourceMcp": "MCP",
     "sourceAgent": "Agent",
     "sourceDirect": "直接调用",
+    "sourceWorkbench": "工作台 AI",
     "empty": "近 {window} 无活跃 key",
     "calls": "调用",
     "last": "最近",

@@ -53,7 +53,7 @@ export function createWorkbenchAgent(deps) {
 
   // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
-  async function runConversation(convId, llmClient) {
+  async function runConversation(convId, llmClient, actor) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -67,7 +67,7 @@ export function createWorkbenchAgent(deps) {
       }
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId } })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
@@ -91,7 +91,7 @@ export function createWorkbenchAgent(deps) {
 
   // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus,与 runConversation 对称。
-  async function resumeConversation(convId, approved, llmClient) {
+  async function resumeConversation(convId, approved, llmClient, actor) {
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -106,7 +106,7 @@ export function createWorkbenchAgent(deps) {
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx })
+      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId } })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)

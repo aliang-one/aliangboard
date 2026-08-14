@@ -5,6 +5,27 @@
 import { createAgent } from './agent.mjs'
 import { registry } from './tool-registry.mjs'
 import { effectiveTools } from './authorize.mjs'
+import { reserveAudit, finalizeAudit } from './audit.mjs'
+
+// 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
+// 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
+// 仅当传入 audit={db,owner,clusterId} 时启用(workbench 路径);API key 路径不传 → 不重复审计。
+const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger'])
+function wbAuditIntent(audit, name, args) {
+  let resource = null
+  if (args?.kind && args?.name) resource = `${args.kind}/${args.name}`
+  else if (args?.pod) resource = `Pod/${args.pod}`
+  else if (args?.name) resource = args.name
+  else if (args?.path) resource = args.path
+  let summary = null
+  try { summary = JSON.stringify(args).slice(0, 120) } catch { /* 忽略不可序列化 */ }
+  return {
+    owner: audit.owner, clusterId: audit.clusterId,
+    namespace: args?.namespace || null,
+    verb: WRITE_TOOLS.has(name) ? 'write' : 'read',
+    resource, tool: name, source: 'workbench', requestSummary: summary,
+  }
+}
 
 // OpenAI tools 格式:buildToolDefs(tier) 仅测试用;运行时 offering 用 registry.toolDefsFor(effectiveTools(keyRow))(per-key 覆盖)。
 export function buildToolDefs(tier) {
@@ -13,7 +34,8 @@ export function buildToolDefs(tier) {
 
 // 工厂:注入 llmClient + (apiKeyTools,keyRow,cluster) 和/或 workbench。返回 { run, toolDefs }。
 // workbench = { readLedger, readFile, writeFile }(端点注入的闭包,操作项目/台账 repo)。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench }) {
+// audit = { db, owner, clusterId }(可选,workbench 路径传):wb_* 工具执行进 audit_log。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs() : []),
@@ -24,7 +46,18 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)
-    return t.exec(ctx, args) // registry 分派:K8s→callTool;工作台→ctx.wb
+    if (!audit) return t.exec(ctx, args) // registry 分派:K8s→callTool(自带审计);工作台无 audit→不审计
+    // workbench 路径:reserve → 执行 → finalize(成功/失败都落链)
+    const intent = wbAuditIntent(audit, name, args)
+    reserveAudit(audit.db, intent)
+    try {
+      const r = await t.exec(ctx, args)
+      finalizeAudit(audit.db, intent, r?.error ? { result: 'error', reason: String(r.error).slice(0, 80) } : { result: 'ok' })
+      return r
+    } catch (e) {
+      finalizeAudit(audit.db, intent, { result: 'error', reason: String(e?.message || e).slice(0, 80) })
+      throw e
+    }
   }
   const chat = (messages, tools, opts) =>
     opts?.onDelta ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta })

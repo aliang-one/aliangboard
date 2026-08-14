@@ -73,7 +73,7 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, input.projectId, conv.id)
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
         appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
-        wbAgent.runConversation(conv.id, llmClient) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
+        wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }); return true }
@@ -103,7 +103,7 @@ export function createWorkbenchConvRoutes(deps) {
         // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
         updateConversation(db, id, { status: 'running' })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-        wbAgent.runConversation(id, llmClient) // detached — 不 await
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
         sendJson(res, 200, { status: 'running', references: fetchedResources })
         return true
@@ -212,7 +212,7 @@ export function createWorkbenchConvRoutes(deps) {
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-      wbAgent.resumeConversation(id, true, llmClient) // detached — 不 await
+      wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true
     }
@@ -226,7 +226,7 @@ export function createWorkbenchConvRoutes(deps) {
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
-      wbAgent.resumeConversation(id, false, llmClient) // detached — 不 await
+      wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true
     }

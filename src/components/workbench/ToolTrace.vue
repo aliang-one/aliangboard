@@ -119,7 +119,7 @@ function fmtRollout(r) {
       <button v-if="needsCollapse" @click="showAll = !showAll" type="button"
         class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary px-sm py-xs rounded-md transition-colors whitespace-nowrap">
         <span class="material-symbols-outlined text-sm">{{ showAll ? 'expand_less' : 'expand_more' }}</span>
-        {{ showAll ? '收起' : '+' + (trace.length - 3) }}
+        {{ showAll ? t('workbench.chat.collapse') : '+' + (trace.length - 3) }}
       </button>
       <span v-if="needsCollapse && !showAll" class="text-body-xs text-on-surface-variant/70 truncate ml-xs">{{ summary }}</span>
     </div>

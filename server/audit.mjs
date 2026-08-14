@@ -81,19 +81,21 @@ export function verifyChain(db) {
   return { valid: true, count: rows.length }
 }
 
-// 近 windowSec 秒、按 key 聚合(可选 source 过滤);label LEFT JOIN api_keys。给「最近活跃 key」面板。
+// 近 windowSec 秒、按调用方聚合(可选 source 过滤);label LEFT JOIN api_keys。给「最近活跃」面板。
+// 调用方 = API key(keyId 分组)或工作台 AI(keyId NULL → 'wb:<owner>' 伪组,source='workbench');
+// 两类并出,admin 可一眼看到「哪些 key / 哪个 admin 的工作台会话在动集群」。
 // ⚠️ 只计 status='finalized' 行(reserveAudit 另写 'started' 行;不计 finalized 会把每次调用算 2 次)。
 export function activeKeys(db, { windowSec = 900, source = null } = {}) {
   const since = Date.now() - Math.min(Math.max(Number(windowSec) || 900, 1), 86400) * 1000
-  const sql = `SELECT a.keyId, k.label, a.owner, a.clusterId, COUNT(*) AS count, MAX(a.ts) AS lastTs,
+  const sql = `SELECT COALESCE(a.keyId, 'wb:' || COALESCE(a.owner, '?')) AS gid, k.label, a.owner, a.clusterId, COUNT(*) AS count, MAX(a.ts) AS lastTs,
       SUM(CASE WHEN a.result='ok' THEN 1 ELSE 0 END) AS ok,
       SUM(CASE WHEN a.result='denied' THEN 1 ELSE 0 END) AS denied,
       SUM(CASE WHEN a.result='error' THEN 1 ELSE 0 END) AS error
     FROM audit_log a LEFT JOIN api_keys k ON k.id = a.keyId
-    WHERE a.ts > ? AND a.keyId IS NOT NULL AND a.status='finalized' ${source ? 'AND a.source = ?' : ''}
-    GROUP BY a.keyId ORDER BY lastTs DESC`
+    WHERE a.ts > ? AND a.status='finalized' ${source ? 'AND a.source = ?' : ''}
+    GROUP BY gid ORDER BY lastTs DESC`
   const rows = source ? db.prepare(sql).all(since, source) : db.prepare(sql).all(since)
-  return rows.map(r => ({ keyId: r.keyId, label: r.label, owner: r.owner, clusterId: r.clusterId,
+  return rows.map(r => ({ keyId: r.gid, label: r.label, owner: r.owner, clusterId: r.clusterId,
     count: Number(r.count) || 0, lastTs: Number(r.lastTs), ok: Number(r.ok) || 0, denied: Number(r.denied) || 0, error: Number(r.error) || 0 }))
 }
 

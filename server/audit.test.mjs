@@ -138,6 +138,28 @@ test('activeKeys: 近 window 按 key 聚合 + source 过滤 + label join + 排�
   assert.equal(mcpOnly[0].count, 2)
 })
 
+test('activeKeys: workbench 行(keyId NULL)按 owner 伪组并出;source 过滤可选只看工作台', () => {
+  const db = makeAudDb()
+  db.prepare("INSERT INTO api_keys (id,keyHash,prefix,owner,clusterId,boundSA_namespace,boundSA_name,tier,createdAt,revokedAt) VALUES ('k1','h','p','alice','c1','ns','sa','read',0,NULL)").run()
+  const now = Date.now()
+  writeAudit(db, { keyId: 'k1', owner: 'alice', clusterId: 'c1', tool: 'list_resources', result: 'ok', source: 'mcp', ts: now - 60_000 })
+  // 工作台 AI 行:keyId NULL,owner=admin 用户名,source='workbench'(agent-runner 审计写入)
+  writeAudit(db, { owner: 'admin-liang', clusterId: 'c1', tool: 'wb_scale', result: 'ok', source: 'workbench', ts: now - 30_000 })
+  writeAudit(db, { owner: 'admin-liang', clusterId: 'c1', tool: 'wb_rollout_undo', result: 'error', reason: 'no revision', source: 'workbench', ts: now - 10_000 })
+  const all = activeKeys(db, { windowSec: 900 })
+  assert.equal(all.length, 2, 'key 组 + workbench 伪组并出')
+  const wb = all.find(r => r.keyId === 'wb:admin-liang')
+  assert.ok(wb, 'workbench 行按 owner 伪组')
+  assert.equal(wb.label, null, '无 key → label NULL(前端回退显示 owner)')
+  assert.equal(wb.count, 2)
+  assert.equal(wb.ok, 1)
+  assert.equal(wb.error, 1)
+  assert.equal(wb.owner, 'admin-liang')
+  const wbOnly = activeKeys(db, { windowSec: 900, source: 'workbench' })
+  assert.equal(wbOnly.length, 1)
+  assert.equal(wbOnly[0].keyId, 'wb:admin-liang')
+})
+
 test('queryAuditLog: 默认只列 finalized(排除 started) + 过滤 + 分页 + size 钳制', () => {
   const db = makeAudDb()
   for (let i = 0; i < 5; i++) writeAudit(db, { keyId: 'k1', tool: 't', result: 'ok', source: 'mcp', ts: 1000 + i })          // 5 finalized

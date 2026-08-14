@@ -2816,6 +2816,7 @@
       "atMentionSearching": "Searching...",
       "roleYou": "You",
       "roleAgent": "Agent",
+      "collapse": "Collapse",
       "toolDenied": "denied",
       "recapSummary": "Earlier (summary)",
       "convStatus": {
@@ -3232,6 +3233,7 @@
     "sourceMcp": "MCP",
     "sourceAgent": "Agent",
     "sourceDirect": "Direct",
+    "sourceWorkbench": "Workbench AI",
     "empty": "No active keys in the last {window}",
     "calls": "calls",
     "last": "last",
