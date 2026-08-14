@@ -31,3 +31,12 @@ test('值夹取 100;showLabel 渲染 label 与百分比', () => {
   expect(w.text()).toContain('MEM')
   expect(w.text()).toContain('150%')
 })
+
+test('斜纹动画 keyframes: 双层 backgroundPosition,仅斜纹层位移 16.97px(整周期,消接缝)', async () => {
+  const { default: tw } = await import('../../../tailwind.config.js')
+  const kf = tw.theme.extend.keyframes['bar-stripes']
+  // 两层各给一值:斜纹层(第 1 层)动,渐变层(第 2 层)恒 0 0
+  expect(kf['0%'].backgroundPosition).toBe('16.97px 0, 0 0')
+  expect(kf['100%'].backgroundPosition).toBe('0 0, 0 0')
+  // 位移量 = 斜纹周期 12px / cos45° ≈ 16.97px(整周期回绕,无相位跳变)
+})

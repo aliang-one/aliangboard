@@ -33,15 +33,27 @@ function toggle(status) {
       </div>
     </div>
     <div class="flex flex-wrap gap-sm">
-      <button
-        v-for="s in segments" :key="s.status" type="button" @click="toggle(s.status)"
-        class="flex items-center gap-xs px-sm py-1 rounded-lg border transition-colors"
-        :class="statusFilter === s.status ? 'border-primary bg-primary-container/10' : 'border-outline-variant/50 hover:border-primary/60'"
-      >
-        <span class="w-2.5 h-2.5 rounded-full" :style="{ background: dot(s.status) }"></span>
-        <span class="text-body-sm text-on-surface-variant">{{ s.status }}</span>
-        <span class="text-body-md font-bold" :style="{ color: dot(s.status) }">{{ s.count }}</span>
-      </button>
+      <template v-for="s in segments" :key="s.status">
+        <!-- Other 是归并桶,p.status 永不等于 'Other',点了也过滤不出任何 pod(误导性空结果)。
+             故渲染为非交互展示(旧 4 格栏 Succeeded 本就不可点);真实状态段保持按钮可点。 -->
+        <button
+          v-if="s.status !== 'Other'" type="button" @click="toggle(s.status)"
+          class="flex items-center gap-xs px-sm py-1 rounded-lg border transition-colors"
+          :class="statusFilter === s.status ? 'border-primary bg-primary-container/10' : 'border-outline-variant/50 hover:border-primary/60'"
+        >
+          <span class="w-2.5 h-2.5 rounded-full" :style="{ background: dot(s.status) }"></span>
+          <span class="text-body-sm text-on-surface-variant">{{ s.status }}</span>
+          <span class="text-body-md font-bold" :style="{ color: dot(s.status) }">{{ s.count }}</span>
+        </button>
+        <span
+          v-else
+          class="flex items-center gap-xs px-sm py-1 rounded-lg border border-outline-variant/50 cursor-default"
+        >
+          <span class="w-2.5 h-2.5 rounded-full" :style="{ background: dot(s.status) }"></span>
+          <span class="text-body-sm text-on-surface-variant">{{ s.status }}</span>
+          <span class="text-body-md font-bold" :style="{ color: dot(s.status) }">{{ s.count }}</span>
+        </span>
+      </template>
     </div>
   </div>
 </template>

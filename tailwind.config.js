@@ -87,8 +87,11 @@ export default {
           to: { strokeDashoffset: '0' },
         },
         'bar-stripes': {
-          '0%': { backgroundPosition: '0 0' },
-          '100%': { backgroundPosition: '24px 0' },
+          // backgroundImage 是两层(斜纹 repeating-linear-gradient + 底部渐变 linear-gradient),
+          // backgroundPosition 必须逐层给值且只动斜纹层(渐变层恒 0 0)。
+          // 45° 斜纹横向周期 = 12px/cos45° ≈ 16.97px,整周期位移消除循环接缝的相位跳变(旧 24px 非整数倍,每圈跳一下)。
+          '0%': { backgroundPosition: '16.97px 0, 0 0' },
+          '100%': { backgroundPosition: '0 0, 0 0' },
         },
       },
     },

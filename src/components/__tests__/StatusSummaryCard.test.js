@@ -48,3 +48,18 @@ test('空 pods: 不渲染 EChart,总数 0,图例为空', () => {
   expect(w.text()).toContain('0')
   expect(w.findAll('button').length).toBe(0)
 })
+
+test('Other 段非交互: 不渲染为 button(cursor-default),点击不 emit filter', async () => {
+  const w = mountCard()
+  // Other 是归并桶,真实状态才有按钮
+  expect(w.findAll('button').some(b => b.text().includes('Other'))).toBe(false)
+  expect(w.findAll('button').map(b => b.text()).join('|')).toContain('Running')
+  expect(w.findAll('button').map(b => b.text()).join('|')).toContain('Pending')
+  expect(w.findAll('button').map(b => b.text()).join('|')).toContain('Failed')
+  // Other 段为非交互展示容器,展示 dot/名称/计数
+  const otherSeg = w.findAll('span').find(s => s.classes().includes('cursor-default'))
+  expect(otherSeg.text()).toContain('Other')
+  expect(otherSeg.text()).toContain('1')
+  await otherSeg.trigger('click')
+  expect(w.emitted('filter')).toBeUndefined()
+})

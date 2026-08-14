@@ -23,8 +23,10 @@ test('series≥2: setOption 收到渐变/线色(token→hex 已解析)', () => {
 })
 
 test('series<2: 空态文案 common.noData,不渲染图表', () => {
+  setOptionMock.mockClear() // 上一例的 mock 调用持久,先清再断言负向
   const w = mountChart({ series: [1], height: 48 })
   expect(w.text()).toContain(i18n.global.t('common.noData'))
+  expect(setOptionMock).not.toHaveBeenCalled()
 })
 
 test('refLines footer: label + value + unit,chip 背景为 token 色', () => {
