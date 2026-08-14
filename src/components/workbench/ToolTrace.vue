@@ -49,6 +49,12 @@ function fmtResult(ev) {
   if (name.includes('rollout_status') || name === 'wb_rollout_status') {
     return fmtRollout(r)
   }
+  if (name === 'wb_exec') {
+    return fmtExec(r)
+  }
+  if (name === 'wb_read_pod_file') {
+    return fmtPodFile(r)
+  }
   return JSON.stringify(r, null, 2)
 }
 
@@ -98,6 +104,19 @@ function fmtRollout(r) {
     for (const c of r.conditions.slice(0, 5)) L.push(`  ${c.type}=${c.status}${c.reason ? ` (${c.reason})` : ''}`)
   }
   return L.join('\n')
+}
+
+function fmtExec(r) {
+  const L = [`exit=${r.exitCode ?? '?'}${r.timedOut ? ' · timed out' : ''}${r.truncated ? ' · truncated' : ''}`]
+  if (r.stdout) L.push('--- stdout ---', r.stdout)
+  if (r.stderr) L.push('--- stderr ---', r.stderr)
+  if (r.hint) L.push(r.hint)
+  if (!r.stdout && !r.stderr) L.push('(no output)')
+  return L.join('\n')
+}
+
+function fmtPodFile(r) {
+  return [`${r.pod}:${r.path}${r.truncated ? ' (truncated)' : ''}`, r.content || '(empty)'].join('\n')
 }
 </script>
 
