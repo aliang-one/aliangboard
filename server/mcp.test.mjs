@@ -1,7 +1,11 @@
 // T12 测试:handleMcpMessage 纯逻辑(initialize / tools/list 按 tier / tools/call / 错误)。
+// + HTTP 层(2026-08-14 审计 P2:429 Retry-After 头)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { handleMcpMessage, TOOL_META } from './mcp.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import { handleMcpMessage, TOOL_META, createMcpServer } from './mcp.mjs'
+import { createApiKeysSchema, mintKey } from './auth-keys.mjs'
+import { checkRate } from './rate-limit.mjs'
 
 function mockTools({ callTool } = {}) {
   return {
@@ -94,4 +98,48 @@ test('tools/list(覆盖): effectiveTools allow 把 admin 工具暴露给 read ke
   const r = await handleMcpMessage({ jsonrpc: '2.0', id: 9, method: 'tools/list' }, { keyRow: readWithAllow, cluster, apiKeyTools })
   const names = r.result.tools.map(t => t.name)
   assert.ok(names.includes('exec_pod'), 'allow 越过 tier 出现在 tools/list')
+})
+
+// --- P2 协议修补(2026-08-14 审计)---
+test('ping: 返回空 result(spec 要求 server 响应 ping;此前 -32601 可能触发客户端断连/重连)', async () => {
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 20, method: 'ping' }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.equal(r.error, undefined)
+  assert.deepEqual(r.result, {})
+})
+
+test('initialize(版本协商): 客户端请求受支持版本 → 回显;未知/缺失 → 回自己最新', async () => {
+  const echo = await handleMcpMessage({ jsonrpc: '2.0', id: 21, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.equal(echo.result.protocolVersion, '2025-06-18', '受支持版本应回显客户端请求')
+  const unknown = await handleMcpMessage({ jsonrpc: '2.0', id: 22, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.equal(unknown.result.protocolVersion, '2025-11-25', '不支持的版本 → 回自己最新')
+})
+
+test('JSON-RPC batch(数组 body): → -32600 明确拒(此前被当 notification 静默吞成 202 空响应)', async () => {
+  const r = await handleMcpMessage([{ jsonrpc: '2.0', id: 1, method: 'ping' }], { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.equal(r.error.code, -32600)
+  assert.match(r.error.message, /batch/)
+})
+
+test('HTTP 层: 限流 429 → 带 Retry-After HTTP 头(此前只在 error message 里)', async () => {
+  const db = new DatabaseSync(':memory:')
+  createApiKeysSchema(db)
+  const minted = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  for (let i = 0; i < 500; i++) checkRate(minted.id) // 抽干该 key 的 token bucket(capacity 默认 60)
+  const handler = createMcpServer({ db, apiKeyTools: mockTools() })
+  const req = {
+    headers: { authorization: `Bearer ${minted.plaintext}` },
+    method: 'POST',
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{"jsonrpc":"2.0","id":1,"method":"ping"}') },
+  }
+  const headers = {}
+  const res = {
+    statusCode: null, body: null,
+    setHeader(k, v) { headers[k.toLowerCase()] = v },
+    writeHead(status, h = {}) { this.statusCode = status; for (const [k, v] of Object.entries(h)) headers[k.toLowerCase()] = v }, // 头名统一小写(HTTP 大小写不敏感)
+    end(b) { this.body = b ? JSON.parse(b) : null },
+  }
+  await handler(req, res)
+  assert.equal(res.statusCode, 429)
+  assert.ok(Number(headers['retry-after']) >= 1, `Retry-After 头(实际 ${headers['retry-after']})`)
+  assert.equal(res.body.error.code, -32002)
 })

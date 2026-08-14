@@ -4,7 +4,9 @@
 // 真 RBAC = 用 SA token 实发请求时由 apiserver 判。can_i = 策略 AND rbac 的合取(仅 UX,给 AI 自检)。
 
 // 风险分级(eng-review):有界/可逆类 vs 无界/破坏/交互类。MCP 只挂第一类;第二类仅 agent(+人审)。
-export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'get_pod_logs', 'get_events', 'can_i', 'get_resource_yaml', 'scale', 'restart', 'rollout_history']
+// 宇宙必须与 tool-registry.mjs 的 k8s 工具同步(authorize.test.mjs 双向守卫;2026-08-14 审计曾发现
+// describe_resource/rollout_status 漏登记 → 全 tier 死工具 + agent 提示词教 LLM 用却必被拒)。
+export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'describe_resource', 'get_pod_logs', 'get_events', 'can_i', 'get_resource_yaml', 'rollout_history', 'rollout_status', 'scale', 'restart']
 // DANGEROUS 工具现状分两类(原注释误称全部「未实现」,订正):
 //   已实现且对 admin 档广告 —— exec_pod/browse_files/read_file/kubectl_debug/rollout_undo/apply_yaml/delete_resource/update_image:
 //     进 apiKeyTools.listTools();MCP tools/list 再按 effectiveTools(tier∪override)过滤,仅 admin 档(或 override 放行)看得见。
@@ -12,6 +14,9 @@ export const BOUNDED_TOOLS = ['list_resources', 'get_resource', 'get_pod_logs', 
 //     attach(streaming)、port_forward(网关主机 TCP 监听,外部 AI 拿到不可达 localhost)、upload_file(exec 写文件,转义/注入面大)。
 //   未实现的不进 apiKeyTools.listTools() → tools/list 自然不广告;但名都留在 DANGEROUS_TOOLS 以保持 tier 组合的完整性(unknown tier → fail-closed)。
 export const DANGEROUS_TOOLS = ['exec_pod', 'attach', 'browse_files', 'read_file', 'upload_file', 'port_forward', 'kubectl_debug', 'rollout_undo', 'apply_yaml', 'delete_resource', 'update_image']
+// 显式延后(有登记、无实现):DANGEROUS_TOOLS 里的这 3 个名仅为 tier 组合完整性保留。
+// 导出成机器可查常量,守卫测试据此放行(宇宙 ⊆ 注册表 ∪ DEFERRED)。
+export const DEFERRED_TOOLS = ['attach', 'port_forward', 'upload_file']
 const OPERATOR_EXTRA = ['scale', 'restart']            // operator 在 read 基础上加这两个有界写
 const READ_TOOLS = BOUNDED_TOOLS.filter(t => !OPERATOR_EXTRA.includes(t))  // read = 有界只读
 

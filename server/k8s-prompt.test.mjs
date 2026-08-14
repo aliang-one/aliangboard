@@ -4,7 +4,7 @@ import { k8sSystemPrompt } from './k8s-prompt.mjs'
 
 test('read 档:只读诊断,不含高危工具', () => {
   const p = k8sSystemPrompt('read')
-  assert.ok(p.includes('debug 助手'))
+  assert.ok(p.includes('调查助手'), 'read 档是调查助手定位(2590aca 重写后的文案;旧断言「debug 助手」已过期)')
   assert.ok(!p.includes('exec_pod'))
   assert.ok(!p.includes('delete_resource'))
 })

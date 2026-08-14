@@ -7,6 +7,7 @@ import {
   effectiveNamespaces, normalizeAllowedNamespaces,
   authorize, PermissionDeniedError, canIDecision, withPolicy,
 } from './authorize.mjs'
+import { registry } from './tool-registry.mjs'
 
 // --- tier → toolset ---
 test('tierTools: read=有界只读;operator=read+scale/restart;admin=全部(含危险);未知=空(fail-closed)', () => {
@@ -165,4 +166,35 @@ test('normalizeAllowedNamespaces: 非法 ns 名 / 坏形状 → 抛', () => {
   assert.throws(() => normalizeAllowedNamespaces(['dev' .repeat(64).slice(0,64)], 'anydoor'), /非法 namespace/, '>63 拒')
   assert.throws(() => normalizeAllowedNamespaces('notarray', 'anydoor'))
   assert.throws(() => normalizeAllowedNamespaces([123], 'anydoor'), /字符串数组/)
+})
+
+// --- 守卫:注册表 ↔ authorize 宇宙同步(2026-08-14 审计 P0) ---
+// 背景:describe_resource/rollout_status 在 tool-registry/api-key-tools 注册实现,却未登记进
+// BOUNDED_TOOLS/DANGEROUS_TOOLS → effectiveTools 全 tier 不含 → MCP tools/list 不广告、tools/call
+// 全拒、tool_overrides 也救不了(normalizeToolOverrides 拒未知名),而 agent 系统提示词还在教
+// LLM 首选 describe_resource → 死工具 + agent 撞墙。守卫测试防再犯。
+test('守卫: tool-registry 全部 k8s 工具 ∈ BOUNDED∪DANGEROUS(注册即可达,无死工具)', () => {
+  const universe = new Set([...BOUNDED_TOOLS, ...DANGEROUS_TOOLS])
+  const missing = registry.all().filter(t => t.principal === 'k8s' && !universe.has(t.name)).map(t => t.name)
+  assert.deepEqual(missing, [], `注册但不在 authorize 宇宙(全 tier 调不了): ${missing.join(',')}`)
+})
+
+test('守卫: authorize 宇宙 ⊆ 注册表 k8s 工具 ∪ 显式延后(未知名不悬空)', () => {
+  const registered = new Set(registry.all().filter(t => t.principal === 'k8s').map(t => t.name))
+  const deferred = new Set(['attach', 'port_forward', 'upload_file']) // spec 文档登记的 3 个延后
+  const dangling = [...BOUNDED_TOOLS, ...DANGEROUS_TOOLS].filter(n => !registered.has(n) && !deferred.has(n))
+  assert.deepEqual(dangling, [], `宇宙里的名既无实现也无延后登记: ${dangling.join(',')}`)
+})
+
+test('守卫: DEFERRED_TOOLS 导出=文档登记的 3 个延后工具(机器可查,不靠注释)', async () => {
+  const { DEFERRED_TOOLS } = await import('./authorize.mjs')
+  assert.deepEqual([...DEFERRED_TOOLS].sort(), ['attach', 'port_forward', 'upload_file'])
+})
+
+test('tierTools: describe_resource/rollout_status ∈ read(此前漏登记=全 tier 死工具)', () => {
+  assert.ok(tierTools('read').includes('describe_resource'))
+  assert.ok(tierTools('read').includes('rollout_status'))
+  assert.equal(authorize({ tier: 'read' }, 'describe_resource').allowed, true)
+  assert.equal(authorize({ tier: 'read' }, 'rollout_status').allowed, true)
+  assert.equal(authorize({ tier: 'admin' }, 'rollout_status').allowed, true)
 })

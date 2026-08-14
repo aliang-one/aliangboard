@@ -125,6 +125,38 @@ test('get_resource: 返回对象,managedFields 被去噪', async () => {
   assert.ok(!('managedFields' in out.resource.metadata), 'managedFields 应被去除')
 })
 
+// --- 体积上限(2026-08-14 审计 P1b):JSON 版与 get_resource_yaml 的 32KB 对齐,防大 ConfigMap/Secret 撑爆 AI 上下文 ---
+function withBigPod(size = 50000) {
+  const base = mockRequestFn()
+  const big = { apiVersion: 'v1', kind: 'Pod', metadata: { name: 'p1' }, spec: { data: 'x'.repeat(size) } }
+  return async (ctx, path, init = {}) => {
+    if (init.method !== 'PATCH' && /\/namespaces\/[^/]+\/pods\/[^/]+$/.test(path)) return { body: big }
+    return base(ctx, path, init)
+  }
+}
+test('get_resource(体积上限): JSON > 32KB → 截断 json 字符串 + truncated 标志,不再返回完整对象', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: withBigPod() })
+  const out = await tools.callTool(k, cluster, 'get_resource', { kind: 'pods', namespace: 'ns', name: 'p1' })
+  assert.equal(out.truncated, true)
+  assert.ok(out.originalBytes > 32768, 'originalBytes 记原始大小')
+  assert.equal(out.byteCap, 32768)
+  assert.ok(Buffer.byteLength(out.json) <= 32768 + 4, '截断后 json 不超上限(+4 容忍多字节尾巴)')
+  assert.equal(out.resource, undefined, '超限时不再回完整对象(否则上限无效)')
+  assert.match(out.hint, /get_resource_yaml/, '提示可用 yaml 版')
+})
+test('describe_resource(体积上限): 资源超 32KB → 同样截断;events(本身有界)仍返回', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: withBigPod() })
+  const out = await tools.callTool(k, cluster, 'describe_resource', { kind: 'pods', namespace: 'ns', name: 'p1' })
+  assert.equal(out.truncated, true)
+  assert.ok(out.json && Buffer.byteLength(out.json) <= 32768 + 4)
+  assert.equal(out.resource, undefined)
+  assert.equal(out.events.count, 1, 'events 有界(20×300)不受资源超限影响')
+})
+
 // --- get_events ---
 test('get_events: 返回 slim 事件(reason/type/message 截断/last)', async () => {
   const db = makeDb()
@@ -206,7 +238,7 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   const db = makeDb()
   const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
   let called = null
-  const execFn = async (saCtx, ns, pod, container, command) => { called = { ns, pod, container, command, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0 } }
+  const execFn = async (saCtx, ns, pod, container, command, bounds) => { called = { ns, pod, container, command, bounds, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0, timedOut: false, truncated: false } }
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
   const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', container: 'c1', command: 'ls -la' })
   assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.equal(called.command, 'ls -la')
@@ -215,6 +247,44 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   assert.equal(out.exitCode, 0)
   const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[rows.length - 1].result, 'ok')
+})
+
+// --- exec 界限(2026-08-14 审计 P1a):AI 路径必须向 execFn 传 {timeoutMs,maxBytes},防挂死/吃内存 ---
+const mkAdmin = (db) => mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+
+test('exec_pod(bounds): 向 execFn 传 {timeoutMs,maxBytes},结果透传 timedOut + 人读提示', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  let gotBounds = null
+  const execFn = async (_ctx, _ns, _pod, _c, _cmd, bounds) => { gotBounds = bounds; return { stdout: 'partial', stderr: '', status: null, timedOut: true, truncated: false } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'tail -f /var/log/x' })
+  assert.ok(gotBounds?.timeoutMs > 0, `execFn 应收到 timeoutMs(实际 ${gotBounds?.timeoutMs})`)
+  assert.ok(gotBounds?.maxBytes > 0, `execFn 应收到 maxBytes(实际 ${gotBounds?.maxBytes})`)
+  assert.equal(out.timedOut, true)
+  assert.match(out.hint, /超时/, '超时要给人读提示(AI 能看到为何只有部分输出)')
+})
+
+test('exec_pod(bounds): 字节超限 → truncated 透传', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  const execFn = async () => ({ stdout: 'x'.repeat(32768), stderr: '', status: 0, timedOut: false, truncated: true })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'cat /huge.bin' })
+  assert.equal(out.truncated, true)
+  assert.equal(out.timedOut, false)
+})
+
+test('browse_files/read_file(bounds): 同样向 execFn 传 bounds', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  const boundsSeen = []
+  const execFn = async (_ctx, _ns, _pod, _c, _cmd, bounds) => { boundsSeen.push(bounds); return { stdout: 'x', stderr: '', status: 0, timedOut: false, truncated: false } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  await tools.callTool(k, cluster, 'browse_files', { namespace: 'ns', pod: 'p1', path: '/etc' })
+  await tools.callTool(k, cluster, 'read_file', { namespace: 'ns', pod: 'p1', path: '/etc/hosts' })
+  assert.equal(boundsSeen.length, 2)
+  for (const b of boundsSeen) assert.ok(b?.timeoutMs > 0 && b?.maxBytes > 0, 'exec 族工具都要传 bounds')
 })
 
 test('browse_files/read_file/apply_yaml(deny): read 档全拒(admin 档工具)', async () => {
@@ -285,7 +355,7 @@ test('rollout_history(read happy): 列 revisions,降序,current 标记', async (
   assert.equal(out.revisions[0].revision, '2', '降序')
   assert.equal(out.revisions[0].current, true)
   assert.equal(out.revisions[1].revision, '1')
-  assert.equal(out.revisions[1].image, 'img:1')
+  assert.deepEqual(out.revisions[1].images, ['c1=img:1'])
 })
 test('rollout_history: 只列该 Deployment 的 RS(ownerReference 过滤)', async () => {
   const db = makeDb()
@@ -294,6 +364,34 @@ test('rollout_history: 只列该 Deployment 的 RS(ownerReference 过滤)', asyn
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ replicasets: [otherRs] }) })
   const out = await tools.callTool(k, cluster, 'rollout_history', { namespace: 'ns', name: 'd1' })
   assert.equal(out.revisions.length, 0, '不属于 d1 的 RS 被过滤')
+})
+
+// --- rollout 多容器(2026-08-14 审计 P3):此前只看 containers[0].image,多容器 Deployment 的历史/回滚展示误导 ---
+const rsMulti = (rev, appImg, sideImg) => ({ metadata: { name: `d1-rs${rev}`, ownerReferences: [{ uid: 'uid-d1', kind: 'Deployment', controller: true }], annotations: { 'deployment.kubernetes.io/revision': String(rev) }, creationTimestamp: '2026-08-06T02:00:00Z' }, spec: { template: { spec: { containers: [{ name: 'app', image: appImg }, { name: 'sidecar', image: sideImg }] } } } })
+const deployMulti = (appImg, sideImg) => ({ metadata: { name: 'd1', uid: 'uid-d1', annotations: { 'deployment.kubernetes.io/revision': '2' } }, spec: { template: { spec: { containers: [{ name: 'app', image: appImg }, { name: 'sidecar', image: sideImg }] } } } })
+
+test('rollout_history(多容器): images 列出全部容器 name=image,不只 containers[0]', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'read' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ deployment: deployMulti('app:2', 'side:2'), replicasets: [rsMulti(2, 'app:2', 'side:2'), rsMulti(1, 'app:1', 'side:1')] }) })
+  const out = await tools.callTool(k, cluster, 'rollout_history', { namespace: 'ns', name: 'd1' })
+  assert.deepEqual(out.revisions.find(r => r.revision === '1').images, ['app=app:1', 'sidecar=side:1'], '全容器,不止第一个')
+  assert.deepEqual(out.revisions.find(r => r.revision === '2').images, ['app=app:2', 'sidecar=side:2'])
+})
+
+test('rollout_undo(多容器): previousImages/newImages 覆盖全部容器(此前 prevImage/newImage 只看第一个)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let patched = null
+  const base = mockRequestFn({ deployment: deployMulti('app:2', 'side:2'), replicasets: [rsMulti(2, 'app:2', 'side:2'), rsMulti(1, 'app:1', 'side:1')] })
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && /\/deployments\/[^/]+$/.test(path)) { patched = JSON.parse(init.body); return { body: { ok: true } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 })
+  assert.deepEqual(out.previousImages, ['app=app:2', 'sidecar=side:2'])
+  assert.deepEqual(out.newImages, ['app=app:1', 'sidecar=side:1'])
+  assert.ok(patched, 'PATCH 仍发完整 template(多容器回滚本身原本就正确)')
 })
 
 // --- rollout_undo(admin 档:回滚到 revision)---
@@ -308,7 +406,7 @@ test('rollout_undo(admin happy): PATCH deployment template 成目标 RS template
   } })
   const out = await tools.callTool(k, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 })
   assert.equal(out.undone, 'd1'); assert.equal(out.toRevision, 1)
-  assert.equal(out.previousImage, 'img:2'); assert.equal(out.newImage, 'img:1')
+  assert.deepEqual(out.previousImages, ['c1=img:2']); assert.deepEqual(out.newImages, ['c1=img:1'])
   assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } }, 'PATCH 成 revision1 的 template')
   const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[rows.length - 1].result, 'ok')
@@ -336,7 +434,7 @@ test('rollout_undo: 按 ownerReference 过滤 RS,防跨 Deployment 回滚串台(
     return base(ctx, path, init)
   } })
   const out = await tools.callTool(k, cluster, 'rollout_undo', { namespace: 'ns', name: 'd1', toRevision: 1 })
-  assert.equal(out.newImage, 'img:1', '用本 Deployment 的 RS,不是外来 RS')
+  assert.deepEqual(out.newImages, ['c1=img:1'], '用本 Deployment 的 RS,不是外来 RS')
   assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'img:1' }] } } } }, 'PATCH 成 owned RS 的 template,而非 FOREIGN')
 })
 test('rollout_undo: revision 仅存在于外来 RS → 报"不存在"(ownerReference 过滤回归)', async () => {

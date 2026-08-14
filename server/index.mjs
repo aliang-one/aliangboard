@@ -13,6 +13,7 @@ import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
+import { runBoundedCollect } from './exec-bounds.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
@@ -399,7 +400,8 @@ async function requestKubernetes(session, path, init = {}) {
 }
 
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
-const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: execCapture, applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
+// AI 路径的 execFn 适配:api-key-tools 传第 6 参 bounds(审计 P1a)→ execCapture 第 7 参(raw 固定 false)
+const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: (ctx, ns, pod, container, command, bounds) => execCapture(ctx, ns, pod, container, command, false, bounds), applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
 
 // 集群列表实时探测(/api/admin/clusters GET 用):注入 requestKubernetes → 并行探每个集群
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
@@ -764,22 +766,25 @@ async function handleExec(ws, session, url) {
   ws.on('error', () => { try { conn?.close() } catch { /* noop */ } })
 }
 
-// 一次性 exec（tty=false，捕获 stdout/stderr）：用于文件浏览（ls / cat / 写入）。
+// 一次性 exec（tty=true，捕获 stdout/stderr）：用于文件浏览（ls / cat / 写入）与 AI 工具（exec_pod 等）。
 // command 以数组传入（exec 直接执行，不经 shell，无需转义路径）。
-async function execCapture(session, namespace, pod, container, command, raw = false) {
+// bounds={timeoutMs,maxBytes}（审计 P1a,2026-08-14）：AI 路径传——超时主动断连（防 tail -f 挂死
+// MCP 调用）+ 流式字节上限（防 cat 大文件先吃满内存）；交互/浏览路径不传 → 无界（行为同旧版）。
+async function execCapture(session, namespace, pod, container, command, raw = false, bounds = null) {
   const { KubeConfig, Exec } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
   const exec = new Exec(kc)
-  const stdout = [], stderr = []
-  const stdoutSink = new Writable({ write(c, _e, cb) { stdout.push(Buffer.from(c)); cb() } })
-  const stderrSink = new Writable({ write(c, _e, cb) { stderr.push(Buffer.from(c)); cb() } })
   const stdin = new PassThrough() // 不立即 end：过早 EOF 会让本集群 kubelet 在命令执行前关闭 exec 会话
   let exitStatus = null   // 命令退出状态(client-node status 回调,execCapture 不抛于非零退出)
-  let conn
+  let collected
   try {
     // tty=true：与终端同路径。本集群 client-node 在 tty=false 下 exec 立即 close 无数据；
     // tty 下输出会带 ANSI/CR，统一剔除后再解析
-    conn = await exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true, status => { exitStatus = status })
+    collected = await runBoundedCollect({
+      timeoutMs: bounds?.timeoutMs || 0,
+      maxBytes: bounds?.maxBytes || 0,
+      openConn: (stdoutSink, stderrSink) => exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true, status => { exitStatus = status }),
+    })
   } catch (e) {
     const raw = e?.message || String(e)
     // 500 通常=目标容器已终止(Succeeded/Failed),exec 无法进入;给出可读提示而非裸 ws 报错
@@ -788,14 +793,14 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
     throw Object.assign(new Error(hint), { status: 502 })
   }
   // 命令（ls/head/cat）自行退出 → kubelet 关闭 → conn close；不主动关 stdin
-  await new Promise(resolve => conn.on('close', resolve))
   try { stdin.destroy() } catch { /* noop */ }
   await new Promise(r => setImmediate(r))
-  if (raw) return { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr).toString('utf8'), status: exitStatus }
-  const rawStr = Buffer.concat(stdout).toString('utf8')
+  const out = { stdout: collected.stdout, stderr: collected.stderr.toString('utf8'), status: exitStatus, timedOut: collected.timedOut, truncated: collected.truncated }
+  if (raw) return out
+  const rawStr = collected.stdout.toString('utf8')
   const clean = rawStr.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
-  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${rawStr.length} clean=${clean.length} head=${JSON.stringify(clean.slice(0, 80))}`)
-  return { stdout: Buffer.from(clean, 'utf8'), stderr: Buffer.concat(stderr).toString('utf8'), status: exitStatus }
+  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${rawStr.length} clean=${clean.length} timedOut=${collected.timedOut} truncated=${collected.truncated} head=${JSON.stringify(clean.slice(0, 80))}`)
+  return { ...out, stdout: Buffer.from(clean, 'utf8') }
 }
 
 // PVC 浏览专用 exec：遇 500 自愈一次。500 = helper 容器已终止/不可 exec（sleep 24h 到期、被驱逐、
