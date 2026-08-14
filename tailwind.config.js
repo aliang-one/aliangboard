@@ -68,6 +68,7 @@ export default {
         'fade-in': 'fade-in 0.2s ease-out',
         'slide-up': 'slide-up 0.3s ease-out',
         'dash-flow': 'dash-flow 5s linear infinite',
+        'bar-stripes': 'bar-stripes 1.2s linear infinite',
       },
       keyframes: {
         'pulse-status': {
@@ -84,6 +85,10 @@ export default {
         },
         'dash-flow': {
           to: { strokeDashoffset: '0' },
+        },
+        'bar-stripes': {
+          '0%': { backgroundPosition: '0 0' },
+          '100%': { backgroundPosition: '24px 0' },
         },
       },
     },
