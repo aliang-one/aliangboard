@@ -2327,6 +2327,11 @@
       "loadFailed": "加载失败",
       "added": "已添加集群 {name}",
       "addFailed": "添加失败（凭据无效或无法连接）",
+      "nameRequired": "集群名称不能为空",
+      "kubeconfigRequired": "请粘贴 kubeconfig",
+      "apiServerRequired": "API Server 不能为空",
+      "tokenRequired": "Bearer Token 不能为空",
+      "usernameRequired": "用户名不能为空",
       "deleteConfirm": "删除集群 {name}？所有分配给该集群的用户将失去访问。",
       "deleted": "已删除",
       "deleteFailed": "删除失败"
