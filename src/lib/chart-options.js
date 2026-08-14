@@ -17,7 +17,7 @@ export function relTimeLabel(indexFromEnd, intervalSec) {
   return s === 0 ? '0s' : `-${s}s`
 }
 
-// 平滑面积折线图(MiniChart 的 ECharts 升级版)。
+// 平滑面积折线图(ECharts 版,替代旧 canvas 迷你图)。
 // series: number[];color/refLines[].color: palette token;refLines: [{label,value,color}]。
 // spark=true → KPI 卡迷你模式:无网格、无 markLine、贴边。
 export function buildAreaLineOption({ series = [], color = 'primary', unit = '', refLines = [], spark = false, smooth = true, sampleIntervalSec = 10 } = {}) {
