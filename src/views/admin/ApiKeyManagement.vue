@@ -20,6 +20,7 @@ const clusters = ref([])
 const loading = ref(true)
 const showMintModal = ref(false)
 const mintForm = ref({ owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' })
+const mintErrors = ref({}) // 必填校验行内提示:字段名 → 是否缺(owner 服务端兜底当前用户,非必填)
 const newKey = ref(null) // 签发成功后展示明文(仅此次)
 
 const mintOverrides = ref({ allow: [], deny: [] })        // mint 用
@@ -93,15 +94,37 @@ async function load() {
 }
 onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load() })
 
+// 必填校验:空/纯空格视为缺。与服务端 mintKey 必填字段对齐(客户端先拦,
+// 不让用户看到裸的「mintKey 缺少必填字段」400)。
+const MINT_REQUIRED = ['clusterId', 'boundSA_namespace', 'boundSA_name']
+function validateMint() {
+  mintErrors.value = Object.fromEntries(
+    MINT_REQUIRED.filter(k => !String(mintForm.value[k] || '').trim()).map(k => [k, true])
+  )
+  return !Object.keys(mintErrors.value).length
+}
+function clearMintError(k) { if (mintErrors.value[k]) delete mintErrors.value[k] }
+
 async function doMint() {
+  if (!validateMint()) { notify('error', t('admin.apiKeys.mintMissingRequired')); return }
   try {
-    const payload = { ...mintForm.value, tool_overrides: overridesPayload(mintOverrides.value), allowed_namespaces: mintExtraNs.value.length ? mintExtraNs.value : null }
+    const payload = {
+      ...mintForm.value,
+      clusterId: mintForm.value.clusterId,
+      boundSA_namespace: mintForm.value.boundSA_namespace.trim(),
+      boundSA_name: mintForm.value.boundSA_name.trim(),
+      owner: mintForm.value.owner.trim(),
+      label: mintForm.value.label.trim(),
+      tool_overrides: overridesPayload(mintOverrides.value),
+      allowed_namespaces: mintExtraNs.value.length ? mintExtraNs.value : null,
+    }
     const res = await adminApi.apikeys.create(payload)
     newKey.value = res.apikey
     showMintModal.value = false
     mintForm.value = { owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
     mintOverrides.value = { allow: [], deny: [] }
     mintExtraNs.value = []
+    mintErrors.value = {}
     notify('success', t('admin.apiKeys.minted'))
     load()
   } catch (e) { notify('error', e.message || t('admin.apiKeys.mintFailed')) }
@@ -121,7 +144,7 @@ async function doRevoke(k) {
   <section class="animate-fade-in p-md">
     <div class="flex items-center justify-between mb-md">
       <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('admin.apiKeys.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.apiKeys.subtitle') }}</p></div>
-      <button @click="mintOverrides = { allow: [], deny: [] }; mintExtraNs = []; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+      <button @click="mintOverrides = { allow: [], deny: [] }; mintExtraNs = []; mintErrors = {}; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
         <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.apiKeys.mintKey') }}
       </button>
     </div>
@@ -160,15 +183,20 @@ async function doRevoke(k) {
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.owner') }}</label><input v-model="mintForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="alice" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.labelOptional') }}</label><input v-model="mintForm.label" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="debug-laptop" /></div>
         </div>
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindCluster') }}</label>
-          <select v-model="mintForm.clusterId" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindCluster') }} <span class="text-error">*</span></label>
+          <select v-model="mintForm.clusterId" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm', mintErrors.clusterId ? 'border-error' : 'border-outline-variant']" @change="clearMintError('clusterId')">
             <option value="" disabled>{{ $t('admin.apiKeys.selectCluster') }}</option>
             <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }} ({{ c.apiServer }})</option>
           </select>
+          <p v-if="mintErrors.clusterId" data-testid="mint-error-clusterId" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
         </div>
         <div class="grid grid-cols-2 gap-sm">
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaNamespace') }}</label><input v-model="mintForm.boundSA_namespace" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="default" /></div>
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaName') }}</label><input v-model="mintForm.boundSA_name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="aliangboard-smoke" /></div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaNamespace') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_namespace" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_namespace ? 'border-error' : 'border-outline-variant']" placeholder="default" @input="clearMintError('boundSA_namespace')" />
+            <p v-if="mintErrors.boundSA_namespace" data-testid="mint-error-boundSA_namespace" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
+          </div>
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaName') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_name" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_name ? 'border-error' : 'border-outline-variant']" placeholder="aliangboard-smoke" @input="clearMintError('boundSA_name')" />
+            <p v-if="mintErrors.boundSA_name" data-testid="mint-error-boundSA_name" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
+          </div>
         </div>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.tier') }}</label>
           <select v-model="mintForm.tier" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">

@@ -2396,6 +2396,8 @@
       "updateFailed": "更新失败",
       "minted": "已签发(明文仅此次可见,请立即复制)",
       "mintFailed": "签发失败",
+      "mintMissingRequired": "请填写必填项:绑定集群 / SA namespace / SA name",
+      "requiredHint": "必填",
       "copyFailedManual": "复制失败,手动选中复制",
       "revokeConfirm": "吊销 API key {prefix}…(owner={owner})?吊销后该 key 立即失效。",
       "revoked": "已吊销",

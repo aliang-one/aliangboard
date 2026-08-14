@@ -2396,6 +2396,8 @@
       "updateFailed": "Failed to update",
       "minted": "Minted (plaintext visible only this time — copy now)",
       "mintFailed": "Failed to mint",
+      "mintMissingRequired": "Fill required fields: cluster / SA namespace / SA name",
+      "requiredHint": "Required",
       "copyFailedManual": "Failed to copy — select and copy manually",
       "revokeConfirm": "Revoke API key {prefix}… (owner={owner})? The key becomes invalid immediately.",
       "revoked": "Revoked",
