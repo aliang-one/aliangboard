@@ -976,13 +976,88 @@ async function handleDeploy() {
               </div>
             </div>
           </div>
+
+          <!-- 带二:运行配置 -->
+          <div class="border-t border-dashed border-outline-variant/60 bg-surface-container-low/30 p-md flex flex-col gap-md">
+            <!-- 端口 -->
+            <div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest p-md">
+              <div class="flex items-center gap-sm mb-sm text-primary">
+                <span class="material-symbols-outlined text-base">settings_ethernet</span>
+                <span class="text-body-sm font-semibold">{{ $t('deploy.containerPorts') }}</span>
+                <button @click="addPort" class="ml-auto flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                  <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addPort') }}
+                </button>
+              </div>
+              <!-- 端口行:搬运旧 v-for 行,原样 -->
+              <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center mb-sm">
+                <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
+                <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                  <option>TCP</option><option>UDP</option>
+                </select>
+                <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+              </div>
+            </div>
+
+            <!-- 环境变量 · 直填 -->
+            <div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest p-md">
+              <div class="flex items-center gap-sm mb-sm text-primary">
+                <span class="material-symbols-outlined text-base">code</span>
+                <span class="text-body-sm font-semibold">{{ $t('deploy.envDirectGroup') }}</span>
+                <button @click="addEnvVar" class="ml-auto flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+                  <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addVariable') }}
+                </button>
+              </div>
+              <div v-for="(env, idx) in form.envVars" :key="idx" class="flex gap-sm items-center mb-sm">
+                <input v-model="env.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
+                <input v-model="env.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
+                <button @click="removeEnvVar(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+              </div>
+            </div>
+
+            <!-- 环境引用 -->
+            <div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest p-md">
+              <div class="flex flex-wrap items-center gap-sm mb-sm text-primary">
+                <span class="material-symbols-outlined text-base">input</span>
+                <span class="text-body-sm font-semibold">{{ $t('deploy.envRefGroup') }}</span>
+                <span class="ml-auto flex gap-xs">
+                  <button @click="addEnvCMKey" class="flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromConfigMap') }}</button>
+                  <button @click="addEnvSecretKey" class="flex items-center gap-xs px-sm py-xs text-tertiary-container font-medium text-xs hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromSecret') }}</button>
+                </span>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-sm mb-xs">
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromConfigMap') }}</label>
+                  <EnvSourceField kind="configmap" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromConfigMap" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromSecret') }}</label>
+                  <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
+                </div>
+              </div>
+              <p class="text-xs text-on-surface-variant/80 mb-sm">{{ $t('deploy.envFromHint') }}</p>
+              <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center mb-sm">
+                <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+                <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
+                <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
+              </div>
+              <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center mb-sm">
+                <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
+                <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
+                <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 初始化 / 额外容器:左右并排 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-md mt-md">
           <!-- 初始容器 (Init) -->
-          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
-            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.initContainers') }}</h4>
+          <div :class="['rounded-lg p-md', form.initContainers.length ? 'border border-outline-variant bg-surface-container-low/30' : 'border border-dashed border-outline-variant']">
+            <div class="flex items-center gap-sm mb-xs text-primary">
+              <span class="material-symbols-outlined text-base">restart_alt</span>
+              <h4 class="text-body-sm font-semibold">{{ $t('deploy.initContainers') }}</h4>
+              <span class="px-sm py-xs rounded-full bg-primary-container/20 text-primary text-xs font-semibold">{{ form.initContainers.length }}</span>
+            </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
                 <div class="grid grid-cols-2 gap-sm mb-xs">
@@ -1008,8 +1083,12 @@ async function handleDeploy() {
           </div>
 
           <!-- 额外工作容器 (Sidecar) -->
-          <div class="rounded-lg border border-outline-variant p-md bg-surface-container-low/30">
-            <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.sidecarContainers') }}</h4>
+          <div :class="['rounded-lg p-md', form.extraContainers.length ? 'border border-outline-variant bg-surface-container-low/30' : 'border border-dashed border-outline-variant']">
+            <div class="flex items-center gap-sm mb-xs text-primary">
+              <span class="material-symbols-outlined text-base">widgets</span>
+              <h4 class="text-body-sm font-semibold">{{ $t('deploy.sidecarContainers') }}</h4>
+              <span class="px-sm py-xs rounded-full bg-primary-container/20 text-primary text-xs font-semibold">{{ form.extraContainers.length }}</span>
+            </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
                 <div class="grid grid-cols-2 gap-sm mb-xs">
@@ -1031,74 +1110,18 @@ async function handleDeploy() {
           </div>
         </div>
 
-        <!-- Container Ports -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.containerPorts') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center">
-            <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
-            <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option>TCP</option><option>UDP</option>
-            </select>
-            <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-          </div>
-          <button @click="addPort" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addPort') }}
-          </button>
-        </div>
-
-        <!-- Env Vars -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.environmentVariables') }}</h4>
-        <div class="flex flex-col gap-sm">
-          <div v-for="(env, idx) in form.envVars" :key="idx" class="flex gap-sm items-center">
-            <input v-model="env.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
-            <input v-model="env.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
-            <button @click="removeEnvVar(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-          </div>
-          <button @click="addEnvVar" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addVariable') }}
-          </button>
-        </div>
-
-        <!-- Env From -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.envFrom') }}</h4>
-        <div class="grid grid-cols-2 gap-sm mb-md">
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromConfigMap') }}</label>
-            <EnvSourceField kind="configmap" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromConfigMap" />
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromSecret') }}</label>
-            <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
-          </div>
-        </div>
-        <p class="text-xs text-on-surface-variant/80 -mt-sm mb-md">{{ $t('deploy.envFromHint') }}</p>
-
-        <!-- 单 Key 引用 -->
-        <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.singleKeyRef') }}</h4>
-        <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-            <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
-          </div>
-          <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center">
-            <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-            <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-            <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
-          </div>
-          <div class="flex gap-sm">
-            <button @click="addEnvCMKey" class="flex items-center gap-xs px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromConfigMap') }}</button>
-            <button @click="addEnvSecretKey" class="flex items-center gap-xs px-md py-xs text-tertiary-container font-medium text-xs hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromSecret') }}</button>
-          </div>
-        </div>
-
         <!-- 高级设置（默认折叠）-->
         <div class="mt-md border border-outline-variant rounded-xl overflow-hidden">
           <button type="button" @click="showAdvanced = !showAdvanced" class="w-full flex items-center justify-between px-md py-sm bg-surface-container-low hover:bg-surface-container transition-colors">
             <span class="flex items-center gap-sm text-body-sm font-semibold">
               <span class="material-symbols-outlined text-on-surface-variant text-base">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</span>
               {{ $t('deploy.advancedSettings') }}
-              <span class="text-xs text-on-surface-variant font-normal opacity-70">{{ $t('deploy.advancedHint') }}</span>
+              <span class="hidden md:flex gap-xs">
+                <span class="px-sm py-xs rounded-full border border-outline-variant text-xs text-on-surface-variant">{{ $t('deploy.serviceAccountLabel') }}</span>
+                <span class="px-sm py-xs rounded-full border border-outline-variant text-xs text-on-surface-variant">{{ $t('deploy.healthProbes') }}</span>
+                <span class="px-sm py-xs rounded-full border border-outline-variant text-xs text-on-surface-variant">{{ $t('deploy.securityContext') }}</span>
+                <span class="px-sm py-xs rounded-full border border-outline-variant text-xs text-on-surface-variant">{{ $t('deploy.lifecycleHooks') }}</span>
+              </span>
             </span>
             <span class="text-xs text-primary font-medium">{{ showAdvanced ? $t('deploy.collapse') : $t('deploy.expand') }}</span>
           </button>
