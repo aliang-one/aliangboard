@@ -15,6 +15,7 @@ import { notify } from '@/composables/useToast'
 import TagInput from '@/components/common/TagInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import ResourceInput from '@/components/common/ResourceInput.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import { useCopySeed } from '@/composables/useCopySeed'
@@ -293,11 +294,12 @@ function applyPreset(p) {
 }
 
 const quickTemplates = [
-  { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'presentation' },
-  { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'middleware' },
-  { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'persistence' },
-  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
-  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
+  { id: 'nginx', label: 'Nginx', icon: 'public', image: 'nginx:latest', port: 80, portName: 'http', cpuReq: '100m', cpuLim: '250m', memReq: '128Mi', memLim: '256Mi', tier: 'presentation' },
+  { id: 'redis', label: 'Redis', icon: 'bolt', image: 'redis:7-alpine', port: 6379, portName: 'redis', cpuReq: '100m', cpuLim: '500m', memReq: '128Mi', memLim: '512Mi', tier: 'middleware' },
+  // postgres 镜像必须提供 POSTGRES_PASSWORD 才能启动;模板预填占位密码,用户改掉即可
+  { id: 'postgres', label: 'PostgreSQL', icon: 'database', image: 'postgres:16', port: 5432, portName: 'postgres', cpuReq: '250m', cpuLim: '1000m', memReq: '256Mi', memLim: '1Gi', tier: 'persistence', env: [{ key: 'POSTGRES_PASSWORD', value: 'changeme' }] },
+  { id: 'nodejs', label: 'Node.js', icon: 'code', image: 'node:20-alpine', port: 3000, portName: 'http', cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
+  { id: 'python', label: 'Python', icon: 'terminal', image: 'python:3.12-slim', port: 8000, portName: 'http', cpuReq: '250m', cpuLim: '500m', memReq: '256Mi', memLim: '512Mi', tier: 'microservice-business' },
 ]
 function applyTemplate(t) {
   form.value.image = t.image
@@ -307,8 +309,9 @@ function applyTemplate(t) {
   form.value.cpuLimit = t.cpuLim
   form.value.memoryRequest = t.memReq
   form.value.memoryLimit = t.memLim
-  form.value.servicePorts = [{ name: 'http', port: String(t.port), targetPort: String(t.port), nodePort: '', protocol: 'TCP' }]
+  form.value.servicePorts = [{ name: t.portName || 'http', port: String(t.port), targetPort: String(t.port), nodePort: '', protocol: 'TCP' }]
   form.value.tier = t.tier
+  if (t.env) form.value.envVars = t.env.map(e => ({ key: e.key, value: e.value }))
   if (!form.value.labels.some(l => l.key === 'app')) {
     form.value.labels = [{ key: 'app', value: t.id }]
   }
@@ -938,10 +941,10 @@ async function handleDeploy() {
                   <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded-full border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><input v-model="form.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><input v-model="form.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><ResourceInput v-model="form.cpuRequest" kind="cpu" placeholder="250" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><ResourceInput v-model="form.cpuLimit" kind="cpu" placeholder="500" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><ResourceInput v-model="form.memoryRequest" kind="memory" placeholder="256" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><ResourceInput v-model="form.memoryLimit" kind="memory" placeholder="512" /></div>
                 </div>
               </div>
             </div>
@@ -1073,10 +1076,10 @@ async function handleDeploy() {
                   <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                  <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+                  <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+                  <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+                  <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
                 </div>
                 <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
@@ -1100,10 +1103,10 @@ async function handleDeploy() {
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <input v-model="c.cpuRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu req" />
-                  <input v-model="c.cpuLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="cpu limit" />
-                  <input v-model="c.memoryRequest" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem req" />
-                  <input v-model="c.memoryLimit" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs" placeholder="mem limit" />
+                  <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+                  <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+                  <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+                  <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
                 </div>
                 <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
