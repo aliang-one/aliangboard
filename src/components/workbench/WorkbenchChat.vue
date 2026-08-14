@@ -163,7 +163,17 @@ function activeAgentTurn() {
   const rev = [...turns.value].reverse()
   return rev.find(x => x.role === 'assistant' && x.status === 'thinking') ?? rev.find(x => x.role === 'assistant')
 }
-async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
+// 滚到真正可滚的容器:聊天区若未获得视口高度约束(h-full 链在 AppLayout transition 层断裂,
+// scrollEl 自动撑高永不溢出),滚动实际发生在页面级容器——向上找最近的溢出祖先滚它。
+function scrollableOf(el) {
+  let n = el
+  while (n && n !== document.body) {
+    if (n.scrollHeight > n.clientHeight + 1) return n
+    n = n.parentElement
+  }
+  return el
+}
+async function scrollToBottom() { await nextTick(); const el = scrollEl.value; if (!el) return; const target = scrollableOf(el); target.scrollTop = target.scrollHeight }
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
