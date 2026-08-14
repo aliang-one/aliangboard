@@ -79,6 +79,12 @@ export function createWorkbenchAgent(deps) {
         onDelta: text => busEmit(convId, { type: 'delta', text }),
         onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
+      // 用户已取消(cancelConversation 置 cancelled):丢弃 agent 结果——不覆盖状态、不追加历史
+      if (getConversation(db, convId)?.status === 'cancelled') {
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
       handleAgentResult(convId, project, out)
       finalizeConvEmit(convId, out)
     } catch (err) {
@@ -121,6 +127,12 @@ export function createWorkbenchAgent(deps) {
         onDelta: text => busEmit(convId, { type: 'delta', text }),
         onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
       })
+      // 同 runConversation:取消后丢弃结果
+      if (getConversation(db, convId)?.status === 'cancelled') {
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
       handleAgentResult(convId, project, out)
       finalizeConvEmit(convId, out)
     } catch (err) {
@@ -131,5 +143,19 @@ export function createWorkbenchAgent(deps) {
     }
   }
 
-  return { runConversation, resumeConversation }
+  // 用户主动停止运行中的对话(输错内容→停止→修改重发)。
+  // 标记 cancelled + SSE 通知终结;后台 LLM 调用无法中断,run/resume 落库前的
+  // cancelled 守卫会丢弃其结果(状态/历史不被覆盖)。
+  function cancelConversation(convId) {
+    const conv = getConversation(db, convId)
+    if (!conv) return { ok: false, message: '对话不存在' }
+    if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false, message: '对话不在运行中' }
+    updateConversation(db, convId, { status: 'cancelled', pendingApproval: null, error: '用户取消' })
+    busEmit(convId, { type: 'status', status: 'cancelled', error: '用户取消' })
+    busEmit(convId, { type: 'end' })
+    busDispose(convId)
+    return { ok: true }
+  }
+
+  return { runConversation, resumeConversation, cancelConversation }
 }

@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
     get: vi.fn(),
     approve: vi.fn(),
     deny: vi.fn(),
+    cancel: vi.fn(),
   },
   search: vi.fn(),
 }))
@@ -37,7 +38,7 @@ import WorkbenchChat from '../WorkbenchChat.vue'
 const i18n = createI18n({
   legacy: false,
   locale: 'zh',
-  messages: { zh: { workbench: { chat: { userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)' } } } },
+  messages: { zh: { workbench: { chat: { userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)', stop: '停止', stopped: '已停止' } } } },
 })
 
 async function mountChat(props = {}) {
@@ -233,4 +234,48 @@ test('multi-turn continue via SSE: delta/status update the LAST thinking turn, n
   } finally {
     vi.unstubAllGlobals()
   }
+})
+
+// IME 组合期回车不发送(中文输入法按住回车选词,曾直接把半句话发出去)
+test('IME composition Enter does not send; plain Enter does', async () => {
+  const w = await mountChat()
+  const ta = w.find('textarea')
+  await ta.setValue('半句话还在选词')
+  api.conversations.create.mockClear()
+  await ta.trigger('keydown', { key: 'Enter', isComposing: true, keyCode: 229 })
+  await flushPromises()
+  expect(api.conversations.create).not.toHaveBeenCalled()
+
+  api.conversations.create.mockResolvedValue({ id: 'c1', status: 'running' })
+  api.conversations.get.mockResolvedValue({ id: 'c1', status: 'done', content: 'ok', trace: '[]', steps: 0 })
+  await ta.trigger('keydown', { key: 'Enter', isComposing: false })
+  await flushPromises()
+  await flushPromises()
+  expect(api.conversations.create).toHaveBeenCalledTimes(1)
+})
+
+// 停止功能:运行中发送键变停止键;停止后 thinking turn 置停止态 + 输入回填最后 user 消息(修改重发)
+test('stop button cancels run, marks turn stopped, restores input for resend', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-x' })
+  api.conversations.append.mockResolvedValue({ status: 'running' })
+  // 持续 running(轮询不终结),停止键才有出现窗口
+  api.conversations.get.mockResolvedValue({ id: 'conv-x', status: 'running', messages: [{ role: 'user', content: '输错的消息' }], trace: '[]', steps: 0, recap: '' })
+  await w.find('textarea').setValue('输错的消息')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  // 运行中:停止按钮出现(红边 stop 图标)
+  const stopBtn = w.findAll('button').find(b => b.find('span').exists() && b.find('span').text() === 'stop')
+  expect(stopBtn, '停止按钮可见').toBeTruthy()
+  expect(w.find('textarea').attributes('disabled')).toBeUndefined()
+
+  api.conversations.cancel.mockResolvedValue({ status: 'cancelled' })
+  await stopBtn.trigger('click')
+  await flushPromises()
+  expect(api.conversations.cancel).toHaveBeenCalledWith('conv-x')
+  const html = w.html()
+  expect(html).toContain('已停止')
+  expect(html).not.toContain('思考中')
+  // 输入回填:textarea 恢复为最后一条 user 消息(修改后可重发)
+  expect(w.find('textarea').element.value).toBe('输错的消息')
+  expect(w.find('textarea').attributes('disabled')).toBeUndefined()
 })
