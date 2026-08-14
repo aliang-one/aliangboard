@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
 import { useNavMode } from '@/composables/useNavMode'
+import { getSession } from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,7 +13,9 @@ const store = useClusterStore()
 const authStore = useAuthStore()
 const { navMode, isNsMode, isClusterMode } = useNavMode()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
-const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+// 无 K8s session（首装 admin 在平台管理页）时不轮询 namespaces——拉了必 401
+const _nsEnabled = computed(() => !!getSession())
+const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000, enabled: _nsEnabled } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
 
 const showNsDropdown = ref(false)

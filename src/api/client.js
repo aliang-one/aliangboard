@@ -13,6 +13,13 @@ function redirectToLogin() {
   }
 }
 
+// 跳集群选择页（已在则不重复跳）。K8s 会话失效 ≠ 平台登出——平台登录还在，只需重选集群。
+function redirectToSelectCluster() {
+  if (typeof location !== 'undefined' && !location.pathname.startsWith('/select-cluster')) {
+    location.href = '/select-cluster'
+  }
+}
+
 export function getSessionToken() {
   return sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey) || ''
 }
@@ -47,15 +54,23 @@ export function clearPlatformToken() {
 // === 两个 HTTP 实例：k8s 会话层 + 平台认证层 ===
 // 收敛原先 4 份重复的 fetch 实现（request / platformRequest / k8sStream 内 / podFileApi.download）。
 // 401 处理：登录接口自身（/api/session、/api/auth/login）的 401 = 凭据错误，交调用方提示，不清凭据不跳转；
-// 其余 401 = 会话过期 → 清对应凭据 + 跳登录。
+// 其余 401 = 会话过期 → 清对应凭据（K8s 层失效只清到「重选集群」，平台层失效才回登录页）。
 const k8sHttp = createHttp({
   baseUrl,
   resolveAuth: () => {
     const t = getSessionToken()
     return t ? { authorization: `Bearer ${t}` } : {}
   },
+  // K8s 层 401 分两种（分层鉴权，勿与平台登出混淆）：
+  // - 请求时就没带 K8s token = 未连接集群（预期状态，典型：首装 admin 进集群管理页，
+  //   AppLayout/TopNavBar 仍发 k8s 请求）→ 不清凭据不跳转，错误交调用方按需提示。
+  //   曾误走 clearSession + 跳 /login → 守卫见平台 token 有效又弹回 /select-cluster → 死循环。
+  // - 带了 token 被拒 = K8s 会话过期/失效 → 清 K8s session；平台登录仍在 → 跳集群选择页重连。
   onUnauthorized: (path) => {
-    if (!path.startsWith('/api/session')) { clearSession(); redirectToLogin() }
+    if (path.startsWith('/api/session')) return
+    if (!getSessionToken()) return
+    clearSession()
+    redirectToSelectCluster()
   },
 })
 

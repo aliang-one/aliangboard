@@ -5,7 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
-import { api, clearSession } from '@/api/client'
+import { api, clearSession, getSession } from '@/api/client'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -26,7 +26,9 @@ const configmapsQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetch
 const secretsQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: false, enabled: searchEnabled } })
 const pvcsQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: false, enabled: searchEnabled } })
 // namespaces 常驻 Query（选择器需要，非搜索惰性）— 替代 hydrateCriticalResources 的 namespaces 拉取
-const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
+// 无 K8s session（首装 admin 在平台管理页）时不轮询——拉了必 401，纯属噪音
+const nsEnabled = computed(() => !!getSession())
+const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000, enabled: nsEnabled } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
 
 // 刷新当前页：重拉集群核心资源（列表型页面）+ 重新挂载当前视图（详情页 onMounted 定点拉取）

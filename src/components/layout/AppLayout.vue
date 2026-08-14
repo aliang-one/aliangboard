@@ -6,6 +6,7 @@ import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { getSession } from '@/api/client'
 
 // 终端窗口懒加载：xterm + addons（~400KB）仅在 allTerminals 非空（用户开了终端）时才加载，
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
@@ -22,9 +23,14 @@ let timer = null
 function tick() { lastUpdated.value = new Date().toLocaleTimeString() }
 onMounted(() => {
   tick(); timer = setInterval(tick, 1000)
-  termStore.loadPersisted() // 恢复持久化的终端会话（刷新不掉线）
-  // 进入主界面后后台水合集群资源（不阻塞页面渲染，用户先看到框架再逐步加载）
-  store.hydrateCriticalResources({ silent: true }).catch(() => {})
+  // 恢复持久化的终端会话（刷新不掉线）+ 后台水合集群资源（不阻塞页面渲染）。
+  // 两者都是 K8s 会话层请求：无 K8s session 时跳过（首装 admin 在 /admin/clusters 等平台
+  // 管理页），拉了必 401（hydrate 还会弹「节点拉取失败」噪音）；连上集群后 AppLayout
+  // 会整页重挂载再补上
+  if (getSession()) {
+    termStore.loadPersisted()
+    store.hydrateCriticalResources({ silent: true }).catch(() => {})
+  }
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
