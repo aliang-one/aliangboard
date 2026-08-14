@@ -72,3 +72,21 @@ test('cluster mode: Header 为静态、无 cluster-home', () => {
   const w = mountSideNavBar()
   expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
 })
+
+test('ns mode: cluster-home 在底部 + 顶部无集群头', () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  const w = mountSideNavBar()
+  // 返回链接迁到底部区
+  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(true)
+  // ns 态顶部不再有集群头品牌块
+  expect(w.find('[data-test="cluster-brand"]').exists()).toBe(false)
+})
+
+test('cluster mode: 顶部有 cluster-brand + 底部无返回链接', () => {
+  routeRef.meta.scope = 'global'
+  routeRef.path = '/cluster'
+  const w = mountSideNavBar()
+  expect(w.find('[data-test="cluster-brand"]').exists()).toBe(true)
+  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(false)
+})

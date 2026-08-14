@@ -321,7 +321,6 @@
     "refreshPageData": "Refresh current page data",
     "activityLog": "Activity Log",
     "logout": "Logout",
-    "backToCluster": "Back to cluster",
     "enterNamespace": "Enter namespace"
   },
   "layout": {

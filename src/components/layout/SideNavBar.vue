@@ -10,7 +10,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
-const { isNsMode, isClusterMode } = useNavMode()
+const { navMode, isNsMode, isClusterMode } = useNavMode()
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
@@ -188,25 +188,8 @@ function nsStatusColor(status) {
 
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
-    <!-- Cluster Header:命名空间态=返回集群管理入口;集群态=静态展示 -->
-    <button
-      v-if="isNsMode"
-      data-test="cluster-home"
-      @click="router.push('/cluster')"
-      :title="$t('nav.backToCluster')"
-      :aria-label="$t('nav.backToCluster')"
-      class="w-full flex items-center gap-sm p-md px-lg shrink-0 hover:bg-surface-container transition-colors text-left"
-    >
-      <span class="material-symbols-outlined text-on-surface-variant">chevron_left</span>
-      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
-        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
-      </div>
-      <div class="min-w-0">
-        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
-        <p class="text-body-sm text-on-surface-variant">{{ $t('nav.backToCluster') }}</p>
-      </div>
-    </button>
-    <div v-else class="flex items-center gap-md p-md px-lg shrink-0">
+    <!-- Cluster Header:仅集群态展示(ns 态顶部让给 ns,返回走底部链接) -->
+    <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md p-md px-lg shrink-0">
       <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
         <span class="material-symbols-outlined text-lg filled">kubernetes</span>
       </div>
@@ -278,60 +261,64 @@ function nsStatusColor(status) {
     </div>
 
     <!-- Scrollable Navigation -->
-    <nav class="flex-1 overflow-y-auto px-md pb-md">
-      <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
-      <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
-        <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
-        <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
-          <div class="flex items-center gap-xs px-md pt-sm pb-xs">
-            <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
-            <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.labelKey ? $t(group.labelKey) : group.label }}</p>
+    <nav class="relative flex-1 overflow-y-auto px-md pb-md">
+      <Transition name="nav-drill">
+        <div :key="navMode">
+          <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
+          <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
+            <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
+            <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
+              <div class="flex items-center gap-xs px-md pt-sm pb-xs">
+                <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
+                <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.labelKey ? $t(group.labelKey) : group.label }}</p>
+              </div>
+              <a
+                v-for="item in group.items"
+                :key="item.routeKey"
+                @click="goNsRoute(item.routeKey)"
+                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200 ml-sm"
+                :class="isNsRouteActive(item.routeKey)
+                  ? 'bg-primary-container text-on-primary-container font-semibold'
+                  : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
+              >
+                <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+              </a>
+            </div>
           </div>
-          <a
-            v-for="item in group.items"
-            :key="item.routeKey"
-            @click="goNsRoute(item.routeKey)"
-            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200 ml-sm"
-            :class="isNsRouteActive(item.routeKey)
-              ? 'bg-primary-container text-on-primary-container font-semibold'
-              : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
-          >
-            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
-          </a>
-        </div>
-      </div>
 
-      <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
-      <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
-        <button @click="clusterNavOpen = !clusterNavOpen"
-          class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
-          <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
-          <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
-        </button>
-        <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
-          <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
-            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
-            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
-          </a>
-          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.clusterResources') }}</p>
-          <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
-            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
-            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
-          </a>
-          <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.multiCluster') }}</p>
-          <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
-            class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
-            :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-            <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-            <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
-          </a>
+          <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
+          <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
+            <button @click="clusterNavOpen = !clusterNavOpen"
+              class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
+              <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
+              <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
+            </button>
+            <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
+              <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
+                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+                <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+              </a>
+              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.clusterResources') }}</p>
+              <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
+                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+                <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+              </a>
+              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.multiCluster') }}</p>
+              <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
+                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+                <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
+      </Transition>
 
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
@@ -346,7 +333,7 @@ function nsStatusColor(status) {
     </nav>
 
     <!-- Bottom Actions -->
-    <div class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
+    <div data-test="bottom-actions" class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
       <button
         v-if="isNsMode"
         @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
@@ -377,8 +364,34 @@ function nsStatusColor(status) {
           <span class="material-symbols-outlined text-lg">settings</span>
         </a>
       </div>
+      <!-- 返回上层(仅 ns 态):安静链接,非响亮按钮 -->
+      <a
+        v-if="isNsMode"
+        data-test="cluster-home"
+        @click="router.push('/cluster')"
+        :title="$t('nav.clusterOverview')"
+        :aria-label="$t('nav.clusterOverview')"
+        class="mt-sm -mb-xs flex items-center gap-xs px-sm py-sm rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors cursor-pointer text-body-sm"
+      >
+        <span class="material-symbols-outlined text-base">arrow_back</span>
+        <span>{{ $t('nav.clusterOverview') }}</span>
+      </a>
     </div>
   </aside>
   <!-- Click-outside overlay -->
   <div v-if="showNsDropdown" class="fixed inset-0 z-30" @click="closeDropdown"></div>
 </template>
+
+<style scoped>
+.nav-drill-enter-from,
+.nav-drill-leave-to { opacity: 0; transform: translateY(8px); }
+.nav-drill-enter-active,
+.nav-drill-leave-active {
+  transition: opacity .24s cubic-bezier(.2,.7,.3,1), transform .24s cubic-bezier(.2,.7,.3,1);
+}
+.nav-drill-leave-active { position: absolute; left: 0; right: 0; top: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .nav-drill-enter-active,
+  .nav-drill-leave-active { transition: none; }
+}
+</style>
