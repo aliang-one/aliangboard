@@ -14,10 +14,14 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 async function handleLogin() {
-  loading.value = true
   errorMessage.value = ''
+  // 客户端必填拦截(服务端 400 只有 toast 语义,这里直接用行内提示)
+  const username = form.value.username.trim()
+  const password = form.value.password
+  if (!username || !password) { errorMessage.value = t('login.missingRequired'); return }
+  loading.value = true
   try {
-    await authStore.login(form.value.username, form.value.password)
+    await authStore.login(username, password)
     // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
     const auto = await authStore.tryAutoConnect()
     if (auto) {

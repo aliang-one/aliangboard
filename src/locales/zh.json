@@ -43,7 +43,8 @@
     "copySuccess": "已复制",
     "copyFailed": "复制失败",
     "applyFailed": "应用失败",
-    "applying": "应用中…"
+    "applying": "应用中…",
+    "requiredHint": "必填"
   },
   "api": {
     "requestFailed": "请求失败：HTTP {status}",
@@ -349,7 +350,8 @@
     "password": "密码",
     "submit": "登录",
     "loggingIn": "登录中…",
-    "loginFailed": "登录失败"
+    "loginFailed": "登录失败",
+    "missingRequired": "请输入用户名和密码"
   },
   "cluster": {
     "title": "Cluster Overview",
@@ -2327,6 +2329,7 @@
       "loadFailed": "加载失败",
       "added": "已添加集群 {name}",
       "addFailed": "添加失败（凭据无效或无法连接）",
+      "missingRequired": "请填写必填项（集群名称与凭据）",
       "deleteConfirm": "删除集群 {name}？所有分配给该集群的用户将失去访问。",
       "deleted": "已删除",
       "deleteFailed": "删除失败"
@@ -2399,6 +2402,7 @@
       "mintMissingRequired": "请填写必填项:绑定集群 / SA namespace / SA name",
       "requiredHint": "必填",
       "copyFailedManual": "复制失败,手动选中复制",
+      "noClustersHint": "暂无可用集群——请先在「集群管理」中添加",
       "revokeConfirm": "吊销 API key {prefix}…(owner={owner})?吊销后该 key 立即失效。",
       "revoked": "已吊销",
       "revokeFailed": "吊销失败"
@@ -2423,6 +2427,7 @@
       "roleAdmin": "管理员",
       "assignClustersTitle": "分配集群 — {name}",
       "noClustersToAssign": "暂无可分配的集群（请先在「集群管理」中添加）",
+      "missingRequired": "请填写必填项（用户名与密码）",
       "saveAssignment": "保存分配",
       "resetPasswordTitle": "重置密码 — {name}",
       "newPassword": "新密码",

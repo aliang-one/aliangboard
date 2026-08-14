@@ -43,7 +43,8 @@
     "copySuccess": "Copied",
     "copyFailed": "Failed to copy",
     "applyFailed": "Apply failed",
-    "applying": "Applying…"
+    "applying": "Applying…",
+    "requiredHint": "Required"
   },
   "api": {
     "requestFailed": "Request failed: HTTP {status}",
@@ -349,7 +350,8 @@
     "password": "Password",
     "submit": "Login",
     "loggingIn": "Logging in…",
-    "loginFailed": "Login failed"
+    "loginFailed": "Login failed",
+    "missingRequired": "Enter username and password"
   },
   "cluster": {
     "title": "Cluster Overview",
@@ -2327,6 +2329,7 @@
       "loadFailed": "Failed to load",
       "added": "Cluster {name} added",
       "addFailed": "Failed to add (invalid credentials or unreachable)",
+      "missingRequired": "Fill required fields (cluster name and credentials)",
       "deleteConfirm": "Delete cluster {name}? All users assigned to this cluster will lose access.",
       "deleted": "Deleted",
       "deleteFailed": "Failed to delete"
@@ -2399,6 +2402,7 @@
       "mintMissingRequired": "Fill required fields: cluster / SA namespace / SA name",
       "requiredHint": "Required",
       "copyFailedManual": "Failed to copy — select and copy manually",
+      "noClustersHint": "No clusters available — add one in Cluster Management first",
       "revokeConfirm": "Revoke API key {prefix}… (owner={owner})? The key becomes invalid immediately.",
       "revoked": "Revoked",
       "revokeFailed": "Failed to revoke"
@@ -2423,6 +2427,7 @@
       "roleAdmin": "Admin",
       "assignClustersTitle": "Assign Clusters — {name}",
       "noClustersToAssign": "No clusters available to assign (add them in \"Cluster Management\" first)",
+      "missingRequired": "Fill required fields (username and password)",
       "saveAssignment": "Save Assignment",
       "resetPasswordTitle": "Reset Password — {name}",
       "newPassword": "New password",

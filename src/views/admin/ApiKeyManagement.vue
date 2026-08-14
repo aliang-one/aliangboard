@@ -189,6 +189,10 @@ async function doRevoke(k) {
             <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }} ({{ c.apiServer }})</option>
           </select>
           <p v-if="mintErrors.clusterId" data-testid="mint-error-clusterId" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
+          <!-- 空集群显式提示:否则下拉永远选不了,用户无从下手 -->
+          <p v-if="!clusters.length && !loading" class="text-body-xs text-on-surface-variant mt-xs flex items-center gap-xs">
+            <span class="material-symbols-outlined text-sm">info</span>{{ $t('admin.apiKeys.noClustersHint') }}
+          </p>
         </div>
         <div class="grid grid-cols-2 gap-sm">
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaNamespace') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_namespace" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_namespace ? 'border-error' : 'border-outline-variant']" placeholder="default" @input="clearMintError('boundSA_namespace')" />

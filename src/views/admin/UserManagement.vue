@@ -7,6 +7,7 @@ import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import { useRequiredFields } from '@/composables/useRequiredFields'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -20,6 +21,8 @@ const targetUser = ref(null)
 const createForm = ref({ username: '', password: '', role: 'user', displayName: '' })
 const resetForm = ref({ newPassword: '' })
 const assignClusterIds = ref([])
+const { errors: createErrors, validate: validateCreate, clear: clearCreateError, reset: resetCreateErrors } = useRequiredFields()
+const { errors: resetErrors, validate: validateReset, clear: clearResetError, reset: resetResetErrors } = useRequiredFields()
 
 async function load() {
   loading.value = true
@@ -33,11 +36,13 @@ async function load() {
 onMounted(load)
 
 async function doCreate() {
+  if (!validateCreate(createForm.value, ['username', 'password'])) { notify('error', t('admin.users.missingRequired')); return }
   try {
-    await adminApi.users.create(createForm.value)
-    notify('success', t('admin.users.created', { name: createForm.value.username }))
+    await adminApi.users.create({ ...createForm.value, username: createForm.value.username.trim(), displayName: createForm.value.displayName.trim() })
+    notify('success', t('admin.users.created', { name: createForm.value.username.trim() }))
     showCreateModal.value = false
     createForm.value = { username: '', password: '', role: 'user', displayName: '' }
+    resetCreateErrors()
     load()
   } catch (e) { notify('error', e.message || t('common.createFailed')) }
 }
@@ -55,8 +60,9 @@ async function doAssign() {
   try { await adminApi.users.assignClusters(targetUser.value.id, assignClusterIds.value); notify('success', t('admin.users.assignUpdated')); showAssignModal.value = false; load() }
   catch (e) { notify('error', e.message || t('admin.users.assignFailed')) }
 }
-function openReset(u) { targetUser.value = u; resetForm.value = { newPassword: '' }; showResetModal.value = true }
+function openReset(u) { targetUser.value = u; resetForm.value = { newPassword: '' }; resetResetErrors(); showResetModal.value = true }
 async function doReset() {
+  if (!validateReset(resetForm.value, ['newPassword'])) { notify('error', t('admin.users.missingRequired')); return }
   try { await adminApi.users.resetPassword(targetUser.value.id, resetForm.value.newPassword); notify('success', t('admin.users.passwordReset')); showResetModal.value = false }
   catch (e) { notify('error', e.message || t('admin.users.resetFailed')) }
 }
@@ -95,8 +101,12 @@ const headers = computed(() => tableColumns('userMgmt'))
     <!-- 创建用户 Modal -->
     <Modal v-model="showCreateModal" :title="$t('admin.users.addUser')" width="max-w-md">
       <div class="flex flex-col gap-md">
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.users.colUsername') }}</label><input v-model="createForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.users.password') }}</label><input v-model="createForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.users.colUsername') }} <span class="text-error">*</span></label><input v-model="createForm.username" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', createErrors.username ? 'border-error' : 'border-outline-variant']" @input="clearCreateError('username')" />
+          <p v-if="createErrors.username" data-testid="form-error-username" class="text-body-xs text-error mt-xs">{{ $t('common.requiredHint') }}</p>
+        </div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.users.password') }} <span class="text-error">*</span></label><input v-model="createForm.password" type="password" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm', createErrors.password ? 'border-error' : 'border-outline-variant']" @input="clearCreateError('password')" />
+          <p v-if="createErrors.password" data-testid="form-error-password" class="text-body-xs text-error mt-xs">{{ $t('common.requiredHint') }}</p>
+        </div>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.users.displayNameOptional') }}</label><input v-model="createForm.displayName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('common.role') }}</label>
           <div class="flex gap-xs">
@@ -129,7 +139,8 @@ const headers = computed(() => tableColumns('userMgmt'))
 
     <!-- 重置密码 Modal -->
     <Modal v-model="showResetModal" :title="$t('admin.users.resetPasswordTitle', { name: targetUser?.username || '' })" width="max-w-sm">
-      <input v-model="resetForm.newPassword" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm" :placeholder="$t('admin.users.newPassword')" />
+      <input v-model="resetForm.newPassword" type="password" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm', resetErrors.newPassword ? 'border-error' : 'border-outline-variant']" :placeholder="$t('admin.users.newPassword')" @input="clearResetError('newPassword')" />
+      <p v-if="resetErrors.newPassword" data-testid="form-error-newPassword" class="text-body-xs text-error mt-xs">{{ $t('common.requiredHint') }}</p>
       <template #actions>
         <button @click="showResetModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
         <button @click="doReset" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('admin.users.reset') }}</button>
