@@ -154,6 +154,15 @@ function refIcon(kind) {
 }
 
 function updateTurn(tid, patch) { const t = turns.value.find(x => x._id === tid); if (t) Object.assign(t, patch) }
+
+// 当前活动 agent turn:多轮对话必须取【最后一个】thinking(本轮占位)——取首个会把
+// delta/status/trace 写到历史 turn 上、新 turn 永久 spinner("思考中…"卡到刷新才见结果)。
+// 轮询路径曾修过(Finding #1);SSE 路径 2026-08-14 修(同款 bug,此前测试环境无
+// EventSource 全走轮询,从未暴露)。无 thinking(已终态后的迟到事件)兜底最后一个 assistant。
+function activeAgentTurn() {
+  const rev = [...turns.value].reverse()
+  return rev.find(x => x.role === 'assistant' && x.status === 'thinking') ?? rev.find(x => x.role === 'assistant')
+}
 async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
 
 // --- 异步轮询 ---
@@ -228,14 +237,12 @@ async function pollOnce(id) {
       }
     }
     // 从 messages 重建时,turns 已是终态(done/failed 不需再改,各 turn 自带 per-message content);
-    // running/paused 需操作末尾的 thinking turn(刚补的)。
-    // 非重建(send/续接路径,turns 由 send() 填充):多轮续接时 turns 已含历史 done assistant,
-    // 必须取最后一个 thinking assistant(running/paused 刚补的占位),否则取首个会把旧 turn 覆盖、
-    // 新 thinking turn 卡死(永久 spinner + 答案重复)。无 thinking 则回退最后一个 assistant。
+    // running/paused 需操作末尾的 thinking turn(刚补的)。重建分支不做 last-assistant 兜底
+    // (rebuilt turns 全终态,误兜底会把 done 覆盖成 running 语义)。
+    // 非重建(send/续接路径)与 SSE onmessage 共用 activeAgentTurn()(见其注释)。
     const agentTurn = rebuiltFromMessages
       ? [...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
-      : ([...turns.value].reverse().find(x => x.role === 'assistant' && x.status === 'thinking')
-        ?? [...turns.value].reverse().find(x => x.role === 'assistant'))
+      : activeAgentTurn()
     // 更新 trace(running/paused 时的 live trace;done+rebuilt 时各 turn 已自带 trace,不覆盖)
     if (agentTurn) {
       let trace = []
@@ -273,7 +280,9 @@ async function pollOnce(id) {
 function stopStreaming() { if (es) { es.close(); es = null } }
 
 function agentTurnDoneOrFinal() {
-  const at = turns.value.find(x => x.role === 'assistant')
+  // 同款 first-match 陷阱:取首个 assistant(历史 done)会把续接中的对话误判"已终态"
+  // → SSE 断线时不降级轮询(es.onerror 早退)→ 本轮 thinking 卡死。
+  const at = activeAgentTurn()
   if (!at) return true
   return at.status === 'done' || at.status === 'error' || at.status === 'pending_approval'
 }
@@ -294,7 +303,7 @@ function startStreaming(id) {
   es.onmessage = (ev) => {
     let evt
     try { evt = JSON.parse(ev.data) } catch { return }
-    const agentTurn = turns.value.find(x => x.role === 'assistant')
+    const agentTurn = activeAgentTurn()
     if (!agentTurn) return
     // 归约事件 → 新状态快照
     const next = applyStreamEvent({
