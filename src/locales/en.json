@@ -3192,7 +3192,35 @@
     "annIssuer": "cert-manager namespace issuer",
     "annAcmeHttp01": "ACME HTTP01 edit-in-place (true/false)",
     "annTraefikEntrypoints": "Traefik entrypoints",
-    "annTraefikMiddlewares": "Traefik middleware chain"
+    "annTraefikMiddlewares": "Traefik middleware chain",
+    "hpx": {
+      "groupTimeout": "Timeouts",
+      "timeoutConnect": "Connect timeout",
+      "timeoutServer": "Server timeout",
+      "timeoutHttpRequest": "HTTP request timeout",
+      "timeoutQueue": "Queue timeout",
+      "groupConn": "Connections & balancing",
+      "maxconnServer": "Max connections per server",
+      "balanceAlgorithm": "Balance algorithm",
+      "groupSecurity": "Security",
+      "sslRedirect": "SSL redirect",
+      "hsts": "Enable HSTS"
+    },
+    "tf": {
+      "groupRouting": "Routing options",
+      "entrypoints": "Entrypoints",
+      "middlewares": "Middlewares",
+      "tls": "Enable TLS"
+    },
+    "kong": {
+      "groupRouting": "Routing options",
+      "stripPath": "Strip path",
+      "regexPriority": "Regex priority",
+      "methods": "HTTP methods"
+    },
+    "hintTraefik": "Traefik performance tuning lives in the controller's static config (entryPoints/timeouts), not Ingress annotations; only its per-Ingress routing annotations are shown",
+    "hintKong": "Kong advanced features (rate limiting/auth) use KongPlugin CRDs, not Ingress annotations; only common routing annotations are shown",
+    "hintGeneric": "Unrecognized IngressClass: tuning templates hidden — use custom annotations below"
   },
   "workloads": {
     "restartSuccess": "Workload {name} restarted",

@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
-import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
@@ -139,6 +139,10 @@ function makeForm() {
   }
 }
 const form = ref(makeForm())
+
+// Ingress 方言:按 className 自动探测;切换方言清空旧 adv 值(键对新方言无意义)
+const ingressDialect = computed(() => detectDialect(form.value.ingressClassName))
+watch(ingressDialect, () => { form.value.ingressAdv = {} })
 
 // 复制 workload:若有 seed(来自 CopyWorkloadDialog),用源数据初始化表单
 const { consumeSeed } = useCopySeed()
@@ -619,7 +623,7 @@ kind: Ingress
 metadata:
   name: ${f.name}-ingress
   namespace: ${f.namespace}`
-    const ingressAnn = buildIngressAnnotations(f.ingressAdv, f.ingressCustomAnnotations)
+    const ingressAnn = buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations)
     if (Object.keys(ingressAnn).length) {
       yaml += '\n  annotations:'
       for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: ${yamlScalar(v)}`
@@ -1359,7 +1363,7 @@ async function handleDeploy() {
             <!-- ingressClassName -->
             <div class="mb-xs">
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressClass') }}</label>
-              <select v-model="form.ingressClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+              <select v-model="form.ingressClassName" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option value="">{{ $t('deploy.ingressClassDefaultOption') }}</option>
                 <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('deploy.ingressClassDefault') : '' }}</option>
               </select>
@@ -1403,13 +1407,14 @@ async function handleDeploy() {
             </p>
 
             <!-- 网关性能调优（nginx 注解，留空=默认）-->
-            <details class="mt-sm border border-outline-variant rounded-lg p-md bg-surface-container-low">
+            <details class="mt-sm border border-outline-variant rounded-lg p-md bg-surface-container-low" data-testid="gateway-perf">
               <summary class="cursor-pointer text-xs font-semibold text-on-surface flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-base">tune</span> {{ $t('deploy.gatewayPerfTuning') }}
               </summary>
               <p class="text-xs text-on-surface-variant mt-sm mb-xs">{{ $t('deploy.gatewayPerfHint') }}</p>
+              <p v-if="dialectHint(ingressDialect)" class="text-xs text-on-surface-variant mt-sm mb-xs">{{ $t(dialectHint(ingressDialect)) }}</p>
               <div class="flex flex-col gap-sm">
-                <div v-for="g in PERF_GROUPS" :key="g.titleKey" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
+                <div v-for="g in dialectGroups(ingressDialect)" :key="g.titleKey" class="border border-outline-variant rounded-lg p-sm bg-surface-container-lowest">
                   <div class="flex items-center gap-sm mb-sm">
                     <span class="material-symbols-outlined text-primary text-base">{{ g.icon }}</span>
                     <h4 class="text-xs font-semibold text-on-surface">{{ $t(g.titleKey) }}</h4>

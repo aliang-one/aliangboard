@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -13,7 +13,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import { usePagination } from '@/composables/usePagination'
-import { PERF_GROUPS, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +90,10 @@ const adv = ref({})
 // 自定义 annotations（键值对，兼容任意控制器）
 const customAnnotations = ref([])
 
+// Ingress 方言:按 className 自动探测;切换方言清空旧 adv 值(键对新方言无意义)
+const createDialect = computed(() => detectDialect(createForm.value.className))
+watch(createDialect, () => { adv.value = {} })
+
 
 function resetCreate() {
   createForm.value = { name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80', enableTLS: true, tlsSecret: '', className: '' }
@@ -113,7 +117,7 @@ async function handleCreate() {
     tlsSecret: f.enableTLS ? (f.tlsSecret || f.name + '-tls') : '',
     age: 'Just now',
     className: f.className,
-    annotations: buildIngressAnnotations(adv.value, customAnnotations.value),
+    annotations: buildIngressAnnotations(createDialect.value, adv.value, customAnnotations.value),
     rules: [{
       host: f.host,
       http: {
@@ -227,10 +231,20 @@ async function handleDelete() {
   <Modal v-model="showCreateModal" :title="t('ns.ingress.createTitle')" width="max-w-3xl">
     <!-- 标签栏 -->
     <div class="flex gap-xs border-b border-outline-variant mb-md">
-      <button v-for="t in [{k:'basic',l:t('ns.ingress.tabBasic')},{k:'perf',l:t('ns.ingress.tabPerf')},{k:'extra',l:t('ns.ingress.tabExtra')}]" :key="t.k" @click="createTab = t.k"
+      <button @click="createTab = 'basic'"
         class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
-        :class="createTab === t.k ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
-        {{ t.l }}
+        :class="createTab === 'basic' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
+        {{ t('ns.ingress.tabBasic') }}
+      </button>
+      <button v-if="dialectGroups(createDialect).some(g => g.tab === 'perf')" @click="createTab = 'perf'"
+        class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
+        :class="createTab === 'perf' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
+        {{ t('ns.ingress.tabPerf') }}
+      </button>
+      <button v-if="dialectGroups(createDialect).some(g => g.tab === 'extra')" @click="createTab = 'extra'"
+        class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
+        :class="createTab === 'extra' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
+        {{ t('ns.ingress.tabExtra') }}
       </button>
     </div>
 
@@ -243,7 +257,7 @@ async function handleDelete() {
         </div>
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.classLabel') }}</label>
-          <select v-model="createForm.className" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
+          <select v-model="createForm.className" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option value="">{{ t('ns.ingress.classDefaultOption') }}</option>
             <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? t('ns.ingress.defaultClass') : '' }}</option>
           </select>
@@ -286,9 +300,10 @@ async function handleDelete() {
     </div>
 
     <!-- 性能调优 / 安全与其它：参数分组 -->
-    <div v-else class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm">
+    <div v-else data-testid="perf-panel" class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm">
       <p class="text-xs text-on-surface-variant">{{ t('ns.ingress.perfHint') }}</p>
-      <div v-for="g in PERF_GROUPS.filter(x => x.tab === createTab)" :key="g.titleKey" class="border border-outline-variant rounded-lg p-md">
+      <p v-if="dialectHint(createDialect)" class="text-xs text-on-surface-variant">{{ t(dialectHint(createDialect)) }}</p>
+      <div v-for="g in dialectGroups(createDialect).filter(x => x.tab === createTab)" :key="g.titleKey" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center gap-sm mb-sm">
           <span class="material-symbols-outlined text-primary text-lg">{{ g.icon }}</span>
           <h4 class="text-body-sm font-semibold text-on-surface">{{ t(g.titleKey) }}</h4>
@@ -322,7 +337,7 @@ async function handleDelete() {
 
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button @click="handleCreate" :disabled="!createForm.name || !createForm.host || !createForm.serviceName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
+      <button @click="handleCreate" data-testid="create-ingress-btn" :disabled="!createForm.name || !createForm.host || !createForm.serviceName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 

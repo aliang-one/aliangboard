@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { classifyResource, groupByLayer } from '../src/composables/useLayering.js'
-import { buildIngressAnnotations } from '../src/composables/useIngressPerf.js'
+import { buildIngressAnnotations, detectDialect, dialectGroups, dialectHint, INGRESS_DIALECTS, PERF_GROUPS } from '../src/composables/useIngressPerf.js'
 import { yamlScalar, dumpResourceYaml } from '../src/composables/useYaml.js'
 import { load } from 'js-yaml'
 import { shortenRuntime, normalizeTaints, extractNodeExtra } from '../src/composables/useNodeFields.js'
@@ -142,6 +142,7 @@ test('应用分层 groupByLayer：microservice 展开为子层、空层被过滤
 // --- Ingress 创建：性能参数 → nginx 注解（直接测共享 buildIngressAnnotations）---
 test('Ingress 性能参数注解：非空写入 nginx.ingress.kubernetes.io/*、空值忽略、自定义合并', () => {
   const ann = buildIngressAnnotations(
+    'nginx',
     { 'proxy-read-timeout': '60', 'limit-rps': '   ', 'load-balance': 'least_conn' },
     [{ key: 'nginx.ingress.kubernetes.io/rewrite-target', value: '/$1' }, { key: '', value: 'x' }]
   )
@@ -157,6 +158,7 @@ test('Ingress 性能参数注解：非空写入 nginx.ingress.kubernetes.io/*、
 // 导致 generateYAML('ingress') / DeployApp 向导生成的 Ingress apply 失败。
 test('Ingress 注解 YAML 转义：多行 / 反斜杠 / 双引号经 yamlScalar 后 js-yaml 完整往返；空值自定义跳过', () => {
   const ann = buildIngressAnnotations(
+    'nginx',
     { 'server-snippet': '# line one\nproxy_read_timeout 300;\n# regex \\d and "quote"' },
     [{ key: 'custom.example/plain', value: 'plain' }, { key: 'custom.example/empty', value: '' }]
   )
@@ -172,6 +174,45 @@ ${annYaml}`
   const out = load(doc).metadata.annotations
   assert.equal(out['nginx.ingress.kubernetes.io/server-snippet'], '# line one\nproxy_read_timeout 300;\n# regex \\d and "quote"')
   assert.equal(out['custom.example/plain'], 'plain')
+})
+
+// --- 调优方言:detectDialect 用例表 ---
+test('detectDialect: 类名子串识别,未知/空 → generic', () => {
+  assert.equal(detectDialect('nginx'), 'nginx')
+  assert.equal(detectDialect('ingress-nginx'), 'nginx')
+  assert.equal(detectDialect('Traefik'), 'traefik')   // 大小写不敏感
+  assert.equal(detectDialect('my-haproxy'), 'haproxy')
+  assert.equal(detectDialect('kong'), 'kong')
+  assert.equal(detectDialect('istio'), 'generic')
+  assert.equal(detectDialect(''), 'generic')
+})
+
+test('buildIngressAnnotations: haproxy/traefik/kong 各按自己的前缀拼键', () => {
+  const h = buildIngressAnnotations('haproxy', { 'timeout-connect': '5s' }, [])
+  assert.equal(h['haproxy-ingress.github.io/timeout-connect'], '5s')
+  const h2 = buildIngressAnnotations('haproxy', { 'maxconn-server': '500', hsts: 'true', 'buffer-size': '16kB' }, [])
+  assert.equal(h2['haproxy-ingress.github.io/maxconn-server'], '500')
+  assert.equal(h2['haproxy-ingress.github.io/hsts'], 'true')
+  assert.ok(!('haproxy-ingress.github.io/buffer-size' in h2), 'buffer-size 不是有效注解键,注册表已删除该字段,adv 残值应被忽略')
+  const tf = buildIngressAnnotations('traefik', { 'router.entrypoints': 'web' }, [])
+  assert.equal(tf['traefik.ingress.kubernetes.io/router.entrypoints'], 'web')
+  const k = buildIngressAnnotations('kong', { 'strip-path': 'true' }, [])
+  assert.equal(k['konghq.com/strip-path'], 'true')
+})
+
+test('buildIngressAnnotations: generic 忽略 adv 只拼 custom;未知 dialect 同 generic', () => {
+  const g = buildIngressAnnotations('generic', { anything: 'x' }, [{ key: 'a/b', value: '1' }])
+  assert.deepEqual(g, { 'a/b': '1' })
+  const u = buildIngressAnnotations('no-such', { anything: 'x' }, [])
+  assert.deepEqual(u, {})
+})
+
+test('方言注册表: PERF_GROUPS 别名=nginx 组;traefik/kong 带 hint,nginx/haproxy 无', () => {
+  assert.equal(PERF_GROUPS, INGRESS_DIALECTS.nginx.groups)
+  assert.ok(INGRESS_DIALECTS.traefik.hintKey && INGRESS_DIALECTS.kong.hintKey && INGRESS_DIALECTS.generic.hintKey)
+  assert.ok(!INGRESS_DIALECTS.nginx.hintKey && !INGRESS_DIALECTS.haproxy.hintKey)
+  assert.ok(dialectGroups('traefik').length >= 1 && dialectGroups('generic').length === 0)
+  assert.ok(dialectHint('nginx') === '' && dialectHint('traefik') !== '')
 })
 
 // --- 端口选择：聚合工作负载 containerPort（去重升序，过滤空值）---
