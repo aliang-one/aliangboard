@@ -81,6 +81,17 @@ describe('workload 旁系变更 fetch-first（不再读空 workloadList）', () 
     expect(mut[0].body.spec.template).toEqual(template)
   })
 
+  // CPU/内存资源编辑（概览 Edit 的 4000m/512Mi）走的就是 applyWorkloadTemplate 这条深编辑路径。
+  // 旧实现抛 workloadNotFound → saveEdit 吞错 → 字段回到旧值。回归：资源量(含 m 后缀)原样透传。
+  it('applyWorkloadTemplate: resources(4000m/512Mi) 原样透传——CPU 编辑即此路径', async () => {
+    queryClient.setQueryData(WL_KEY, [deploy()])
+    const resources = { requests: { cpu: '4000m', memory: '512Mi' }, limits: { cpu: '4000m', memory: '512Mi' } }
+    const template = { spec: { containers: [{ name: 'nginx', image: 'nginx:1.22', resources }] } }
+    await store.applyWorkloadTemplate('nginx', 'default', template)
+    expect(mut.length).toBe(1)
+    expect(mut[0].body.spec.template.spec.containers[0].resources).toEqual(resources)
+  })
+
   it('缓存未命中（探测 API 取类型）也能下发：delete', async () => {
     // 空缓存 + 空 workloadList：旧实现直接误报 deleteNotSupported 且 return
     await store.deleteWorkload('nginx', 'default')
