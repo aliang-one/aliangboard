@@ -881,46 +881,100 @@ async function handleDeploy() {
       <!-- Step 2: Container Config -->
       <div v-if="currentStep === 1">
         <h3 class="text-headline-sm font-bold mb-md">{{ $t('deploy.containerConfigTitle') }}</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-sm">
-          <!-- 身份 -->
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.containerName') }}</label>
-            <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="main" />
+
+        <!-- 主容器档案卡 -->
+        <div class="rounded-xl border border-outline-variant/80 bg-surface-container-lowest shadow-sm overflow-hidden">
+          <!-- 身份条 -->
+          <div class="flex flex-wrap items-end gap-md px-md py-md bg-primary-container/10 border-b border-outline-variant/60">
+            <span class="w-10 h-10 rounded-xl bg-primary-container/30 flex items-center justify-center self-center">
+              <span class="material-symbols-outlined text-primary">deployed_code</span>
+            </span>
+            <span class="px-sm py-xs rounded-full bg-primary text-on-primary text-xs font-semibold self-center">{{ $t('deploy.mainContainer') }}</span>
+            <div class="w-40 min-w-36">
+              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.containerName') }}</label>
+              <input v-model="form.containerName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="main" />
+            </div>
+            <div class="flex-1 min-w-48">
+              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imageUrl') }}</label>
+              <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
+            </div>
           </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imageUrl') }}</label>
-            <input v-model="form.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm focus:ring-2 focus:ring-primary" placeholder="nginx:latest" />
-          </div>
-          <!-- 镜像获取 -->
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.pullPolicy') }}</label>
-            <select v-model="form.pullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option>IfNotPresent</option><option>Always</option><option>Never</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
-            <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option value="">None</option>
-              <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </div>
-          <!-- 进程执行 -->
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
-            <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
-          </div>
-          <div>
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.command') }}</label>
-            <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c" />
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
-            <input v-model="form.args" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="--port 8080 --debug" />
-          </div>
-          <div class="md:col-span-2 flex items-center gap-md pt-sm">
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.stdin" class="rounded text-primary h-4 w-4" /><span class="text-xs">stdin</span></label>
-            <label class="flex items-center gap-sm cursor-pointer"><input type="checkbox" v-model="form.tty" class="rounded text-primary h-4 w-4" /><span class="text-xs">{{ $t('deploy.ttyLabel') }}</span></label>
+
+          <!-- 带一:左列(镜像获取 + 资源) × 右区(进程执行) -->
+          <div class="flex flex-col md:flex-row gap-md p-md items-stretch">
+            <div class="md:w-[38%] flex flex-col gap-md">
+              <!-- 镜像获取 -->
+              <div class="rounded-lg border border-outline-variant/60 p-md">
+                <div class="flex items-center gap-sm mb-sm text-primary">
+                  <span class="material-symbols-outlined text-base">download</span>
+                  <span class="text-body-sm font-semibold">{{ $t('deploy.imagePullGroup') }}</span>
+                </div>
+                <div class="mb-sm">
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
+                  <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                    <option value="">None</option>
+                    <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.pullPolicy') }}</label>
+                  <div class="flex rounded-lg overflow-hidden border border-outline-variant">
+                    <button v-for="opt in ['IfNotPresent', 'Always', 'Never']" :key="opt" type="button" @click="form.pullPolicy = opt"
+                      :class="['flex-1 px-xs py-sm text-xs transition-colors', form.pullPolicy === opt ? 'bg-primary text-on-primary font-semibold' : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-low']">{{ opt }}</button>
+                  </div>
+                </div>
+              </div>
+              <!-- 资源(下沉左列) -->
+              <div class="rounded-lg border border-outline-variant/60 p-md">
+                <div class="flex flex-wrap items-center gap-sm mb-sm text-primary">
+                  <span class="material-symbols-outlined text-base">memory</span>
+                  <span class="text-body-sm font-semibold">{{ $t('deploy.resources') }}</span>
+                  <span class="ml-auto flex gap-xs">
+                    <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded-full border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
+                  </span>
+                </div>
+                <div class="grid grid-cols-2 gap-sm">
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><input v-model="form.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><input v-model="form.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 进程执行 -->
+            <div class="flex-1 rounded-lg border border-outline-variant/60 p-md flex flex-col min-w-0">
+              <div class="flex items-center gap-sm mb-sm text-primary">
+                <span class="material-symbols-outlined text-base">terminal</span>
+                <span class="text-body-sm font-semibold">{{ $t('deploy.processExecGroup') }}</span>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-sm mb-sm">
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.workingDir') }}</label>
+                  <input v-model="form.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/app" />
+                </div>
+                <div>
+                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.command') }}</label>
+                  <input v-model="form.command" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/bin/sh -c" />
+                </div>
+              </div>
+              <div class="flex-1 flex flex-col mb-sm">
+                <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
+                <textarea v-model="form.args" rows="2" @input="form.args = form.args.replace(/\n/g, ' ')"
+                  class="w-full flex-1 min-h-16 bg-code-surface text-on-code-surface font-mono rounded-lg px-sm py-sm text-body-sm resize-y placeholder:text-on-code-surface/40 focus:ring-2 focus:ring-primary/40"
+                  placeholder="--port 8080 --debug"></textarea>
+              </div>
+              <div class="flex items-center gap-md pt-sm border-t border-outline-variant/60">
+                <button type="button" @click="form.stdin = !form.stdin" :class="['w-10 h-6 rounded-full relative transition-colors', form.stdin ? 'bg-primary' : 'bg-surface-container-highest']">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full shadow transition-all', form.stdin ? 'translate-x-4 bg-on-primary' : 'bg-on-surface-variant']"></span>
+                </button>
+                <span class="text-xs">stdin</span>
+                <button type="button" @click="form.tty = !form.tty" :class="['w-10 h-6 rounded-full relative transition-colors ml-md', form.tty ? 'bg-primary' : 'bg-surface-container-highest']">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full shadow transition-all', form.tty ? 'translate-x-4 bg-on-primary' : 'bg-on-surface-variant']"></span>
+                </button>
+                <span class="text-xs">{{ $t('deploy.ttyLabel') }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -990,20 +1044,6 @@ async function handleDeploy() {
           <button @click="addPort" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addPort') }}
           </button>
-        </div>
-
-        <!-- Resources -->
-        <div class="flex items-center justify-between mt-md mb-xs flex-wrap gap-sm">
-          <h4 class="text-body-sm font-semibold">{{ $t('deploy.resources') }}</h4>
-          <div class="flex gap-xs">
-            <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
-          </div>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-sm">
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><input v-model="form.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><input v-model="form.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><input v-model="form.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
         </div>
 
         <!-- Env Vars -->
