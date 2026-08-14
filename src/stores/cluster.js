@@ -76,28 +76,9 @@ export const useClusterStore = defineStore('cluster', () => {
     metricsAvailable: false,
   })
   const nodeList = ref([])
-  const workloadList = ref([])
-  // 为每个工作负载播种「滚动发布历史」（revision history），支持一键回滚（kubectl rollout undo 语义）
-  function bumpImageTag(img, delta) {
-    const m = String(img || '').match(/^(.*:v?)(\d+)\.(\d+)\.(\d+)$/)
-    if (!m) return img
-    const patch = Math.max(0, Number(m[4]) + delta)
-    return `${m[1]}${m[2]}.${m[3]}.${patch}`
-  }
-  const randSha = () => 'sha:' + Math.random().toString(16).substring(2, 9)
-  workloadList.value.forEach(wl => {
-    if (wl.revisions && wl.revisions.length) return
-    wl.revisions = [
-      { rev: 3, image: wl.image, sha: wl.sha || randSha(), age: wl.age || 'Just now', current: true, reason: i18n.global.t('store.initialDeployment') },
-      { rev: 2, image: bumpImageTag(wl.image, -1), sha: randSha(), age: '2h ago', reason: i18n.global.t('store.imageUpdate') },
-      { rev: 1, image: bumpImageTag(wl.image, -2), sha: randSha(), age: '1d ago', reason: i18n.global.t('store.imageUpdate') },
-    ]
-  })
-  const podList = ref([])
   const namespaceList = ref([])
-  const eventList = ref([])
-  const serviceList = ref([])
-  const ingressList = ref([])
+  // P2-B：podList/workloadList/eventList/serviceList/ingressList 孤儿 ref 已删——
+  // 服务端状态全归 Vue Query（列表 useResourceList / 变更 invalidateResource / watch setQueryData 桥）。
   const endpointsList = ref([])
   const pvList = ref([])
   const scList = ref([])
@@ -117,7 +98,7 @@ export const useClusterStore = defineStore('cluster', () => {
   let podWatchRv = null
   let podWatchHandle = null
   const podWatchLive = ref(false)
-  // Event Watch 同款状态（refreshEvents 写 eventWatchRv 供 watch 续接）
+  // Event Watch 同款状态
   let eventWatchRv = ''
   let eventWatchHandle = null
   const eventWatchLive = ref(false)
@@ -125,9 +106,6 @@ export const useClusterStore = defineStore('cluster', () => {
   // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
   const currentNamespace = ref(localStorage.getItem('aliangboard.namespace') || '')
 
-  const runningPods = computed(() => podList.value.filter(p => p.status === 'Running').length)
-  const pendingPods = computed(() => podList.value.filter(p => p.status === 'Pending').length)
-  const failedPods = computed(() => podList.value.filter(p => p.status === 'Failed').length)
   const healthyNodes = computed(() => nodeList.value.filter(n => n.status === 'Ready').length)
   const totalNodes = computed(() => nodeList.value.length)
   const apiReachable = ref(true)
@@ -174,26 +152,6 @@ export const useClusterStore = defineStore('cluster', () => {
     return wl
   }
 
-  function getWorkloadPods(workloadName, ns) {
-    const namespace = ns || currentNamespace.value
-    const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
-    if (!wl) return []
-    // 优先用 spec.selector.matchLabels（K8s 官方 Pod 选择器，最准确）
-    const tpl = wl.raw?.spec?.template || wl.raw?.spec?.jobTemplate?.spec?.template
-    const selector = wl.raw?.spec?.selector?.matchLabels
-    if (selector && Object.keys(selector).length) {
-      return podList.value.filter(p => p.namespace === namespace &&
-        Object.entries(selector).every(([k, v]) => p.labels?.[k] === v))
-    }
-    // 回退 1：用 pod template labels（pods 继承的是 template labels，不是 metadata labels）
-    const tplApp = tpl?.metadata?.labels?.app
-    if (tplApp) return podList.value.filter(p => p.namespace === namespace && p.labels?.app === tplApp)
-    // 回退 2：用 workload metadata labels.app
-    const appLabel = wl.labels?.app
-    if (appLabel) return podList.value.filter(p => p.namespace === namespace && p.labels?.app === appLabel)
-    // 回退 3：名称前缀匹配
-    return podList.value.filter(p => p.namespace === namespace && p.name.startsWith(workloadName))
-  }
 
   // 从 workload 原始 K8s 对象提取 ConfigMap / Secret 引用（volumes + envFrom + env valueFrom）。
   // 支持 Deployment/StatefulSet/DaemonSet/Job（spec.template.spec）+ CronJob（spec.jobTemplate.spec.template.spec）。
@@ -249,11 +207,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // 正查：某个 workload 引用了哪些 ConfigMap / Secret
-  function getWorkloadReferences(workloadName, ns) {
-    const namespace = ns || currentNamespace.value
-    const wl = workloadList.value.find(w => w.name === workloadName && w.namespace === namespace)
-    return wl ? extractWorkloadReferences(wl.raw, wl.type) : []
-  }
 
   // 远端删除 + 本地列表同步：乐观先移除，API 失败则回滚并全局提示，保证 UI 与集群一致
   async function remoteDelete(path, list, matchFn, label) {
@@ -502,13 +455,6 @@ export const useClusterStore = defineStore('cluster', () => {
     if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
   }
 
-  // === CRUD: Workloads (for Deploy) ===
-  function addWorkload(wl) {
-    workloadList.value.push({ ...wl, age: 'Just now' })
-    const ns = namespaceList.value.find(n => n.name === wl.namespace)
-    if (ns) ns.pods += parseInt(wl.replicas?.split('/')[1] || '1')
-  }
-
   async function deleteWorkload(name, ns) {
     const wl = await getWorkloadForEdit(name, ns)
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
@@ -724,25 +670,6 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource('workloads')
   }
 
-  // === CRUD: Pods ===
-  function addPod(pod) {
-    podList.value.push({
-      status: 'Pending',
-      node: '',
-      ip: '',
-      cpu: '0/0',
-      memory: '0/0',
-      restarts: 0,
-      age: 'Just now',
-      containers: [pod.name],
-      labels: { app: pod.name },
-      annotations: {},
-      ...pod,
-    })
-    const ns = namespaceList.value.find(n => n.name === pod.namespace)
-    if (ns) ns.pods = (ns.pods || 0) + 1
-  }
-
   async function deletePod(name, ns) {
     await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`, { method: 'DELETE' })
     // P2-B：旧实现 splice 孤儿 podList（无读者、不触发列表刷新）；改失效 pods 查询，
@@ -775,48 +702,12 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   function stopHealthCheck() { if (healthTimer) clearInterval(healthTimer); healthTimer = null }
 
-  // 轻量刷新 Pod 列表（仅重取 pods，不拉全套资源）：删 Pod 后控制器重建，延时调用即可看到新 Pod（重新拉镜像）
-  async function refreshPods() {
-    await refetch('/api/v1/pods', podList, item => mapPod(item))
-  }
-
-  // 拉取 events 快照（供实时页挂载时补初始数据，避免空表闪；同时刷新 eventWatchRv 供 watch 续接）
-  async function refreshEvents() {
-    try {
-      const data = await api.k8s('/api/v1/events?limit=1000')
-      if (data?.items) {
-        eventList.value = data.items.map(mapEvent).sort((a, b) => (b._ts || 0) - (a._ts || 0))
-        if (data.metadata?.resourceVersion) eventWatchRv = data.metadata.resourceVersion
-      }
-    } catch { /* 静默：保留上次 eventList，watch 继续推增量 */ }
-  }
-
   // === Pod / Event Watch：实时监听（ADDED/MODIFIED/DELETED 增量更新）===
-  // 双写：① 直接更新 store ref（podList/eventList，供仍读 store 的视图与节点汇总）；
-  //       ② queryClient.setQueryData（供 NsPods/NsEvents 等 Vue Query 消费者享 live）。
+  // P2-B：watch 事件只 queryClient.setQueryData（NsPods/NsEvents 等 Query 消费者享 live）。
   // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
   // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
 
-  // 按 pod.node 统计每个节点上的 Pod 数，回填到 nodeList（水合后调用）
-  function recountNodePods() {
-    const counts = {}
-    for (const p of podList.value) {
-      const n = p.node
-      if (n) counts[n] = (counts[n] || 0) + 1
-    }
-    nodeList.value = nodeList.value.map(n => ({ ...n, podCount: counts[n.name] || 0 }))
-  }
-
   // --- Pod Watch ---
-  function applyPodWatchEvent(evt) {
-    if (!evt?.object) return
-    const mapped = mapPod(evt.object, null)
-    const list = podList.value
-    const idx = list.findIndex(p => p.name === mapped.name && p.namespace === mapped.namespace)
-    if (evt.type === 'DELETED') { if (idx !== -1) list.splice(idx, 1) }
-    else if (idx !== -1) list[idx] = { ...list[idx], ...mapped }
-    else list.push(mapped)
-  }
   function startPodWatch() {
     if (podWatchHandle) return
     const rv = podWatchRv || ''
@@ -827,8 +718,7 @@ export const useClusterStore = defineStore('cluster', () => {
         try {
           const evt = JSON.parse(line)
           if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
-          applyPodWatchEvent(evt)
-          // 加法桥接：同步写 Query 缓存（NsPods 等 Query 消费者享 live）
+          // P2-B：只写 Query 缓存（NsPods 等 Query 消费者享 live）；旧 applyPodWatchEvent 双写孤儿 podList 已删
           const _cid = currentCluster.value || 'cluster'
           queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
         } catch { /* 忽略非 JSON 心跳行 */ }
@@ -843,14 +733,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // --- Event Watch ---
-  function applyEventWatchEvent(evt) {
-    const mapped = mapEvent(evt.object)
-    if (!mapped.uid) return
-    const idx = eventList.value.findIndex(e => e.uid === mapped.uid)
-    if (evt.type === 'DELETED') { if (idx !== -1) eventList.value.splice(idx, 1) }
-    else if (idx !== -1) eventList.value[idx] = mapped
-    else { eventList.value.unshift(mapped); if (eventList.value.length > 1000) eventList.value.length = 1000 }
-  }
   function startEventWatch() {
     if (eventWatchHandle) return
     const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
@@ -860,8 +742,7 @@ export const useClusterStore = defineStore('cluster', () => {
         try {
           const evt = JSON.parse(line)
           if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
-          applyEventWatchEvent(evt)
-          // 加法桥接：同步写 Query 缓存（NsEvents 等 Query 消费者享 live）
+          // P2-B：只写 Query 缓存（NsEvents 等 Query 消费者享 live）；旧 applyEventWatchEvent 双写孤儿 eventList 已删
           const _cid = currentCluster.value || 'cluster'
           queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
         } catch { /* 忽略非 JSON 心跳行 */ }
@@ -874,14 +755,9 @@ export const useClusterStore = defineStore('cluster', () => {
     eventWatchLive.value = false
     if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
   }
-  // 详情页用：返回关联到指定资源（involvedObject）的事件
-  function eventsFor(kind, name, namespace) {
-    return eventList.value.filter(e => e.relatedKind === kind && e.relatedName === name && (!namespace || e.relatedNamespace === namespace))
-  }
-
   // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
 
-  // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList/podList 指标字段 → 重算集群汇总。
+  // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList 指标字段 → 重算集群汇总。
   // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
   async function refreshMetrics() {
     try {
@@ -906,13 +782,8 @@ export const useClusterStore = defineStore('cluster', () => {
         n.cpu = pct(n.usedCpu, n.allocCpu)
         n.memory = pct(n.usedMem, n.allocMem)
       }
-      for (const p of podList.value) {
-        const m = metricsAvailable ? (podMetricMap.get(`${p.namespace}/${p.name}`) || null) : null
-        p.usedCpu = m ? m.cpuMilli : null
-        p.usedMem = m ? m.memKi : null
-        p.cpu = p.usedCpu != null ? `${Math.round(p.usedCpu)}m/${Math.round(p.reqCpu)}m` : null
-        p.memory = p.usedMem != null ? `${Math.round(p.usedMem / 1024)}Mi/${Math.round(p.reqMem / 1024)}Mi` : null
-      }
+      // P2-B:pod 级指标不再写孤儿 podList——NsPods 等由 fetchPods 的 Query 轮询携带 podMetric;
+      // podMetricMap 仅用于 metricsAvailable 探测(pods metrics 端点可达性)。
       computeClusterMetrics(metricsAvailable)
     } catch { /* 静默：保留上次 metricsAvailable */ }
   }
@@ -1006,8 +877,6 @@ export const useClusterStore = defineStore('cluster', () => {
     const refresh = () => refetch('/api/v1/namespaces', namespaceList, item => ({
       name: item.metadata?.name,
       status: item.status?.phase || 'Unknown',
-      pods: podList.value.filter(p => p.namespace === item.metadata?.name).length,
-      services: serviceList.value.filter(s => s.namespace === item.metadata?.name).length,
       age: ageOf(item.metadata?.creationTimestamp),
       labels: item.metadata?.labels || {},
     }))
@@ -1095,7 +964,7 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchEvents() { const d = await api.k8s('/api/v1/events?limit=1000'); return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0)) }
 
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
-  // 入参 metricsAvailable：调用前 nodeList/podList 的 metric 字段须已就绪
+  // 入参 metricsAvailable：调用前 nodeList 的 metric 字段须已就绪
   // （hydrate 经 mapNode/mapPod 设置；refreshMetrics 就地更新）。hydrate 与 refreshMetrics 共用本函数。
   function computeClusterMetrics(metricsAvailable) {
     let cpuUsage = null, memoryUsage = null
@@ -1127,8 +996,8 @@ export const useClusterStore = defineStore('cluster', () => {
     cluster.value = {
       ...cluster.value,
       nodeCount: counts.nodeCount ?? nodeList.value.length,
-      podCount: counts.podCount ?? podList.value.length,
-      activeEvents: counts.activeEvents ?? eventList.value.length,
+      podCount: counts.podCount ?? 0,
+      activeEvents: counts.activeEvents ?? 0,
       metricsAvailable,
       cpuUsage, memoryUsage,
       cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
@@ -1899,22 +1768,18 @@ status:
     return { allowed: false, matchedBy: null, rule: null }
   }
 
-  // 初始化时按 pod.node 回填 podCount（真实水合在 hydrateCoreResources 末尾再调一次）
-  recountNodePods()
-
   return {
     // 基础数据
-    cluster, nodeList, workloadList, podList, namespaceList, eventList,
-    serviceList, ingressList, endpointsList, pvList,
+    cluster, nodeList, namespaceList, endpointsList, pvList,
     scList, roleList, currentNamespace,
     roleBindingList,
     clusterRoleBindingList,
     clusterList, savedClusters, auditLogList, currentCluster, connectionState,
     // 全局计算
-    runningPods, pendingPods, failedPods, healthyNodes, totalNodes, clusterHealth, apiReachable,
+    healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Actions
-    setNamespace, fetchWorkload, getWorkloadPods,
-    findResourceReferences, getWorkloadReferences,
+    setNamespace, fetchWorkload,
+    findResourceReferences,
     // CRUD: Services
     addService, updateService, deleteService,
     // CRUD: Ingress
@@ -1933,7 +1798,7 @@ status:
     // CRUD: IngressClass / RuntimeClass（集群级）
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
-    addWorkload, deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
+    deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods
     deletePod, invalidateResource,
     // CRUD: NetworkPolicies
@@ -1962,8 +1827,6 @@ status:
     hydrateCriticalResources,
     invalidateAllClusterQueries,
     // Pod 列表轻量刷新（删 Pod 后看重建）
-    refreshPods,
-    refreshEvents,
     fetchNodes,
     fetchServices, fetchConfigMaps, fetchSecrets, fetchIngresses, fetchNetworkPolicies,
     fetchConfigMap,
@@ -1983,7 +1846,7 @@ status:
     refreshMetrics,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
-    eventWatchLive, startEventWatch, stopEventWatch, eventsFor,
+    eventWatchLive, startEventWatch, stopEventWatch,
     // CRD
     crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计

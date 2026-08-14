@@ -43,6 +43,13 @@ const workloadsQuery = useResourceList({
   select: (list) => (list || []).filter(w => w.namespace === nsName.value),
 })
 const nsWorkloads = computed(() => workloadsQuery.data.value || [])
+// P2-B：Pod 数从 pods 查询派生（fetchNamespace 映射器无 pods 字段，旧显示 undefined / 50）
+const podsQuery = useResourceList({
+  key: ['cluster', cid, 'pods'],
+  fetcher: () => store.fetchPods(),
+  select: (list) => (list || []).filter(p => p.namespace === nsName.value),
+})
+const nsPodCount = computed(() => (podsQuery.data.value || []).length)
 
 const syncing = computed(() => nsDetail.isFetching.value || servicesQuery.isFetching.value || workloadsQuery.isFetching.value)
 async function sync() {
@@ -97,7 +104,7 @@ async function sync() {
           <div class="grid grid-cols-2 gap-md pt-sm border-t border-outline-variant/40">
             <div>
               <p class="text-on-surface-variant text-xs mb-xs">{{ t('ns.nsDetail.pods') }}</p>
-              <p class="text-body-md font-semibold">{{ ns.pods }} / 50</p>
+              <p class="text-body-md font-semibold">{{ nsPodCount }}</p>
             </div>
             <div>
               <p class="text-on-surface-variant text-xs mb-xs">{{ t('ns.nsDetail.services') }}</p>

@@ -39,7 +39,8 @@ afterEach(() => {
 test('cluster store 实例化不抛 + watch/CRD 方法齐备', () => {
   setActivePinia(createPinia())
   const store = useClusterStore()
-  const methods = ['startPodWatch', 'stopPodWatch', 'startEventWatch', 'stopEventWatch', 'eventsFor', 'fetchCRDs']
+  // eventsFor 已随 P2-B 孤儿 eventList 删除（事件消费方全走 Vue Query）
+  const methods = ['startPodWatch', 'stopPodWatch', 'startEventWatch', 'stopEventWatch', 'fetchCRDs', 'fetchPods', 'fetchWorkloads', 'invalidateResource']
   for (const fn of methods) {
     expect(typeof store[fn], `${fn} 应为函数`).toBe('function')
   }

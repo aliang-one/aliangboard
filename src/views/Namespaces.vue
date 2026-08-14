@@ -25,6 +25,15 @@ const namespacesQuery = useResourceList({
   fetcher: () => store.fetchNamespaces(),
 })
 const namespaces = computed(() => namespacesQuery.data.value || [])
+// P2-B：per-ns Pod/Service 计数从查询派生（fetchNamespaces 映射器无 pods/services 字段，列曾恒空）
+const podsQuery = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods() })
+const svcQuery = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices() })
+const countByNs = computed(() => {
+  const pods = {}, svcs = {}
+  for (const p of (podsQuery.data.value || [])) pods[p.namespace] = (pods[p.namespace] || 0) + 1
+  for (const s of (svcQuery.data.value || [])) svcs[s.namespace] = (svcs[s.namespace] || 0) + 1
+  return { pods, svcs }
+})
 
 const syncing = computed(() => namespacesQuery.isFetching.value)
 async function sync() {
@@ -157,10 +166,10 @@ function submitDelete() {
         <StatusChip :status="row.status" />
       </template>
       <template #pods="{ row }">
-        <span class="font-mono text-code-sm font-bold">{{ row.pods }}</span>
+        <span class="font-mono text-code-sm font-bold">{{ countByNs.pods[row.name] ?? 0 }}</span>
       </template>
       <template #services="{ row }">
-        <span class="font-mono text-code-sm font-bold">{{ row.services }}</span>
+        <span class="font-mono text-code-sm font-bold">{{ countByNs.svcs[row.name] ?? 0 }}</span>
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
