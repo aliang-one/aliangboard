@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 const props = defineProps({
   form: { type: Object, required: true },
   submitting: { type: Boolean, default: false },
+  cancelLabel: { type: String, default: '' },
 })
 const emit = defineEmits(['submit', 'cancel'])
 const { t } = useI18n()
@@ -84,7 +85,7 @@ function onSubmit() {
 
     <!-- 操作行 -->
     <div class="flex justify-end gap-sm pt-xs">
-      <button data-testid="cluster-form-cancel" @click="emit('cancel')" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+      <button data-testid="cluster-form-cancel" @click="emit('cancel')" class="px-md py-sm border border-outline-variant rounded-lg">{{ cancelLabel || t('common.cancel') }}</button>
       <button data-testid="cluster-form-submit" :disabled="submitting" @click="onSubmit" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
         <span v-if="submitting" class="material-symbols-outlined text-sm animate-spin">progress_activity</span>
         {{ t('admin.clusters.addAndVerify') }}

@@ -76,3 +76,11 @@ test('submitting=true 时提交按钮 disabled', () => {
   const w = mountForm(makeForm({ name: 'd', kubeconfig: 'x' }), true)
   expect(submit(w).attributes('disabled')).toBeDefined()
 })
+
+test('cancelLabel 覆盖默认按钮文案:传自定义文本时显示该文本,默认显示 zh「取消」', () => {
+  const form = makeForm({ name: 'd', kubeconfig: 'x' })
+  const w = mount(ClusterForm, { props: { form, cancelLabel: '自定义返回' }, global: { plugins: [i18n] } })
+  expect(cancel(w).text()).toBe('自定义返回')
+  const wDefault = mount(ClusterForm, { props: { form }, global: { plugins: [i18n] } })
+  expect(cancel(wDefault).text()).toBe('取消')
+})

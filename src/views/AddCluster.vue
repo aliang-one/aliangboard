@@ -88,7 +88,7 @@ function back() { router.push({ name: 'SelectCluster' }) }
         </div>
       </div>
 
-      <ClusterForm v-else :form="form" :submitting="submitting" @submit="onSubmit" @cancel="back" />
+      <ClusterForm v-else :form="form" :submitting="submitting" :cancel-label="t('addCluster.back')" @submit="onSubmit" @cancel="back" />
     </div>
   </div>
 </template>

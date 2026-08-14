@@ -43,12 +43,13 @@ test('admin 有集群:底部常驻「添加集群」入口存在,点击 push /ad
   expect(pushMock).toHaveBeenCalledWith('/add-cluster')
 })
 
-test('admin 无集群:空状态主按钮 push /add-cluster', async () => {
+test('admin 无集群:空状态主按钮 push /add-cluster,常驻入口不渲染', async () => {
   myClustersMock.mockResolvedValue({ clusters: [] })
   const w = mountView()
   await flushPromises()
   await w.find('[data-testid="select-cluster-add"]').trigger('click')
   expect(pushMock).toHaveBeenCalledWith('/add-cluster')
+  expect(w.find('[data-testid="select-cluster-add-persistent"]').exists()).toBe(false)
 })
 
 test('非 admin:无添加入口,显示联系管理员提示', async () => {

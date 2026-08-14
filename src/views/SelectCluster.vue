@@ -98,7 +98,7 @@ function goLogout() {
       </div>
 
       <div class="flex items-center justify-center gap-md mt-xl">
-        <button v-if="authStore.isAdmin" data-testid="select-cluster-add-persistent" @click="router.push('/add-cluster')" class="text-body-sm text-on-surface-variant hover:text-primary flex items-center gap-xs">
+        <button v-if="authStore.isAdmin && clusters.length" data-testid="select-cluster-add-persistent" @click="router.push('/add-cluster')" class="text-body-sm text-on-surface-variant hover:text-primary flex items-center gap-xs">
           <span class="material-symbols-outlined text-sm">add</span> {{ t('selectCluster.addCluster') }}
         </button>
         <button v-if="authStore.isAdmin" @click="router.push('/admin/clusters')" class="text-body-sm text-on-surface-variant hover:text-primary flex items-center gap-xs">
