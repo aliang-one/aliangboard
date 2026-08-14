@@ -178,3 +178,47 @@ test('audit:写工具(write_project_file resume 批准)→ finalized verb=write 
   assert.equal(rows[1].result, 'ok')
   assert.equal(rows[1].resource, 'a.yaml')
 })
+
+// dev22: 容器内诊断 exec 工具(wb_exec 需人审 / wb_read_pod_file 只读免审)
+test('registry:wb_exec 需人审、wb_read_pod_file 免审,都在 workbenchToolDefs', () => {
+  const names = registry.workbenchToolDefs().map(t => t.function.name)
+  assert.ok(names.includes('wb_exec'), 'wb_exec 应注册')
+  assert.ok(names.includes('wb_read_pod_file'), 'wb_read_pod_file 应注册')
+  const req = registry.requiringApproval()
+  assert.ok(req.includes('wb_exec'), 'wb_exec 需人审')
+  assert.ok(!req.includes('wb_read_pod_file'), 'wb_read_pod_file 免审(路径白名单 → 只读语义)')
+  assert.ok(!registry.forTier('admin').includes('wb_exec'), 'wb 工具不进 K8s forTier')
+})
+
+test('wb_exec → checkpoint;resume 批准 → ctx.wb.execInPod 收到命令参数', async () => {
+  const got = []
+  const wb = {
+    readLedger: async () => '', readFile: async () => '', writeFile: async () => {},
+    execInPod: async (args) => { got.push(args); return { pod: args.pod, exitCode: 0, stdout: 'succeeded!', stderr: '', timedOut: false, truncated: false } },
+  }
+  const llmClient = { chat: seqChat([tc('1', 'wb_exec', { namespace: 'default', pod: 'nginx-abc', command: 'nc -zv mysql-svc 3306' }), fin('网络通')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval', 'wb_exec 必须先 checkpoint 人审')
+  assert.deepEqual(got, [], '未批准不执行')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '网络通')
+  assert.equal(got.length, 1)
+  assert.equal(got[0].command, 'nc -zv mysql-svc 3306')
+  assert.equal(got[0].pod, 'nginx-abc')
+})
+
+test('wb_read_pod_file 免审直执行 → ctx.wb.readPodFile 被调(无 checkpoint)', async () => {
+  const got = []
+  const wb = {
+    readLedger: async () => '', readFile: async () => '', writeFile: async () => {},
+    readPodFile: async (args) => { got.push(args); return { pod: args.pod, path: args.path, content: 'key: value', truncated: false } },
+  }
+  const llmClient = { chat: seqChat([tc('1', 'wb_read_pod_file', { namespace: 'default', pod: 'nginx-abc', path: '/etc/app/config.yaml' }), fin('配置拿到了')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const out = await run({ history: [] })
+  assert.equal(out.status, undefined, '无 checkpoint(免审)')
+  assert.equal(out.content, '配置拿到了')
+  assert.equal(got.length, 1)
+  assert.equal(got[0].path, '/etc/app/config.yaml')
+})

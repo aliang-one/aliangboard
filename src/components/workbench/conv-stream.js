@@ -21,7 +21,8 @@ export function applyStreamEvent(state, evt) {
       if (evt.status === 'done') return { ...state, status: 'done' }
       if (evt.status === 'paused') return { ...state, status: 'pending_approval' }
       if (evt.status === 'failed') return { ...state, status: 'error', error: evt.error || '' }
-      if (evt.status === 'cancelled') return { ...state, status: 'error', error: evt.error || '已停止' }
+      // cancelled 不在纯函数里塞文案(此模块无 i18n):error 留空,消费方(WorkbenchChat)用 t() 补
+      if (evt.status === 'cancelled') return { ...state, status: 'error', error: evt.error || '' }
       if (evt.status === 'running') return { ...state, status: 'thinking' }
       return state
     }

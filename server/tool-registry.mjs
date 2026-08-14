@@ -121,6 +121,10 @@ const WB = [
     description: '查看 Deployment rollout 状态摘要(replicas + conditions)。判断滚动更新是否卡住。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.rolloutStatus(args.namespace, args.name) } catch (e) { return `查 rollout 失败: ${e.message}` } } },
+  { name: 'wb_read_pod_file', requiresApproval: false,
+    description: '读 pod 容器内文件(cat,只读,路径白名单校验免注入)。看 ConfigMap/Secret 之外的落盘文件:应用配置、容器内日志、/etc/hosts 等。超 32KB 截断。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, path: { type: 'string', description: '容器内绝对路径,如 /etc/nginx/nginx.conf' } }, required: ['namespace', 'pod', 'path'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.readPodFile(args) } catch (e) { return `读文件失败: ${e.message}` } } },
   // === K8s 运维工具(workbench-principal,需人审,用项目绑定集群凭据直连) ===
   { name: 'wb_scale', requiresApproval: true,
     description: '扩缩容(workbench):Deployment/StatefulSet replicas 调整。需人审。replicas 钳到 1..20。',
@@ -138,6 +142,10 @@ const WB = [
     description: '回滚 Deployment(workbench):到指定 revision,不传则回滚上一版本(kubectl rollout undo 语义)。需人审。返回值带 availableRevisions 可列全部历史版本。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' }, toRevision: { type: 'number', description: '目标 revision;不传回滚到上一版本' } }, required: ['namespace', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.rolloutUndo(args.namespace, args.name, args.toRevision) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_exec', requiresApproval: true,
+    description: '在 pod 容器内执行一次性诊断命令(workbench,需人审;命令会展示给用户确认)。非交互、30s 超时、stdout 截 32KB。用于:网络连通(nc -zv / curl / ping)、数据库连通(mysql -e "select 1")、进程端口(ps / netstat)、env 检查。不适用于 tail -f 等长驻命令。读文件用 wb_read_pod_file。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '非交互命令,如 "nc -zv mysql-svc 3306"、"curl -s -o /dev/null -w \\"%{http_code}\\" http://svc:80/healthz"' } }, required: ['namespace', 'pod', 'command'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.execInPod(args) } catch (e) { return { error: e.message } } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]

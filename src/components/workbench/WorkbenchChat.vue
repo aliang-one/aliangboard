@@ -140,6 +140,29 @@ const convStatusBadgeClass = computed(() => {
   }
 })
 
+// 审批弹窗:按工具选图标/标题/目标行(wb_exec 等运维工具不再套"写文件"文案)
+const APPROVAL_ICONS = { apply_project_manifests: 'rocket_launch', bootstrap_ledger: 'fact_check', wb_exec: 'terminal', wb_scale: 'unfold_more', wb_restart: 'restart_alt', wb_update_image: 'system_update_alt', wb_rollout_undo: 'undo' }
+const approvalIcon = computed(() => APPROVAL_ICONS[pendingApproval.value?.name] || 'edit_document')
+const approvalTitle = computed(() => {
+  const n = pendingApproval.value?.name
+  if (n === 'wb_exec') return t('workbench.chat.execApprovalTitle')
+  if (n && n.startsWith('wb_')) return t('workbench.chat.actionApprovalTitle')
+  return t('workbench.chat.writeFileApproval')
+})
+// 目标行 + 变更意图:审批前必须能看到"改哪个对象、改成什么"(replicas/image/revision),否则是盲审
+const approvalTarget = computed(() => {
+  const a = pendingApproval.value?.args || {}
+  const ns = a.namespace ? `${a.namespace}/` : ''
+  let target = ''
+  if (a.pod) target = `${ns}${a.pod}${a.container ? ` (${a.container})` : ''}`
+  else if (a.kind && a.name) target = `${ns}${a.kind}/${a.name}`
+  const intents = []
+  if (a.replicas != null) intents.push(`replicas=${a.replicas}`)
+  if (a.image) intents.push(`image=${a.image}`)
+  if (a.toRevision != null) intents.push(`rev=${a.toRevision}`)
+  return target ? `${target}${intents.length ? ' → ' + intents.join(', ') : ''}` : ''
+})
+
 const HINTS = computed(() => [
   t('workbench.chat.hintReadLedger'),
   t('workbench.chat.hintWriteConfig'),
@@ -329,6 +352,8 @@ function startStreaming(id) {
       pendingApproval: pendingApproval.value,
       error: agentTurn.error || '',
     }, evt)
+    // cancelled 事件 reducer 不带文案(纯函数无 i18n),这里用 t() 补"已停止"
+    if (next.status === 'error' && !next.error) next.error = t('workbench.chat.stopped')
     updateTurn(agentTurn._id, next)
     // 同步 convStatus 状态栏
     if (evt.type === 'hello' || evt.type === 'status') {
@@ -582,14 +607,21 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
     </div>
 
     <!-- Approval Modal -->
-    <Modal :modelValue="!!pendingApproval" :title="t('workbench.chat.writeFileApproval')" width="max-w-2xl">
+    <Modal :modelValue="!!pendingApproval" :title="approvalTitle" width="max-w-2xl">
       <div v-if="pendingApproval" class="flex flex-col gap-md">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-status-warning">{{ pendingApproval.name === 'apply_project_manifests' ? 'rocket_launch' : 'edit_document' }}</span>
+          <span class="material-symbols-outlined text-status-warning">{{ approvalIcon }}</span>
           <span class="font-mono font-semibold text-body-sm">{{ pendingApproval.name }}</span>
         </div>
         <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.applyManifestsDesc')"></p>
         <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.bootstrapLedgerDesc')"></p>
+        <p v-else-if="pendingApproval.name === 'wb_exec'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.execDesc')"></p>
+        <!-- wb_* 运维工具目标行(kind/name 或 pod),wb_exec 的 ns/pod/container 归入命令块上方的目标行 -->
+        <p v-if="approvalTarget && pendingApproval.name !== 'wb_exec'" class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
+        <template v-if="pendingApproval.name === 'wb_exec'">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args?.command }}</pre>
+        </template>
         <template v-if="pendingApproval.args?.path">
           <p class="text-body-sm text-on-surface-variant">Path: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
