@@ -2168,6 +2168,15 @@
     "clusterManagement": "Cluster Management",
     "logout": "Logout"
   },
+  "addCluster": {
+    "title": "Add Cluster",
+    "subtitle": "Enter cluster details; it will connect automatically once verified",
+    "back": "Back to cluster selection",
+    "connecting": "Connecting to cluster…",
+    "connectFailed": "Failed to connect to cluster",
+    "connectFailedWarning": "Cluster added, but connection failed",
+    "retryConnect": "Retry connection"
+  },
   "nodeDetail": {
     "cordonSuccess": "Node cordoned successfully",
     "cordonFailed": "Failed to cordon node",
@@ -2331,7 +2340,11 @@
       "loadFailed": "Failed to load",
       "added": "Cluster {name} added",
       "addFailed": "Failed to add (invalid credentials or unreachable)",
-      "missingRequired": "Fill required fields (cluster name and credentials)",
+      "nameRequired": "Cluster name is required",
+      "kubeconfigRequired": "Please paste a kubeconfig",
+      "apiServerRequired": "API Server is required",
+      "tokenRequired": "Bearer token is required",
+      "usernameRequired": "Username is required",
       "deleteConfirm": "Delete cluster {name}? All users assigned to this cluster will lose access.",
       "deleted": "Deleted",
       "deleteFailed": "Failed to delete"

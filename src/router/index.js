@@ -19,6 +19,14 @@ const routes = [
     meta: { titleKey: 'selectCluster.title' }
   },
   {
+    // 添加集群独立页(admin):AppLayout 外全屏,创建→自动连接→进 Overview。
+    // requiresCluster: false → 无 K8s session 时守卫放行(clusterGate);requireAdmin 由页面自查+服务端兜底。
+    path: '/add-cluster',
+    name: 'AddCluster',
+    component: () => import('@/views/AddCluster.vue'),
+    meta: { titleKey: 'addCluster.title', requiresCluster: false, requireAdmin: true }
+  },
+  {
     // 独立终端弹窗（新标签页打开），不走 AppLayout（无侧栏/顶栏，纯全屏终端）
     path: '/terminal-popup',
     name: 'TerminalPopup',

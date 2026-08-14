@@ -90,7 +90,7 @@ function goLogout() {
         <span class="material-symbols-outlined text-4xl text-surface-container-high">cloud_off</span>
         <p class="text-body-sm text-on-surface-variant mt-sm">{{ t('selectCluster.noClusters') }}</p>
         <!-- admin 可以直接去添加 -->
-        <button v-if="authStore.isAdmin" @click="router.push('/admin/clusters')"
+        <button v-if="authStore.isAdmin" data-testid="select-cluster-add" @click="router.push('/add-cluster')"
           class="mt-md inline-flex items-center gap-xs px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-base">add</span> {{ t('selectCluster.addCluster') }}
         </button>
@@ -98,6 +98,9 @@ function goLogout() {
       </div>
 
       <div class="flex items-center justify-center gap-md mt-xl">
+        <button v-if="authStore.isAdmin && clusters.length" data-testid="select-cluster-add-persistent" @click="router.push('/add-cluster')" class="text-body-sm text-on-surface-variant hover:text-primary flex items-center gap-xs">
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('selectCluster.addCluster') }}
+        </button>
         <button v-if="authStore.isAdmin" @click="router.push('/admin/clusters')" class="text-body-sm text-on-surface-variant hover:text-primary flex items-center gap-xs">
           <span class="material-symbols-outlined text-sm">settings</span> {{ t('selectCluster.clusterManagement') }}
         </button>
