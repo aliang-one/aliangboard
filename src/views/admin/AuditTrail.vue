@@ -22,7 +22,7 @@ const actSource = ref('')           // '' = all
 const f = ref({ owner: '', tool: '', result: '', source: '', key: '', cluster: '' })
 const page = ref(1)
 const WIN_OPTS = [{ v: 900, k: 'win15' }, { v: 1800, k: 'win30' }, { v: 21600, k: 'win6h' }]
-const SRC_OPTS = [{ v: '', k: 'sourceAll' }, { v: 'mcp', k: 'sourceMcp' }, { v: 'agent', k: 'sourceAgent' }, { v: 'direct', k: 'sourceDirect' }]
+const SRC_OPTS = [{ v: '', k: 'sourceAll' }, { v: 'mcp', k: 'sourceMcp' }, { v: 'agent', k: 'sourceAgent' }, { v: 'workbench', k: 'sourceWorkbench' }, { v: 'direct', k: 'sourceDirect' }]
 const RESULT_OPTS = [{ v: '', k: 'sourceAll' }, { v: 'ok', k: 'resultOk' }, { v: 'denied', k: 'resultDenied' }, { v: 'error', k: 'resultError' }]
 
 const headers = computed(() => tableColumns('auditTrail'))
@@ -32,7 +32,9 @@ const pct = (n, total) => total ? Math.round((n / total) * 100) : 0
 // 动态拼 result 徽章键：ok→resultOk / denied→resultDenied / error→resultError。
 // 用函数返回完整键（而非模板里 t('auditTrail.result'+...)）以避开 i18n-check 的静态字面量抽取。
 const resultKey = r => r ? `auditTrail.result${r[0].toUpperCase()}${r.slice(1)}` : ''
-const SRC_BADGE = { mcp: 'bg-primary/10 text-primary', agent: 'bg-status-warning/10 text-status-warning', direct: 'bg-surface-container-high text-on-surface-variant' }
+const SRC_BADGE = { mcp: 'bg-primary/10 text-primary', agent: 'bg-status-warning/10 text-status-warning', workbench: 'bg-status-succeeded/10 text-status-succeeded', direct: 'bg-surface-container-high text-on-surface-variant' }
+// 活跃卡片:workbench 伪组(keyId 'wb:<owner>')与 key 卡区分标识
+const isWb = a => String(a.keyId || '').startsWith('wb:')
 const RESULT_STYLE = { ok: 'bg-status-running/10 text-status-running', denied: 'bg-status-warning/10 text-status-warning', error: 'bg-error/10 text-error' }
 
 async function loadActive() {
@@ -91,7 +93,10 @@ onMounted(() => { refresh() })
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-sm">
         <div v-for="a in active" :key="a.keyId" class="bg-surface-container-low border border-outline-variant rounded-lg p-md">
           <div class="flex items-center justify-between">
-            <span class="font-mono text-body-sm font-semibold">{{ a.label || a.owner }}</span>
+            <span class="flex items-center gap-xs min-w-0">
+              <span class="font-mono text-body-sm font-semibold truncate">{{ a.label || a.owner }}</span>
+              <span v-if="isWb(a)" class="px-1.5 py-0.5 rounded text-body-xs font-mono bg-status-succeeded/10 text-status-succeeded whitespace-nowrap">{{ t('auditTrail.sourceWorkbench') }}</span>
+            </span>
             <span class="text-body-xs text-on-surface-variant">{{ t('auditTrail.last') }} {{ rel(a.lastTs) }}</span>
           </div>
           <div class="text-body-xs text-on-surface-variant mt-xs">{{ a.owner }} · {{ a.clusterId }}</div>

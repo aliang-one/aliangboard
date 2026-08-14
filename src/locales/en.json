@@ -3226,6 +3226,7 @@
     "sourceMcp": "MCP",
     "sourceAgent": "Agent",
     "sourceDirect": "Direct",
+    "sourceWorkbench": "Workbench AI",
     "empty": "No active keys in the last {window}",
     "calls": "calls",
     "last": "last",
