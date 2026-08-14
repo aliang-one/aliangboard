@@ -1,8 +1,7 @@
 # AliangBoard
 
-<!-- CI / ghcr badge 在首次推送 main 分支后才会点亮 -->
-[![CI](https://github.com/aliangone/aliangboard/actions/workflows/docker.yml/badge.svg)](https://github.com/aliangone/aliangboard/actions/workflows/docker.yml)
-[![ghcr](https://img.shields.io/badge/ghcr-aliangboard-blue)](https://github.com/aliangone/aliangboard/pkgs/container/aliangboard)
+[![CI](https://github.com/aliang-one/aliangboard/actions/workflows/docker.yml/badge.svg)](https://github.com/aliang-one/aliangboard/actions/workflows/docker.yml)
+[![ghcr](https://img.shields.io/badge/ghcr-aliangboard-blue)](https://github.com/aliang-one/aliangboard/pkgs/container/aliangboard)
 [![Node](https://img.shields.io/badge/node-25%2B-339933)](https://nodejs.org)
 [![Vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
@@ -74,11 +73,11 @@ Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 配置」填 `baseURL`
 镜像发布在 GHCR(首次推送 main 后可用):
 
 ```bash
-docker pull ghcr.io/aliangone/aliangboard:latest
+docker pull ghcr.io/aliang-one/aliangboard:latest
 docker run -d --name aliangboard \
   -p 8787:8787 \
   -v aliangboard-data:/app/data \
-  ghcr.io/aliangone/aliangboard:latest
+  ghcr.io/aliang-one/aliangboard:latest
 ```
 
 或本地构建:
@@ -95,7 +94,7 @@ docker run -d --name aliangboard -p 8787:8787 -v aliangboard-data:/app/data alia
 需要 Node.js 25+(`server` 用 `node:sqlite` 内置模块,25 才免标志可用)。
 
 ```bash
-git clone <repo-url> aliangboard && cd aliangboard
+git clone https://github.com/aliang-one/aliangboard.git aliangboard && cd aliangboard
 npm install
 npm run server   # 终端 1:API Gateway
 npm run dev      # 终端 2:前端 dev server(Vite 代理 /api → 127.0.0.1:8787)
@@ -203,9 +202,9 @@ API Gateway 默认在内存中保存集群凭据和会话,重启后所有登录�
 推送到 GitHub `main` 分支时,`.github/workflows/docker.yml` 会自动构建 `linux/amd64` + `linux/arm64` 多架构镜像并发布到 GitHub Container Registry:
 
 ```
-ghcr.io/aliangone/aliangboard:latest
-ghcr.io/aliangone/aliangboard:main
-ghcr.io/aliangone/aliangboard:sha-<7位提交哈希>
+ghcr.io/aliang-one/aliangboard:latest
+ghcr.io/aliang-one/aliangboard:main
+ghcr.io/aliang-one/aliangboard:sha-<7位提交哈希>
 ```
 
 `sha-<哈希>` 标签不可变,可用于精确回滚。认证使用内置 `GITHUB_TOKEN`,无需额外配置 secret。
