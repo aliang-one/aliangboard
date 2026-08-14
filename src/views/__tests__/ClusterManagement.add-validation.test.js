@@ -47,8 +47,8 @@ test('kubeconfig 模式:名称/凭据为空 → 不发请求 + 行内提示', as
   await flushPromises()
 
   expect(createMock).not.toHaveBeenCalled()
-  expect(w.find('[data-testid="form-error-name"]').exists()).toBe(true)
-  expect(w.find('[data-testid="form-error-kubeconfig"]').exists()).toBe(true)
+  expect(w.find('[data-testid="cluster-form-error-name"]').exists()).toBe(true)
+  expect(w.find('[data-testid="cluster-form-error-kubeconfig"]').exists()).toBe(true)
 })
 
 test('token 模式:apiServer/token 为空 → 行内提示;填齐才提交(trim)', async () => {
@@ -64,8 +64,8 @@ test('token 模式:apiServer/token 为空 → 行内提示;填齐才提交(trim)
   await flushPromises()
 
   expect(createMock).not.toHaveBeenCalled()
-  expect(w.find('[data-testid="form-error-token"]').exists()).toBe(true)
-  expect(w.find('[data-testid="form-error-name"]').exists()).toBe(false)
+  expect(w.find('[data-testid="cluster-form-error-token"]').exists()).toBe(true)
+  expect(w.find('[data-testid="cluster-form-error-name"]').exists()).toBe(false)
 
   await w.findAll('input').find(i => i.attributes('placeholder')?.includes('eyJhb')).setValue('tok')
   await submitBtn(w).trigger('click')
