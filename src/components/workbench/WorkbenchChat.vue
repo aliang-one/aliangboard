@@ -163,7 +163,7 @@ function activeAgentTurn() {
   const rev = [...turns.value].reverse()
   return rev.find(x => x.role === 'assistant' && x.status === 'thinking') ?? rev.find(x => x.role === 'assistant')
 }
-async function scrollToBottom() { await nextTick(); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
+async function scrollToBottom() { await nextTick(); console.log('[scrollDebug]', { hasEl: !!scrollEl.value, sh: scrollEl.value?.scrollHeight, turns: turns.value.length, status: convStatus.value }); if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight }
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
