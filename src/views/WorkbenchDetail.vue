@@ -178,7 +178,7 @@ function addFile() {
           </button>
         </div>
         <div class="flex-1 overflow-y-auto p-xs flex flex-col gap-0.5">
-          <div v-for="c in conversations" :key="c.id"
+          <div v-for="c in conversations" :key="c.id" data-testid="conversation-item"
             class="group text-left px-sm py-sm rounded-lg transition-colors cursor-pointer flex items-start gap-xs"
             :class="activeConversationId === c.id ? 'bg-primary-container text-on-primary-container' : 'hover:bg-surface-container'"
             @click="selectConversation(c.id)">
