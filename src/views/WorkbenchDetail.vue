@@ -1,7 +1,7 @@
 <script setup>
 // 工作台项目详情:Agent / Edit 双模式。
 // Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -19,12 +19,16 @@ const commits = ref([])
 const loading = ref(true)
 const currentPath = ref('')
 const currentContent = ref('')
-const dirty = ref(false)
+const savedContent = ref('') // 上次保存/打开的内容;新建文件为 null → 恒 dirty 直到首次保存
 const commitMsg = ref('')
 const newFile = ref('')
 const saving = ref(false)
 const lastReconcile = ref(null)
 const reconciling = ref(false)
+
+// dirty = 编辑器当前内容 ≠ 上次落盘内容(YamlEditor @update:model-value 实时回写 currentContent)。
+// 此前 dirty 只在新文件时置 true——编辑既有文件后切文件会静默丢改动。
+const dirty = computed(() => currentContent.value !== savedContent.value)
 
 // Mode: agent | edit (persisted)
 const mode = ref(localStorage.getItem('aliangboard.workbench.mode') || 'agent')
@@ -42,10 +46,10 @@ const convStatusStyle = {
 const relTime = ts => {
   if (!ts) return ''
   const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s/60)}m`
-  if (s < 86400) return `${Math.floor(s/3600)}h`
-  return `${Math.floor(s/86400)}d`
+  if (s < 60) return t('workbench.detail.timeJustNow')
+  if (s < 3600) return t('workbench.detail.timeMinAgo', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('workbench.detail.timeHourAgo', { n: Math.floor(s / 3600) })
+  return t('workbench.detail.timeDayAgo', { n: Math.floor(s / 86400) })
 }
 
 function selectConversation(convId) { activeConversationId.value = convId }
@@ -119,7 +123,7 @@ async function openFile(path) {
     const res = await workbenchApi.readFile(id, path)
     currentPath.value = res.path
     currentContent.value = res.content
-    dirty.value = false
+    savedContent.value = res.content
   } catch (e) { notify('error', e.message || t('workbench.detail.readFailed')) }
 }
 async function save(content) {
@@ -128,12 +132,14 @@ async function save(content) {
   try {
     if (typeof content === 'string') currentContent.value = content
     await workbenchApi.writeFile(id, currentPath.value, currentContent.value)
-    dirty.value = false
+    savedContent.value = currentContent.value
     notify('success', t('workbench.detail.saveSuccess'))
     if (!files.value.includes(currentPath.value)) { files.value.push(currentPath.value); files.value.sort() }
   } catch (e) { notify('error', e.message || t('workbench.detail.saveFailed')) }
   finally { saving.value = false }
 }
+// YamlEditor Discard → 回滚到上次落盘内容(编辑器自身也会退出编辑态)
+function discard() { currentContent.value = savedContent.value ?? '' }
 async function doCommit() {
   try {
     const r = await workbenchApi.commit(id, commitMsg.value.trim() || 'update')
@@ -146,9 +152,47 @@ async function doCommit() {
 function addFile() {
   const p = newFile.value.trim()
   if (!p) return
-  currentPath.value = p; currentContent.value = ''; dirty.value = true; newFile.value = ''
+  newFile.value = ''
+  if (files.value.includes(p)) { openFile(p); return } // 已存在 → 直接打开
+  currentPath.value = p; currentContent.value = ''; savedContent.value = null
   notify('success', t('workbench.detail.newFileCreated', { path: p }))
 }
+
+// 删除项目文件(后端删工作树文件;删除在下次 commit 进 git 历史)
+async function deleteProjectFile(path) {
+  if (!confirm(t('workbench.detail.deleteFileConfirm', { path }))) return
+  try {
+    await workbenchApi.deleteFile(id, path)
+    files.value = files.value.filter(f => f !== path)
+    if (currentPath.value === path) { currentPath.value = ''; currentContent.value = ''; savedContent.value = '' }
+    notify('success', t('workbench.detail.fileDeleted', { path }))
+  } catch (e) { notify('error', e.message || t('workbench.detail.deleteFileFailed')) }
+}
+
+// ═══ Edit 模式文件树:平铺 git ls-files 路径 → 根文件 + 目录组(可折叠,默认展开) ═══
+const collapsedDirs = ref(new Set())
+function toggleDir(dir) {
+  const s = new Set(collapsedDirs.value)
+  if (s.has(dir)) s.delete(dir); else s.add(dir)
+  collapsedDirs.value = s
+}
+const treeRows = computed(() => {
+  const roots = []
+  const dirs = {}
+  for (const f of files.value) {
+    const i = f.lastIndexOf('/')
+    if (i < 0) { roots.push(f); continue }
+    const d = f.slice(0, i)
+    ;(dirs[d] = dirs[d] || []).push(f)
+  }
+  const rows = []
+  for (const f of roots.sort()) rows.push({ type: 'file', path: f })
+  for (const d of Object.keys(dirs).sort()) {
+    rows.push({ type: 'dir', dir: d, count: dirs[d].length })
+    for (const f of dirs[d].sort()) rows.push({ type: 'file', path: f, dir: d })
+  }
+  return rows
+})
 </script>
 
 <template>
@@ -181,11 +225,21 @@ function addFile() {
     </div>
 
     <!-- Reconcile status -->
-    <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-center gap-sm px-md py-xs bg-surface-container-low/50">
+    <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-start gap-sm px-md py-xs bg-surface-container-low/50">
       <span class="material-symbols-outlined text-sm">sync</span>
-      {{ t('workbench.detail.lastReconcile', { ts: fmt(lastReconcile.ts) }) }}:
-      <template v-if="lastReconcile.result?.skipped">{{ t('workbench.detail.reconcileSkipped', { reason: lastReconcile.result.reason }) }}</template>
-      <template v-else>{{ lastReconcile.result?.applied?.length || 0 }} applied, {{ lastReconcile.result?.failed?.length || 0 }} failed</template>
+      <div class="min-w-0">
+        {{ t('workbench.detail.lastReconcile', { ts: fmt(lastReconcile.ts) }) }}:
+        <template v-if="lastReconcile.result?.skipped">{{ t('workbench.detail.reconcileSkipped', { reason: lastReconcile.result.reason }) }}</template>
+        <template v-else>{{ t('workbench.detail.reconcileCounts', { applied: lastReconcile.result?.applied?.length || 0, failed: lastReconcile.result?.failed?.length || 0 }) }}</template>
+        <details v-if="lastReconcile.result?.failed?.length" class="mt-0.5">
+          <summary class="cursor-pointer text-error/80 select-none">{{ t('workbench.detail.reconcileFailedN', { n: lastReconcile.result.failed.length }) }}</summary>
+          <ul class="ml-md mt-0.5 flex flex-col gap-0.5">
+            <li v-for="(f, i) in lastReconcile.result.failed" :key="i" class="font-mono break-all">
+              <span class="text-error">{{ f.kind }}/{{ f.name }}</span> <span class="text-on-surface-variant">{{ f.error }}</span>
+            </li>
+          </ul>
+        </details>
+      </div>
     </div>
 
     <!-- ═══════════════ Agent Mode ═══════════════ -->
@@ -216,7 +270,7 @@ function addFile() {
               <p v-if="renamingId === c.id" class="text-body-xs">
                 <input :ref="el => { if (el) renameInput = el }" v-model="renameText" @keydown.enter="confirmRename(c.id)" @keydown.esc="renamingId = null" @click.stop class="w-full bg-surface-container-lowest border border-primary/40 rounded px-xs py-0.5 text-body-xs outline-none" :placeholder="t('workbench.detail.convTitlePlaceholder')" />
               </p>
-              <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || '(empty)' }}</p>
+              <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || t('workbench.detail.emptyConv') }}</p>
             </div>
             <div class="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
               <button @click.stop="startRename(c)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="t('workbench.detail.renameConv')">
@@ -251,11 +305,30 @@ function addFile() {
           <span class="material-symbols-outlined text-base">folder</span>{{ t('workbench.detail.files') }}
         </div>
         <div class="flex-1 overflow-y-auto p-sm flex flex-col gap-0.5">
-          <button v-for="f in files" :key="f" @click="openFile(f)"
-            class="text-left text-body-sm font-mono px-sm py-xs rounded truncate"
-            :class="f === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
-            <span class="material-symbols-outlined text-sm align-middle mr-xs">description</span>{{ f }}
-          </button>
+          <template v-for="row in treeRows" :key="row.type === 'dir' ? 'd:' + row.dir : row.path">
+            <!-- 目录行:可折叠(默认展开),右侧文件数 -->
+            <button v-if="row.type === 'dir'" @click="toggleDir(row.dir)" type="button"
+              class="w-full flex items-center gap-xs px-sm py-xs rounded text-body-sm font-mono"
+              :class="collapsedDirs.has(row.dir) ? 'text-on-surface-variant hover:bg-surface-container' : 'text-on-surface bg-surface-container/60 hover:bg-surface-container'">
+              <span class="material-symbols-outlined text-sm">{{ collapsedDirs.has(row.dir) ? 'folder' : 'folder_open' }}</span>
+              <span class="truncate">{{ row.dir }}/</span>
+              <span class="ml-auto text-body-xs text-on-surface-variant/50 shrink-0">{{ row.count }}</span>
+            </button>
+            <!-- 文件行:目录子文件缩进,hover 出删除 -->
+            <div v-else v-show="!row.dir || !collapsedDirs.has(row.dir)"
+              class="group flex items-center rounded" :class="row.dir ? 'ml-lg' : ''">
+              <button @click="openFile(row.path)" type="button"
+                class="flex-1 min-w-0 text-left text-body-sm font-mono px-sm py-xs rounded truncate"
+                :class="row.path === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
+                <span class="material-symbols-outlined text-sm align-middle mr-xs">description</span>{{ row.path.slice(row.path.lastIndexOf('/') + 1) }}
+              </button>
+              <button @click="deleteProjectFile(row.path)" type="button"
+                class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10"
+                :title="t('workbench.detail.deleteFile')">
+                <span class="material-symbols-outlined text-sm">delete</span>
+              </button>
+            </div>
+          </template>
           <p v-if="!files.length" class="text-body-xs text-on-surface-variant px-sm py-sm">{{ t('workbench.detail.noFiles') }}</p>
         </div>
         <div class="p-sm border-t border-outline-variant flex gap-xs">
@@ -270,7 +343,8 @@ function addFile() {
           <span class="text-body-sm font-mono text-on-surface-variant truncate">{{ currentPath || t('workbench.detail.noFileSelected') }}</span>
           <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
         </div>
-        <YamlEditor :model-value="currentContent" :readonly="false" height="50vh" @save="save" />
+        <YamlEditor :model-value="currentContent" :readonly="false" height="50vh"
+          @update:model-value="v => currentContent = v" @save="save" @discard="discard" />
         <div class="flex items-center gap-xs">
           <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
           <button @click="doCommit" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"><span class="material-symbols-outlined text-sm">commit</span>{{ t('workbench.detail.commit') }}</button>

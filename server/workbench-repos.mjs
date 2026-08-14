@@ -8,7 +8,7 @@
 //   - withRepoLock → 同 repo 的异步 git op 串行,防 .git 损坏
 //   - 非 0 退出 → 结构化错误 {code:'GIT_FAILED', gitArgs, stderr}
 import { execFile } from 'node:child_process'
-import { mkdir, readFile as fsRead, writeFile as fsWrite, stat } from 'node:fs/promises'
+import { mkdir, readFile as fsRead, writeFile as fsWrite, stat, unlink, rmdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute, dirname } from 'node:path'
 
 const GIT_TIMEOUT_MS = 15000
@@ -100,6 +100,21 @@ export async function writeFile(repoPath, relPath, content) {
 export async function readFile(repoPath, relPath) {
   const safe = safeRelativePath(repoPath, relPath)
   return fsRead(join(repoPath, safe), 'utf8')
+}
+
+// 删除工作树内一个文件(路径禁闭同 writeFile)。删除后尽力清掉变空的父目录(best-effort,失败忽略);
+// 删除本身在 commit 时进 git 历史(git add -A 会记下删除)。文件不存在 → 抛(ENOENT)。
+export async function deleteFile(repoPath, relPath) {
+  const safe = safeRelativePath(repoPath, relPath)
+  return withRepoLock(repoPath, async () => {
+    const abs = join(repoPath, safe)
+    await unlink(abs)
+    let dir = dirname(abs)
+    while (dir.startsWith(resolve(repoPath)) && dir !== resolve(repoPath)) {
+      try { await rmdir(dir) } catch { break } // 非空/不存在 → 停止上溯
+      dir = dirname(dir)
+    }
+  })
 }
 
 // 已跟踪文件(git ls-files)。未 commit 的工作树改动不在此列 —— UI 在 commit 后刷新。

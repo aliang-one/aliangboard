@@ -10,6 +10,7 @@ import {
   initRepo, hasRepo, writeFile as wbWriteFile,
   readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit,
   recentCommits as wbRecentCommits, readManifests as wbReadManifests,
+  deleteFile as wbDeleteFile,
 } from '../workbench-repos.mjs'
 import { verifiedAt } from '../workbench-ledger.mjs'
 import { runDistill } from '../distill.mjs'
@@ -80,6 +81,10 @@ export function createWorkbenchProjectRoutes(deps) {
             const input = await readBody(req)
             await wbWriteFile(repo, relPath, input.content ?? '') // wbWriteFile 内置路径禁闭
             sendJson(res, 200, { ok: true }); return true
+          }
+          if (req.method === 'DELETE') {
+            await wbDeleteFile(repo, relPath) // 路径禁闭同 writeFile;删除进 commit 历史
+            sendJson(res, 200, { ok: true, path: relPath }); return true
           }
         } catch (e) { sendJson(res, 400, { message: e?.message || '文件操作失败' }); return true }
         sendJson(res, 405, { message: 'method not allowed' }); return true

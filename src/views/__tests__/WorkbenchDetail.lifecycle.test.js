@@ -83,3 +83,72 @@ test('selectConversation sets activeConversationId to the clicked id', async () 
   await convItem.trigger('click')
   expect(w.findComponent({ name: 'WorkbenchChat' }).props('activeConversationId')).toBe('conv-a')
 })
+
+// ═══ SP4 Edit 模式:文件树 + dirty 守卫 + 删除 ═══
+const editApi = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+  deleteFile: vi.fn(),
+}))
+Object.assign(workbenchApi, editApi)
+
+async function mountEdit(files) {
+  workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files, commits: [] })
+  // localStorage mode=edit(YamlEditor/WorkbenchChat 已桩)
+  localStorage.setItem('aliangboard.workbench.mode', 'edit')
+  const w = await mountDetail()
+  localStorage.removeItem('aliangboard.workbench.mode')
+  return w
+}
+
+test('Edit 文件树:根文件 + 目录分组(子文件缩进),目录行带文件数', async () => {
+  const w = await mountEdit(['INDEX.md', 'manifests/deploy.yaml', 'manifests/svc.yaml', 'notes/x.md'])
+  const text = w.text()
+  expect(text).toContain('manifests/')
+  expect(text).toContain('notes/')
+  expect(text).toContain('2') // manifests/ 计数
+  // 文件行只显示文件名(不重复全路径)
+  const treeArea = w.findAll('button').map(b => b.text())
+  expect(treeArea.some(t => t.includes('deploy.yaml') && !t.includes('manifests/deploy.yaml'))).toBe(true)
+})
+
+test('Edit dirty 守卫:编辑未保存切文件 → confirm 拦截;保存后不拦', async () => {
+  const w = await mountEdit(['a.yaml', 'b.yaml'])
+  workbenchApi.readFile.mockResolvedValue({ path: 'a.yaml', content: 'x: 1' })
+  // 打开 a.yaml
+  const btnA = w.findAll('button').find(b => b.text().includes('a.yaml'))
+  await btnA.trigger('click')
+  await flushPromises()
+  expect(w.vm.dirty).toBe(false)
+  // 模拟编辑器回写(YamlEditor @update:model-value)
+  w.vm.currentContent = 'x: 2'
+  expect(w.vm.dirty).toBe(true)
+  // dirty 时切 b.yaml → confirm 返回 false → 不读
+  vi.stubGlobal('confirm', vi.fn(() => false))
+  const btnB = w.findAll('button').find(b => b.text().includes('b.yaml'))
+  await btnB.trigger('click')
+  expect(globalThis.confirm).toHaveBeenCalled()
+  expect(w.vm.currentPath).toBe('a.yaml')
+  // 保存 → dirty 消失
+  workbenchApi.writeFile.mockResolvedValue({ ok: true })
+  await w.vm.save('x: 2')
+  expect(w.vm.dirty).toBe(false)
+  vi.unstubAllGlobals()
+})
+
+test('Edit 删除文件:confirm 后调 deleteFile 并从树中移除;当前文件被删则清空编辑器', async () => {
+  const w = await mountEdit(['manifests/deploy.yaml'])
+  workbenchApi.readFile.mockResolvedValue({ path: 'manifests/deploy.yaml', content: 'a: 1' })
+  const fileBtn = w.findAll('button').find(b => b.text().includes('deploy.yaml'))
+  await fileBtn.trigger('click')
+  await flushPromises()
+  expect(w.vm.currentPath).toBe('manifests/deploy.yaml')
+  workbenchApi.deleteFile.mockResolvedValue({ ok: true })
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  await w.vm.deleteProjectFile('manifests/deploy.yaml')
+  await flushPromises()
+  expect(workbenchApi.deleteFile).toHaveBeenCalledWith('proj-1', 'manifests/deploy.yaml')
+  expect(w.vm.currentPath).toBe('')
+  expect(w.text()).not.toContain('deploy.yaml')
+  vi.unstubAllGlobals()
+})

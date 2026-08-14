@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   ensureGitAvailable, initRepo, writeFile, readFile, listFiles, commit, recentCommits,
-  hasRepo, withRepoLock, safeRelativePath,
+  hasRepo, withRepoLock, safeRelativePath, deleteFile,
 } from './workbench-repos.mjs'
 
 const delay = ms => new Promise(r => setTimeout(r, ms))
@@ -112,5 +112,26 @@ test('hasRepo / ensureGitAvailable', async () => {
   try {
     assert.equal(await hasRepo(repo), true)
     assert.equal(await hasRepo(join(tmpdir(), `wb-no-${Date.now()}`)), false)
+  } finally { await rm(repo, { recursive: true, force: true }) }
+})
+
+test('deleteFile:删工作树文件 + 空目录上溯清理;commit 记下删除;不存在抛 ENOENT;路径禁闭', async () => {
+  const repo = await freshRepo()
+  try {
+    await writeFile(repo, 'manifests/deep/deploy.yaml', 'a: 1\n')
+    await writeFile(repo, 'manifests/keep.yaml', 'b: 2\n')
+    await commit(repo, 'init')
+    await deleteFile(repo, 'manifests/deep/deploy.yaml')
+    await assert.rejects(readFile(repo, 'manifests/deep/deploy.yaml'), /ENOENT/)
+    // 空目录 manifests/deep 已上溯清掉;manifests/(还有 keep.yaml)保留
+    const after = await listFiles(repo) // git ls-files:commit 前仍含已删文件? — ls-files 读 index,unlink 后未 add → 仍列出。删除进历史要 commit:
+    const r = await commit(repo, 'rm deep/deploy.yaml')
+    assert.equal(r.committed, true)
+    const listed = await listFiles(repo)
+    assert.ok(!listed.includes('manifests/deep/deploy.yaml'), 'commit 后 ls-files 不再含已删文件')
+    assert.ok(listed.includes('manifests/keep.yaml'))
+    assert.equal(after.length, 2, 'commit 前 index 仍含删除前状态(与 git 语义一致)')
+    await assert.rejects(deleteFile(repo, 'manifests/deep/deploy.yaml'), /ENOENT/)
+    await assert.rejects(deleteFile(repo, '../../escape.yaml'), /越界|绝对/)
   } finally { await rm(repo, { recursive: true, force: true }) }
 })

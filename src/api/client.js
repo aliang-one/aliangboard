@@ -198,6 +198,7 @@ export const workbenchApi = {
   getProject: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`),
   readFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
   writeFile: (id, path, content) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  deleteFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' }),
   commit: (id, message) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
   // 集群台账（cluster-context repo，每集群一份）
   getLedger: clusterId => platformHttp.request(`/api/workbench/ledger?clusterId=${encodeURIComponent(clusterId)}`),
