@@ -167,3 +167,44 @@ test('resumeConversation: 从 paused 续跑 → done', async () => {
   // pendingApproval 清空(resume 入口 updateConversation running,pendingApproval null)
   assert.equal(row.pendingApproval, null)
 })
+
+// ═══ 用户取消(停止→修改重发):cancelConversation + agent 结果丢弃守卫 ═══
+test('cancelConversation: running → cancelled + bus 事件(status cancelled + end + dispose);非运行态拒绝', async () => {
+  const { db, conv, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({}), busEmit, busDispose })
+
+  const r = agent.cancelConversation(conv.id)
+  assert.equal(r.ok, true)
+  assert.equal(getConversation(db, conv.id).status, 'cancelled')
+  assert.equal(getConversation(db, conv.id).error, '用户取消')
+  assert.equal(getConversation(db, conv.id).pendingApproval, null)
+
+  // 二次取消(已 cancelled)→ ok:false
+  const r2 = agent.cancelConversation(conv.id)
+  assert.equal(r2.ok, false)
+  // done 态也拒绝
+  updateConversation(db, conv.id, { status: 'done' })
+  assert.equal(agent.cancelConversation(conv.id).ok, false)
+  assert.equal(agent.cancelConversation('no-such-id').ok, false, '不存在 → ok:false')
+})
+
+test('取消后 agent 结果被丢弃:run 期间用户 cancel → 落库前守卫拦住,状态保持 cancelled 不追加历史', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let resolveRun
+  const { createAgentRunner } = makeRunner(() => new Promise(res => { resolveRun = res }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) })
+  await new Promise(r => setTimeout(r, 10))          // 等 runConversation 进入 run()
+  agent.cancelConversation(conv.id)                  // 用户在 LLM 返回前取消
+  resolveRun({ status: 'done', content: '迟到的答案', trace: [], steps: 1, messages: [], queue: [], denied: [] })
+  await p
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', 'agent 完成不覆盖 cancelled')
+  assert.equal(row.content ?? '', '', '迟到内容不入库')
+  const msgs = db.prepare('SELECT count(*) c FROM workbench_messages WHERE conversationId=?').get(conv.id).c
+  assert.equal(msgs, 1, '只保留原 user 消息,assistant 不追加')
+})

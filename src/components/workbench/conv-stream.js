@@ -17,10 +17,11 @@ export function applyStreamEvent(state, evt) {
       // 工具待审批:置 pendingApproval + 切 pending_approval
       return { ...state, pendingApproval: evt.pending, status: 'pending_approval' }
     case 'status': {
-      // 对话状态变更(running/paused/done/failed)
+      // 对话状态变更(running/paused/done/failed/cancelled)
       if (evt.status === 'done') return { ...state, status: 'done' }
       if (evt.status === 'paused') return { ...state, status: 'pending_approval' }
       if (evt.status === 'failed') return { ...state, status: 'error', error: evt.error || '' }
+      if (evt.status === 'cancelled') return { ...state, status: 'error', error: evt.error || '已停止' }
       if (evt.status === 'running') return { ...state, status: 'thinking' }
       return state
     }

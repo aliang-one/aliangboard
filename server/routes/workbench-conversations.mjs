@@ -231,6 +231,19 @@ export function createWorkbenchConvRoutes(deps) {
       return true
     }
 
+    // POST /api/workbench/conversations/:id/cancel — 用户主动停止(输错内容→停止→修改重发)。
+    // 后台 LLM 调用不可中断,但 agent 落库前的 cancelled 守卫会丢弃其结果。
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/cancel$/) && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/cancel
+        const r = wbAgent.cancelConversation(id)
+        if (!r.ok) { sendJson(res, 400, { message: r.message }); return true }
+        sendJson(res, 200, { status: 'cancelled' })
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '取消失败' }); return true }
+      return true
+    }
+
     return false // 无匹配
   }
 

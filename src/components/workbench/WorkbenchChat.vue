@@ -351,6 +351,28 @@ function startStreaming(id) {
   }
 }
 
+// 停止运行中的对话(输错内容→停止→修改重发):调 cancel 端点;本地即刻停流/停轮询、
+// thinking turn 置停止态,并把最后一条 user 消息回填输入框供修改重发。
+// 竞态:agent 恰在 cancel 前完成 → cancel 返 400 → pollOnce 对齐终态。
+async function stopRun() {
+  if (!conversationId.value || !sending.value) return
+  const lastUser = [...turns.value].reverse().find(x => x.role === 'user')
+  let cancelled = false
+  try { await workbenchApi.conversations.cancel(conversationId.value); cancelled = true }
+  catch { cancelled = false }
+  if (cancelled) {
+    stopStreaming(); stopPolling()
+    const at = activeAgentTurn()
+    if (at && at.status === 'thinking') updateTurn(at._id, { status: 'error', error: t('workbench.chat.stopped') })
+    convStatus.value = 'cancelled'
+    sending.value = false
+    if (lastUser) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
+  } else {
+    // 已终态(等):拉一次对齐显示
+    try { await pollOnce(conversationId.value) } catch { /* 忽略 */ }
+  }
+}
+
 async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
@@ -420,6 +442,9 @@ async function decideApproval(approved) {
 }
 
 function onKeydown(e) {
+  // 中文输入法组合期(按住回车选词/确认候选):按键属 IME,不触发发送/选中。
+  // keyCode 229 为旧浏览器 IME 标记,双保险。
+  if (e.isComposing || e.keyCode === 229) return
   // @-mention 下拉打开时:↑↓ 移动选中,Enter/Tab 选中项,Esc 关闭
   if (searchOpen.value && mentionItems.value.length) {
     const n = mentionItems.value.length
@@ -503,8 +528,13 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="sending || !!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
-          <button @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
+          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="!!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <!-- 运行中:发送键变停止键(输错→停止→修改重发);等待审批时不显示 -->
+          <button v-if="sending && conversationId && !pendingApproval" @click="stopRun" :title="t('workbench.chat.stop')"
+            class="shrink-0 w-8 h-8 flex items-center justify-center border border-error/40 text-error rounded-xl hover:bg-error/10 transition-colors">
+            <span class="material-symbols-outlined text-base">stop</span>
+          </button>
+          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
         </div>
