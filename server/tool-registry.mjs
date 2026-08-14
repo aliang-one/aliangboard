@@ -116,6 +116,15 @@ const WB = [
     description: '查看 Deployment rollout 状态摘要(replicas + conditions)。判断滚动更新是否卡住。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.rolloutStatus(args.namespace, args.name) } catch (e) { return `查 rollout 失败: ${e.message}` } } },
+  // === K8s 运维工具(workbench-principal,需人审,用项目绑定集群凭据直连) ===
+  { name: 'wb_scale', requiresApproval: true,
+    description: '扩缩容(workbench):Deployment/StatefulSet replicas 调整。需人审。replicas 钳到 1..20。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: 'deployments 或 statefulsets' }, name: { type: 'string' }, replicas: { type: 'number' } }, required: ['namespace', 'kind', 'name', 'replicas'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.scale(args.namespace, args.kind, args.name, args.replicas) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_restart', requiresApproval: true,
+    description: '滚动重启(workbench):Deployment/StatefulSet/DaemonSet。需人审。用 rollout restart 触发。',
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: 'deployments/statefulsets/daemonsets' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.restart(args.namespace, args.kind, args.name) } catch (e) { return { error: e.message } } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]

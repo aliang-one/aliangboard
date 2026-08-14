@@ -1225,6 +1225,23 @@ async function handle(req, res) {
           const summary = `${replicas.ready}/${replicas.desired} ready, ${replicas.updated} updated${prog ? `, ${prog.reason || prog.status}` : ''}`
           return { name: body.metadata?.name, replicas, conditions, summary }
         },
+        // === K8s 运维(scale/restart,用项目绑定集群凭据,需人审) ===
+        scale: async (namespace, kind, name, replicas) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || '').toLowerCase()
+          if (!['deployments', 'statefulsets'].includes(k)) throw new Error(`scale 仅支持 deployments/statefulsets,不是 ${k}`)
+          const n = Math.min(Math.max(Number(replicas) | 0, 1), 20) // 钳到 1..20
+          const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}/scale`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { replicas: n } }) })
+          return { kind: k, name, replicas: resp?.body?.spec?.replicas ?? n, message: `${namespace}/${name} 已调整到 ${n} 副本` }
+        },
+        restart: async (namespace, kind, name) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || '').toLowerCase()
+          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(`restart 仅支持 deployments/statefulsets/daemonsets,不是 ${k}`)
+          const ts = new Date().toISOString()
+          const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': ts } } } } }) })
+          return { kind: k, name, restartedAt: ts, message: `${namespace}/${name} 已触发滚动重启` }
+        },
       },
       k8sSession,
     }
