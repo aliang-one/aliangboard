@@ -22,6 +22,12 @@ const clusterRoleBindingsQuery = useResourceList({
   fetcher: () => store.fetchClusterRoleBindings(),
   options: { refetchInterval: 30000 },
 })
+// checkAccess 的规则源(与 RBAC 页同 key 去重;无此挂载时 roles 缓存冷 → 推演漏规则)
+const rolesQuery = useResourceList({
+  key: ['cluster', cid, 'roles'],
+  fetcher: () => store.fetchRoles(),
+  options: { refetchInterval: 30000 },
+})
 
 const subjectKind = ref('User')
 const subjectName = ref('admin@kubezen.io')

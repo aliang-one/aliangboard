@@ -175,3 +175,62 @@ test('multi-turn continue: pollOnce(done) updates the thinking assistant, not th
   // No stuck thinking spinner on either assistant turn (ChatTurn renders "Thinking..." for thinking status)
   expect(html).not.toContain('Thinking...')
 })
+
+// Finding #2 regression(2026-08-14):SSE 路径同款 first-match bug——es.onmessage 曾用
+// turns.find(assistant) 取【第一个】assistant,多轮续接时 delta/status 全写到历史 turn,
+// 新 thinking turn 永久 spinner("思考中…"直到刷新页面才见结果)。测试环境无 EventSource,
+// 旧测试全走轮询降级路径,从未覆盖此处;本测试 stub EventSource 手动喂事件。
+test('multi-turn continue via SSE: delta/status update the LAST thinking turn, not the first done one', async () => {
+  let esInstance = null
+  class FakeEventSource {
+    constructor(url) { this.url = url; this.onmessage = null; this.onerror = null; esInstance = this }
+    close() { this.closed = true }
+  }
+  vi.stubGlobal('EventSource', FakeEventSource)
+  try {
+    const w = await mountChat({ activeConversationId: 'conv-sse' })
+
+    // --- turn 1:send → SSE hello/delta/done ---
+    api.conversations.append.mockResolvedValue({ status: 'running' })
+    await w.find('textarea').setValue('question 1')
+    await w.find('button.bg-primary').trigger('click')
+    await flushPromises()
+    expect(esInstance, 'send 后建立 SSE').toBeTruthy()
+    esInstance.onmessage({ data: JSON.stringify({ type: 'hello', status: 'running' }) })
+    esInstance.onmessage({ data: JSON.stringify({ type: 'delta', text: 'first answer' }) })
+    esInstance.onmessage({ data: JSON.stringify({ type: 'status', status: 'done' }) })
+    await flushPromises()
+    expect(w.html()).toContain('first answer')
+
+    // --- turn 2:继续发(旧 bug:delta 会写到 turn 1 上,turn 2 永久思考中) ---
+    await w.find('textarea').setValue('question 2')
+    await w.find('button.bg-primary').trigger('click')
+    await flushPromises()
+    esInstance.onmessage({ data: JSON.stringify({ type: 'delta', text: 'second answer' }) })
+    esInstance.onmessage({ data: JSON.stringify({ type: 'status', status: 'done' }) })
+    await flushPromises()
+
+    const html = w.html()
+    expect(html).toContain('first answer', '第一轮答案未被覆盖(旧 bug 会把它改写掉)')
+    expect(html).toContain('second answer', '第二轮答案落到新 turn')
+    expect(html).not.toContain('思考中', '无卡死 spinner')
+    expect(html).not.toContain('workbench.chat.thinking', '无渲染成 key 的缺翻译 spinner')
+
+    // --- turn 3:SSE 中断线(未到终态)→ 必须降级轮询对齐(旧 bug:doneOrFinal 取首个
+    //     done assistant 误判已终态 → 不降级 → 本轮永久思考中) ---
+    api.conversations.get.mockResolvedValueOnce({
+      id: 'conv-sse', status: 'done', content: 'third answer (poll fallback)', trace: '[]', steps: 3, recap: '',
+    })
+    await w.find('textarea').setValue('question 3')
+    await w.find('button.bg-primary').trigger('click')
+    await flushPromises()
+    esInstance.onerror() // SSE 断线
+    await flushPromises()
+    await flushPromises()
+    const html3 = w.html()
+    expect(html3).toContain('third answer (poll fallback)', '断线后降级轮询拉到结果')
+    expect(html3).not.toContain('思考中', '断线不卡死')
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
