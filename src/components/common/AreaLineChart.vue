@@ -1,5 +1,5 @@
 <script setup>
-// 平滑面积折线图:ECharts 实现(tooltip/渐变/数据过渡动画),替代已删除的旧版 canvas 迷你图。
+// 平滑面积折线图:ECharts 实现(tooltip/渐变/数据过渡动画),替代已删除的旧版 SVG 迷你图。
 // 颜色与 refLines 颜色都传 palette token 名('primary'/'secondary'/'error'…),杜绝 var() 未定义坑。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
