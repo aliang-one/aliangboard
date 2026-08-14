@@ -904,6 +904,36 @@ test('deriveClusterCounts: 非数组/缺省 → null(未命中,供调用方回�
   )
 })
 
+// --- 图表美化:MD3 色板单一来源 + var() 未定义 bug 修复 ---
+import { MD_PALETTE, paletteVarsCss, installPaletteVars, tokenHex } from '../src/styles/md-palette.js'
+
+test('MD_PALETTE: 必备 token 齐全且为 6 位 hex', () => {
+  const need = ['primary', 'secondary', 'tertiary', 'tertiary-container', 'error', 'status-failed',
+    'on-surface', 'on-surface-variant', 'outline', 'outline-variant',
+    'surface-container-lowest', 'surface-container-high', 'primary-container', 'secondary-container']
+  for (const k of need) assert.ok(/^#[0-9a-f]{6}$/i.test(MD_PALETTE[k] || ''), `token ${k} 缺失或非 #rrggbb`)
+})
+test('paletteVarsCss: :root 注入且含全仓实际使用的 4 个 --md-sys-color-* 变量', () => {
+  const css = paletteVarsCss()
+  assert.ok(css.startsWith(':root{'), '应为 :root{...} 形式')
+  for (const v of ['--md-sys-color-primary', '--md-sys-color-secondary', '--md-sys-color-tertiary-container', '--md-sys-color-error']) {
+    assert.ok(css.includes(v), `缺少 ${v}`)
+  }
+  assert.ok(css.includes(`--md-sys-color-primary:${MD_PALETTE.primary};`))
+})
+test('tokenHex: 已知 token→hex;未知/空回落 primary', () => {
+  assert.equal(tokenHex('secondary'), MD_PALETTE.secondary)
+  assert.equal(tokenHex('nope'), MD_PALETTE.primary)
+  assert.equal(tokenHex(), MD_PALETTE.primary)
+})
+test('installPaletteVars: 幂等(重复调用不重复注入)', () => {
+  let appended = 0
+  const fakeDoc = { getElementById: () => (appended ? {} : null), head: { appendChild: () => { appended++ } }, createElement: () => ({ textContent: '' }) }
+  installPaletteVars(fakeDoc)
+  installPaletteVars(fakeDoc)
+  assert.equal(appended, 1)
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

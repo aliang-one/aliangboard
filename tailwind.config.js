@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 import { codeTheme } from './src/styles/code-theme.js'
+import { MD_PALETTE } from './src/styles/md-palette.js'
 
 export default {
   content: [
@@ -10,61 +11,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Surface
-        'surface': '#f8f9ff',
-        'surface-dim': '#cbdbf5',
-        'surface-bright': '#f8f9ff',
-        'surface-container-lowest': '#ffffff',
-        'surface-container-low': '#eff4ff',
-        'surface-container': '#e5eeff',
-        'surface-container-high': '#dce9ff',
-        'surface-container-highest': '#d3e4fe',
-        'on-surface': '#0b1c30',
-        'on-surface-variant': '#3c4a42',
-        'inverse-surface': '#213145',
-        'inverse-on-surface': '#eaf1ff',
-        'outline': '#6c7a71',
-        'outline-variant': '#bbcabf',
-        'surface-tint': '#006c49',
-        // Primary (Emerald)
-        'primary': '#006c49',
-        'on-primary': '#ffffff',
-        'primary-container': '#10b981',
-        'on-primary-container': '#00422b',
-        'inverse-primary': '#4edea3',
-        'primary-fixed': '#6ffbbe',
-        'primary-fixed-dim': '#4edea3',
-        'on-primary-fixed': '#002113',
-        'on-primary-fixed-variant': '#005236',
-        // Secondary (Indigo)
-        'secondary': '#4648d4',
-        'on-secondary': '#ffffff',
-        'secondary-container': '#6063ee',
-        'on-secondary-container': '#fffbff',
-        'secondary-fixed': '#e1e0ff',
-        'secondary-fixed-dim': '#c0c1ff',
-        'on-secondary-fixed': '#07006c',
-        'on-secondary-fixed-variant': '#2f2ebe',
-        // Tertiary (Amber)
-        'tertiary': '#855300',
-        'on-tertiary': '#ffffff',
-        'tertiary-container': '#e29100',
-        'on-tertiary-container': '#523200',
-        'tertiary-fixed': '#ffddb8',
-        'tertiary-fixed-dim': '#ffb95f',
-        'on-tertiary-fixed': '#2a1700',
-        'on-tertiary-fixed-variant': '#653e00',
-        // Error
-        'error': '#ba1a1a',
-        'on-error': '#ffffff',
-        'error-container': '#ffdad6',
-        'on-error-container': '#93000a',
-        // Status
-        'status-running': '#10b981',
-        'status-pending': '#f59e0b',
-        'status-failed': '#ef4444',
-        'status-succeeded': '#3b82f6',
-        'status-unknown': '#6b7280',
+        // MD3 全套色板唯一来源:src/styles/md-palette.js(图表/:root 变量同源)
+        ...MD_PALETTE,
         // 暗底代码/终端主题（与 xterm/prism 共用 src/styles/code-theme.js，单一来源）
         'code-surface': codeTheme.surface,
         'on-code-surface': codeTheme.onSurface,
