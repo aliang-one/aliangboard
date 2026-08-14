@@ -55,6 +55,9 @@ function fmtResult(ev) {
   if (name === 'wb_read_pod_file') {
     return fmtPodFile(r)
   }
+  if (name === 'wb_top') {
+    return fmtTop(r)
+  }
   return JSON.stringify(r, null, 2)
 }
 
@@ -117,6 +120,28 @@ function fmtExec(r) {
 
 function fmtPodFile(r) {
   return [`${r.pod}:${r.path}${r.truncated ? ' (truncated)' : ''}`, r.content || '(empty)'].join('\n')
+}
+
+// 用量行:百分比 > 80% 标 ⚠(一眼看出 OOM 前兆/CPU 打满);null = 无 limit/不可算,不显示假数
+function fmtTop(r) {
+  const bar = (label, pct) => pct == null ? '' : `${label} ${pct}%${pct >= 80 ? ' ⚠' : ''}`
+  const L = []
+  if (r.scope === 'nodes') {
+    L.push(`nodes (${r.count ?? (r.items || []).length}):`)
+    for (const n of (r.items || [])) {
+      const parts = [bar('cpu', n.cpuPct), bar('mem', n.memoryPct)].filter(Boolean).join(' ')
+      L.push(`  ${n.name}  ${n.cpu} cpu / ${n.memory}${parts ? `  (${parts})` : ''}`)
+    }
+  } else {
+    L.push(`pods in ${r.namespace || '?'} (${r.count ?? (r.items || []).length}):`)
+    for (const p of (r.items || [])) {
+      for (const c of (p.containers || [])) {
+        const parts = [bar('cpu', c.cpuPct), bar('mem', c.memoryPct)].filter(Boolean).join(' ')
+        L.push(`  ${p.name}/${c.name}  ${c.cpu} cpu / ${c.memory}${c.cpuLimit || c.memoryLimit ? ` (limits ${c.cpuLimit || '∞'}/${c.memoryLimit || '∞'})` : ''}${parts ? `  [${parts}]` : ''}`)
+      }
+    }
+  }
+  return L.join('\n')
 }
 </script>
 

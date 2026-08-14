@@ -30,3 +30,23 @@ test('ToolTrace: 空 trace 不渲染', () => {
   const w = mount(ToolTrace, { props: { trace: [] }, global: { plugins: [i18n] } })
   expect(w.find('button').exists()).toBe(false)
 })
+
+// dev24: wb_top 智能格式化——百分比 + ≥80% ⚠ 警示;无 limit 不显百分比(不给假数)
+test('ToolTrace: wb_top result 渲染用量百分比,≥80% 带 ⚠', async () => {
+  const trace = [{
+    type: 'tool', name: 'wb_top',
+    result: { scope: 'pods', namespace: 'default', count: 2, items: [
+      { name: 'nginx-1', containers: [{ name: 'app', cpu: '900m', memory: '900Mi', cpuLimit: '1', memoryLimit: '1Gi', cpuPct: 90, memoryPct: 87 }] },
+      { name: 'side-1', containers: [{ name: 's', cpu: '10m', memory: '10Mi', cpuLimit: null, memoryLimit: null, cpuPct: null, memoryPct: null }] },
+    ] },
+  }]
+  const w = mount(ToolTrace, { props: { trace }, global: { plugins: [i18n] } })
+  await w.find('button').trigger('click')
+  const text = w.text()
+  expect(text).toContain('nginx-1/app')
+  expect(text).toContain('cpu 90% ⚠')
+  expect(text).toContain('mem 87% ⚠')
+  // 无 limit 的容器:不出现百分比(不给假数)
+  expect(text).toContain('side-1/s')
+  expect(text).not.toContain('cpu null')
+})

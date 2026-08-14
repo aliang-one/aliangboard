@@ -222,3 +222,21 @@ test('wb_read_pod_file 免审直执行 → ctx.wb.readPodFile 被调(无 checkpo
   assert.equal(got.length, 1)
   assert.equal(got[0].path, '/etc/app/config.yaml')
 })
+
+// dev24: wb_top 实时资源用量(免审,kubectl top 等价)
+test('registry:wb_top 免审 + dispatch 透传 scope/namespace/pod', async () => {
+  const names = registry.workbenchToolDefs().map(t => t.function.name)
+  assert.ok(names.includes('wb_top'), 'wb_top 应注册')
+  assert.ok(!registry.requiringApproval().includes('wb_top'), 'wb_top 免审(只读 metrics)')
+  const got = []
+  const wb = {
+    readLedger: async () => '', readFile: async () => '', writeFile: async () => {},
+    topUsage: async (args) => { got.push(args); return { scope: 'pods', namespace: args.namespace, count: 1, items: [{ name: 'nginx-1', containers: [{ name: 'app', cpu: '900m', memory: '900Mi', cpuPct: 90, memoryPct: 87 }] }] } },
+  }
+  const llmClient = { chat: seqChat([tc('1', 'wb_top', { scope: 'pods', namespace: 'default', pod: 'nginx-1' }), fin('内存快到上限')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb })
+  const out = await run({ history: [] })
+  assert.equal(out.status, undefined, '免审无 checkpoint')
+  assert.equal(out.content, '内存快到上限')
+  assert.deepEqual(got, [{ scope: 'pods', namespace: 'default', pod: 'nginx-1' }])
+})

@@ -16,6 +16,7 @@ export const WORKBENCH_SYSTEM_PROMPT = `你是 aliangboard 工作台助手,一�
 - **wb_get_events**:查 namespace 事件(Warning/Error 通常是根因线索)。
 - **wb_rollout_status**:看 Deployment replicas+conditions(rollout 是否卡住)。
 - **wb_read_pod_file**:读容器内文件(cat,只读)。ConfigMap/Secret 之外的落盘文件(应用配置/容器内日志/etc/hosts)用它。
+- **wb_top**:实时资源用量(kubectl top 等价,CPU/内存 + 相对 limits 百分比)。用户说"慢/卡/OOM/资源不够"先看它:memoryPct 逼近 100 = OOM 前兆,cpuPct 长期 100 = 限流。
 
 ## K8s 运维工具(直连集群,需人审)
 - **wb_scale**:扩缩容 Deployment/StatefulSet(replicas 钳到 1..20)。容量问题→扩容。
