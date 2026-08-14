@@ -217,7 +217,7 @@ function nsStatusColor(status) {
             :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
           >
             <span class="material-symbols-outlined text-lg">folder_open</span>
-            <span v-if="isClusterMode" data-test="ns-enter" class="material-symbols-outlined text-base text-on-surface-variant">arrow_forward</span>
+            <span v-if="isClusterMode" data-test="ns-enter" aria-hidden="true" class="material-symbols-outlined text-base text-on-surface-variant">arrow_forward</span>
             <span class="text-body-md font-medium truncate">{{ currentNs || 'Select Namespace' }}</span>
           </button>
           <button
