@@ -188,25 +188,8 @@ function nsStatusColor(status) {
 
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
-    <!-- Cluster Header:命名空间态=返回集群管理入口;集群态=静态展示 -->
-    <button
-      v-if="isNsMode"
-      data-test="cluster-home"
-      @click="router.push('/cluster')"
-      :title="$t('nav.backToCluster')"
-      :aria-label="$t('nav.backToCluster')"
-      class="w-full flex items-center gap-sm p-md px-lg shrink-0 hover:bg-surface-container transition-colors text-left"
-    >
-      <span class="material-symbols-outlined text-on-surface-variant">chevron_left</span>
-      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
-        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
-      </div>
-      <div class="min-w-0">
-        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
-        <p class="text-body-sm text-on-surface-variant">{{ $t('nav.backToCluster') }}</p>
-      </div>
-    </button>
-    <div v-else class="flex items-center gap-md p-md px-lg shrink-0">
+    <!-- Cluster Header:仅集群态展示(ns 态顶部让给 ns,返回走底部链接) -->
+    <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md p-md px-lg shrink-0">
       <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
         <span class="material-symbols-outlined text-lg filled">kubernetes</span>
       </div>
@@ -346,7 +329,7 @@ function nsStatusColor(status) {
     </nav>
 
     <!-- Bottom Actions -->
-    <div class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
+    <div data-test="bottom-actions" class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
       <button
         v-if="isNsMode"
         @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
@@ -377,6 +360,18 @@ function nsStatusColor(status) {
           <span class="material-symbols-outlined text-lg">settings</span>
         </a>
       </div>
+      <!-- 返回上层(仅 ns 态):安静链接,非响亮按钮 -->
+      <a
+        v-if="isNsMode"
+        data-test="cluster-home"
+        @click="router.push('/cluster')"
+        :title="$t('nav.clusterOverview')"
+        :aria-label="$t('nav.clusterOverview')"
+        class="mt-sm -mb-xs flex items-center gap-xs px-sm py-sm rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors cursor-pointer text-body-sm"
+      >
+        <span class="material-symbols-outlined text-base">arrow_back</span>
+        <span>{{ $t('nav.clusterOverview') }}</span>
+      </a>
     </div>
   </aside>
   <!-- Click-outside overlay -->
