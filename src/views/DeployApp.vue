@@ -930,12 +930,12 @@ async function handleDeploy() {
               </div>
               <!-- 资源(下沉左列) -->
               <div class="rounded-lg border border-outline-variant/60 p-md">
-                <div class="flex flex-wrap items-center gap-sm mb-sm text-primary">
+                <div class="flex flex-wrap items-center gap-sm mb-xs text-primary">
                   <span class="material-symbols-outlined text-base">memory</span>
                   <span class="text-body-sm font-semibold">{{ $t('deploy.resources') }}</span>
-                  <span class="ml-auto flex gap-xs">
-                    <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded-full border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
-                  </span>
+                </div>
+                <div class="flex flex-wrap gap-xs mb-sm">
+                  <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded-full border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
                   <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><input v-model="form.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
