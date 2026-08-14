@@ -62,13 +62,19 @@ onUpdated(() => nextTick(highlight))
     <div v-else class="flex flex-col gap-sm">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
-      <div v-if="turn.status === 'thinking' && !(turn.trace && turn.trace.length)" class="flex items-center gap-sm">
+      <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标);②尚无文本也无工具 → 跳动 thinking 提示 -->
+      <!-- 2026-08-14 前内容只在 done 渲染 → delta 全到但看不见("不实时"的真正根因) -->
+      <div v-if="turn.status === 'thinking' && turn.content" class="text-body-sm text-on-surface leading-relaxed prose-chat">
+        <span v-html="renderMarkdown(turn.content)"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>
+      </div>
+      <div v-else-if="turn.status === 'thinking'" class="flex items-center gap-sm">
         <span class="flex gap-0.5">
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 0ms"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 150ms"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
         </span>
         <span class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.thinking') }}</span>
+        <span v-if="turn.trace && turn.trace.length" class="text-body-xs text-on-surface-variant/60 font-mono">{{ turn.trace.length }}↻</span>
       </div>
 
       <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
