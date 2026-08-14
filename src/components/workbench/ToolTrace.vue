@@ -1,23 +1,39 @@
 <script setup>
 // 工具调用紧凑 chips：每个 tool/denied 事件一颗；点开就地展开 result（Cursor 风格工具行）。
 // 结果智能格式化:pod_logs 直接显示文本;describe/list 提取关键字段摘要;其他走 JSON。
-import { ref } from 'vue'
+// 多工具(>5)时折叠为摘要行,点开展开。
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps({ trace: { type: Array, default: () => [] } })
 const { t } = useI18n()
 
 const expanded = ref(null)
+const showAll = ref(false)
+const COLLAPSE_THRESHOLD = 5
+
 function toggle(i) { expanded.value = expanded.value === i ? null : i }
 
-// 智能格式化工具结果:按工具名提取最易读的视图
+const needsCollapse = computed(() => props.trace.length > COLLAPSE_THRESHOLD)
+const visibleTrace = computed(() => needsCollapse.value && !showAll.value ? props.trace.slice(0, 3) : props.trace)
+
+// 摘要:统计每个工具的调用次数
+const summary = computed(() => {
+  const counts = {}
+  for (const ev of props.trace) {
+    if (ev.type === 'denied') { counts['denied'] = (counts['denied'] || 0) + 1; continue }
+    const n = ev.name || 'unknown'
+    counts[n] = (counts[n] || 0) + 1
+  }
+  return Object.entries(counts).map(([name, count]) => `${count > 1 ? `${count}× ` : ''}${name}`).join(' + ')
+})
+
+// 智能格式化工具结果
 function fmtResult(ev) {
   if (!ev || ev.result == null) return ''
   const name = ev.name || ''
   const r = ev.result
-  // 字符串结果直接返回(pod logs / read_ledger / read_project_file)
   if (typeof r === 'string') return r
-  // 对象结果:按工具类型提取
   if (name.includes('pod_logs') || name === 'wb_get_pod_logs') {
     return r.logs || r.raw || JSON.stringify(r, null, 2)
   }
@@ -25,7 +41,7 @@ function fmtResult(ev) {
     return fmtDescribe(r)
   }
   if (name.includes('get_resource') || name === 'wb_get_resource') {
-    return fmtDescribe({ resource: r.resource })  // 复用 describe 格式化(但 r 无 events)
+    return fmtDescribe({ resource: r.resource })
   }
   if (name.includes('list') || name === 'wb_list_resources') {
     return fmtList(r)
@@ -33,7 +49,6 @@ function fmtResult(ev) {
   if (name.includes('rollout_status') || name === 'wb_rollout_status') {
     return fmtRollout(r)
   }
-  // 默认:JSON
   return JSON.stringify(r, null, 2)
 }
 
@@ -87,18 +102,28 @@ function fmtRollout(r) {
 </script>
 
 <template>
-  <div v-if="trace.length" class="flex flex-wrap gap-xs items-center">
-    <button v-for="(ev, i) in trace" :key="i" type="button" @click="toggle(i)"
-      class="flex items-center gap-xs text-body-xs font-mono px-sm py-xs rounded-md border transition-colors"
-      :class="ev.type === 'denied'
-        ? 'border-status-warning/30 text-status-warning bg-status-warning/5'
-        : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
-      <span class="material-symbols-outlined text-sm">{{ ev.type === 'denied' ? 'block' : 'play_arrow' }}</span>
-      <span class="font-semibold">{{ ev.name }}</span>
-      <span v-if="ev.type === 'denied'">{{ t('workbench.chat.toolDenied') }}</span>
-      <span v-else class="text-status-success">✓</span>
-    </button>
+  <div v-if="trace.length" class="flex flex-col gap-xs">
+    <div class="flex flex-wrap gap-xs items-center">
+      <button v-for="(ev, i) in visibleTrace" :key="i" type="button" @click="toggle(i)"
+        class="flex items-center gap-xs text-body-xs font-mono px-sm py-xs rounded-md border transition-colors"
+        :class="ev.type === 'denied'
+          ? 'border-status-warning/30 text-status-warning bg-status-warning/5'
+          : expanded === i
+            ? 'border-primary/40 text-primary bg-primary/5'
+            : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
+        <span class="material-symbols-outlined text-sm">{{ ev.type === 'denied' ? 'block' : 'play_arrow' }}</span>
+        <span class="font-semibold">{{ ev.name }}</span>
+        <span v-if="ev.type === 'denied'">{{ t('workbench.chat.toolDenied') }}</span>
+        <span v-else class="text-status-success">✓</span>
+      </button>
+      <button v-if="needsCollapse" @click="showAll = !showAll" type="button"
+        class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary px-sm py-xs rounded-md transition-colors whitespace-nowrap">
+        <span class="material-symbols-outlined text-sm">{{ showAll ? 'expand_less' : 'expand_more' }}</span>
+        {{ showAll ? '收起' : `+${trace.length - 3}}` }}
+      </button>
+      <span v-if="needsCollapse && !showAll" class="text-body-xs text-on-surface-variant/70 truncate ml-xs">{{ summary }}</span>
+    </div>
     <pre v-if="expanded !== null && fmtResult(trace[expanded])"
-      class="w-full mt-xs font-mono text-body-xs bg-[#0b1c30] text-[#cfe3ff] border border-outline-variant/30 rounded-lg p-sm max-h-48 overflow-y-auto whitespace-pre-wrap break-all leading-[18px]">{{ fmtResult(trace[expanded]) }}</pre>
+      class="font-mono text-body-xs bg-[#0b1c30] text-[#cfe3ff] border border-outline-variant/30 rounded-lg p-sm max-h-48 overflow-y-auto whitespace-pre-wrap break-all leading-[18px]">{{ fmtResult(trace[expanded]) }}</pre>
   </div>
 </template>
