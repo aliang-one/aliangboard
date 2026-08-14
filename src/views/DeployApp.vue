@@ -965,11 +965,11 @@ async function handleDeploy() {
                   placeholder="--port 8080 --debug"></textarea>
               </div>
               <div class="flex items-center gap-md pt-sm border-t border-outline-variant/60">
-                <button type="button" @click="form.stdin = !form.stdin" :class="['w-10 h-6 rounded-full relative transition-colors', form.stdin ? 'bg-primary' : 'bg-surface-container-highest']">
+                <button type="button" @click="form.stdin = !form.stdin" :class="['w-10 h-6 rounded-full relative transition-colors', form.stdin ? 'bg-primary' : 'bg-surface-container-highest']" :aria-pressed="form.stdin" aria-label="stdin">
                   <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full shadow transition-all', form.stdin ? 'translate-x-4 bg-on-primary' : 'bg-on-surface-variant']"></span>
                 </button>
                 <span class="text-xs">stdin</span>
-                <button type="button" @click="form.tty = !form.tty" :class="['w-10 h-6 rounded-full relative transition-colors ml-md', form.tty ? 'bg-primary' : 'bg-surface-container-highest']">
+                <button type="button" @click="form.tty = !form.tty" :class="['w-10 h-6 rounded-full relative transition-colors ml-md', form.tty ? 'bg-primary' : 'bg-surface-container-highest']" :aria-pressed="form.tty" :aria-label="$t('deploy.ttyLabel')">
                   <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full shadow transition-all', form.tty ? 'translate-x-4 bg-on-primary' : 'bg-on-surface-variant']"></span>
                 </button>
                 <span class="text-xs">{{ $t('deploy.ttyLabel') }}</span>

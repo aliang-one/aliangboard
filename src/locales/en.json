@@ -1478,7 +1478,6 @@
     "envSecretMissing": "Secret env {name}: needs ENV name / Secret / key",
     "envDuplicateName": "Env var {name} is duplicated — env names must be unique within a container",
     "envFromHint": "On collisions: individual env vars override envFrom; Secret wins over ConfigMap for the same key",
-    "mainContainer": "Main container",
     "imagePullGroup": "Image Pull",
     "processExecGroup": "Process",
     "envDirectGroup": "Env Vars · Direct",
