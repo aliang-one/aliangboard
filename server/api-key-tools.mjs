@@ -72,7 +72,8 @@ function slimWorkload(d) { return { name: d.metadata?.name, ready: d.status?.rea
 const imagesOf = (spec) => (spec?.template?.spec?.containers || []).map(c => `${c.name}=${c.image}`)
 
 // pod 文件路径校验:只放行安全字符(防 shell 注入;admin 档虽已可信 exec,仍做纵深防御)
-function safePodPath(p) {
+// 导出供 index.mjs buildWbCtx 的 wb_read_pod_file 复用(同一白名单语义)
+export function safePodPath(p) {
   if (!p || typeof p !== 'string') throw new Error('路径为空')
   if (!/^[a-zA-Z0-9._/~: -]+$/.test(p)) throw new Error(`路径含非法字符(仅允许字母数字 . _ / ~ : - 空格): ${p.slice(0, 40)}`)
   return p

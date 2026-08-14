@@ -11,7 +11,7 @@ import { normalizeServer, getDispatcher, buildCallContext } from './call-context
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
-import { resolveApiKey, createApiKeyTools } from './api-key-tools.mjs'
+import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect } from './exec-bounds.mjs'
 import { checkRate } from './rate-limit.mjs'
@@ -402,6 +402,11 @@ async function requestKubernetes(session, path, init = {}) {
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
 // AI 路径的 execFn 适配:api-key-tools 传第 6 参 bounds(审计 P1a)→ execCapture 第 7 参(raw 固定 false)
 const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: (ctx, ns, pod, container, command, bounds) => execCapture(ctx, ns, pod, container, command, false, bounds), applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
+
+// 工作台 wb_exec/wb_read_pod_file 的一次性 exec 界限:与 api-key 路径共用同一 env 旋钮
+// (MCP_EXEC_TIMEOUT_MS,默认 30s)+ 同一流式上限——防 agent 用长驻命令(tail -f)挂死对话。
+const WB_EXEC_TIMEOUT_MS = Number(process.env.MCP_EXEC_TIMEOUT_MS || 30000)
+const WB_EXEC_STREAM_MAX = 262144 // 256KB 流式缓冲(最终 stdout 仍截 32KB)
 
 // 集群列表实时探测(/api/admin/clusters GET 用):注入 requestKubernetes → 并行探每个集群
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
@@ -1199,6 +1204,15 @@ async function handle(req, res) {
           const truncated = buf.length > LOG_MAX
           return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },
+        // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
+        // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
+        readPodFile: async (args) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!args.pod) throw new Error('缺 pod')
+          const p = safePodPath(args.path)
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', `cat ${p}`, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
+        },
         describeResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error('项目绑定的集群不存在')
           const k = String(kind || 'pods').toLowerCase()
@@ -1296,6 +1310,22 @@ async function handle(req, res) {
           }
           await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: target.template } }) })
           return { name, fromRevision: revisions[0]?.rev, toRevision: target.rev, image: target.image, availableRevisions: revisions.map(r => r.rev), message: `${namespace}/${name} 已回滚到 revision ${target.rev}` }
+        },
+        // === 容器内诊断 exec(需人审):nc/curl/mysql ping 等连通性检查 ===
+        // 复用 execCapture(超时 + 流式上限 + ANSI 清洗);非交互一次性。命令原文进审批弹窗,人看到才跑。
+        execInPod: async (args) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!args.pod) throw new Error('缺 pod')
+          const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
+          if (!command.trim()) throw new Error('缺 command')
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', command, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          return {
+            pod: args.pod, container: args.container || '', exitCode: r.status ?? null,
+            stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
+            stderr: (r.stderr || '').slice(0, 8192),
+            timedOut: !!r.timedOut, truncated: !!r.truncated,
+            ...(r.timedOut ? { hint: `命令超时(>${Math.round(WB_EXEC_TIMEOUT_MS / 1000)}s)被中止,输出为已收部分;一次性 exec 不适用于长驻命令(tail -f/top/交互式)` } : {}),
+          }
         },
       },
       k8sSession,
