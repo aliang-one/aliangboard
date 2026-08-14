@@ -8,6 +8,7 @@ import { exportYaml, api } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import PodCard from '@/components/common/PodCard.vue'
+import StatusSummaryCard from '@/components/common/StatusSummaryCard.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 
@@ -45,10 +46,6 @@ const filtered = computed(() => {
   if (nodeFilter.value !== 'All Nodes') list = list.filter(p => p.node === nodeFilter.value)
   return list
 })
-
-const runningCount = computed(() => nsPods.value.filter(p => p.status === 'Running').length)
-const pendingCount = computed(() => nsPods.value.filter(p => p.status === 'Pending').length)
-const failedCount = computed(() => nsPods.value.filter(p => p.status === 'Failed').length)
 
 // 分页
 const currentPage = ref(1)
@@ -144,29 +141,8 @@ async function handleCreate() {
       </div>
     </div>
 
-    <!-- Status Summary Bar -->
-    <div class="grid grid-cols-4 gap-sm mb-md">
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm">
-        <span class="w-2.5 h-2.5 rounded-full bg-on-surface-variant"></span>
-        <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.total') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ nsPods.length }}</span>
-      </div>
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="statusFilter = statusFilter === 'Running' ? 'All' : 'Running'">
-        <span class="w-2.5 h-2.5 rounded-full bg-primary"></span>
-        <span class="text-body-sm text-on-surface-variant">Running</span>
-        <span class="text-body-md font-bold text-primary ml-auto">{{ runningCount }}</span>
-      </div>
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-tertiary transition-colors" @click="statusFilter = statusFilter === 'Pending' ? 'All' : 'Pending'">
-        <span class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
-        <span class="text-body-sm text-on-surface-variant">Pending</span>
-        <span class="text-body-md font-bold text-tertiary-container ml-auto">{{ pendingCount }}</span>
-      </div>
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-error transition-colors" @click="statusFilter = statusFilter === 'Failed' ? 'All' : 'Failed'">
-        <span class="w-2.5 h-2.5 rounded-full bg-error"></span>
-        <span class="text-body-sm text-on-surface-variant">Failed</span>
-        <span class="text-body-md font-bold text-error ml-auto">{{ failedCount }}</span>
-      </div>
-    </div>
+    <!-- Status Summary(环形分布 + 点击过滤,等价旧 4 格栏) -->
+    <StatusSummaryCard :pods="nsPods" :status-filter="statusFilter" @filter="(s) => statusFilter = s" />
 
     <!-- Filters -->
     <div class="flex flex-wrap items-center gap-sm mb-md">

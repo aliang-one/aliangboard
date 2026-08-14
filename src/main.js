@@ -13,6 +13,8 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource-variable/material-symbols-outlined/fill.css'
 import './styles/main.css'
+import { installPaletteVars } from './styles/md-palette'
+installPaletteVars()
 
 // 终端弹窗（新标签页）从 URL 接收 session token 并写入 sessionStorage（同源但 sessionStorage 不跨标签页）
 const popupToken = new URLSearchParams(window.location.search).get('token')

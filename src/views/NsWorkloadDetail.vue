@@ -18,7 +18,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import PodCard from '@/components/common/PodCard.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
-import MiniChart from '@/components/common/MiniChart.vue'
+import AreaLineChart from '@/components/common/AreaLineChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
 import FileBrowser from '@/components/common/FileBrowser.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
@@ -554,26 +554,6 @@ const fileBrowserContainer = computed(() => selectedPod.value?.containers?.[0] |
 const nsRef = computed(() => route.params.namespace)
 const managedPodNames = computed(() => (managedPods.value || []).map(p => p.name))
 const { cpuSeries, memSeries, current: metricsNow, available: metricsAvailable, start: startMetrics } = useMetricsHistory(nsRef, managedPodNames)
-function sumRes(field, kind) {
-  const parse = kind === 'cpu' ? toMilli : toMi
-  return (containers.value || []).reduce((t, c) => t + parse(c.resources?.[field]?.[kind]), 0)
-}
-const cpuReq = computed(() => sumRes('requests', 'cpu'))
-const cpuLim = computed(() => sumRes('limits', 'cpu'))
-const memReq = computed(() => sumRes('requests', 'memory'))
-const memLim = computed(() => sumRes('limits', 'memory'))
-const cpuRefLines = computed(() => {
-  const r = []
-  if (cpuReq.value) r.push({ label: 'requests', value: cpuReq.value, color: 'var(--md-sys-color-secondary)' })
-  if (cpuLim.value) r.push({ label: 'limits', value: cpuLim.value, color: 'var(--md-sys-color-error)' })
-  return r
-})
-const memRefLines = computed(() => {
-  const r = []
-  if (memReq.value) r.push({ label: 'requests', value: memReq.value, color: 'var(--md-sys-color-secondary)' })
-  if (memLim.value) r.push({ label: 'limits', value: memLim.value, color: 'var(--md-sys-color-error)' })
-  return r
-})
 
 // ============================================================================
 // 3 列布局：版本（左） → Pod（中） → Pod 详情（右）
@@ -668,14 +648,14 @@ const podRes = computed(() => {
 })
 const podCpuRefLines = computed(() => {
   const r = []
-  if (podRes.value.cpuReq) r.push({ label: 'requests', value: podRes.value.cpuReq, color: 'var(--md-sys-color-secondary)' })
-  if (podRes.value.cpuLim) r.push({ label: 'limits', value: podRes.value.cpuLim, color: 'var(--md-sys-color-error)' })
+  if (podRes.value.cpuReq) r.push({ label: 'requests', value: podRes.value.cpuReq, color: 'secondary' })
+  if (podRes.value.cpuLim) r.push({ label: 'limits', value: podRes.value.cpuLim, color: 'error' })
   return r
 })
 const podMemRefLines = computed(() => {
   const r = []
-  if (podRes.value.memReq) r.push({ label: 'requests', value: podRes.value.memReq, color: 'var(--md-sys-color-secondary)' })
-  if (podRes.value.memLim) r.push({ label: 'limits', value: podRes.value.memLim, color: 'var(--md-sys-color-error)' })
+  if (podRes.value.memReq) r.push({ label: 'requests', value: podRes.value.memReq, color: 'secondary' })
+  if (podRes.value.memLim) r.push({ label: 'limits', value: podRes.value.memLim, color: 'error' })
   return r
 })
 // 工作负载范围内的事件：Deployment + 其 ReplicaSet + 受管 Pod（按时间倒序）。
@@ -1516,7 +1496,7 @@ function podStatusBorder(s) {
                     <span class="flex items-center gap-1 text-xs text-on-surface-variant"><span class="material-symbols-outlined text-primary text-sm">speed</span>CPU</span>
                     <span class="font-mono text-headline-sm font-bold text-primary leading-none">{{ podMetricsNow.cpu }}<span class="text-xs text-on-surface-variant/50 font-normal ml-0.5">m</span></span>
                   </div>
-                  <MiniChart :series="windowed(podCpuSeries)" color="var(--md-sys-color-primary)" :ref-lines="podCpuRefLines" :height="72" />
+                  <AreaLineChart :series="windowed(podCpuSeries)" color="primary" unit="m" :ref-lines="podCpuRefLines" :sample-interval-sec="5" :height="72" />
                   <div class="flex items-center gap-xs mt-xs text-[10px] text-on-surface-variant/60">
                     <span>req {{ podRes.cpuReq || '—' }}m</span><span v-if="podRes.cpuLim">· lim {{ podRes.cpuLim }}m</span>
                   </div>
@@ -1526,7 +1506,7 @@ function podStatusBorder(s) {
                     <span class="flex items-center gap-1 text-xs text-on-surface-variant"><span class="material-symbols-outlined text-secondary text-sm">memory</span>{{ $t('common.memory') }}</span>
                     <span class="font-mono text-headline-sm font-bold text-secondary leading-none">{{ podMetricsNow.mem }}<span class="text-xs text-on-surface-variant/50 font-normal ml-0.5">Mi</span></span>
                   </div>
-                  <MiniChart :series="windowed(podMemSeries)" color="var(--md-sys-color-secondary)" :ref-lines="podMemRefLines" :height="72" />
+                  <AreaLineChart :series="windowed(podMemSeries)" color="secondary" unit="Mi" :ref-lines="podMemRefLines" :sample-interval-sec="5" :height="72" />
                   <div class="flex items-center gap-xs mt-xs text-[10px] text-on-surface-variant/60">
                     <span>req {{ podRes.memReq || '—' }}Mi</span><span v-if="podRes.memLim">· lim {{ podRes.memLim }}Mi</span>
                   </div>

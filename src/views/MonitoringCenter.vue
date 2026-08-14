@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useRouter } from 'vue-router'
 import { useResourceList } from '@/composables/useK8sQuery'
-import MiniChart from '@/components/common/MiniChart.vue'
+import AreaLineChart from '@/components/common/AreaLineChart.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import { useI18n } from 'vue-i18n'
@@ -39,7 +39,7 @@ const podList = computed(() => podsQuery.data.value || [])
 const workloadList = computed(() => workloadsQuery.data.value || [])
 const eventList = computed(() => eventsQuery.data.value || [])
 
-// 实时轮询：每 10s 刷新 metrics + 收集集群 CPU/内存到 30 样本滚动窗口（≈5min）喂 MiniChart
+// 实时轮询：每 10s 刷新 metrics + 收集集群 CPU/内存到 30 样本滚动窗口（≈5min）喂 AreaLineChart
 const cpuSeries = ref([])
 const memSeries = ref([])
 const lastRefresh = ref('')
@@ -117,7 +117,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-primary">{{ store.cluster.cpuUsage == null ? '—' : store.cluster.cpuUsage + '%' }}</span>
           <span v-if="store.cluster.cpuTrendUp != null" class="text-xs mb-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.cpuTrend }}</span>
         </div>
-        <MiniChart :series="cpuSeries" color="var(--md-sys-color-primary)" :height="48" />
+        <AreaLineChart :series="cpuSeries" color="primary" unit="%" :height="48" spark />
       </div>
       <!-- 内存 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
@@ -126,7 +126,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-tertiary-container">{{ store.cluster.memoryUsage == null ? '—' : store.cluster.memoryUsage + '%' }}</span>
           <span v-if="store.cluster.memoryTrendUp != null" class="text-xs mb-xs" :class="store.cluster.memoryTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.memoryTrend }}</span>
         </div>
-        <MiniChart :series="memSeries" color="var(--md-sys-color-tertiary-container)" :height="48" />
+        <AreaLineChart :series="memSeries" color="tertiary-container" unit="%" :height="48" spark />
       </div>
       <!-- 节点健康 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">

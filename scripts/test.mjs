@@ -904,6 +904,115 @@ test('deriveClusterCounts: 非数组/缺省 → null(未命中,供调用方回�
   )
 })
 
+// --- 图表美化:MD3 色板单一来源 + var() 未定义 bug 修复 ---
+import { MD_PALETTE, paletteVarsCss, installPaletteVars, tokenHex } from '../src/styles/md-palette.js'
+
+test('MD_PALETTE: 必备 token 齐全且为 6 位 hex', () => {
+  const need = ['primary', 'secondary', 'tertiary', 'tertiary-container', 'error', 'status-failed',
+    'on-surface', 'on-surface-variant', 'outline', 'outline-variant',
+    'surface-container-lowest', 'surface-container-high', 'primary-container', 'secondary-container']
+  for (const k of need) assert.ok(/^#[0-9a-f]{6}$/i.test(MD_PALETTE[k] || ''), `token ${k} 缺失或非 #rrggbb`)
+})
+test('paletteVarsCss: :root 注入且含全仓实际使用的 4 个 --md-sys-color-* 变量', () => {
+  const css = paletteVarsCss()
+  assert.ok(css.startsWith(':root{'), '应为 :root{...} 形式')
+  for (const v of ['--md-sys-color-primary', '--md-sys-color-secondary', '--md-sys-color-tertiary-container', '--md-sys-color-error']) {
+    assert.ok(css.includes(v), `缺少 ${v}`)
+  }
+  assert.ok(css.includes(`--md-sys-color-primary:${MD_PALETTE.primary};`))
+})
+test('tokenHex: 已知 token→hex;未知/空回落 primary', () => {
+  assert.equal(tokenHex('secondary'), MD_PALETTE.secondary)
+  assert.equal(tokenHex('nope'), MD_PALETTE.primary)
+  assert.equal(tokenHex(), MD_PALETTE.primary)
+})
+test('installPaletteVars: 幂等(重复调用不重复注入)', () => {
+  let appended = 0
+  const fakeDoc = { getElementById: () => (appended ? {} : null), head: { appendChild: () => { appended++ } }, createElement: () => ({ textContent: '' }) }
+  installPaletteVars(fakeDoc)
+  installPaletteVars(fakeDoc)
+  assert.equal(appended, 1)
+})
+
+// --- 图表美化:ECharts option 纯构建器 ---
+import { hexToRgba, relTimeLabel, buildAreaLineOption, buildDonutOption, buildGaugeOption, buildStatusSegments, STATUS_COLORS } from '../src/lib/chart-options.js'
+
+test('hexToRgba: 6 位 hex → rgba;非法回落黑', () => {
+  assert.equal(hexToRgba('#006c49', 0.35), 'rgba(0,108,73,0.35)')
+  assert.equal(hexToRgba('nonsense', 0.5), 'rgba(0,0,0,0.5)')
+})
+test('relTimeLabel: 最新样本 0s、往前 -Ns', () => {
+  assert.equal(relTimeLabel(0, 10), '0s')
+  assert.equal(relTimeLabel(2, 10), '-20s')
+  assert.equal(relTimeLabel(1, 30), '-30s')
+})
+test('buildAreaLineOption: 平滑线 + 面积渐变(0.35→0.02)+ 相对时间 tooltip', () => {
+  const opt = buildAreaLineOption({ series: [10, 20, 15], color: 'primary', unit: '%' })
+  const s = opt.series[0]
+  assert.equal(s.type, 'line')
+  assert.equal(s.smooth, true)
+  assert.equal(s.symbol, 'none')
+  assert.equal(s.areaStyle.color.colorStops[0].color, 'rgba(0,108,73,0.35)')
+  assert.equal(s.areaStyle.color.colorStops[1].color, 'rgba(0,108,73,0.02)')
+  assert.equal(opt.tooltip.formatter([{ dataIndex: 0, value: 10 }]), '-20s<br/>10%')
+  assert.equal(opt.tooltip.formatter([{ dataIndex: 2, value: 15 }]), '0s<br/>15%')
+  assert.ok(Array.isArray(opt.xAxis.data) && opt.xAxis.data.length === 3)
+})
+test('buildAreaLineOption: refLines 进 markLine 虚线、token 色已解析、计入 y 轴 max', () => {
+  const opt = buildAreaLineOption({ series: [10, 12], color: 'primary', refLines: [
+    { label: 'requests', value: 250, color: 'secondary' },
+    { label: 'limits', value: 400, color: 'error' },
+  ] })
+  assert.equal(opt.yAxis.max, 400)
+  assert.deepEqual(opt.series[0].markLine.data.map(d => d.yAxis), [250, 400])
+  assert.equal(opt.series[0].markLine.data[0].lineStyle.type, 'dashed')
+  assert.equal(opt.series[0].markLine.data[0].lineStyle.color, MD_PALETTE.secondary)
+  assert.equal(opt.series[0].markLine.data[1].lineStyle.color, MD_PALETTE.error)
+  assert.equal(opt.series[0].markLine.symbol, 'none')
+})
+test('buildAreaLineOption: spark 模式无网格线、无 markLine、贴边 grid', () => {
+  const opt = buildAreaLineOption({ series: [1, 2, 3], spark: true, refLines: [{ label: 'x', value: 9, color: 'secondary' }] })
+  assert.equal(opt.yAxis.splitLine.show, false)
+  assert.equal(opt.series[0].markLine, undefined)
+  assert.deepEqual(opt.grid, { left: 0, right: 0, top: 2, bottom: 0 })
+})
+test('buildStatusSegments: 三态计数、其余归 Other(count>0 才保留)', () => {
+  const pods = [{ status: 'Running' }, { status: 'Running' }, { status: 'Pending' }, { status: 'Succeeded' }, { status: 'Unknown' }, {}]
+  assert.deepEqual(buildStatusSegments(pods), [
+    { status: 'Running', count: 2 },
+    { status: 'Pending', count: 1 },
+    { status: 'Other', count: 3 },
+  ])
+  assert.deepEqual(buildStatusSegments([]), [])
+  assert.deepEqual(buildStatusSegments(), [])
+})
+test('buildDonutOption: 段色按 STATUS_COLORS 解析、圆角扇区、tooltip 文案', () => {
+  const opt = buildDonutOption([{ status: 'Running', count: 3 }, { status: 'Failed', count: 1 }])
+  assert.equal(opt.series[0].data[0].name, 'Running')
+  assert.equal(opt.series[0].data[0].itemStyle.color, MD_PALETTE['status-running'])
+  assert.equal(opt.series[0].data[1].itemStyle.color, MD_PALETTE['status-failed'])
+  assert.ok(opt.series[0].itemStyle.borderRadius > 0)
+  assert.equal(opt.series[0].label.show, false)
+  assert.equal(opt.tooltip.formatter({ name: 'Running', value: 3, percent: 75 }), 'Running: 3 (75%)')
+})
+test('buildGaugeOption: 阈值三档色 + null 灰环空态 + 0-100 夹取 + 组件全隐', () => {
+  const g = (v) => buildGaugeOption(v).series[0]
+  assert.equal(g(90).progress.itemStyle.color.colorStops[0].color, MD_PALETTE.error)
+  assert.equal(g(70).progress.itemStyle.color.colorStops[0].color, MD_PALETTE['tertiary-container'])
+  assert.equal(g(30).progress.itemStyle.color.colorStops[0].color, MD_PALETTE.primary)
+  assert.equal(g(null).progress.itemStyle.color.colorStops[0].color, MD_PALETTE['surface-container-high'])
+  assert.equal(g(null).data[0].value, 0)
+  assert.equal(g(150).data[0].value, 100)
+  assert.equal(g(-5).data[0].value, 0)
+  assert.equal(g(50).pointer.show, false)
+  assert.equal(g(50).axisLabel.show, false)
+  assert.equal(g(50).detail.show, false)
+})
+test('STATUS_COLORS 常量形状', () => {
+  assert.equal(STATUS_COLORS.Running, 'status-running')
+  assert.equal(STATUS_COLORS.Other, 'on-surface-variant')
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

@@ -14,6 +14,7 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 | `vitest` + `@vue/test-utils` + `happy-dom` | 测试工具（devDependencies） | 66 页数据层迁移需组件/交互自动化安全网。纯逻辑仍优先用自研零依赖运行器覆盖。 | `/plan-eng-review` 2026-08-06：例外从运行时扩到测试工具 |
 | `marked` | 运行时（dependencies） | 工作台 chat agent 终答 markdown→HTML 解析（标准、~30KB）。 | 2026-08-10 workbench Cursor-style chat 设计 |
 | `dompurify` | 运行时（dependencies） | 消毒 marked 产出的 HTML（`conv.content` 为 LLM 生成、走 `v-html`，必须防 XSS）。 | 2026-08-10 workbench Cursor-style chat 设计 |
+| `echarts` | 运行时（dependencies） | 图表美化:折线/环形/表盘。`echarts/core` 按需引入(树摇,gzip 实测 ≈188KB,独立懒加载 chunk,未入主包),tooltip/渐变/过渡动画开箱即用。 | 2026-08-14 图表美化设计 `docs/superpowers/specs/2026-08-14-chart-beautification-design.md` |
 
 > 设计文档：`~/.gstack/projects/aliang-aliangboard/liang-feat-data-model-design-20260806-001249.md`（含 GSTACK REVIEW REPORT）。
 

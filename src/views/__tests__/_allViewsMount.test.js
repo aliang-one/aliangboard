@@ -18,6 +18,12 @@ vi.mock('vue-router', () => ({
   RouterView: { template: '<div></div>' },
 }))
 
+// ECharts 桩:图表组件冒烟只需不炸,无需真实渲染(SVG 渲染器在 happy-dom 中开销大)。
+vi.mock('@/lib/echarts', () => {
+  const noop = () => {}
+  return { echarts: { use: noop, registerTheme: noop, init: () => ({ setOption: noop, resize: noop, dispose: noop }) } }
+})
+
 // 桩 API 层:移除 mockMode 后,挂载时各 view 的 fetcher 会跑;
 // 用 Proxy 让 api 任意方法都 resolved 空值,避免打真实后端 / 同步抛错。
 vi.mock('@/api/client', () => {

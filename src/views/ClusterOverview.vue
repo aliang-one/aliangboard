@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import ProgressBar from '@/components/common/ProgressBar.vue'
-import MiniChart from '@/components/common/MiniChart.vue'
+import AreaLineChart from '@/components/common/AreaLineChart.vue'
+import RingGauge from '@/components/common/RingGauge.vue'
 import { useResourceList } from '@/composables/useK8sQuery'
 
 const router = useRouter()
@@ -42,18 +43,11 @@ const eventsQuery = useResourceList({
 })
 const eventList = computed(() => eventsQuery.data.value || [])
 
-// CPU 环形表盘颜色（阈值与 ProgressBar.barColor 一致）
-function gaugeClass(cpu) {
-  if (cpu == null) return 'stroke-surface-container-high'
-  if (cpu > 80) return 'stroke-error'
-  if (cpu > 60) return 'stroke-tertiary-container'
-  return 'stroke-primary'
-}
 // 是否存在压力条件（Disk/Memory/PID）——概览卡上合并为一个警告图标
 function hasPressure(node) {
   return Boolean(node.conditions?.DiskPressure || node.conditions?.MemoryPressure || node.conditions?.PIDPressure)
 }
-// 趋势采样:每 10s refreshMetrics + 收 cluster CPU/Mem 到 30 点滚动窗口喂 MiniChart(移植自 MonitoringCenter)
+// 趋势采样:每 10s refreshMetrics + 收 cluster CPU/Mem 到 30 点滚动窗口喂 AreaLineChart(移植自 MonitoringCenter)
 const cpuSeries = ref([])
 const memSeries = ref([])
 const SAMPLE_MAX = 30
@@ -147,7 +141,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
                 </p>
               </div>
               <div class="h-32 w-full">
-                <MiniChart :series="cpuSeries" color="var(--md-sys-color-primary)" :height="128" />
+                <AreaLineChart :series="cpuSeries" color="primary" unit="%" :height="128" />
               </div>
             </div>
             <!-- Memory Chart -->
@@ -162,7 +156,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
                 </p>
               </div>
               <div class="h-32 w-full">
-                <MiniChart :series="memSeries" color="var(--md-sys-color-primary)" :height="128" />
+                <AreaLineChart :series="memSeries" color="primary" unit="%" :height="128" />
               </div>
             </div>
           </div>
@@ -184,20 +178,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
               class="bg-surface-container-lowest p-md rounded-xl border border-outline-variant hover:border-primary hover:shadow-card-hover transition-all flex gap-md"
             >
               <!-- 左：CPU 环形表盘 -->
-              <div class="relative w-14 h-14 flex-shrink-0 self-center">
-                <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                  <circle cx="18" cy="18" r="15.5" fill="none" class="stroke-surface-container-high" stroke-width="3.5" />
-                  <circle
-                    cx="18" cy="18" r="15.5" fill="none" stroke-width="3.5" stroke-linecap="round" pathLength="100"
-                    :class="gaugeClass(node.cpu)"
-                    :stroke-dasharray="`${node.cpu != null ? node.cpu : 0} 100`"
-                  />
-                </svg>
-                <div class="absolute inset-0 flex flex-col items-center justify-center">
-                  <span class="text-body-sm font-bold leading-none" :class="node.cpu != null ? 'text-on-surface' : 'text-on-surface-variant'">{{ node.cpu != null ? node.cpu + '%' : '—' }}</span>
-                  <span class="text-[9px] text-on-surface-variant uppercase tracking-wide mt-0.5">CPU</span>
-                </div>
-              </div>
+              <RingGauge :value="node.cpu" label="CPU" :size="56" />
               <!-- 右：身份 + 状态 + 底栏 -->
               <div class="flex-1 min-w-0 flex flex-col gap-xs">
                 <div class="flex items-center gap-xs">
