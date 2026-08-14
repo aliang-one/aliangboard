@@ -125,6 +125,44 @@ test('apply 部分失败: 不关弹窗,渲染 ok/total 进度 + failed 明细', 
   expect(w.emitted()['update:modelValue']).toBeUndefined()   // 部分失败不关窗
 })
 
+// 复查缺陷回归:成功关窗后重开,曾停在旧编辑器/旧结果视图(catalog 缓存致 watch 短路,无重置)
+test('成功关窗后重开 → 回到控制器选择视图(状态已重置)', async () => {
+  const { api } = await import('@/api/client')
+  api.applyYaml = vi.fn(async () => ({ applied: [{ kind: 'Namespace', name: 'x' }], failed: [], total: 1 }))
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(w.emitted()['update:modelValue'].at(-1)).toEqual([false])   // 全成功 → 关窗
+  await w.setProps({ modelValue: false })
+  await flushPromises()
+  await w.setProps({ modelValue: true })
+  await flushPromises()   // 重开
+  expect(w.find('[data-testid="controller-card"]').exists()).toBe(true)   // 回到选择卡,而非旧编辑器
+})
+
+// 复查缺陷回归:422 全失败的响应 details.failed 带逐资源明细,应展示而非只显示第一条 message
+test('422 全失败: 展示服务端逐资源错误明细', async () => {
+  const { api } = await import('@/api/client')
+  const err = new Error('rbac denied')
+  err.details = { details: { failed: [
+    { kind: 'ClusterRole', name: 'a', error: 'forbidden A' },
+    { kind: 'Deployment', name: 'b', error: 'forbidden B' },
+  ], total: 19 } }
+  api.applyYaml = vi.fn(async () => { throw err })
+  const w = mountDlg()
+  await flushPromises()
+  await w.find('[data-testid="controller-card"]').trigger('click')
+  await flushPromises()
+  await w.find('[data-testid="deploy-btn"]').trigger('click')
+  await flushPromises()
+  expect(w.text()).toContain('forbidden A')
+  expect(w.text()).toContain('forbidden B')
+  expect(w.text()).toContain('0/19')
+})
+
 // T5-m2: result.applied/failed 为 undefined 时不崩(null-guard)
 test('apply: 服务端返回缺 applied/failed 字段时不崩(progress 块渲染 0/total)', async () => {
   const { api } = await import('@/api/client')

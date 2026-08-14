@@ -14,7 +14,7 @@ import NsIngress from '../NsIngress.vue'
 function mountDlg() {
   setActivePinia(createPinia())
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return mount(NsIngress, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]], stubs: { Modal: { props: ['modelValue','title','width'], template: '<div><slot/><slot name="actions"/></div>' }, Breadcrumbs: true, Pagination: true, PortSelect: true, AnnotationKeySelect: true, DataTable: true } } })
+  return mount(NsIngress, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]], stubs: { Modal: { props: ['modelValue','title','width'], emits: ['update:modelValue','cancel'], template: '<div><slot/><slot name="actions"/><button data-testid="modal-x" @click="$emit(\'cancel\'); $emit(\'update:modelValue\', false)">x</button></div>' }, Breadcrumbs: true, Pagination: true, PortSelect: true, AnnotationKeySelect: true, DataTable: true } } })
 }
 
 test('选 traefik + 填 entrypoints → addIngress 注解带 traefik 前缀、无 nginx 键', async () => {
@@ -69,4 +69,17 @@ test('停在 extra 标签时切到无 extra 组的方言 → 自动跳回 perf,�
   await flushPromises()
   expect(w.find('[data-testid="tab-extra"]').exists()).toBe(false)           // extra 按钮随方言消失
   expect(w.find('[data-testid="custom-annotations"]').exists()).toBe(true)   // watch 自动跳 perf 后兜底显示
+})
+
+// 复查缺陷回归:经 X/ESC/背景关闭(cancel)同样重置创建表单,防旧值泄漏到下次打开
+test('cancel 事件(X/ESC/背景关闭)重置创建表单', async () => {
+  const w = mountDlg()
+  await flushPromises()
+  w.vm.createForm.name = 'leak-test'
+  w.vm.customAnnotations.push({ key: 'a/b', value: '1' })
+  await w.find('[data-testid="modal-x"]').trigger('click')
+  await flushPromises()
+  expect(w.vm.createForm.name).toBe('')
+  expect(w.vm.customAnnotations.length).toBe(0)
+  expect(w.vm.createTab).toBe('basic')
 })

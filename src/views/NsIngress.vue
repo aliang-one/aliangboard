@@ -231,8 +231,8 @@ async function handleDelete() {
     </DataTable>
   </section>
 
-  <!-- Create Ingress Modal -->
-  <Modal v-model="showCreateModal" :title="t('ns.ingress.createTitle')" width="max-w-3xl">
+  <!-- Create Ingress Modal(@cancel:X/ESC/背景关闭同样重置表单,与取消按钮一致,防旧值泄漏) -->
+  <Modal v-model="showCreateModal" :title="t('ns.ingress.createTitle')" width="max-w-3xl" @cancel="resetCreate">
     <!-- 标签栏 -->
     <div class="flex gap-xs border-b border-outline-variant mb-md">
       <button data-testid="tab-basic" @click="createTab = 'basic'"

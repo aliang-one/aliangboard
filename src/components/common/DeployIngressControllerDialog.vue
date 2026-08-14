@@ -71,13 +71,24 @@ async function deploy() {
   } catch (e) {
     // C1: applyYaml 在非 2xx 抛错(全失败时服务端返回 422);此处让现有 failed 块渲染错误,
     // 并发 toast 兜底(无 toast 也不影响 result 块的可见反馈)。
-    result.value = { applied: [], failed: [{ kind: '-', name: '-', error: e?.message || String(e) }], total: 0 }
+    // 422 的 body.details.failed 带逐资源错误明细,优先展示(如 RBAC 缺失时每类资源各自的具体原因)。
+    const serverFailed = e?.details?.details?.failed
+    result.value = { applied: [], failed: serverFailed?.length ? serverFailed : [{ kind: '-', name: '-', error: e?.message || String(e) }], total: e?.details?.details?.total ?? 0 }
     notify('error', t('common.applyFailed'))
   } finally { applying.value = false }
 }
 
 watch(() => props.modelValue, async (open) => {
-  if (!open || templates.value.length) return
+  if (!open) {
+    // 关窗即重置(含成功 close 后重开):否则重开停在旧编辑器/旧结果视图(catalog 已缓存,open 分支短路)
+    pickedId.value = ''
+    yaml.value = ''
+    result.value = null
+    rbacChecked.value = false
+    rbacMissing.value = []
+    return
+  }
+  if (templates.value.length) return
   const r = await api.ingressControllers.catalog()
   templates.value = r.templates || []
 }, { immediate: true })
