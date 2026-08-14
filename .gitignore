@@ -33,3 +33,7 @@ dist-ssr
 
 # Superpowers SDD 工作区（账本/报告等 scratch，勿入库）
 .superpowers/
+
+# 内部开发工作产物(survey/计划/spec),勿入库
+.aliang/
+docs/superpowers/
