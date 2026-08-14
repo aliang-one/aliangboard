@@ -59,21 +59,20 @@ export const INGRESS_DIALECTS = {
       { key: 'configuration-snippet', labelKey: 'ingressPerf.configurationSnippet', ph: '# raw location snippet', area: true },
     ]},
   ] },
-  haproxy: { prefix: 'haproxy.org', groups: [
+  haproxy: { prefix: 'haproxy-ingress.github.io', groups: [
     { tab: 'perf', titleKey: 'ingressPerf.hpx.groupTimeout', icon: 'schedule', fields: [
       { key: 'timeout-connect', labelKey: 'ingressPerf.hpx.timeoutConnect', ph: '5s' },
-      { key: 'timeout-server', labelKey: 'ingressPerf.hpx.timeoutServer', ph: '60s' },
+      { key: 'timeout-server', labelKey: 'ingressPerf.hpx.timeoutServer', ph: '50s' },
       { key: 'timeout-http-request', labelKey: 'ingressPerf.hpx.timeoutHttpRequest', ph: '5s' },
       { key: 'timeout-queue', labelKey: 'ingressPerf.hpx.timeoutQueue', ph: '5s' },
     ] },
     { tab: 'perf', titleKey: 'ingressPerf.hpx.groupConn', icon: 'speed', fields: [
-      { key: 'maxconn', labelKey: 'ingressPerf.hpx.maxconn', ph: '2000' },
+      { key: 'maxconn-server', labelKey: 'ingressPerf.hpx.maxconnServer', ph: '500' },
       { key: 'balance-algorithm', labelKey: 'ingressPerf.hpx.balanceAlgorithm', options: ['', 'roundrobin', 'leastconn', 'source', 'uri'] },
-      { key: 'buffer-size', labelKey: 'ingressPerf.hpx.bufferSize', ph: '16kB' },
     ] },
     { tab: 'extra', titleKey: 'ingressPerf.hpx.groupSecurity', icon: 'lock', fields: [
       { key: 'ssl-redirect', labelKey: 'ingressPerf.hpx.sslRedirect', options: ['', 'true', 'false'] },
-      { key: 'hsts-enable', labelKey: 'ingressPerf.hpx.hstsEnable', options: ['', 'true', 'false'] },
+      { key: 'hsts', labelKey: 'ingressPerf.hpx.hsts', options: ['', 'true', 'false'] },
     ] },
   ] },
   traefik: { prefix: 'traefik.ingress.kubernetes.io', hintKey: 'ingressPerf.hintTraefik', groups: [

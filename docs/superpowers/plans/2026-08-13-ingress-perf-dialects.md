@@ -186,7 +186,7 @@ export function buildIngressAnnotations(dialect, adv = {}, custom = []) {
 
 ```jsonc
 // zh.json "ingressPerf": { ...现有键..., }
-"hpx": { "groupTimeout": "超时", "timeoutConnect": "连接超时", "timeoutServer": "服务端超时", "timeoutHttpRequest": "HTTP 请求超时", "timeoutQueue": "排队超时", "groupConn": "连接与负载", "maxconn": "最大并发连接", "balanceAlgorithm": "负载均衡算法", "bufferSize": "缓冲大小", "groupSecurity": "安全", "sslRedirect": "HTTPS 跳转", "hstsEnable": "启用 HSTS" },
+"hpx": { "groupTimeout": "超时", "timeoutConnect": "连接超时", "timeoutServer": "服务端超时", "timeoutHttpRequest": "HTTP 请求超时", "timeoutQueue": "排队超时", "groupConn": "连接与负载", "maxconnServer": "单后端最大连接", "balanceAlgorithm": "负载均衡算法", "groupSecurity": "安全", "sslRedirect": "HTTPS 跳转", "hsts": "启用 HSTS" },
 "tf": { "groupRouting": "路由选项", "entrypoints": "入口点 (entrypoints)", "middlewares": "中间件 (middlewares)", "tls": "启用 TLS" },
 "kong": { "groupRouting": "路由选项", "stripPath": "剥离路径 (strip-path)", "regexPriority": "正则优先级", "methods": "HTTP 方法限制" },
 "hintTraefik": "Traefik 的性能调优主要在控制器静态配置(entryPoint/超时等),非 Ingress 注解;此处仅其支持的每-Ingress 路由注解",
@@ -196,7 +196,7 @@ export function buildIngressAnnotations(dialect, adv = {}, custom = []) {
 
 ```jsonc
 // en.json
-"hpx": { "groupTimeout": "Timeouts", "timeoutConnect": "Connect timeout", "timeoutServer": "Server timeout", "timeoutHttpRequest": "HTTP request timeout", "timeoutQueue": "Queue timeout", "groupConn": "Connections & balancing", "maxconn": "Max connections", "balanceAlgorithm": "Balance algorithm", "bufferSize": "Buffer size", "groupSecurity": "Security", "sslRedirect": "SSL redirect", "hstsEnable": "Enable HSTS" },
+"hpx": { "groupTimeout": "Timeouts", "timeoutConnect": "Connect timeout", "timeoutServer": "Server timeout", "timeoutHttpRequest": "HTTP request timeout", "timeoutQueue": "Queue timeout", "groupConn": "Connections & balancing", "maxconnServer": "Max connections per server", "balanceAlgorithm": "Balance algorithm", "groupSecurity": "Security", "sslRedirect": "SSL redirect", "hsts": "Enable HSTS" },
 "tf": { "groupRouting": "Routing options", "entrypoints": "Entrypoints", "middlewares": "Middlewares", "tls": "Enable TLS" },
 "kong": { "groupRouting": "Routing options", "stripPath": "Strip path", "regexPriority": "Regex priority", "methods": "HTTP methods" },
 "hintTraefik": "Traefik performance tuning lives in the controller's static config (entryPoints/timeouts), not Ingress annotations; only its per-Ingress routing annotations are shown",

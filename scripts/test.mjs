@@ -189,7 +189,11 @@ test('detectDialect: 类名子串识别,未知/空 → generic', () => {
 
 test('buildIngressAnnotations: haproxy/traefik/kong 各按自己的前缀拼键', () => {
   const h = buildIngressAnnotations('haproxy', { 'timeout-connect': '5s' }, [])
-  assert.equal(h['haproxy.org/timeout-connect'], '5s')
+  assert.equal(h['haproxy-ingress.github.io/timeout-connect'], '5s')
+  const h2 = buildIngressAnnotations('haproxy', { 'maxconn-server': '500', hsts: 'true', 'buffer-size': '16kB' }, [])
+  assert.equal(h2['haproxy-ingress.github.io/maxconn-server'], '500')
+  assert.equal(h2['haproxy-ingress.github.io/hsts'], 'true')
+  assert.ok(!('haproxy-ingress.github.io/buffer-size' in h2), 'buffer-size 不是有效注解键,注册表已删除该字段,adv 残值应被忽略')
   const tf = buildIngressAnnotations('traefik', { 'router.entrypoints': 'web' }, [])
   assert.equal(tf['traefik.ingress.kubernetes.io/router.entrypoints'], 'web')
   const k = buildIngressAnnotations('kong', { 'strip-path': 'true' }, [])
