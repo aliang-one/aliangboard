@@ -1,5 +1,5 @@
 <script setup>
-// Namespace Overview：按分层体系展示 Deployment 卡片（全层展示；监控/中间件/持久层可折叠）。
+// Namespace Overview：按分层体系展示工作负载卡片(Deployment/StatefulSet/DaemonSet;全层展示;监控/中间件/持久层可折叠)。
 // 关联 Service/Ingress 仅以标签呈现，hover 弹出富信息卡片（teleport 至 body，不被卡片裁切）。
 import { computed, ref, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -50,7 +50,9 @@ const ingressesQuery = useResourceList({
 })
 const nsIngresses = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 
-const deployments = computed(() => nsWorkloads.value.filter(w => w.type === 'Deployment'))
+// 三类工作负载(Deployment/StatefulSet/DaemonSet)同层展示;fetchWorkloads 已聚合三类,此处仅按类型放行
+// (曾误写为只留 Deployment,导致 MySQL 等 StatefulSet 在拓扑里看不到)。
+const workloads = computed(() => nsWorkloads.value.filter(w => w.type === 'Deployment' || w.type === 'StatefulSet' || w.type === 'DaemonSet'))
 
 const COLLAPSIBLE = new Set(['monitoring', 'middleware', 'persistence'])
 const COLLAPSE_PREF_KEY = 'aliangboard.nsOverview.layerCollapse'
@@ -92,7 +94,7 @@ function associations(dep) {
 
 const layerSections = computed(() => {
   const buckets = {}
-  for (const d of deployments.value) {
+  for (const d of workloads.value) {
     const key = classifyResource({ name: d.name, image: d.image, labels: d.labels, annotations: d.annotations, type: d.type, kind: d.type })
     if (!buckets[key]) buckets[key] = []
     buckets[key].push(d)
@@ -177,10 +179,12 @@ const HEALTH_META = {
 function healthOf(dep) {
   const st = dep?.raw?.status || {}
   const spec = dep?.raw?.spec || {}
-  const desired = spec.replicas ?? 1
-  const updated = st.updatedReplicas ?? 0
-  const ready = st.readyReplicas ?? 0
-  const total = st.replicas ?? ready
+  // DaemonSet 无 spec.replicas,用调度数;Deployment/StatefulSet 用 replicas 系列。
+  const isDS = dep?.type === 'DaemonSet'
+  const desired = isDS ? (st.desiredNumberScheduled ?? 0) : (spec.replicas ?? 1)
+  const updated = isDS ? (st.updatedNumberScheduled ?? 0) : (st.updatedReplicas ?? 0)
+  const ready = isDS ? (st.numberReady ?? 0) : (st.readyReplicas ?? 0)
+  const total = isDS ? (st.currentNumberScheduled ?? ready) : (st.replicas ?? ready)
   let level = 'healthy'
   if (ready === 0 && total > 0) level = 'failed'
   else if (desired === 0) level = 'warning'
@@ -189,6 +193,14 @@ function healthOf(dep) {
   const meta = HEALTH_META[level]
   return { desired, ready, ...meta, label: t(meta.label) }
 }
+
+// 工作负载类型徽章:三类负载同层展示,用图标区分(图标与 NsWorkloads/NamespaceDetail 一致)。
+const KIND_META = {
+  Deployment: { icon: 'layers', labelKey: 'ns.workloads.deployments' },
+  StatefulSet: { icon: 'storage', labelKey: 'ns.workloads.statefulSets' },
+  DaemonSet: { icon: 'settings_slow_motion', labelKey: 'ns.workloads.daemonSets' },
+}
+function kindMeta(w) { return KIND_META[w?.type] || { icon: 'workspaces', labelKey: 'ns.workloads.title' } }
 
 // hover 富信息卡片
 const hover = ref(null)
@@ -202,7 +214,7 @@ function onLeaveAssoc() { leaveTimer = setTimeout(() => { hover.value = null }, 
 function onPopoverEnter() { clearTimeout(leaveTimer) }
 onUnmounted(() => clearTimeout(leaveTimer))
 
-function goDeploy(dep) { router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: 'deployment', name: dep.name } }) }
+function goDeploy(dep) { router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (dep.type || 'Deployment').toLowerCase(), name: dep.name } }) }
 function goSvc(s) { router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } }) }
 function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: rule.ingName } }) }
 </script>
@@ -218,7 +230,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <div>
           <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }} <span class="text-on-surface-variant font-normal">· {{ t('ns.namespaceOverview.topology') }}</span></h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
-            <span class="text-primary font-semibold">{{ deployments.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: deployments.length, layers: layerSections.filter(s => s.items.length).length }) }}
+            <span class="text-primary font-semibold">{{ workloads.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: workloads.length, layers: layerSections.filter(s => s.items.length).length }) }}
           </p>
         </div>
       </div>
@@ -241,7 +253,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
     </div>
 
     <!-- 3 列分层：左=监控层 | 中=业务/持久/存储等 | 右=中间件层（flex，天然适配任意一侧折叠）-->
-    <div v-if="deployments.length" class="flex flex-col xl:flex-row gap-md items-start">
+    <div v-if="workloads.length" class="flex flex-col xl:flex-row gap-md items-start">
 
       <!-- ============ 左：监控层（竖直可折叠） ============ -->
       <template v-if="monitoringSection">
@@ -297,6 +309,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
                     <div class="flex items-center gap-xs">
                       <span class="w-2 h-2 rounded-full shrink-0" :class="[healthOf(it.dep).dot, healthOf(it.dep).spin ? 'animate-pulse-status' : '']"></span>
                       <p class="text-body-md font-semibold text-on-surface truncate group-hover:text-primary transition-colors">{{ metaOf(it.dep).title || it.dep.name }}</p>
+                      <span class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-surface-container text-on-surface-variant" :title="t(kindMeta(it.dep).labelKey)"><span class="material-symbols-outlined" style="font-size:13px">{{ kindMeta(it.dep).icon }}</span></span>
                     </div>
                     <p v-if="metaOf(it.dep).title" class="font-mono text-xs text-on-surface-variant truncate mt-0.5">{{ it.dep.name }}</p>
                     <p class="font-mono text-xs truncate mt-xs"><span class="text-on-surface-variant">{{ imgBase(it.dep.image) }}</span><span class="text-primary font-semibold">:{{ imageTag(it.dep.image) || 'latest' }}</span></p>

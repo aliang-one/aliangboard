@@ -1100,7 +1100,7 @@
       "emptyState": "No endpoints in this namespace"
     },
     "namespaceOverview": {
-      "deployCount": "{n} Deployments · {layers} layers with instances",
+      "deployCount": "{n} Workloads · {layers} layers with instances",
       "adjustGroupTitle": "Adjust application layers",
       "adjustGroup": "Adjust group",
       "deploy": "Deploy",
@@ -1112,10 +1112,10 @@
       "relatedService": "Service",
       "relatedIngress": "Ingress",
       "topology": "Topology",
-      "noDeployInLayer": "No Deployment in this layer",
+      "noDeployInLayer": "No workload in this layer",
       "middlewareLayer": "Middleware layer",
       "expandMiddleware": "Middleware layer · {n} · Click to expand",
-      "emptyDeploy": "No Deployment in this namespace",
+      "emptyDeploy": "No workload in this namespace",
       "deployApp": "Deploy application",
       "clickToDetail": "Click a tag to open the detail page",
       "healthy": "Healthy",

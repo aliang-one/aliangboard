@@ -1100,7 +1100,7 @@
       "emptyState": "该命名空间暂无 Endpoints"
     },
     "namespaceOverview": {
-      "deployCount": "{n} 个 Deployment · {layers} 个分层有实例",
+      "deployCount": "{n} 个工作负载 · {layers} 个分层有实例",
       "adjustGroupTitle": "调整应用分层",
       "adjustGroup": "调整分组",
       "deploy": "部署",
@@ -1112,10 +1112,10 @@
       "relatedService": "Service",
       "relatedIngress": "Ingress",
       "topology": "分层拓扑",
-      "noDeployInLayer": "该层暂无 Deployment",
+      "noDeployInLayer": "该层暂无工作负载",
       "middlewareLayer": "中间件",
       "expandMiddleware": "中间件层 · {n} 个 · 点击展开",
-      "emptyDeploy": "该命名空间暂无 Deployment",
+      "emptyDeploy": "该命名空间暂无工作负载",
       "deployApp": "部署应用",
       "clickToDetail": "点击标签进入详情页",
       "healthy": "健康",
