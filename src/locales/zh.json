@@ -1499,7 +1499,7 @@
     "metadata": "元数据",
     "edit": {
       "basicConfig": "基本配置",
-      "imageRepoReadonly": "镜像仓库（不可改）",
+      "imageRepo": "镜像仓库",
       "imageTag": "版本 Tag",
       "replicas": "Replicas",
       "schedule": "Schedule",

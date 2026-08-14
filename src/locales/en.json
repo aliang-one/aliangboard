@@ -1499,7 +1499,7 @@
     "metadata": "Metadata",
     "edit": {
       "basicConfig": "Basic Configuration",
-      "imageRepoReadonly": "Image repo (read-only)",
+      "imageRepo": "Image repo",
       "imageTag": "Tag",
       "replicas": "Replicas",
       "schedule": "Schedule",

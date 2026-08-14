@@ -1907,8 +1907,8 @@ function podStatusBorder(s) {
         <div class="grid grid-cols-2 gap-sm">
           <div class="col-span-2 grid grid-cols-[1fr_180px] gap-sm">
             <div>
-              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageRepoReadonly') }}</label>
-              <input :value="editForm.imageRepo" readonly class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono opacity-60" />
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageRepo') }}</label>
+              <input v-model="editForm.imageRepo" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="library/nginx" />
             </div>
             <div>
               <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageTag') }}</label>
