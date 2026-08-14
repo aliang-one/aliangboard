@@ -2809,6 +2809,7 @@
       "atMentionSearching": "Searching...",
       "roleYou": "You",
       "roleAgent": "Agent",
+      "collapse": "Collapse",
       "toolDenied": "denied",
       "recapSummary": "Earlier (summary)",
       "convStatus": {

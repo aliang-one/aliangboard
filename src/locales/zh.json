@@ -2809,6 +2809,7 @@
       "atMentionSearching": "搜索中…",
       "roleYou": "你",
       "roleAgent": "Agent",
+      "collapse": "收起",
       "toolDenied": "已拒绝",
       "recapSummary": "之前的对话摘要",
       "convStatus": {
