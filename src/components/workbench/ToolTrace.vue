@@ -24,6 +24,9 @@ function fmtResult(ev) {
   if (name.includes('describe') || name === 'wb_describe_resource') {
     return fmtDescribe(r)
   }
+  if (name.includes('get_resource') || name === 'wb_get_resource') {
+    return fmtDescribe({ resource: r.resource })  // 复用 describe 格式化(但 r 无 events)
+  }
   if (name.includes('list') || name === 'wb_list_resources') {
     return fmtList(r)
   }
