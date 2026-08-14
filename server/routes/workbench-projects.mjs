@@ -3,7 +3,7 @@
 import { join } from 'node:path'
 import {
   listProjects, createProject, getProject,
-  getLastReconcile, getPendingDistill, clearPendingDistill,
+  getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
   getActiveConversationId,
 } from '../workbench-projects.mjs'
 import {
@@ -191,6 +191,7 @@ export function createWorkbenchProjectRoutes(deps) {
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
         const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
+        setLastDistill(db, cluster.id, out.stats) // 手动蒸馏也落水位:调度器不会立刻重跑同料(pending 不写——手动结果就地审阅,原行为)
         sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }); return true }

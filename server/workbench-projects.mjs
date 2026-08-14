@@ -24,6 +24,7 @@ export function createWorkbenchSchema(db) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_history_proj ON workbench_history(projectId, ts)`)
   // 定时蒸馏的待审 diff(每集群一条,最新覆盖;D4)
   db.exec(`CREATE TABLE IF NOT EXISTS pending_distills (clusterId TEXT PRIMARY KEY, proposed TEXT, current TEXT, summary TEXT, stats TEXT, ts INTEGER NOT NULL)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS last_distills (clusterId TEXT PRIMARY KEY, stats TEXT, ts INTEGER NOT NULL)`)
   // 项目 reconcile 的最近结果(每项目一条;R1,第 4 阶段)
   db.exec(`CREATE TABLE IF NOT EXISTS last_reconcile (projectId TEXT PRIMARY KEY, result TEXT, ts INTEGER NOT NULL)`)
   createConversationsSchema(db)
@@ -154,6 +155,17 @@ export function getPendingDistill(db, clusterId) {
 }
 export function clearPendingDistill(db, clusterId) {
   db.prepare('DELETE FROM pending_distills WHERE clusterId=?').run(clusterId)
+}
+
+// 上次蒸馏水位(每集群一条;scheduler 跳过判定用)。独立于 pending_distills——
+// pending 被审掉(apply/dismiss)后水位仍在,无新料时不会重跑重产同样待审。
+export function setLastDistill(db, clusterId, stats) {
+  db.prepare('INSERT OR REPLACE INTO last_distills (clusterId,stats,ts) VALUES (?,?,?)').run(clusterId, JSON.stringify(stats ?? {}), Date.now())
+}
+export function getLastDistill(db, clusterId) {
+  const r = db.prepare('SELECT * FROM last_distills WHERE clusterId=?').get(clusterId)
+  if (r) { try { r.stats = JSON.parse(r.stats || '{}') } catch { r.stats = {} } }
+  return r || null
 }
 
 // 项目 reconcile 最近结果(每项目一条;第 4 阶段 R1)

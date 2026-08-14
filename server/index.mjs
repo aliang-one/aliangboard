@@ -18,12 +18,12 @@ import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
-import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
+import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
 import { KIND_API_PATH } from './kind-paths.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
-import { runDistill } from './distill.mjs'
+import { runDistill, gatherDistillMaterial, isNewMaterial } from './distill.mjs'
 import { maybeSummarize } from './workbench-summarize.mjs'
 import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
@@ -1857,8 +1857,14 @@ if (distillInterval > 0) {
         try {
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
           if (!cluster) continue
-          const out = await runDistill({ llmClient, db, clusterId, ledgerRepo: join(WORKBENCH_DIR, clusterId, 'cluster-context'), clusterName: cluster.name })
+          // 水位跳过:先取原料(纯查询,不烧 LLM),与上次蒸馏水位一致 → 无新证据,跳过。
+          // pending 被审掉(apply/dismiss)后 last_distills 仍在,不会重产同样待审。
+          const material = await gatherDistillMaterial(db, clusterId, join(WORKBENCH_DIR, clusterId, 'cluster-context'))
+          const last = getLastDistill(db, clusterId)
+          if (last && !isNewMaterial(material.watermark, last.stats)) continue
+          const out = await runDistill({ llmClient, db, clusterId, clusterName: cluster.name, material })
           setPendingDistill(db, clusterId, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
+          setLastDistill(db, clusterId, out.stats)
           console.log(`[distill] ${cluster.name}: ${out.summary} → 待审`)
         } catch (e) { console.error(`[distill] cluster ${clusterId} 失败:`, e.message) }
       }
