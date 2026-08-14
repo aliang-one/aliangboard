@@ -4,7 +4,8 @@ import { k8sSystemPrompt } from './k8s-prompt.mjs'
 
 test('read 档:只读诊断,不含高危工具', () => {
   const p = k8sSystemPrompt('read')
-  assert.ok(p.includes('debug 助手'))
+  // SRE 三档改版后措辞(旧 'debug 助手' 断言腐化——本文件曾未进 test:server,从未运行)
+  assert.ok(p.includes('集群调查助手'))
   assert.ok(!p.includes('exec_pod'))
   assert.ok(!p.includes('delete_resource'))
 })
