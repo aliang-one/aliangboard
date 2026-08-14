@@ -1883,29 +1883,6 @@
       "envMissingKey": "Environment variable #{idx}: missing KEY",
       "envCmMissing": "ConfigMap env {name}: needs ENV name / ConfigMap / key",
       "envSecretMissing": "Secret env {name}: needs ENV name / Secret / key"
-    },
-    "namespaceOverview": {
-      "deployCount": "{n} Deployments · {layers} layers with instances",
-      "adjustGroup": "Adjust Grouping",
-      "adjustGroupTitle": "Adjust application layering",
-      "deploy": "Deploy",
-      "monitoringLayer": "Monitoring",
-      "middlewareLayer": "Middleware",
-      "collapseColumn": "Collapse column",
-      "expandLayer": "Monitoring layer · {n} items · click to expand",
-      "expandMiddleware": "Middleware layer · {n} items · click to expand",
-      "noLayerItems": "None in this namespace",
-      "collapsible": "collapsible",
-      "noDeployInLayer": "No Deployment in this layer",
-      "emptyDeploy": "No Deployments in this namespace",
-      "deployApp": "Deploy App",
-      "relatedService": "Service",
-      "relatedIngress": "Ingress",
-      "clickToDetail": "Click tag to view details",
-      "healthy": "Running normally",
-      "updating": "Rolling out",
-      "warning": "Partially ready",
-      "failed": "Error"
     }
   },
   "settings": {
