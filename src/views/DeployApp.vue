@@ -1406,7 +1406,7 @@ async function handleDeploy() {
               <span class="material-symbols-outlined text-xs">info</span>{{ $t('deploy.ingressRuleHint', { name: form.name }) }}
             </p>
 
-            <!-- 网关性能调优（nginx 注解，留空=默认）-->
+            <!-- 网关性能调优（按所选 IngressClass 的控制器方言注解，留空=默认）-->
             <details class="mt-sm border border-outline-variant rounded-lg p-md bg-surface-container-low" data-testid="gateway-perf">
               <summary class="cursor-pointer text-xs font-semibold text-on-surface flex items-center gap-sm">
                 <span class="material-symbols-outlined text-primary text-base">tune</span> {{ $t('deploy.gatewayPerfTuning') }}

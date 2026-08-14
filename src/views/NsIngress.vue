@@ -85,14 +85,18 @@ const selectedServicePorts = computed(() => {
   const svc = svcByName(createForm.value.serviceName, route.params.namespace)
   return (svc?.portList || []).map(p => p.port)
 })
-// 性能调优参数（→ nginx.ingress.kubernetes.io/<key> 注解，空值不写入）
+// 性能调优参数（→ <方言前缀>/<key> 注解，空值不写入;方言随 className 自动切换）
 const adv = ref({})
 // 自定义 annotations（键值对，兼容任意控制器）
 const customAnnotations = ref([])
 
 // Ingress 方言:按 className 自动探测;切换方言清空旧 adv 值(键对新方言无意义)
 const createDialect = computed(() => detectDialect(createForm.value.className))
-watch(createDialect, () => { adv.value = {} })
+watch(createDialect, (d) => {
+  adv.value = {}
+  // 停在已消失的 extra 标签时跳回 perf(traefik/kong/generic 无 extra 组;自定义注解在其 perf 标签兜底显示)
+  if (createTab.value === 'extra' && !dialectGroups(d).some(g => g.tab === 'extra')) createTab.value = 'perf'
+})
 
 
 function resetCreate() {
@@ -231,17 +235,18 @@ async function handleDelete() {
   <Modal v-model="showCreateModal" :title="t('ns.ingress.createTitle')" width="max-w-3xl">
     <!-- 标签栏 -->
     <div class="flex gap-xs border-b border-outline-variant mb-md">
-      <button @click="createTab = 'basic'"
+      <button data-testid="tab-basic" @click="createTab = 'basic'"
         class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
         :class="createTab === 'basic' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
         {{ t('ns.ingress.tabBasic') }}
       </button>
-      <button v-if="dialectGroups(createDialect).some(g => g.tab === 'perf')" @click="createTab = 'perf'"
+      <!-- perf 标签恒显:generic 方言下调优组为空,但承载 hint + 自定义注解兜底(spec: generic 保留自定义注解) -->
+      <button data-testid="tab-perf" @click="createTab = 'perf'"
         class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
         :class="createTab === 'perf' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
         {{ t('ns.ingress.tabPerf') }}
       </button>
-      <button v-if="dialectGroups(createDialect).some(g => g.tab === 'extra')" @click="createTab = 'extra'"
+      <button v-if="dialectGroups(createDialect).some(g => g.tab === 'extra')" data-testid="tab-extra" @click="createTab = 'extra'"
         class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
         :class="createTab === 'extra' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">
         {{ t('ns.ingress.tabExtra') }}
@@ -320,8 +325,8 @@ async function handleDelete() {
         </div>
       </div>
 
-      <!-- 自定义注解（仅「安全与其它」标签显示）-->
-      <div v-if="createTab === 'extra'" class="border border-outline-variant rounded-lg p-md">
+      <!-- 自定义注解:extra 标签显示;无 extra 组的方言(traefik/kong/generic)在 perf 标签兜底显示,保证任何方言可达 -->
+      <div v-if="createTab === 'extra' || (createTab === 'perf' && !dialectGroups(createDialect).some(g => g.tab === 'extra'))" data-testid="custom-annotations" class="border border-outline-variant rounded-lg p-md">
         <div class="flex items-center justify-between mb-sm">
           <h4 class="text-body-sm font-semibold text-on-surface">{{ t('ns.ingress.customAnnoTitle') }}</h4>
           <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>{{ t('ns.ingress.addAnno') }}</button>
