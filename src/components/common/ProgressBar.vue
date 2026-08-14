@@ -2,7 +2,7 @@
 // 进度条:MD3 token 渐变填充 + 高危(>80%)斜纹流动示警。阈值语义与旧版一致(>80 error / >60 tertiary)。
 // 渐变 hex 从 md-palette 取单一来源;props 契约与旧版完全一致(调用方零改动)。
 import { computed } from 'vue'
-import { tokenHex } from '@/lib/chart-options'
+import { tokenHex } from '@/styles/md-palette'
 
 const props = defineProps({
   value: { type: Number, required: true },

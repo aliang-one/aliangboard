@@ -26,7 +26,7 @@ onMounted(() => {
   }
 })
 
-watch(() => props.option, (opt) => { if (chart) chart.setOption(opt) }, { deep: true })
+watch(() => props.option, (opt) => { if (chart) chart.setOption(opt) })
 
 onBeforeUnmount(() => {
   if (ro) { ro.disconnect(); ro = null }

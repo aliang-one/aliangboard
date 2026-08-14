@@ -18,7 +18,7 @@ const option = computed(() => buildGaugeOption(props.value))
     <div class="pointer-events-none absolute inset-0">
       <EChart :option="option" :height="size" />
     </div>
-    <div class="absolute inset-0 flex flex-col items-center justify-center">
+    <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
       <span class="text-body-sm font-bold leading-none" :class="value != null ? 'text-on-surface' : 'text-on-surface-variant'">{{ value != null ? value + '%' : '—' }}</span>
       <span class="text-[9px] text-on-surface-variant uppercase tracking-wide mt-0.5">{{ label }}</span>
     </div>
