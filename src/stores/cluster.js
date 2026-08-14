@@ -79,17 +79,10 @@ export const useClusterStore = defineStore('cluster', () => {
   const namespaceList = ref([])
   // P2-B：podList/workloadList/eventList/serviceList/ingressList 孤儿 ref 已删——
   // 服务端状态全归 Vue Query（列表 useResourceList / 变更 invalidateResource / watch setQueryData 桥）。
-  const endpointsList = ref([])
-  const pvList = ref([])
-  const scList = ref([])
-  const roleList = ref([])
-  const roleBindingList = ref([])
-  const clusterRoleBindingList = ref([])
   // 多集群：已保存集群来自 localStorage；clusterList 为其映射
   const savedClusters = ref(getSavedClusters())
   const activeApiServerRef = ref(activeApiServer())
   const clusterList = computed(() => savedClusters.value.map(c => ({ name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy', distribution: c.distribution || 'Kubernetes', context: c.name, current: c.apiServer === activeApiServerRef.value })))
-  const auditLogList = ref([])
   const currentCluster = ref('')
   const connectionState = ref('')
   // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
@@ -264,20 +257,6 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
-  // roleList 同时承载 Role 与 ClusterRole，刷新时需合并两类
-  async function refetchRoles() {
-    try {
-      const [r, cr] = await Promise.all([
-        api.k8s('/apis/rbac.authorization.k8s.io/v1/roles?limit=5000'),
-        api.k8s('/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=5000'),
-      ])
-      roleList.value = [
-        ...((r.items) || []).map(x => mapRole(x, 'Namespace')),
-        ...((cr.items) || []).map(x => mapRole(x, 'Cluster')),
-      ]
-    } catch { /* 忽略 */ }
-  }
-
   // === CRUD 工厂（全真实数据模型：纯远端 + Vue Query 缓存）===
   // makeCrud 为每类规整资源生成 add/update/delete 三函数：
   // - add: generateYAML → server-side apply → invalidateResource(刷 Vue Query)
@@ -419,23 +398,28 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: PersistentVolumes（集群级，手写——特殊 patch）===
   async function addPV(pv) {
-    return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => refetch('/api/v1/persistentvolumes', pvList, mapPV))
+    return remoteCreate(generateYAML('pv', pv), `PersistentVolume/${pv.name}`, () => invalidateResource('pvs'))
   }
   async function updatePV(name, updates) {
     const cur = await fetchPV(name).catch(() => null)
-    if (!cur) { invalidateResource('persistentvolumes'); return }
+    if (!cur) { invalidateResource('pvs'); return }
     const patch = buildPVPatch(cur, updates)
     if (!patch) return
     await remotePatch(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, patch, 'PersistentVolume')
-    invalidateResource('persistentvolumes')
+    invalidateResource('pvs') // Storage.vue 的 PV 查询 key 是 'pvs'(旧 'persistentvolumes' 失效打空)
   }
   async function deletePV(name) {
-    await remoteDelete(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, pvList, p => p.name === name)
+    try {
+      await api.k8s(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      invalidateResource('pvs')
+    } catch (e) {
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: `PersistentVolume/${name}`, msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+    }
   }
 
   // === CRUD: StorageClasses（集群级）===
   async function addStorageClass(sc) {
-    return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => refetch('/apis/storage.k8s.io/v1/storageclasses', scList, mapStorageClass))
+    return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => invalidateResource('storageclasses'))
   }
   async function updateStorageClass(name, updates) {
     const cur = await fetchStorageClass(name).catch(() => null)
@@ -446,13 +430,12 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource('storageclasses')
   }
   async function deleteStorageClass(name) {
-    await remoteDelete(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, scList, s => s.name === name)
-  }
-
-  // === CRUD: Endpoints ===
-  function updateEndpoints(name, ns, updates) {
-    const idx = endpointsList.value.findIndex(e => e.name === name && e.namespace === ns)
-    if (idx !== -1) endpointsList.value[idx] = { ...endpointsList.value[idx], ...updates }
+    try {
+      await api.k8s(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      invalidateResource('storageclasses')
+    } catch (e) {
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: `StorageClass/${name}`, msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+    }
   }
 
   async function deleteWorkload(name, ns) {
@@ -792,7 +775,7 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // === CRUD: RBAC (Role 手写——Cluster/Namespace 双 scope；ServiceAccount/RoleBinding 已进工厂)===
   async function addRole(role) {
-    return remoteCreate(generateYAML('role', role), `${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'}/${role.name}`, refetchRoles)
+    return remoteCreate(generateYAML('role', role), `${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'}/${role.name}`, () => invalidateResource('roles'))
   }
 
   async function updateRole(name, ns, updates) {
@@ -807,12 +790,17 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function deleteRole(name, ns) {
-    const matchFn = r => r.name === name && (r.scope === 'Cluster' || r.namespace === ns)
-    const role = roleList.value.find(matchFn)
-    const path = role?.scope === 'Cluster'
-      ? `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(name)}`
-      : `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/roles/${encodeURIComponent(name)}`
-    await remoteDelete(path, roleList, matchFn)
+    // P2-B:ns 空 = ClusterRole。旧版读孤儿 roleList 判 scope(恒 undefined)→ 删 ClusterRole
+    // 永远错走 namespaced 路径 404(RBAC 页 clusterrole 行的删除曾必失败)。
+    const path = ns
+      ? `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/roles/${encodeURIComponent(name)}`
+      : `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(name)}`
+    try {
+      await api.k8s(path, { method: 'DELETE' })
+      invalidateResource('roles') // fetchRoles 合并 roles+clusterroles,单 key 覆盖双端点
+    } catch (e) {
+      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: `Role/${name}`, msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+    }
   }
 
   // (ServiceAccount / RoleBinding CRUD 已进工厂)
@@ -1041,15 +1029,6 @@ export const useClusterStore = defineStore('cluster', () => {
 
   function getCurrentCluster() {
     return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
-  }
-
-  // === 审计日志（按用户操作记录）===
-  function logAudit(user, verb, resource, ns) {
-    auditLogList.value.unshift({
-      user, verb, resource, namespace: ns || '',
-      time: 'Just now', timestamp: new Date().toISOString(),
-      ip: '10.0.0.5', code: verb === 'delete' ? 204 : verb === 'create' ? 201 : 200,
-    })
   }
 
   // === Generate YAML for a resource ===
@@ -1733,10 +1712,15 @@ status:
   }
   function checkAccess({ subjectKind, subjectName, verb, resource, namespace }) {
     const group = RESOURCE_TO_APIGROUP[resource] ?? ''
+    // P2-B:读 Vue Query 缓存(RbacCanI 挂载即预热;旧读孤儿三表恒空 → 模拟器永远拒绝)。
+    const _cid = currentCluster.value || 'cluster'
+    const roles = queryClient.getQueryData(['cluster', _cid, 'roles']) || []
+    const rb = queryClient.getQueryData(['cluster', _cid, 'rolebindings']) || []
+    const crb = queryClient.getQueryData(['cluster', _cid, 'clusterrolebindings']) || []
     // 命名空间级 RoleBinding 仅在所属 ns 生效；ClusterRoleBinding 全局生效
     const bindings = [
-      ...roleBindingList.value.filter(b => !namespace || b.namespace === namespace).map(b => ({ ...b, bindingKind: 'RoleBinding' })),
-      ...clusterRoleBindingList.value.map(b => ({ ...b, bindingKind: 'ClusterRoleBinding' })),
+      ...rb.filter(b => !namespace || b.namespace === namespace).map(b => ({ ...b, bindingKind: 'RoleBinding' })),
+      ...crb.map(b => ({ ...b, bindingKind: 'ClusterRoleBinding' })),
     ]
     for (const b of bindings) {
       const subs = b.subjects || []
@@ -1747,7 +1731,8 @@ status:
         return true
       })
       if (!hit) continue
-      const role = roleList.value.find(r => r.name === b.roleName)
+      const wantCluster = (b.roleKind || 'Role') === 'ClusterRole' || b.bindingKind === 'ClusterRoleBinding'
+      const role = roles.find(r => r.name === b.roleName && (wantCluster ? r.scope === 'Cluster' : r.scope !== 'Cluster' && (!b.namespace || r.namespace === b.namespace)))
       if (!role) continue
       for (const rule of (role.rules || [])) {
         const groups = rule.apiGroups || ['']
@@ -1770,11 +1755,8 @@ status:
 
   return {
     // 基础数据
-    cluster, nodeList, namespaceList, endpointsList, pvList,
-    scList, roleList, currentNamespace,
-    roleBindingList,
-    clusterRoleBindingList,
-    clusterList, savedClusters, auditLogList, currentCluster, connectionState,
+    cluster, nodeList, namespaceList, currentNamespace,
+    clusterList, savedClusters, currentCluster, connectionState,
     // 全局计算
     healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Actions
@@ -1794,7 +1776,6 @@ status:
     // CRUD: PersistentVolumes / StorageClasses（集群级）
     addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     // CRUD: Endpoints
-    updateEndpoints,
     // CRUD: IngressClass / RuntimeClass（集群级）
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     // CRUD: Workloads
@@ -1850,7 +1831,6 @@ status:
     // CRD
     crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计
-    logAudit,
     // YAML generation
     generateYAML, generateExtraYAML, generateCRYaml, applyResourceYaml,
     // 端口转发
