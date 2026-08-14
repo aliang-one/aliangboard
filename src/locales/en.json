@@ -2784,7 +2784,11 @@
       "deleteConv": "Delete conversation",
       "confirmDeleteConv": "Delete this conversation? This cannot be undone.",
       "convDeleted": "Conversation deleted",
-      "deleteConvFailed": "Delete failed"
+      "deleteConvFailed": "Delete failed",
+      "renameConv": "Rename",
+      "convTitlePlaceholder": "Enter conversation title",
+      "convRenamed": "Conversation renamed",
+      "renameFailed": "Rename failed"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",

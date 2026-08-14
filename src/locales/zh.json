@@ -2784,7 +2784,11 @@
       "deleteConv": "删除对话",
       "confirmDeleteConv": "确定删除这条对话？不可恢复。",
       "convDeleted": "对话已删除",
-      "deleteConvFailed": "删除失败"
+      "deleteConvFailed": "删除失败",
+      "renameConv": "重命名",
+      "convTitlePlaceholder": "输入对话标题",
+      "convRenamed": "对话已重命名",
+      "renameFailed": "重命名失败"
     },
     "ide": {
       "collapseFiles": "折叠文件树",

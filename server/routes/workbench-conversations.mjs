@@ -143,6 +143,20 @@ export function createWorkbenchConvRoutes(deps) {
       return true
     }
 
+    // PATCH /api/workbench/conversations/:id — 重命名对话(title 字段)
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'PATCH') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const input = await readBody(req)
+      const title = String(input.title || '').slice(0, 100).trim()
+      if (!title) { sendJson(res, 400, { message: 'title 不能为空' }); return true }
+      const conv = getConversation(db, id)
+      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      db.prepare('UPDATE workbench_conversations SET title=?, updatedAt=? WHERE id=?').run(title, Date.now(), id)
+      sendJson(res, 200, { id, title })
+      return true
+    }
+
     // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
     // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {

@@ -59,6 +59,7 @@ export function createConversationsSchema(db) {
   // 迁移加列(既有库可能没有;idempotent——列已存在时 ALTER 抛错被吞):
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN recap TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN summarizedUpTo INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN title TEXT') } catch { /* 列已存在 */ }
   // T5:@-ref 落库(每轮 chat 前刷新用)。幂等:旧库已存在该表无此列时补;新库直接建表后 noop。
   // 「references」是 SQLite 保留字,引用时必须双引号。
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN "references" TEXT') } catch { /* 列已存在 */ }
@@ -99,7 +100,7 @@ export function updateConversation(db, id, patch) {
 }
 
 export function listConversations(db, projectId) {
-  return db.prepare(`SELECT id,status,steps,userMessage,content,error,createdAt,updatedAt
+  return db.prepare(`SELECT id,status,steps,userMessage,title,content,error,createdAt,updatedAt
     FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC`).all(projectId)
 }
 
