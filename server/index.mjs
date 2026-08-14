@@ -1206,6 +1206,17 @@ async function handle(req, res) {
           try { const evtResp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}`); events = (evtResp?.body?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp })) } catch {}
           return { resource: resBody, events: { count: events.length, items: events } }
         },
+        // 轻量 GET:单个资源完整对象(无 events),适合 ConfigMap/Service/Secret 等不需要事件的场景
+        getResource: async (namespace, kind, name) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          const k = String(kind || 'pods').toLowerCase()
+          const getter = WB_K8S_GET_PATH[k]
+          if (!getter) throw new Error(`不支持的 kind: ${k}`)
+          const resp = await requestKubernetes(k8sSession, getter(namespace, name))
+          const body = resp?.body
+          if (body?.metadata?.managedFields) delete body.metadata.managedFields
+          return { resource: body }
+        },
         getEvents: async (namespace, name) => {
           if (!k8sSession) throw new Error('项目绑定的集群不存在')
           const path = name ? `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}` : `/api/v1/namespaces/${enc(namespace)}/events`
