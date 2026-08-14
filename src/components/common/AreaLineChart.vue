@@ -1,0 +1,40 @@
+<script setup>
+// 平滑面积折线图:MiniChart 的 ECharts 升级(tooltip/渐变/数据过渡动画)。
+// 颜色与 refLines 颜色都传 palette token 名('primary'/'secondary'/'error'…),杜绝 var() 未定义坑。
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import EChart from './EChart.vue'
+import { buildAreaLineOption, tokenHex } from '@/lib/chart-options'
+
+const props = defineProps({
+  series: { type: Array, default: () => [] },
+  color: { type: String, default: 'primary' },
+  unit: { type: String, default: '' },
+  height: { type: Number, default: 64 },
+  refLines: { type: Array, default: () => [] },
+  spark: { type: Boolean, default: false },
+  smooth: { type: Boolean, default: true },
+  sampleIntervalSec: { type: Number, default: 10 },
+})
+const { t } = useI18n()
+const empty = computed(() => props.series.filter(v => typeof v === 'number' && !isNaN(v)).length < 2)
+const option = computed(() => buildAreaLineOption({
+  series: props.series, color: props.color, unit: props.unit, refLines: props.refLines,
+  spark: props.spark, smooth: props.smooth, sampleIntervalSec: props.sampleIntervalSec,
+}))
+</script>
+
+<template>
+  <div>
+    <div v-if="empty" class="flex items-center justify-center text-body-sm text-on-surface-variant/60" :style="{ height: height + 'px' }">
+      {{ t('common.noData') }}
+    </div>
+    <EChart v-else :option="option" :height="height" />
+    <!-- refLines 图例 footer(沿用 MiniChart 的 HTML 形式) -->
+    <div v-if="refLines.length" class="flex flex-wrap gap-sm mt-xs">
+      <span v-for="(r, i) in refLines" :key="i" class="flex items-center gap-0.5 text-xs text-on-surface-variant">
+        <span class="w-2.5 h-0.5 rounded" :style="{ background: tokenHex(r.color) }"></span>{{ r.label }} {{ r.value }}{{ unit }}
+      </span>
+    </div>
+  </div>
+</template>
