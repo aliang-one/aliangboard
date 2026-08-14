@@ -3193,7 +3193,35 @@
     "annIssuer": "cert-manager 命名空间签发者",
     "annAcmeHttp01": "ACME HTTP01 原地编辑（true/false）",
     "annTraefikEntrypoints": "Traefik 入口点",
-    "annTraefikMiddlewares": "Traefik 中间件链"
+    "annTraefikMiddlewares": "Traefik 中间件链",
+    "hpx": {
+      "groupTimeout": "超时",
+      "timeoutConnect": "连接超时",
+      "timeoutServer": "服务端超时",
+      "timeoutHttpRequest": "HTTP 请求超时",
+      "timeoutQueue": "排队超时",
+      "groupConn": "连接与负载",
+      "maxconnServer": "单后端最大连接",
+      "balanceAlgorithm": "负载均衡算法",
+      "groupSecurity": "安全",
+      "sslRedirect": "HTTPS 跳转",
+      "hsts": "启用 HSTS"
+    },
+    "tf": {
+      "groupRouting": "路由选项",
+      "entrypoints": "入口点 (entrypoints)",
+      "middlewares": "中间件 (middlewares)",
+      "tls": "启用 TLS"
+    },
+    "kong": {
+      "groupRouting": "路由选项",
+      "stripPath": "剥离路径 (strip-path)",
+      "regexPriority": "正则优先级",
+      "methods": "HTTP 方法限制"
+    },
+    "hintTraefik": "Traefik 的性能调优主要在控制器静态配置(entryPoint/超时等),非 Ingress 注解;此处仅其支持的每-Ingress 路由注解",
+    "hintKong": "Kong 的高级能力(限流/认证等)走 KongPlugin CRD,非 Ingress 注解;此处仅常用路由注解",
+    "hintGeneric": "未识别的 IngressClass:已隐藏调优模板,可使用下方自定义注解"
   },
   "workloads": {
     "restartSuccess": "已重启工作负载 {name}",
