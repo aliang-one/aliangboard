@@ -2164,6 +2164,15 @@
     "clusterManagement": "Cluster Management",
     "logout": "Logout"
   },
+  "addCluster": {
+    "title": "Add Cluster",
+    "subtitle": "Enter cluster details; it will connect automatically once verified",
+    "back": "Back to cluster selection",
+    "connecting": "Connecting to cluster…",
+    "connectFailed": "Failed to connect to cluster",
+    "connectFailedWarning": "Cluster added, but connection failed",
+    "retryConnect": "Retry connection"
+  },
   "nodeDetail": {
     "cordonSuccess": "Node cordoned successfully",
     "cordonFailed": "Failed to cordon node",

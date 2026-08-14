@@ -2164,6 +2164,15 @@
     "clusterManagement": "集群管理",
     "logout": "退出登录"
   },
+  "addCluster": {
+    "title": "添加集群",
+    "subtitle": "填写集群信息,验证通过后将自动连接并进入控制台",
+    "back": "返回选择集群",
+    "connecting": "正在连接集群…",
+    "connectFailed": "连接集群失败",
+    "connectFailedWarning": "集群已添加,但连接失败",
+    "retryConnect": "重试连接"
+  },
   "nodeDetail": {
     "cordonSuccess": "已封锁节点",
     "cordonFailed": "封锁节点失败",
