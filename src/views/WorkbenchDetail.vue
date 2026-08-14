@@ -1,8 +1,8 @@
 <script setup>
 // 工作台项目详情:Agent / Edit 双模式。
 // Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
-import { ref, computed, nextTick, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
@@ -31,8 +31,33 @@ const reconciling = ref(false)
 const dirty = computed(() => currentContent.value !== savedContent.value)
 
 // Mode: agent | edit (persisted)
+// SP4: 切模式不再静默丢改动——离开 Edit 有未保存内容先 confirm;
+// 切回 Edit 时重拉文件树/commits(Agent 模式里 AI 可能已 write_project_file)。
 const mode = ref(localStorage.getItem('aliangboard.workbench.mode') || 'agent')
-function setMode(m) { mode.value = m; localStorage.setItem('aliangboard.workbench.mode', m) }
+async function refreshFiles() {
+  try {
+    const res = await workbenchApi.getProject(id)
+    files.value = res.files || []
+    commits.value = res.commits || []
+  } catch { /* 拉取失败保留旧列表 */ }
+}
+function setMode(m) {
+  if (mode.value === m) return
+  if (mode.value === 'edit' && dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return
+  mode.value = m
+  localStorage.setItem('aliangboard.workbench.mode', m)
+  if (m === 'edit') refreshFiles()
+}
+
+// SP4: 路由离开 / 刷新兜底——dirty 时 confirm(beforeunload 原生弹窗,confirm 语义不可用)
+onBeforeRouteLeave(() => {
+  if (mode.value === 'edit' && dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return false
+})
+function beforeUnloadGuard(e) {
+  if (mode.value === 'edit' && dirty.value) { e.preventDefault(); e.returnValue = '' }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnloadGuard))
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnloadGuard))
 
 // Agent mode: conversation list
 const conversations = ref([])
@@ -141,6 +166,11 @@ async function save(content) {
 // YamlEditor Discard → 回滚到上次落盘内容(编辑器自身也会退出编辑态)
 function discard() { currentContent.value = savedContent.value ?? '' }
 async function doCommit() {
+  // SP4: IDE 语义——commit 前自动保存未存改动,否则误导"无变更可提交"
+  if (dirty.value && currentPath.value) {
+    await save(currentContent.value)
+    if (dirty.value) return // save 失败(notify 已示错)→ 不提交
+  }
   try {
     const r = await workbenchApi.commit(id, commitMsg.value.trim() || 'update')
     if (r.committed) { notify('success', t('workbench.detail.commitSuccess', { subject: r.subject })); commitMsg.value = '' }
@@ -318,9 +348,12 @@ const treeRows = computed(() => {
             <div v-else v-show="!row.dir || !collapsedDirs.has(row.dir)"
               class="group flex items-center rounded" :class="row.dir ? 'ml-lg' : ''">
               <button @click="openFile(row.path)" type="button"
-                class="flex-1 min-w-0 text-left text-body-sm font-mono px-sm py-xs rounded truncate"
+                class="flex-1 min-w-0 flex items-center gap-xs text-left text-body-sm font-mono px-sm py-xs rounded"
                 :class="row.path === currentPath ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container'">
-                <span class="material-symbols-outlined text-sm align-middle mr-xs">description</span>{{ row.path.slice(row.path.lastIndexOf('/') + 1) }}
+                <span class="material-symbols-outlined text-sm shrink-0">description</span>
+                <span class="truncate">{{ row.path.slice(row.path.lastIndexOf('/') + 1) }}</span>
+                <!-- 当前文件未保存:树上一眼可见(切文件/切模式前知道哪个没存) -->
+                <span v-if="row.path === currentPath && dirty" class="w-1.5 h-1.5 rounded-full bg-status-warning shrink-0 ml-auto" :title="t('workbench.detail.unsaved')"></span>
               </button>
               <button @click="deleteProjectFile(row.path)" type="button"
                 class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10"

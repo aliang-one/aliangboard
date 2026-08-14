@@ -15,6 +15,7 @@ vi.mock('@/api/client', () => ({ workbenchApi }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'proj-1' } }),
   useRouter: () => ({ push: () => {} }),
+  onBeforeRouteLeave: () => {},
 }))
 
 vi.mock('@/composables/useToast', () => ({ notify: () => {} }))
@@ -33,6 +34,7 @@ const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } })
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  localStorage.removeItem('aliangboard.workbench.mode')
   workbenchApi.getProject.mockReset()
   workbenchApi.conversations.list.mockReset()
   workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files: [], commits: [] })
@@ -151,4 +153,66 @@ test('Edit 删除文件:confirm 后调 deleteFile 并从树中移除;当前文�
   expect(w.vm.currentPath).toBe('')
   expect(w.text()).not.toContain('deploy.yaml')
   vi.unstubAllGlobals()
+})
+
+// ═══ SP4 打磨:切模式 dirty 守卫 / 双模式文件联动 / commit 自动保存 ═══
+test('切模式 dirty 守卫:Edit 有未保存内容 → confirm 拦截;确认后切换', async () => {
+  const w = await mountEdit(['a.yaml'])
+  workbenchApi.readFile.mockResolvedValue({ path: 'a.yaml', content: 'x: 1' })
+  await w.findAll('button').find(b => b.text().includes('a.yaml')).trigger('click')
+  await flushPromises()
+  w.vm.currentContent = 'x: 2'
+  expect(w.vm.dirty).toBe(true)
+  // confirm=false → 留在 edit
+  vi.stubGlobal('confirm', vi.fn(() => false))
+  w.vm.setMode('agent')
+  expect(w.vm.mode).toBe('edit')
+  // confirm=true → 切到 agent
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  w.vm.setMode('agent')
+  expect(w.vm.mode).toBe('agent')
+  vi.unstubAllGlobals()
+})
+
+test('切回 Edit 重拉文件树(Agent 写的文件立即可见,不动对话状态)', async () => {
+  const w = await mountEdit(['a.yaml'])
+  const callsBefore = workbenchApi.getProject.mock.calls.length
+  const activeBefore = w.vm.activeConversationId
+  workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files: ['a.yaml', 'manifests/new.yaml'], commits: [] })
+  w.vm.setMode('agent')
+  w.vm.setMode('edit')
+  await flushPromises()
+  expect(workbenchApi.getProject.mock.calls.length).toBeGreaterThan(callsBefore)
+  expect(w.vm.files).toContain('manifests/new.yaml')
+  expect(w.vm.activeConversationId).toBe(activeBefore)
+})
+
+test('commit 前 dirty 自动保存:writeFile 先于 commit;保存失败不提交', async () => {
+  const w = await mountEdit(['a.yaml'])
+  workbenchApi.readFile.mockResolvedValue({ path: 'a.yaml', content: 'x: 1' })
+  await w.findAll('button').find(b => b.text().includes('a.yaml')).trigger('click')
+  await flushPromises()
+  w.vm.currentContent = 'x: 2'
+  workbenchApi.writeFile.mockResolvedValue({ ok: true })
+  workbenchApi.commit = vi.fn().mockResolvedValue({ committed: true, subject: 's' })
+  await w.vm.doCommit()
+  expect(workbenchApi.writeFile).toHaveBeenCalledWith('proj-1', 'a.yaml', 'x: 2')
+  expect(workbenchApi.commit).toHaveBeenCalled()
+  // 保存失败(notify 已示错)→ 停止提交
+  workbenchApi.writeFile.mockRejectedValue(new Error('disk full'))
+  w.vm.currentContent = 'x: 3'
+  workbenchApi.commit.mockClear()
+  await w.vm.doCommit()
+  expect(workbenchApi.commit).not.toHaveBeenCalled()
+})
+
+test('文件树 dirty 圆点:当前文件未保存时树行渲染 unsaved 标记', async () => {
+  const w = await mountEdit(['a.yaml'])
+  workbenchApi.readFile.mockResolvedValue({ path: 'a.yaml', content: 'x: 1' })
+  await w.findAll('button').find(b => b.text().includes('a.yaml')).trigger('click')
+  await flushPromises()
+  expect(w.html()).not.toContain('bg-status-warning')
+  w.vm.currentContent = 'x: 2'
+  await flushPromises()
+  expect(w.html()).toContain('bg-status-warning')
 })
