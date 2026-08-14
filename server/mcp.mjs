@@ -6,7 +6,10 @@ import { checkRate } from './rate-limit.mjs'
 import { effectiveTools } from './authorize.mjs'
 import { registry } from './tool-registry.mjs'
 
-const PROTOCOL = '2025-11-25'
+// 支持的协议版本(按新→旧;最后一个是「自己最新」)。我们只实现 initialize/ping/tools 的
+// POST-only 无状态子集,该子集在所列版本间 wire 兼容 → 客户端请求哪个就回显哪个。
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-11-25']
+const PROTOCOL = SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.length - 1]
 
 // MCP tool 元数据(描述 + inputSchema):从 tool-registry 派生(单一源,schema 在 tool-registry.mjs)。
 // tools/list 按调用者 effectiveTools 过滤(tier ∪ per-key tool_overrides 覆盖;只列能用的,不广告用不了的)。
@@ -18,10 +21,18 @@ const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message
 // 纯逻辑:处理一条 JSON-RPC 消息 → 响应对象(或 null=notification)。可单测,无 HTTP。
 export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
   if (!msg || typeof msg !== 'object') return err(null, -32600, 'invalid request')
+  if (Array.isArray(msg)) return err(null, -32600, 'invalid request: batch(JSON-RPC 数组)不支持,请逐条 POST') // 审计 P2:数组曾被当 notification 静默吞成 202
   if (msg.id == null) return null // notification(如 notifications/initialized)→ 无响应
   const { id, method, params } = msg
 
-  if (method === 'initialize') return ok(id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: 'aliangboard', version: '0.1.0' } })
+  if (method === 'ping') return ok(id, {}) // spec 要求 server 响应 ping(空 result);此前 -32601 会让部分客户端断连/重连
+
+  // 版本协商(审计 P2):支持客户端请求的版本就回显,否则回自己最新(由客户端决定是否断开)
+  if (method === 'initialize') {
+    const requested = params?.protocolVersion
+    const negotiated = SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL
+    return ok(id, { protocolVersion: negotiated, capabilities: { tools: {} }, serverInfo: { name: 'aliangboard', version: '0.1.0' } })
+  }
 
   if (method === 'tools/list') {
     const allowed = effectiveTools(keyRow)
@@ -61,7 +72,7 @@ export function createMcpServer({ db, apiKeyTools }) {
     const keyRow = resolveApiKey(db, req)
     if (!keyRow) return write(res, err(null, -32001, '无效或已吊销的 API key'), 401)
     const _rl = checkRate(keyRow.id)
-    if (!_rl.allowed) return write(res, err(null, -32002, `RATE_LIMITED,${_rl.retryAfter}s 后重试`), 429)
+    if (!_rl.allowed) return write(res, err(null, -32002, `RATE_LIMITED,${_rl.retryAfter}s 后重试`), 429, { 'Retry-After': String(_rl.retryAfter) })
 
     let msg
     try { msg = await readBody(req) } catch { return write(res, err(null, -32700, 'parse error'), 400) }

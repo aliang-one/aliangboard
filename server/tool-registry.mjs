@@ -8,7 +8,8 @@
 const RANK = { read: 0, operator: 1, admin: 2 }
 const rank = t => RANK[t] ?? 99 // 工作台工具无 minTier → rank 99 → 自动排除出 forTier/toolDefsForTier
 
-// 6 个已实现 K8s 工具。minTier = 最低可用档;requiresApproval = agent 调用时走 checkpoint 人审。
+// 已实现 K8s 工具(19 个)。minTier = 最低可用档;requiresApproval = agent 调用时走 checkpoint 人审。
+// 名字必须同步登记进 authorize.mjs 的 BOUNDED/DANGEROUS_TOOLS(authorize.test.mjs 双向守卫,漏登记=死工具)。
 const K8S = [
   { name: 'get_pod_logs', minTier: 'read', requiresApproval: false,
     description: '获取 pod 日志(有界 tail,非 follow)。支持 previous(CrashLoopBackOff 前一容器日志)、timestamps(每行加时间戳)、container、tail。',
@@ -17,7 +18,7 @@ const K8S = [
     description: '列出 namespace 内资源(slim 名单)。两种用法:(a) kind ∈ pods/services/configmaps/deployments/statefulsets/daemonsets(快捷,slim 含 phase/ready 等);(b) path 给 list 端点列任意 kind/CRD(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses),slim 项含 path 便于 get_resource_yaml。path 须在绑定 ns 内。capped 200。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, path: { type: 'string', description: 'list 端点(任意 kind,path 模式,优先于 kind)' } }, required: ['namespace'] } },
   { name: 'get_resource', minTier: 'read', requiresApproval: false,
-    description: '获取单个资源完整对象(去 managedFields)。',
+    description: '获取单个资源完整对象(去 managedFields;JSON 超 32KB 时截断返回 + truncated 标志,提示改走 get_resource_yaml)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
   { name: 'get_resource_yaml', minTier: 'read', requiresApproval: false,
     description: '按 K8s 资源路径取完整对象并以 YAML 返回(去 managedFields,32KB 截断)。支持任意 kind/CRD(ingress/secret/networkpolicy/…),弥补 get_resource 仅 6 kind 的局限。path 须在绑定 namespace 内(集群级资源如 PV/Node 不支持)。path 从 list_resources(path 模式)结果取,或自构(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)。',
@@ -56,7 +57,7 @@ const K8S = [
     description: '向 pod 注入 Ephemeral Container(kubectl debug 语义,调试 distroless/无 shell 镜像)。admin 档:需人审/admin key。需集群 1.25+(默认开 EphemeralContainers)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, image: { type: 'string', description: '调试镜像,如 busybox:latest' }, name: { type: 'string', description: '临时容器名(默认 debugger)' }, command: { type: 'array', items: { type: 'string' } }, targetContainerName: { type: 'string' } }, required: ['namespace', 'pod'] } },
   { name: 'rollout_history', minTier: 'read', requiresApproval: false,
-    description: '列出 Deployment 的滚动发布历史(ReplicaSet revisions:image / 当前 revision 标记 / 创建时间),按 revision 降序。先调它看可回滚的 revision,再 rollout_undo。',
+    description: '列出 Deployment 的滚动发布历史(ReplicaSet revisions:全容器 images(name=image)/ 当前 revision 标记 / 创建时间),按 revision 降序。回滚用 rollout_undo(需 admin 档 key;read 档只能看不能回)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string', description: 'Deployment 名' } }, required: ['namespace', 'name'] } },
   { name: 'rollout_status', minTier: 'read', requiresApproval: false,
     description: '查看 Deployment rollout 状态摘要(replicas + conditions,kubectl rollout status 式)。快速判断滚动更新是否卡住/完成,比 get_resource 更轻量。',

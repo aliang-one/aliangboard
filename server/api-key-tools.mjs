@@ -10,6 +10,8 @@ import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
+const EXEC_TIMEOUT_MS = Number(process.env.MCP_EXEC_TIMEOUT_MS || 30000) // AI 一次性 exec 超时(审计 P1a:防 tail -f 挂死 MCP 调用)
+const EXEC_STREAM_MAX = 262144 // exec 流式缓冲上限 256KB(最终 stdout 仍截 32KB;防 cat 大文件先吃满内存)
 const LIST_MAX = 200
 const REPLICA_MAX = 20 // scale 上限(eng-review 9C:禁 scale 到 0 + 范围 guardrail)
 const SCALE_KINDS = ['deployments', 'statefulsets']
@@ -66,12 +68,29 @@ const GET_PATH = {
 const WORKLOADS = ['deployments', 'statefulsets', 'daemonsets']
 function slimPod(p) { return { name: p.metadata?.name, phase: p.status?.phase, ready: (p.status?.containerStatuses || []).map(c => ({ name: c.name, ready: c.ready })) } }
 function slimWorkload(d) { return { name: d.metadata?.name, ready: d.status?.readyReplicas || 0, desired: d.spec?.replicas || 0, updated: d.status?.updatedReplicas || 0 } }
+// 工作负载 template 的全容器镜像清单(['app=nginx:1.25', ...];审计 P3:单看 containers[0] 对多容器误导)
+const imagesOf = (spec) => (spec?.template?.spec?.containers || []).map(c => `${c.name}=${c.image}`)
 
 // pod 文件路径校验:只放行安全字符(防 shell 注入;admin 档虽已可信 exec,仍做纵深防御)
 function safePodPath(p) {
   if (!p || typeof p !== 'string') throw new Error('路径为空')
   if (!/^[a-zA-Z0-9._/~: -]+$/.test(p)) throw new Error(`路径含非法字符(仅允许字母数字 . _ / ~ : - 空格): ${p.slice(0, 40)}`)
   return p
+}
+
+// JSON 体积上限(2026-08-14 审计 P1b):与 get_resource_yaml 的 32KB 对齐——原 JSON 版无上限,
+// 大 ConfigMap/Secret 会整包塞进 AI 上下文。超限 → 截断 json 字符串 + 标志(截断 JSON 不可 parse,
+// 但 AI 按文本消费足够);未超限 → null(调用方保持原 { resource } 形状,向后兼容)。
+function oversizedJson(body) {
+  const full = JSON.stringify(body)
+  if (full == null || Buffer.byteLength(full, 'utf8') <= LOG_BYTE_MAX) return null
+  const originalBytes = Buffer.byteLength(full, 'utf8')
+  return {
+    kind: body?.kind, name: body?.metadata?.name, apiVersion: body?.apiVersion,
+    json: Buffer.from(full, 'utf8').subarray(0, LOG_BYTE_MAX).toString('utf8'),
+    truncated: true, originalBytes, byteCap: LOG_BYTE_MAX,
+    hint: '对象超过 32KB 上限已截断(保护 AI 上下文);可改查具体子字段,或用 get_resource_yaml 看同限 YAML',
+  }
 }
 
 // path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> ∈ allowedNs(来自 effectiveNamespaces);集群级 path 或他 ns → policy 拒。
@@ -155,7 +174,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, getter(a.namespace, a.name))
           if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
-          return { resource: body }
+          return oversizedJson(body) || { resource: body }
         } })
     },
     get_resource_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
@@ -197,7 +216,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
             const { body: evtBody } = await requestFn(saCtx, eventsUrl)
             events = (evtBody?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
           } catch { /* events 拉取失败不阻塞 */ }
-          return { resource: resBody, events: { count: events.length, items: events } }
+          const eventsOut = { count: events.length, items: events }
+          return oversizedJson(resBody) ? { ...oversizedJson(resBody), events: eventsOut } : { resource: resBody, events: eventsOut }
         } })
     },
     can_i: async (keyRow, cluster, a, source) => runBoundedTool({
@@ -238,7 +258,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           .filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.uid === uid && o.kind === 'Deployment'))
           .map(rs => ({
             revision: rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] || null,
-            image: rs.spec?.template?.spec?.containers?.[0]?.image || null,
+            images: imagesOf(rs.spec), // 全容器(审计 P3:此前只 containers[0],多容器 Deployment 展示误导)
             current: rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === curRev,
             createdAt: rs.metadata?.creationTimestamp || null,
           }))
@@ -264,17 +284,17 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         const dp = (await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`)).body
         if (!dp) throw new Error(`Deployment ${a.name} 不存在`)
         const uid = dp.metadata?.uid
-        const prevImage = dp.spec?.template?.spec?.containers?.[0]?.image || null
+        const previousImages = imagesOf(dp.spec) // 全容器(审计 P3:此前 prevImage/newImage 只看第一个)
         const { body } = await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/replicasets`)
         const owned = (body?.items || []).filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.uid === uid && o.kind === 'Deployment'))
         const target = owned.find(rs => rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] === String(a.toRevision))
         if (!target) throw new Error(`revision ${a.toRevision} 不存在`)
-        const newImage = target.spec?.template?.spec?.containers?.[0]?.image || null
+        const newImages = imagesOf(target.spec)
         await requestFn(saCtx, `/apis/apps/v1/namespaces/${enc(a.namespace)}/deployments/${enc(a.name)}`, {
           method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' },
           body: JSON.stringify({ spec: { template: target.spec.template } }),
         })
-        return { undone: a.name, toRevision: Number(a.toRevision), previousImage: prevImage, newImage }
+        return { undone: a.name, toRevision: Number(a.toRevision), previousImages, newImages }
       } }),
     update_image: async (keyRow, cluster, a, source) => {
       const kind = String(a.kind || '').toLowerCase()
@@ -323,24 +343,29 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         fn: async (saCtx) => {
           if (!execFn) throw new Error('exec_pod 未启用(网关未注入 execFn)')
           if (!command) throw new Error('exec_pod 缺 command')
-          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', command)
-          return { pod: a.pod, container: a.container || '', exitCode: r.status ?? null, stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192) }
+          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', command, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+          return {
+            pod: a.pod, container: a.container || '', exitCode: r.status ?? null,
+            stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192),
+            timedOut: !!r.timedOut, truncated: !!r.truncated,
+            ...(r.timedOut ? { hint: `命令超时(>${Math.round(EXEC_TIMEOUT_MS / 1000)}s)被中止,输出为已收部分;一次性 exec 不适用于长驻命令(tail -f/top 等)` } : {}),
+          }
         } })
     },
     browse_files: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'browse_files', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/files`, summary: `pod=${a.pod} path=${(a.path || '/').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!execFn) throw new Error('browse_files 未启用')
-        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `ls -la ${safePodPath(a.path || '/')}`)
-        return { pod: a.pod, path: a.path || '/', listing: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `ls -la ${safePodPath(a.path || '/')}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+        return { pod: a.pod, path: a.path || '/', listing: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
       } }),
     read_file: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'read_file', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/file`, summary: `pod=${a.pod} path=${(a.path || '').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!execFn) throw new Error('read_file 未启用')
         if (!a.path) throw new Error('read_file 缺 path')
-        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat ${safePodPath(a.path)}`)
-        return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768) }
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat ${safePodPath(a.path)}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+        return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
       } }),
     apply_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
       keyRow, cluster, tool: 'apply_yaml', source, namespace: keyRow.boundSA_namespace, verb: 'apply', resource: 'yaml', summary: `apply yaml ${(a.yaml || '').length} chars`,
