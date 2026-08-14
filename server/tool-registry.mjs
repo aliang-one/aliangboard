@@ -125,6 +125,10 @@ const WB = [
     description: '读 pod 容器内文件(cat,只读,路径白名单校验免注入)。看 ConfigMap/Secret 之外的落盘文件:应用配置、容器内日志、/etc/hosts 等。超 32KB 截断。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, path: { type: 'string', description: '容器内绝对路径,如 /etc/nginx/nginx.conf' } }, required: ['namespace', 'pod', 'path'] },
     exec: async (ctx, args) => { try { return await ctx.wb.readPodFile(args) } catch (e) { return `读文件失败: ${e.message}` } } },
+  { name: 'wb_top', requiresApproval: false,
+    description: '实时资源用量(kubectl top 等价):pod 容器 CPU/内存 + 相对 limits 的百分比(nodes scope 则相对 capacity)。资源类问题首选:OOM 前兆(memoryPct 接近 100)、CPU 打满/限流、容量评估。需 metrics-server。',
+    inputSchema: { type: 'object', properties: { scope: { type: 'string', description: 'pods(默认,需 namespace)或 nodes' }, namespace: { type: 'string', description: 'scope=pods 时必填' }, pod: { type: 'string', description: '可选,只看单个 pod' } }, required: ['scope'] },
+    exec: async (ctx, args) => { try { return await ctx.wb.topUsage(args) } catch (e) { return `查用量失败: ${e.message}` } } },
   // === K8s 运维工具(workbench-principal,需人审,用项目绑定集群凭据直连) ===
   { name: 'wb_scale', requiresApproval: true,
     description: '扩缩容(workbench):Deployment/StatefulSet replicas 调整。需人审。replicas 钳到 1..20。',

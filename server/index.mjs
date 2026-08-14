@@ -14,6 +14,7 @@ import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect } from './exec-bounds.mjs'
+import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
@@ -1254,6 +1255,62 @@ async function handle(req, res) {
           const prog = conditions.find(c => c.type === 'Progressing')
           const summary = `${replicas.ready}/${replicas.desired} ready, ${replicas.updated} updated${prog ? `, ${prog.reason || prog.status}` : ''}`
           return { name: body.metadata?.name, replicas, conditions, summary }
+        },
+        // 实时资源用量(kubectl top 等价):metrics.k8s.io + limits/capacity join,
+        // 算好 cpuPct/memPct(OOM 前兆/CPU 打满一眼可见,agent 不用自己换算数量单位)。
+        topUsage: async (args) => {
+          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          try {
+            const scope = String(args.scope || 'pods').toLowerCase()
+            if (scope === 'nodes') {
+              const mResp = await requestKubernetes(k8sSession, '/apis/metrics.k8s.io/v1beta1/nodes')
+              const caps = {}
+              try {
+                const nResp = await requestKubernetes(k8sSession, '/api/v1/nodes')
+                for (const n of (nResp?.body?.items || [])) caps[n.metadata?.name] = { cpu: n.status?.capacity?.cpu, memory: n.status?.capacity?.memory }
+              } catch { /* capacity join 失败不致命:只给绝对用量 */ }
+              const items = (mResp?.body?.items || []).map(it => {
+                const cap = caps[it.metadata?.name] || {}
+                return {
+                  name: it.metadata?.name, cpu: it.usage?.cpu, memory: it.usage?.memory,
+                  cpuCapacity: cap.cpu || null, memoryCapacity: cap.memory || null,
+                  cpuPct: pctOf(it.usage?.cpu, cap.cpu), memoryPct: pctOf(it.usage?.memory, cap.memory),
+                }
+              })
+              return { scope: 'nodes', count: items.length, items }
+            }
+            // 默认 pods(ns 必填;pod 可选 → 单 pod 精查)
+            const ns = args.namespace
+            if (!ns) throw new Error('scope=pods 需要 namespace')
+            const mResp = await requestKubernetes(k8sSession, args.pod
+              ? `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods/${enc(args.pod)}`
+              : `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods`)
+            const limits = {}
+            try {
+              const pResp = await requestKubernetes(k8sSession, args.pod
+                ? `/api/v1/namespaces/${enc(ns)}/pods/${enc(args.pod)}`
+                : `/api/v1/namespaces/${enc(ns)}/pods`)
+              const pods = Array.isArray(pResp?.body?.items) ? pResp.body.items : [pResp?.body].filter(Boolean)
+              for (const p of pods) for (const c of (p.spec?.containers || [])) limits[`${p.metadata?.name}/${c.name}`] = { cpu: c.resources?.limits?.cpu, memory: c.resources?.limits?.memory }
+            } catch { /* limits join 失败不致命 */ }
+            const mItems = Array.isArray(mResp?.body?.items) ? mResp.body.items : [mResp?.body].filter(Boolean)
+            const items = mItems.map(it => ({
+              name: it.metadata?.name, namespace: ns,
+              containers: (it.containers || []).map(c => {
+                const lim = limits[`${it.metadata?.name}/${c.name}`] || {}
+                return {
+                  name: c.name, cpu: c.usage?.cpu, memory: c.usage?.memory,
+                  cpuLimit: lim.cpu || null, memoryLimit: lim.memory || null,
+                  cpuPct: pctOf(c.usage?.cpu, lim.cpu), memoryPct: pctOf(c.usage?.memory, lim.memory),
+                }
+              }),
+            }))
+            return { scope: 'pods', namespace: ns, count: items.length, items }
+          } catch (e) {
+            // metrics.k8s.io 未注册/未就绪:404(无该 API)或 503( aggregated 未路出)——给可读指引
+            if (e.status === 404 || e.status === 503) throw new Error('metrics-server 未安装或未就绪(kubectl top 同样不可用);装好后再试。原始错误: ' + e.message)
+            throw e
+          }
         },
         // === K8s 运维(scale/restart,用项目绑定集群凭据,需人审) ===
         scale: async (namespace, kind, name, replicas) => {
