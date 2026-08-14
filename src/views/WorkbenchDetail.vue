@@ -1,7 +1,7 @@
 <script setup>
 // 工作台项目详情:Agent / Edit 双模式。
 // Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
-import { ref, onMounted } from 'vue'
+import { ref, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -58,6 +58,26 @@ async function deleteConversation(convId) {
     if (activeConversationId.value === convId) activeConversationId.value = null
     notify('success', t('workbench.detail.convDeleted'))
   } catch (e) { notify('error', e.message || t('workbench.detail.deleteConvFailed')) }
+}
+// 重命名对话
+const renamingId = ref(null)
+const renameText = ref('')
+const renameInput = ref(null)
+function startRename(conv) {
+  renamingId.value = conv.id
+  renameText.value = conv.title || conv.userMessage || ''
+  nextTick(() => { if (renameInput.value) renameInput.value.focus() })
+}
+async function confirmRename(convId) {
+  const title = renameText.value.trim()
+  renamingId.value = null
+  if (!title) return
+  try {
+    await workbenchApi.conversations.rename(convId, title)
+    const c = conversations.value.find(x => x.id === convId)
+    if (c) c.title = title
+    notify('success', t('workbench.detail.convRenamed'))
+  } catch (e) { notify('error', e.message || t('workbench.detail.renameFailed')) }
 }
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
@@ -193,11 +213,19 @@ function addFile() {
                 <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTime(c.updatedAt) }}</span>
                 <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
               </div>
-              <p class="text-body-xs truncate">{{ c.userMessage || '(empty)' }}</p>
+              <p v-if="renamingId === c.id" class="text-body-xs">
+                <input :ref="el => { if (el) renameInput = el }" v-model="renameText" @keydown.enter="confirmRename(c.id)" @keydown.esc="renamingId = null" @click.stop class="w-full bg-surface-container-lowest border border-primary/40 rounded px-xs py-0.5 text-body-xs outline-none" :placeholder="t('workbench.detail.convTitlePlaceholder')" />
+              </p>
+              <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || '(empty)' }}</p>
             </div>
-            <button @click.stop="deleteConversation(c.id)" class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="t('workbench.detail.deleteConv')">
-              <span class="material-symbols-outlined text-sm">delete</span>
-            </button>
+            <div class="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <button @click.stop="startRename(c)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="t('workbench.detail.renameConv')">
+                <span class="material-symbols-outlined text-sm">edit</span>
+              </button>
+              <button @click.stop="deleteConversation(c.id)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="t('workbench.detail.deleteConv')">
+                <span class="material-symbols-outlined text-sm">delete</span>
+              </button>
+            </div>
           </div>
           <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant/50 px-sm py-md text-center">{{ t('workbench.detail.noConversations') }}</p>
         </div>

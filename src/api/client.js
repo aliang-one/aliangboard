@@ -206,6 +206,7 @@ export const workbenchApi = {
     approve: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
     deny: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/deny`, { method: 'POST' }),
     delete: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    rename: (id, title) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) }),
   },
 }
 
