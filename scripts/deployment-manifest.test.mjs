@@ -65,6 +65,17 @@ test('Deployment: 安全上下文(runAsNonRoot/fsGroup 1000/收能力)', () => {
   assert.deepEqual(container.securityContext.capabilities.drop, ['ALL'])
 })
 
+test('Deployment: 首装管理员种子 env 与容器加固', () => {
+  const adminUser = container.env.find((e) => e.name === 'ADMIN_USERNAME')
+  const adminPass = container.env.find((e) => e.name === 'ADMIN_PASSWORD')
+  assert.ok(adminUser, '必须有 ADMIN_USERNAME env')
+  assert.ok(adminPass, '必须有 ADMIN_PASSWORD env')
+  assert.equal(adminUser.value, 'admin')
+  assert.equal(adminPass.value, 'admin')
+  assert.equal(container.securityContext.allowPrivilegeEscalation, false)
+  assert.equal(container.securityContext.runAsUser, 1000)
+})
+
 test('Deployment: 资源额度与显式 PORT', () => {
   assert.equal(container.resources.requests.cpu, '100m')
   assert.equal(container.resources.requests.memory, '128Mi')

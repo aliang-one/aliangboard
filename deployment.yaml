@@ -59,6 +59,12 @@ spec:
           env:
             - name: PORT
               value: "8787"
+            # 首装管理员种子:仅首次启动播种(库里有 admin 后改 env 不生效)
+            # 生产环境 apply 前务必改成强口令
+            - name: ADMIN_USERNAME
+              value: "admin"
+            - name: ADMIN_PASSWORD
+              value: "admin"
             # 可选:LLM 接入(也可登录后在管理后台「LLM 配置」里设)
             # - name: LLM_BASE_URL
             #   value: "https://api.deepseek.com/v1"
@@ -86,6 +92,8 @@ spec:
             periodSeconds: 10
             failureThreshold: 6   # 起慢不误杀(1 分钟容忍)
           securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 1000
             capabilities:
               drop: [ALL]
           volumeMounts:

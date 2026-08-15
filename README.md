@@ -79,8 +79,9 @@ kubectl -n aliangboard get svc aliangboard   # 看 PORT(S) 列的 NodePort,如 8
 
 浏览器打开 `http://<任意节点 IP>:<NodePort>` 即可。
 
+- 默认管理员 `admin` / `admin`(仅首次启动播种,生产环境先改 env 再 apply)
 - 面板数据(API key、集群凭据、审计、工作台仓库)持久化在 PVC `aliangboard-data`;SQLite 单副本架构,请勿扩 replicas
-- 集群内部署时,添加本集群可用 API 地址 `https://kubernetes.default.svc` + ServiceAccount token
+- 集群内部署时,API 地址用 `https://kubernetes.default.svc`,但默认 ServiceAccount 无任何 RBAC(会 403):需自建 ServiceAccount 并授予所需 RBAC,用 `kubectl create token` 取令牌,并携带集群 CA 证书(或仅开发环境 insecure 跳过校验)
 - 卸载即清数据:`kubectl delete ns aliangboard`(namespace 级联删除 PVC)
 
 ### 方式二:Docker
