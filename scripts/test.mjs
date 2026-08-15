@@ -935,7 +935,7 @@ test('installPaletteVars: 幂等(重复调用不重复注入)', () => {
 })
 
 // --- 图表美化:ECharts option 纯构建器 ---
-import { hexToRgba, relTimeLabel, buildAreaLineOption, buildDonutOption, buildGaugeOption, buildStatusSegments, STATUS_COLORS } from '../src/lib/chart-options.js'
+import { hexToRgba, relTimeLabel, buildAreaLineOption, buildDonutOption, buildGaugeOption, buildStatusSegments, STATUS_COLORS, formatRelTime, buildTimeAreaLineOption } from '../src/lib/chart-options.js'
 
 test('hexToRgba: 6 位 hex → rgba;非法回落黑', () => {
   assert.equal(hexToRgba('#006c49', 0.35), 'rgba(0,108,73,0.35)')
@@ -1069,6 +1069,48 @@ test('persistPayload: 形状 {cpu,mem} 且深拷贝(改源不影响产物)', () 
 test('常量: 15 分钟窗口 / 180 条上限', () => {
   assert.equal(WINDOW_MS, 900000)
   assert.equal(MAX_SAMPLES, 180)
+})
+
+// --- 指标采样全局化:时间轴 builder ---
+test('formatRelTime: 0/秒/分钟档', () => {
+  assert.equal(formatRelTime(0), '0s')
+  assert.equal(formatRelTime(-5), '0s')            // 负数夹 0
+  assert.equal(formatRelTime(40), '-40s')
+  assert.equal(formatRelTime(200), '-3m20s')
+  assert.equal(formatRelTime(180), '-3m')
+})
+
+test('buildTimeAreaLineOption: time 轴 + [t,v] 数据 + 相对最新样本的 tooltip', () => {
+  const samples = [
+    { t: 1_000_000, v: 10 },
+    { t: 1_060_000, v: 20 },   // 比最新早 60s
+    { t: 1_200_000, v: 15 },   // 最新
+    { t: 'bad', v: 1 },        // 非法 → 滤
+  ]
+  const opt = buildTimeAreaLineOption({ samples, color: 'primary', unit: '%' })
+  assert.equal(opt.xAxis.type, 'time')
+  assert.deepEqual(opt.series[0].data, [[1_000_000, 10], [1_060_000, 20], [1_200_000, 15]])
+  // tooltip:第一个点比最新(1_200_000)早 200s
+  assert.equal(opt.tooltip.formatter([{ value: [1_000_000, 10], dataIndex: 0 }]), '-3m20s<br/>10%')
+  assert.equal(opt.tooltip.formatter([{ value: [1_200_000, 15], dataIndex: 2 }]), '0s<br/>15%')
+  assert.equal(opt.series[0].lineStyle.color, MD_PALETTE.primary)
+  assert.equal(opt.series[0].areaStyle.color.colorStops[0].color, 'rgba(0,108,73,0.35)')
+})
+
+test('buildTimeAreaLineOption: refLines 进 markLine 且计入 y 轴 max', () => {
+  const opt = buildTimeAreaLineOption({
+    samples: [{ t: 1, v: 10 }, { t: 2, v: 12 }],
+    refLines: [{ label: 'limits', value: 80, color: 'error' }],
+  })
+  assert.equal(opt.yAxis.max, 80)
+  assert.equal(opt.series[0].markLine.data[0].yAxis, 80)
+  assert.equal(opt.series[0].markLine.data[0].lineStyle.color, MD_PALETTE.error)
+})
+
+test('buildTimeAreaLineOption: 空样本不崩(y 轴 max 回落 1)', () => {
+  const opt = buildTimeAreaLineOption({ samples: [] })
+  assert.deepEqual(opt.series[0].data, [])
+  assert.equal(opt.yAxis.max, 1)
 })
 
 // --- 汇总 ---

@@ -132,3 +132,67 @@ export function buildGaugeOption(value) {
     }],
   }
 }
+
+// 相对时间(秒)→ 人类可读:0s / -40s / -3m20s / -3m。语言中立,免 i18n。
+export function formatRelTime(deltaSec) {
+  const s = Math.max(0, Math.round(deltaSec))
+  if (s === 0) return '0s'
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `-${m > 0 ? (r > 0 ? `${m}m${r}s` : `${m}m`) : `${s}s`}`
+}
+
+// 时间轴版面积折线图:全局采样器(cpuSamples/memSamples)专用。
+// samples: [{t: 毫秒, v: 数值}];x 轴 type 'time' 真实反映采样间隔与空档;
+// tooltip 相对最新有效样本时间(formatRelTime)。refLines/y-max 语义与 buildAreaLineOption 一致。
+export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit = '', refLines = [], smooth = true } = {}) {
+  const line = tokenHex(color)
+  const valid = (Array.isArray(samples) ? samples : []).filter(s =>
+    s && typeof s === 'object' && typeof s.t === 'number' && typeof s.v === 'number' && !isNaN(s.t) && !isNaN(s.v))
+  const values = valid.map(s => s.v)
+  const maxVal = Math.max(1, ...values, ...refLines.map(r => Number(r.value) || 0))
+  const newest = valid.length ? valid[valid.length - 1].t : 0
+  const option = {
+    animationDurationUpdate: 400,
+    grid: { left: 4, right: 4, top: 8, bottom: 4 },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = Array.isArray(params) ? params[0] : params
+        const [t, v] = p.value
+        return `${formatRelTime((newest - t) / 1000)}<br/>${v == null ? '—' : v}${unit}`
+      },
+    },
+    xAxis: { type: 'time', show: false, min: 'dataMin', max: 'dataMax' },
+    yAxis: {
+      type: 'value', max: maxVal,
+      axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
+      splitLine: { lineStyle: { color: hexToRgba(MD_PALETTE['outline-variant'], 0.35), width: 1 } },
+    },
+    series: [{
+      id: 'main', type: 'line', smooth, symbol: 'none',
+      data: valid.map(s => [s.t, s.v]),
+      lineStyle: { width: 2, color: line, cap: 'round' },
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: hexToRgba(line, 0.35) },
+            { offset: 1, color: hexToRgba(line, 0.02) },
+          ],
+        },
+      },
+      emphasis: { focus: 'series' },
+    }],
+  }
+  if (refLines.length) {
+    option.series[0].markLine = {
+      silent: true, symbol: 'none', label: { show: false },
+      data: refLines.map(r => ({
+        yAxis: Number(r.value) || 0,
+        lineStyle: { type: 'dashed', width: 1, color: tokenHex(r.color) },
+      })),
+    }
+  }
+  return option
+}
