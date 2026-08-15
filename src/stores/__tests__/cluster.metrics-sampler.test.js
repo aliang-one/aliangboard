@@ -18,6 +18,7 @@ vi.mock('@/api/client', () => {
 })
 
 import { useClusterStore } from '@/stores/cluster'
+import { api } from '@/api/client'
 
 // localStorage 内存垫(同 cluster.store-methods.test.js;afterEach 还原防污染其它套件)
 let _ls, _ss
@@ -30,10 +31,17 @@ const shim = {
   key: i => [...mem.keys()][i] ?? null,
   get length() { return mem.size },
 }
+// metrics mock 默认实现(与 vi.mock 工厂一致):节点名可控,供竞态测试按需覆写。
+const nodeMetricsFor = (name) => ({ items: [{ metadata: { name }, usage: { cpu: '2000m', memory: '4Gi' } }] })
+const defaultK8s = async (url) => {
+  if (!url.includes('metrics.k8s.io')) return {}
+  return url.endsWith('/nodes') ? nodeMetricsFor('n1') : { items: [] }
+}
 beforeEach(() => {
   _ls = globalThis.localStorage; _ss = globalThis.sessionStorage
   globalThis.localStorage = shim; globalThis.sessionStorage = shim
   mem.clear()
+  api.k8s.mockImplementation(defaultK8s)
   vi.useFakeTimers()
 })
 afterEach(() => {
@@ -120,4 +128,114 @@ test('sampleNow: 手动单次采样(供刷新按钮)', async () => {
   const store = freshStore()
   await store.sampleNow()
   expect(store.cpuSamples.length).toBe(1)
+})
+
+// === 最终审查修复波:切集群竞态双守卫 + 降级持久化 + 孤儿 key + 重入 ===
+
+// 手动 Promise 门:延迟 resolve 的 api mock 用
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+function twoClusters(store) {
+  store.savedClusters = [
+    { name: 'demo', apiServer: 'https://demo', token: 't1' },
+    { name: 'other', apiServer: 'https://other', token: 't2' },
+  ]
+}
+
+test('竞态 A(epoch): tick 挂起间切集群,恢复后旧集群值不进新窗口/新 key', async () => {
+  const store = freshStore()
+  twoClusters(store)
+  const pending = deferred()
+  api.k8s.mockImplementation(async (url) => {
+    if (url.includes('metrics.k8s.io')) return pending.promise   // metrics 悬置;hydrate 正常返回
+    return {}
+  })
+  const tickPromise = store.sampleNow()        // tick 进入 await refreshMetrics 挂起
+  expect(store.metricsSampling).toBe(true)
+  const swPromise = store.switchCluster('https://other')   // 挂起间切集群(reloadMetricsWindow → epoch++)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.currentCluster).toBe('other')
+  pending.resolve(nodeMetricsFor('n1'))        // 旧集群节点数据此刻才 resolve
+  await tickPromise
+  await swPromise
+  // 无守卫时:旧值 50 会被推入 'other' 的新窗口并持久化到新 key
+  expect(store.cpuSamples).toEqual([])
+  expect(mem.has('aliangboard.metrics.other.v1')).toBe(false)
+  expect(store.metricsLastRefresh).toBeNull()
+})
+
+test('竞态 B(hold): hydrate 未换血前 tick 被挡,hydrate 完成后采样恢复', async () => {
+  const store = freshStore()
+  twoClusters(store)
+  const hydrateGate = deferred()
+  api.k8s.mockImplementation(async (url) => {
+    if (url.includes('metrics.k8s.io')) return url.endsWith('/nodes') ? nodeMetricsFor('x1') : { items: [] }  // 新集群节点名 x1
+    if (url === '/api/v1/namespaces') return hydrateGate.promise   // 悬置切集群水合(nodeList 未换血)
+    return {}
+  })
+  const swPromise = store.switchCluster('https://other')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.currentCluster).toBe('other')
+  // 此刻 nodeList 仍是旧集群节点(n1);新集群 metrics(节点 x1)与之不匹配 → 无守卫会算出 0% 并持久化
+  await store.sampleNow()
+  expect(store.cpuSamples).toEqual([])
+  expect(mem.has('aliangboard.metrics.other.v1')).toBe(false)
+  // 水合完成 → hold 释放,采样恢复(不永久卡死)
+  hydrateGate.resolve({ items: [] })
+  await swPromise
+  store.nodeList = [{ name: 'x1', allocCpu: 4000, allocMem: 8388608, usedCpu: null, usedMem: null, cpu: null, memory: null }]
+  await store.sampleNow()
+  expect(store.cpuSamples.length).toBe(1)
+  expect(store.cpuSamples[0].v).toBe(50)
+})
+
+test('切窗口重载时 metricsLastRefresh 清空(残留不跨集群)', async () => {
+  const store = freshStore()
+  twoClusters(store)
+  await store.sampleNow()                     // demo: lastRefresh 置位
+  expect(store.metricsLastRefresh).not.toBeNull()
+  await store.switchCluster('https://other')  // reloadMetricsWindow → lastRefresh=null
+  expect(store.metricsLastRefresh).toBeNull()
+})
+
+test('降级持久化: 同集群重启采样不清窗(隐私模式/配额下导航)', async () => {
+  const store = freshStore()
+  store.startMetricsSampling()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.cpuSamples.length).toBe(1)
+  store.stopMetricsSampling()
+  mem.delete('aliangboard.metrics.demo.v1')   // 模拟隐私模式:盘上读不回
+  store.startMetricsSampling()                // 导航再进:同集群,窗口延续而非清零
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.cpuSamples.length).toBe(2)
+  store.stopMetricsSampling()
+})
+
+test('孤儿 key: removeSavedClusterStore 连带删该集群的 metrics 持久化 key', () => {
+  mem.set('aliangboard.metrics.demo.v1', JSON.stringify({ cpu: [], mem: [] }))
+  mem.set('aliangboard.metrics.other.v1', JSON.stringify({ cpu: [], mem: [] }))
+  const store = freshStore()
+  twoClusters(store)
+  store.removeSavedClusterStore('https://demo')
+  expect(mem.has('aliangboard.metrics.demo.v1')).toBe(false)
+  expect(mem.has('aliangboard.metrics.other.v1')).toBe(true)
+})
+
+test('tick 重入守卫: 上一轮未完成时本轮直接跳过', async () => {
+  const store = freshStore()
+  const gate = deferred()
+  api.k8s.mockImplementation(async (url) => {
+    if (url.includes('metrics.k8s.io')) return gate.promise
+    return {}
+  })
+  const first = store.sampleNow()
+  await vi.advanceTimersByTimeAsync(0)        // 第一轮挂在 metrics fetch
+  expect(store.metricsSampling).toBe(true)
+  await store.sampleNow()                     // 慢 fetch 未完:本轮重入被守卫挡下
+  gate.resolve(nodeMetricsFor('n1'))
+  await first
+  expect(store.cpuSamples.length).toBe(1)     // 只有第一轮的样本
 })

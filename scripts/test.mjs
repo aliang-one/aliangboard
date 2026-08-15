@@ -1107,6 +1107,17 @@ test('buildTimeAreaLineOption: refLines 进 markLine 且计入 y 轴 max', () =>
   assert.equal(opt.series[0].markLine.data[0].lineStyle.color, MD_PALETTE.error)
 })
 
+test('buildTimeAreaLineOption: spark=true 贴边 grid + 隐藏 splitLine(默认不受影响)', () => {
+  const samples = [{ t: 1, v: 10 }, { t: 2, v: 12 }]
+  const spark = buildTimeAreaLineOption({ samples, spark: true })
+  assert.deepEqual(spark.grid, { left: 0, right: 0, top: 2, bottom: 0 })
+  assert.deepEqual(spark.yAxis.splitLine, { show: false })
+  const full = buildTimeAreaLineOption({ samples })
+  assert.deepEqual(full.grid, { left: 4, right: 4, top: 8, bottom: 4 })
+  assert.equal(full.yAxis.splitLine.show, undefined)
+  assert.equal(full.yAxis.splitLine.lineStyle.width, 1)
+})
+
 test('buildTimeAreaLineOption: 空样本不崩(y 轴 max 回落 1)', () => {
   const opt = buildTimeAreaLineOption({ samples: [] })
   assert.deepEqual(opt.series[0].data, [])

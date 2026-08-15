@@ -101,7 +101,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-primary">{{ store.cluster.cpuUsage == null ? '—' : store.cluster.cpuUsage + '%' }}</span>
           <span v-if="store.cluster.cpuTrendUp != null" class="text-xs mb-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.cpuTrend }}</span>
         </div>
-        <AreaLineChart :samples="store.cpuSamples" color="primary" unit="%" :height="48" />
+        <AreaLineChart :samples="store.cpuSamples" color="primary" unit="%" :height="48" spark />
       </div>
       <!-- 内存 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
@@ -110,7 +110,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-tertiary-container">{{ store.cluster.memoryUsage == null ? '—' : store.cluster.memoryUsage + '%' }}</span>
           <span v-if="store.cluster.memoryTrendUp != null" class="text-xs mb-xs" :class="store.cluster.memoryTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.memoryTrend }}</span>
         </div>
-        <AreaLineChart :samples="store.memSamples" color="tertiary-container" unit="%" :height="48" />
+        <AreaLineChart :samples="store.memSamples" color="tertiary-container" unit="%" :height="48" spark />
       </div>
       <!-- 节点健康 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">

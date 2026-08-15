@@ -25,7 +25,7 @@ const empty = computed(() => props.samples != null
   ? validSamples.value.length < 2
   : props.series.filter(v => typeof v === 'number' && !isNaN(v)).length < 2)
 const option = computed(() => props.samples != null
-  ? buildTimeAreaLineOption({ samples: props.samples, color: props.color, unit: props.unit, refLines: props.refLines, smooth: props.smooth })
+  ? buildTimeAreaLineOption({ samples: props.samples, color: props.color, unit: props.unit, refLines: props.refLines, spark: props.spark, smooth: props.smooth })
   : buildAreaLineOption({
       series: props.series, color: props.color, unit: props.unit, refLines: props.refLines,
       spark: props.spark, smooth: props.smooth, sampleIntervalSec: props.sampleIntervalSec,

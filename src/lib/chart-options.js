@@ -145,7 +145,8 @@ export function formatRelTime(deltaSec) {
 // 时间轴版面积折线图:全局采样器(cpuSamples/memSamples)专用。
 // samples: [{t: 毫秒, v: 数值}];x 轴 type 'time' 真实反映采样间隔与空档;
 // tooltip 相对最新有效样本时间(formatRelTime)。refLines/y-max 语义与 buildAreaLineOption 一致。
-export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit = '', refLines = [], smooth = true } = {}) {
+// spark=true → KPI 卡迷你模式:无网格、贴边(与 buildAreaLineOption 同语义)。
+export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit = '', refLines = [], spark = false, smooth = true } = {}) {
   const line = tokenHex(color)
   const valid = (Array.isArray(samples) ? samples : []).filter(s =>
     s && typeof s === 'object' && typeof s.t === 'number' && typeof s.v === 'number' && !isNaN(s.t) && !isNaN(s.v))
@@ -154,7 +155,7 @@ export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit 
   const newest = valid.length ? valid[valid.length - 1].t : 0
   const option = {
     animationDurationUpdate: 400,
-    grid: { left: 4, right: 4, top: 8, bottom: 4 },
+    grid: spark ? { left: 0, right: 0, top: 2, bottom: 0 } : { left: 4, right: 4, top: 8, bottom: 4 },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
@@ -167,7 +168,7 @@ export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit 
     yAxis: {
       type: 'value', max: maxVal,
       axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
-      splitLine: { lineStyle: { color: hexToRgba(MD_PALETTE['outline-variant'], 0.35), width: 1 } },
+      splitLine: spark ? { show: false } : { lineStyle: { color: hexToRgba(MD_PALETTE['outline-variant'], 0.35), width: 1 } },
     },
     series: [{
       id: 'main', type: 'line', smooth, symbol: 'none',

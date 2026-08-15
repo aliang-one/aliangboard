@@ -782,6 +782,17 @@ export const useClusterStore = defineStore('cluster', () => {
   let metricsTimer = null
   let metricsConsumers = 0
   let metricsVisListener = null
+  // 切集群竞态双守卫:
+  // - metricsEpoch:窗口代数。reloadMetricsWindow 真重载时 ++;tick 入口捕获、await 后
+  //   不等则丢弃本次 push/persist——杀变体 A(tick 挂起间切集群,恢复后旧集群值进新窗口/新 key)。
+  // - metricsHold:switchCluster 入口置 true、自身 finally 必清(hydrateCriticalResources
+  //   的 finally 也兜底清)。hold 期间 tick 直接 return——杀变体 B(nodeList 未换血前,
+  //   旧节点配新集群 metrics 算出 0% 假样本并持久化)。
+  let metricsEpoch = 0
+  let metricsHold = false
+  // 当前内存窗口所属集群:reloadMetricsWindow 同集群时跳过重载——隐私模式/配额下
+  // (localStorage 读写退化)页面导航 stop/start 不再清窗,会话内窗口得以延续。
+  const metricsWindowCluster = ref(null)
 
   function metricsStorageKey() {
     return currentCluster.value ? `aliangboard.metrics.${encodeURIComponent(currentCluster.value)}.v1` : null
@@ -791,8 +802,11 @@ export const useClusterStore = defineStore('cluster', () => {
     if (!key) return
     try { localStorage.setItem(key, JSON.stringify(persistPayload(cpuSamples.value, memSamples.value))) } catch { /* 配额/隐私模式:退化为会话内窗口 */ }
   }
-  // 从 localStorage 恢复当前集群窗口(切集群/首个消费者上线时调用)
+  // 从 localStorage 恢复当前集群窗口(切集群/首个消费者上线时调用)。
+  // 窗口已属于当前集群时跳过:隐私模式/配额下导航不清窗(降级持久化模式)。
   function reloadMetricsWindow() {
+    if (metricsWindowCluster.value === currentCluster.value) return
+    metricsEpoch++   // 翻代:挂起中的旧 tick 恢复后按代数不等自弃
     const key = metricsStorageKey()
     let cpu = [], mem = []
     if (key) {
@@ -805,12 +819,18 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     cpuSamples.value = cpu
     memSamples.value = mem
+    metricsLastRefresh.value = null
+    metricsWindowCluster.value = currentCluster.value
   }
   async function metricsTick() {
     if (document.hidden) return
+    if (metricsSampling.value) return   // 重入守卫:慢 fetch 上一轮未完,本轮直接跳过(与 sampleNow 亦去重)
+    if (metricsHold) return             // 切集群水合中:不采样,防旧 nodeList 算出假样本
+    const epoch = metricsEpoch
     metricsSampling.value = true
     try {
       await refreshMetrics()
+      if (epoch !== metricsEpoch) return   // await 间切了集群:丢弃本次 push/persist
       const now = Date.now()
       const cpu = cluster.value.cpuUsage
       const mem = cluster.value.memoryUsage
@@ -950,22 +970,30 @@ export const useClusterStore = defineStore('cluster', () => {
   async function switchCluster(apiServer) {
     const c = savedClusters.value.find(x => x.apiServer === apiServer)
     if (!c) return
-    // 切集群前停止旧集群的实时监听并清空命名空间作用域，避免旧 ns 残留 / 旧 watch 带失效 token 报错
-    try { stopPodWatch() } catch { /* 未启动时忽略 */ }
-    try { stopEventWatch() } catch { /* 未启动时忽略 */ }
-    currentNamespace.value = ''
-    setActiveToken(c.token)
-    activeApiServerRef.value = c.apiServer
-    currentCluster.value = c.name
-    reloadMetricsWindow()
-    cluster.value = { ...cluster.value, name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy' }
-    connectionState.value = 'loading'
-    try { queryClient.clear(); await hydrateCriticalResources() } catch { connectionState.value = 'error' }
-    apiReachable.value = true
-    startHealthCheck()
+    metricsHold = true   // 水合期间挂起 tick(变体 B);try/finally 必清,不会永久卡死采样
+    try {
+      // 切集群前停止旧集群的实时监听并清空命名空间作用域，避免旧 ns 残留 / 旧 watch 带失效 token 报错
+      try { stopPodWatch() } catch { /* 未启动时忽略 */ }
+      try { stopEventWatch() } catch { /* 未启动时忽略 */ }
+      currentNamespace.value = ''
+      setActiveToken(c.token)
+      activeApiServerRef.value = c.apiServer
+      currentCluster.value = c.name
+      reloadMetricsWindow()   // epoch++:挂起中的旧 tick 恢复后自弃(变体 A)
+      cluster.value = { ...cluster.value, name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy' }
+      connectionState.value = 'loading'
+      try { queryClient.clear(); await hydrateCriticalResources() } catch { connectionState.value = 'error' }
+      apiReachable.value = true
+      startHealthCheck()
+    } finally { metricsHold = false }
   }
   // 移除已保存集群
   function removeSavedClusterStore(apiServer) {
+    // 孤儿清理:按 apiServer 反查集群 name,连带删该集群的 metrics 持久化窗口 key
+    const c = savedClusters.value.find(x => x.apiServer === apiServer)
+    if (c) {
+      try { localStorage.removeItem(`aliangboard.metrics.${encodeURIComponent(c.name)}.v1`) } catch { /* 静默:隐私模式等 */ }
+    }
     removeSavedCluster(apiServer)
     savedClusters.value = getSavedClusters()
   }
@@ -1070,33 +1098,35 @@ export const useClusterStore = defineStore('cluster', () => {
   // pods/workloads/services/ingresses/events 等由各页面 Vue Query 自取。
   async function hydrateCriticalResources(opts = {}) {
     if (!opts.silent) connectionState.value = 'loading'
-    const requests = await Promise.allSettled([
-      api.k8s('/api/v1/namespaces'),
-      api.k8s('/api/v1/nodes'),
-    ])
-    const namespaceData = requests[0].status === 'fulfilled' ? requests[0].value : null
-    const nodeData = requests[1].status === 'fulfilled' ? requests[1].value : null
-    if (!nodeData) notify('error', i18n.global.t('store.nodeFetchFailed'))
-    if (!namespaceData) {
-      if (!opts.silent) connectionState.value = 'error'
-      throw new Error(i18n.global.t('store.namespaceReadFailed'))
-    }
-    if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, null))
-    if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
-      name: item.metadata?.name,
-      status: item.status?.phase || 'Unknown',
-      age: ageOf(item.metadata?.creationTimestamp),
-      labels: item.metadata?.labels || {},
-    }))
-    if (currentNamespace.value && namespaceList.value.length
-        && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
-      setNamespace(namespaceList.value[0].name)
-    }
-    // hydrateExtendedResources 已停用：11 个 extended 资源全部迁 Vue Query（零直接 store 读者），
-    // 各页面按需拉取 + 同 key 去重。首屏从 2+11=13 请求降至 2（namespaces+nodes）。
-    // if (!opts.lite) { try { await hydrateExtendedResources() } catch (e) { ... } }
-    if (!opts.silent) connectionState.value = 'connected'
-    return { failed: requests.filter(r => r.status === 'rejected').length }
+    try {
+      const requests = await Promise.allSettled([
+        api.k8s('/api/v1/namespaces'),
+        api.k8s('/api/v1/nodes'),
+      ])
+      const namespaceData = requests[0].status === 'fulfilled' ? requests[0].value : null
+      const nodeData = requests[1].status === 'fulfilled' ? requests[1].value : null
+      if (!nodeData) notify('error', i18n.global.t('store.nodeFetchFailed'))
+      if (!namespaceData) {
+        if (!opts.silent) connectionState.value = 'error'
+        throw new Error(i18n.global.t('store.namespaceReadFailed'))
+      }
+      if (nodeData?.items) nodeList.value = nodeData.items.map(item => mapNode(item, null))
+      if (namespaceData?.items) namespaceList.value = namespaceData.items.map(item => ({
+        name: item.metadata?.name,
+        status: item.status?.phase || 'Unknown',
+        age: ageOf(item.metadata?.creationTimestamp),
+        labels: item.metadata?.labels || {},
+      }))
+      if (currentNamespace.value && namespaceList.value.length
+          && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
+        setNamespace(namespaceList.value[0].name)
+      }
+      // hydrateExtendedResources 已停用：11 个 extended 资源全部迁 Vue Query（零直接 store 读者），
+      // 各页面按需拉取 + 同 key 去重。首屏从 2+11=13 请求降至 2（namespaces+nodes）。
+      // if (!opts.lite) { try { await hydrateExtendedResources() } catch (e) { ... } }
+      if (!opts.silent) connectionState.value = 'connected'
+      return { failed: requests.filter(r => r.status === 'rejected').length }
+    } finally { metricsHold = false }   // 兜底:任何置 hold 后走水合的路径,水合结束必释放
   }
 
   function getCurrentCluster() {

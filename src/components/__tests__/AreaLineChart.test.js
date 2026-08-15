@@ -62,3 +62,15 @@ test('series 路径不受影响:不传 samples 时仍走 interval 轴', () => {
   const opt = setOptionMock.mock.calls[0][0]
   expect(opt.xAxis.type).toBe('category')
 })
+
+test('samples 路径透传 spark: 贴边 grid + splitLine 隐藏', () => {
+  setOptionMock.mockClear()
+  const w = mountChart({
+    samples: [{ t: 1000, v: 10 }, { t: 2000, v: 20 }],
+    spark: true, height: 48,
+  })
+  const opt = setOptionMock.mock.calls[0][0]
+  expect(opt.grid).toEqual({ left: 0, right: 0, top: 2, bottom: 0 })
+  expect(opt.yAxis.splitLine).toEqual({ show: false })
+  w.unmount()
+})
