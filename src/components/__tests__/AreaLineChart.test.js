@@ -36,3 +36,29 @@ test('refLines footer: label + value + unit,chip 背景为 token 色', () => {
   const chip = w.findAll('span').find(s => (s.attributes('style') || '').includes('background'))
   expect(chip.attributes('style')).toMatch(/background:\s*(#4648d4|rgb\(70,\s*72,\s*212\))/)
 })
+
+test('samples 优先:传 samples 走 time 轴 option,[t,v] 数据', () => {
+  setOptionMock.mockClear()
+  const w = mountChart({
+    samples: [{ t: 1000, v: 10 }, { t: 2000, v: 20 }],
+    color: 'primary', unit: '%', height: 128,
+  })
+  const opt = setOptionMock.mock.calls[0][0]
+  expect(opt.xAxis.type).toBe('time')
+  expect(opt.series[0].data).toEqual([[1000, 10], [2000, 20]])
+  w.unmount()
+})
+
+test('samples 不足 2 个有效样本:空态,不渲染图表', () => {
+  setOptionMock.mockClear()
+  const w = mountChart({ samples: [{ t: 1000, v: 10 }, { t: 'bad', v: 1 }] })
+  expect(w.text()).toContain(i18n.global.t('common.noData'))
+  expect(setOptionMock).not.toHaveBeenCalled()
+})
+
+test('series 路径不受影响:不传 samples 时仍走 interval 轴', () => {
+  setOptionMock.mockClear()
+  mountChart({ series: [1, 2, 3] })
+  const opt = setOptionMock.mock.calls[0][0]
+  expect(opt.xAxis.type).toBe('category')
+})

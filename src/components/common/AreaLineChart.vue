@@ -4,10 +4,12 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EChart from './EChart.vue'
-import { buildAreaLineOption, tokenHex } from '@/lib/chart-options'
+import { buildAreaLineOption, buildTimeAreaLineOption, tokenHex } from '@/lib/chart-options'
 
 const props = defineProps({
   series: { type: Array, default: () => [] },
+  // 时间戳样本(全局采样器):[{t: 毫秒, v: 数值}]。与 series 二选一,samples 优先。
+  samples: { type: Array, default: null },
   color: { type: String, default: 'primary' },
   unit: { type: String, default: '' },
   height: { type: Number, default: 64 },
@@ -17,11 +19,17 @@ const props = defineProps({
   sampleIntervalSec: { type: Number, default: 10 },
 })
 const { t } = useI18n()
-const empty = computed(() => props.series.filter(v => typeof v === 'number' && !isNaN(v)).length < 2)
-const option = computed(() => buildAreaLineOption({
-  series: props.series, color: props.color, unit: props.unit, refLines: props.refLines,
-  spark: props.spark, smooth: props.smooth, sampleIntervalSec: props.sampleIntervalSec,
-}))
+const validSamples = computed(() => (props.samples || []).filter(s =>
+  s && typeof s === 'object' && typeof s.t === 'number' && typeof s.v === 'number' && !isNaN(s.t) && !isNaN(s.v)))
+const empty = computed(() => props.samples != null
+  ? validSamples.value.length < 2
+  : props.series.filter(v => typeof v === 'number' && !isNaN(v)).length < 2)
+const option = computed(() => props.samples != null
+  ? buildTimeAreaLineOption({ samples: props.samples, color: props.color, unit: props.unit, refLines: props.refLines, smooth: props.smooth })
+  : buildAreaLineOption({
+      series: props.series, color: props.color, unit: props.unit, refLines: props.refLines,
+      spark: props.spark, smooth: props.smooth, sampleIntervalSec: props.sampleIntervalSec,
+    }))
 </script>
 
 <template>
