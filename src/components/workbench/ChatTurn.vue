@@ -37,19 +37,19 @@ onUpdated(() => nextTick(highlight))
 </script>
 
 <template>
-  <div ref="root" :data-role="turn.role" class="px-md py-sm border-b border-outline-variant/40"
-    :class="turn.role === 'user' ? 'bg-primary/[0.04]' : ''">
+  <div ref="root" :data-role="turn.role" class="py-sm border-b border-outline-variant/40 last:border-b-0"
+    :class="turn.role === 'user' ? 'pt-xs' : ''">
     <!-- 角色行 -->
-    <div class="flex items-center gap-xs mb-xs">
+    <div class="flex items-center gap-xs px-md mb-xs">
       <span class="material-symbols-outlined text-sm" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? 'person' : 'smart_toy' }}</span>
       <span class="text-body-xs font-semibold" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? t('workbench.chat.roleYou') : t('workbench.chat.roleAgent') }}</span>
       <span v-if="turn.role === 'assistant' && turn.steps" class="ml-auto text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
       <span v-if="turn.truncated" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.contentTruncated') }}</span>
     </div>
 
-    <!-- USER -->
-    <div v-if="turn.role === 'user'">
-      <div v-if="turn.refs && turn.refs.length" class="flex flex-col gap-xs mb-xs">
+    <!-- USER:圆角气泡带(refs+文本),与 agent 文本同左缘(px-md 对齐) -->
+    <div v-if="turn.role === 'user'" class="mx-md rounded-xl bg-primary/[0.06] border border-primary/15 px-md py-sm flex flex-col gap-xs">
+      <div v-if="turn.refs && turn.refs.length" class="flex flex-col gap-xs">
         <template v-for="(r, i) in turn.refs" :key="i">
           <ResourceCard v-if="r.resource" :resource="r.resource" />
           <span v-else class="text-body-xs font-mono text-primary bg-primary/10 border border-primary/20 rounded px-xs py-0.5 self-start">@{{ r.kind }}:{{ r.name }}</span>
@@ -59,7 +59,7 @@ onUpdated(() => nextTick(highlight))
     </div>
 
     <!-- AGENT -->
-    <div v-else class="flex flex-col gap-sm">
+    <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
       <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标);②尚无文本也无工具 → 跳动 thinking 提示 -->

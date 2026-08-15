@@ -2824,7 +2824,7 @@
       "title": "AI Assistant",
       "clearChat": "Clear chat",
       "subtitle": "Reuses cluster ledger first, then the agent writes project files (needs your approval); approving write / apply manifests mutates the cluster.",
-      "hint": "Ask the AI assistant — it reuses the cluster ledger and writes project files (writes need your approval).",
+      "hint": "Ask, investigate, fix — it works directly on your cluster; writes need your approval.",
       "toolTrace": "Tool trace ({n} step(s))",
       "decideCalling": "Decided to call: ",
       "reject": "Rejected by user",

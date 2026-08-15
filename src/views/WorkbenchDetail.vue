@@ -251,6 +251,7 @@ const treeRows = computed(() => {
 
       <button @click="reconcile" :disabled="reconciling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.detail.reconcileTitle')">
         <span class="material-symbols-outlined text-sm" :class="reconciling ? 'animate-spin' : ''">{{ reconciling ? 'progress_activity' : 'sync' }}</span>
+        <span class="hidden lg:inline">{{ t('workbench.detail.reconcile') }}</span>
       </button>
     </div>
 

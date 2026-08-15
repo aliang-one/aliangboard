@@ -522,37 +522,44 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
 
     <!-- Messages -->
     <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
-      <!-- Empty state -->
+      <!-- Empty state:轻量建议式(去大图标孤岛/全宽边框按钮),附 @-mention 可发现性提示 -->
       <div v-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
-        <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-md">
-          <span class="material-symbols-outlined text-2xl text-primary">smart_toy</span>
+        <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-sm">
+          <span class="material-symbols-outlined text-xl text-primary">smart_toy</span>
         </div>
-        <p class="text-body-md font-semibold text-on-surface mb-xs">{{ t('workbench.chat.title') }}</p>
-        <p class="text-body-sm text-on-surface-variant text-center mb-md">{{ t('workbench.chat.hint') }}</p>
-        <div class="flex flex-col gap-xs w-full max-w-sm">
-          <button v-for="h in HINTS" :key="h" @click="useHint(h)" class="flex items-center gap-sm text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-xl px-md py-sm hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all">
-            <span class="material-symbols-outlined text-base text-primary/60">arrow_forward</span>{{ h }}
+        <p class="text-body-md font-semibold text-on-surface">{{ t('workbench.chat.title') }}</p>
+        <p class="text-body-sm text-on-surface-variant text-center mt-xs mb-lg">{{ t('workbench.chat.hint') }}</p>
+        <div class="flex flex-col gap-xs w-full max-w-md">
+          <button v-for="h in HINTS" :key="h" @click="useHint(h)" class="group flex items-center gap-sm text-body-sm text-on-surface-variant rounded-lg px-md py-sm text-left hover:bg-surface-container-low hover:text-on-surface transition-colors">
+            <span class="material-symbols-outlined text-base text-primary/50 group-hover:text-primary transition-colors">arrow_forward</span>{{ h }}
           </button>
         </div>
+        <p class="text-body-xs text-on-surface-variant/60 mt-lg flex items-center gap-xs">
+          <span class="material-symbols-outlined text-sm">alternate_email</span>{{ t('workbench.chat.atMentionHint') }}
+        </p>
       </div>
 
-      <!-- Recap card: earlier conversation summary (collapsible, shown only when conv.recap exists) -->
-      <details v-if="recap" class="mx-md mt-md bg-surface-container-low border border-outline-variant rounded-lg">
-        <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
-          <span class="material-symbols-outlined text-base text-primary/60">summarize</span>
-          {{ t('workbench.chat.recapSummary') }}
-        </summary>
-        <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
-      </details>
+      <!-- 阅读列:消息/摘要限宽居中(宽屏下行长失控、左右失衡的根因),与输入列同宽对齐 -->
+      <div v-else class="mx-auto w-full max-w-3xl px-md">
+        <!-- Recap card: earlier conversation summary (collapsible, shown only when conv.recap exists) -->
+        <details v-if="recap" class="mt-md bg-surface-container-low border border-outline-variant rounded-lg">
+          <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base text-primary/60">summarize</span>
+            {{ t('workbench.chat.recapSummary') }}
+          </summary>
+          <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
+        </details>
 
-      <!-- Conversation -->
-      <div v-for="turn in turns" :key="turn._id">
-        <ChatTurn :turn="turn" />
+        <!-- Conversation -->
+        <div v-for="turn in turns" :key="turn._id">
+          <ChatTurn :turn="turn" />
+        </div>
       </div>
     </div>
 
-    <!-- Input area -->
+    <!-- Input area(与阅读列同宽对齐,消息/输入左右边缘一致) -->
     <div class="shrink-0 border-t border-outline-variant p-md bg-surface-container-lowest">
+      <div class="mx-auto w-full max-w-3xl">
       <!-- @-ref chips -->
       <div v-if="refs.length" class="flex flex-wrap gap-xs mb-sm">
         <div v-for="(r, i) in refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
@@ -603,6 +610,7 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
             </button>
           </template>
         </div>
+      </div>
       </div>
     </div>
 

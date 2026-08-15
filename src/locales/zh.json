@@ -2824,7 +2824,7 @@
       "title": "AI 助手",
       "clearChat": "清空对话",
       "subtitle": "先复用集群 ledger 能力，再让 agent 项目内写文件（需你审批）；批准写入 / apply manifests 到集群是写操作，拒绝则跳过。",
-      "hint": "向 AI 助手提问，它会复用集群 ledger 并在项目内写文件（写操作需你审批）。",
+      "hint": "提问、调查、修复——它会直连集群调查并给出方案，写操作需你审批。",
       "toolTrace": "工具调用（{n} 步）",
       "decideCalling": "决定调用：",
       "reject": "用户拒绝执行",

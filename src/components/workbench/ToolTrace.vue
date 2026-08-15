@@ -147,9 +147,9 @@ function fmtTop(r) {
 
 <template>
   <div v-if="trace.length" class="flex flex-col gap-xs">
-    <div class="flex flex-wrap gap-xs items-center">
+    <div class="flex flex-wrap gap-sm items-center">
       <button v-for="(ev, i) in visibleTrace" :key="i" type="button" @click="toggle(i)"
-        class="flex items-center gap-xs text-body-xs font-mono px-sm py-xs rounded-md border transition-colors"
+        class="flex items-center gap-xs text-body-xs font-mono px-sm py-0.5 rounded-full border transition-colors"
         :class="ev.type === 'denied'
           ? 'border-status-warning/30 text-status-warning bg-status-warning/5'
           : expanded === i
