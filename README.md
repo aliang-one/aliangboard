@@ -68,9 +68,25 @@ Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 配置」填 `baseURL`
 
 ## 🚀 快速开始
 
-### 方式一:Docker(推荐)
+### 方式一:Kubernetes(推荐)
 
-镜像发布在 GHCR(首次推送 main 后可用):
+一条命令装进 `aliangboard` 命名空间(NodePort 暴露,默认 StorageClass 动态供给 1Gi PVC):
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/aliang-one/aliangboard/main/deployment.yaml
+kubectl -n aliangboard get svc aliangboard   # 看 PORT(S) 列的 NodePort,如 8787:31234/TCP
+```
+
+浏览器打开 `http://<任意节点 IP>:<NodePort>` 即可。
+
+- 默认管理员 `admin` / `admin`(仅首次启动播种,生产环境先改 env 再 apply)
+- 面板数据(API key、集群凭据、审计、工作台仓库)持久化在 PVC `aliangboard-data`;SQLite 单副本架构,请勿扩 replicas
+- 集群内部署时,API 地址用 `https://kubernetes.default.svc`,但默认 ServiceAccount 无任何 RBAC(会 403):需自建 ServiceAccount 并授予所需 RBAC,用 `kubectl create token` 取令牌,并携带集群 CA 证书(或仅开发环境 insecure 跳过校验)
+- 卸载即清数据:`kubectl delete ns aliangboard`(namespace 级联删除 PVC)
+
+### 方式二:Docker
+
+镜像发布在 GHCR:
 
 ```bash
 docker pull ghcr.io/aliang-one/aliangboard:latest
@@ -89,7 +105,7 @@ docker run -d --name aliangboard -p 8787:8787 -v aliangboard-data:/app/data alia
 
 浏览器打开 `http://localhost:8787` 即可。SQLite 库与工作台 git 仓库持久化在 `aliangboard-data` 卷中,**包含凭据,请妥善保管**。
 
-### 方式二:从源码运行
+### 方式三:从源码运行
 
 需要 Node.js 25+(`server` 用 `node:sqlite` 内置模块,25 才免标志可用)。
 
@@ -218,6 +234,7 @@ ghcr.io/aliang-one/aliangboard:sha-<7位提交哈希>
 - 「审计日志」页以集群 Events 作为活动记录展示;完整的用户级审计(who/verb/IP/HTTP code)需集群开启 audit logging 并对接日志后端,标准 K8s API 不直接提供。
 - Helm、GitOps、告警尚未接入。
 - HPA / PDB 等依赖特定 API 版本(如 autoscaling/v2、policy/v1),低版本集群上对应创建会失败并以 toast 提示。
+- K8s 集群内部署时,端口转发的本地监听开在面板 Pod 的网络命名空间内,浏览器无法直连;该能力面向 docker/源码部署,集群内部署暂不可用(后续考虑网关侧代理)。
 
 ## 🛠 技术栈
 

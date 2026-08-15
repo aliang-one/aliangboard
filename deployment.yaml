@@ -1,0 +1,123 @@
+# AliangBoard 单文件安装 —— kubectl apply -f 即可
+# 卸载:kubectl delete ns aliangboard(PVC 与数据随之删除)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aliangboard
+  labels:
+    app.kubernetes.io/name: aliangboard
+---
+# 面板数据库与工作台仓库(API key / 集群凭据 / 审计,均在 /app/data)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aliangboard-data
+  namespace: aliangboard
+  labels:
+    app: aliangboard
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+  # 不指定 storageClassName → 用集群默认 StorageClass 动态供给;
+  # 无动态供给的集群请自行创建 PV 后绑定,或改用自备存储
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aliangboard
+  namespace: aliangboard
+  labels:
+    app: aliangboard
+    app.kubernetes.io/name: aliangboard
+spec:
+  replicas: 1        # SQLite + RWO 卷,固定单副本,勿扩
+  strategy:
+    type: Recreate   # 滚动更新会双活抢 RWO 卷,必须重建式更新
+  selector:
+    matchLabels:
+      app: aliangboard
+  template:
+    metadata:
+      labels:
+        app: aliangboard
+        app.kubernetes.io/name: aliangboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000          # 镜像 node 用户(uid/gid 1000),PVC 落盘归属
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aliangboard
+          image: ghcr.io/aliang-one/aliangboard:latest
+          imagePullPolicy: Always   # latest 语义;要锁版本可换 sha-<7位hash> 不可变标签
+          ports:
+            - name: http
+              containerPort: 8787
+          env:
+            - name: PORT
+              value: "8787"
+            # 首装管理员种子:仅首次启动播种(库里有 admin 后改 env 不生效)
+            # 生产环境 apply 前务必改成强口令
+            - name: ADMIN_USERNAME
+              value: "admin"
+            - name: ADMIN_PASSWORD
+              value: "admin"
+            # 可选:LLM 接入(也可登录后在管理后台「LLM 配置」里设)
+            # - name: LLM_BASE_URL
+            #   value: "https://api.deepseek.com/v1"
+            # - name: LLM_MODEL
+            #   value: "deepseek-chat"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6   # 起慢不误杀(1 分钟容忍)
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: aliangboard-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aliangboard
+  namespace: aliangboard
+  labels:
+    app: aliangboard
+spec:
+  type: NodePort
+  selector:
+    app: aliangboard
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http
+      # NodePort 由集群自动分配(避免撞口);查看:
+      # kubectl -n aliangboard get svc aliangboard   →  PORT(S) 列 8787:31xxx/TCP
