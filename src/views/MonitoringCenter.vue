@@ -39,26 +39,10 @@ const podList = computed(() => podsQuery.data.value || [])
 const workloadList = computed(() => workloadsQuery.data.value || [])
 const eventList = computed(() => eventsQuery.data.value || [])
 
-// 实时轮询：每 10s 刷新 metrics + 收集集群 CPU/内存到 30 样本滚动窗口（≈5min）喂 AreaLineChart
-const cpuSeries = ref([])
-const memSeries = ref([])
-const lastRefresh = ref('')
-const sampling = ref(false)
-let timer = null
-const MAX = 30
-async function tick() {
-  sampling.value = true
-  try {
-    await store.refreshMetrics()
-    const cpu = store.cluster.cpuUsage
-    const mem = store.cluster.memoryUsage
-    if (cpu != null) cpuSeries.value = [...cpuSeries.value, cpu].slice(-MAX)
-    if (mem != null) memSeries.value = [...memSeries.value, mem].slice(-MAX)
-    lastRefresh.value = new Date().toLocaleTimeString()
-  } finally { sampling.value = false }
-}
-onMounted(() => { tick(); timer = setInterval(tick, 10000); store.startEventWatch() })
-onUnmounted(() => { if (timer) clearInterval(timer); store.stopEventWatch() })
+// 全局指标采样:store 引用计数(与 ClusterOverview 共享);lastRefresh 由 store 维护
+const lastRefresh = computed(() => store.metricsLastRefresh ? new Date(store.metricsLastRefresh).toLocaleTimeString() : '')
+onMounted(() => { store.startMetricsSampling(); store.startEventWatch() })
+onUnmounted(() => { store.stopMetricsSampling(); store.stopEventWatch() })
 
 // KPI 派生
 const readyNodes = computed(() => nodeList.value.filter(n => n.status === 'Ready').length)
@@ -98,8 +82,8 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
         </h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('monitoring.subtitle') }} {{ lastRefresh || '—' }}</p>
       </div>
-      <button @click="tick" :disabled="sampling" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container-low disabled:opacity-40">
-        <span class="material-symbols-outlined text-base" :class="sampling ? 'animate-spin' : ''">refresh</span> {{ t('monitoring.refresh') }}
+      <button @click="store.sampleNow()" :disabled="store.metricsSampling" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant rounded-lg hover:bg-surface-container-low disabled:opacity-40">
+        <span class="material-symbols-outlined text-base" :class="store.metricsSampling ? 'animate-spin' : ''">refresh</span> {{ t('monitoring.refresh') }}
       </button>
     </div>
 
@@ -117,7 +101,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-primary">{{ store.cluster.cpuUsage == null ? '—' : store.cluster.cpuUsage + '%' }}</span>
           <span v-if="store.cluster.cpuTrendUp != null" class="text-xs mb-xs" :class="store.cluster.cpuTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.cpuTrend }}</span>
         </div>
-        <AreaLineChart :series="cpuSeries" color="primary" unit="%" :height="48" spark />
+        <AreaLineChart :samples="store.cpuSamples" color="primary" unit="%" :height="48" />
       </div>
       <!-- 内存 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">
@@ -126,7 +110,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           <span class="text-display-md font-bold text-tertiary-container">{{ store.cluster.memoryUsage == null ? '—' : store.cluster.memoryUsage + '%' }}</span>
           <span v-if="store.cluster.memoryTrendUp != null" class="text-xs mb-xs" :class="store.cluster.memoryTrendUp ? 'text-error' : 'text-tertiary-container'">{{ store.cluster.memoryTrend }}</span>
         </div>
-        <AreaLineChart :series="memSeries" color="tertiary-container" unit="%" :height="48" spark />
+        <AreaLineChart :samples="store.memSamples" color="tertiary-container" unit="%" :height="48" />
       </div>
       <!-- 节点健康 -->
       <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">

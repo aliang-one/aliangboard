@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -47,22 +47,9 @@ const eventList = computed(() => eventsQuery.data.value || [])
 function hasPressure(node) {
   return Boolean(node.conditions?.DiskPressure || node.conditions?.MemoryPressure || node.conditions?.PIDPressure)
 }
-// 趋势采样:每 10s refreshMetrics + 收 cluster CPU/Mem 到 30 点滚动窗口喂 AreaLineChart(移植自 MonitoringCenter)
-const cpuSeries = ref([])
-const memSeries = ref([])
-const SAMPLE_MAX = 30
-let metricsTimer = null
-async function tick() {
-  try {
-    await store.refreshMetrics()
-    const cpu = store.cluster.cpuUsage
-    const mem = store.cluster.memoryUsage
-    if (cpu != null) cpuSeries.value = [...cpuSeries.value, cpu].slice(-SAMPLE_MAX)
-    if (mem != null) memSeries.value = [...memSeries.value, mem].slice(-SAMPLE_MAX)
-  } catch { /* 静默:保留上次 series */ }
-}
-onMounted(() => { tick(); metricsTimer = setInterval(tick, 10000) })
-onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
+// 全局指标采样:store 引用计数(与 MonitoringCenter 共享),15min 窗口切页不清零
+onMounted(() => store.startMetricsSampling())
+onUnmounted(() => store.stopMetricsSampling())
 </script>
 
 <template>
@@ -141,7 +128,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
                 </p>
               </div>
               <div class="h-32 w-full">
-                <AreaLineChart :series="cpuSeries" color="primary" unit="%" :height="128" />
+                <AreaLineChart :samples="store.cpuSamples" color="primary" unit="%" :height="128" />
               </div>
             </div>
             <!-- Memory Chart -->
@@ -156,7 +143,7 @@ onUnmounted(() => { if (metricsTimer) clearInterval(metricsTimer) })
                 </p>
               </div>
               <div class="h-32 w-full">
-                <AreaLineChart :series="memSeries" color="primary" unit="%" :height="128" />
+                <AreaLineChart :samples="store.memSamples" color="primary" unit="%" :height="128" />
               </div>
             </div>
           </div>
