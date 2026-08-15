@@ -1013,6 +1013,64 @@ test('STATUS_COLORS 常量形状', () => {
   assert.equal(STATUS_COLORS.Other, 'on-surface-variant')
 })
 
+// --- 指标采样全局化:滚动窗口纯逻辑 ---
+import { WINDOW_MS, MAX_SAMPLES, pushSample, restoreSamples, persistPayload } from '../src/logic/metricsWindow.js'
+
+test('pushSample: 追加新样本;越龄样本被丢弃(以 now 为准)', () => {
+  const now = 10_000_000
+  const fresh = pushSample([], { t: now, v: 3 }, { now })
+  assert.deepEqual(fresh, [{ t: now, v: 3 }])
+  // 越龄:比 now 早超过 maxAgeMs 的旧样本在 push 时一并清掉(默认 maxAge=15min)
+  const base = [{ t: now - 5000, v: 1 }, { t: now - WINDOW_MS - 1000, v: 9 }]
+  const out = pushSample(base, { t: now, v: 3 }, { now })
+  assert.deepEqual(out, [{ t: now - 5000, v: 1 }, { t: now, v: 3 }])
+})
+
+test('pushSample: maxCount 尾部截断(保最新)', () => {
+  const now = 5_000_000
+  let arr = []
+  for (let i = 0; i < 205; i++) arr = pushSample(arr, { t: now + i, v: i }, { now, maxCount: 180 })
+  assert.equal(arr.length, 180)
+  assert.equal(arr[arr.length - 1].v, 204)
+  assert.equal(arr[0].v, 25)   // 丢掉最老的 25 个
+})
+
+test('pushSample: 不修改原数组(不可变)', () => {
+  const base = [{ t: 1, v: 1 }]
+  pushSample(base, { t: 2, v: 2 }, { now: 3 })
+  assert.deepEqual(base, [{ t: 1, v: 1 }])
+})
+
+test('restoreSamples: 正常恢复 + 陈旧过滤 + 非法项过滤', () => {
+  const now = 10_000_000
+  const raw = [
+    { t: now - 1000, v: 50 },            // 新鲜
+    { t: now - WINDOW_MS - 5000, v: 40 }, // 陈旧 → 滤
+    { t: 'x', v: 1 }, { v: 2 }, { t: 3 }, null, 42, // 非法 → 滤
+  ]
+  assert.deepEqual(restoreSamples(raw, { now }), [{ t: now - 1000, v: 50 }])
+})
+
+test('restoreSamples: 损坏入参全降级为 [] 不抛', () => {
+  assert.deepEqual(restoreSamples(undefined, { now: 1 }), [])
+  assert.deepEqual(restoreSamples(null, { now: 1 }), [])
+  assert.deepEqual(restoreSamples('{"cpu":', { now: 1 }), [])   // 字符串当数组遍历不炸
+  assert.deepEqual(restoreSamples({}, { now: 1 }), [])
+})
+
+test('persistPayload: 形状 {cpu,mem} 且深拷贝(改源不影响产物)', () => {
+  const cpu = [{ t: 1, v: 1 }], mem = [{ t: 2, v: 2 }]
+  const p = persistPayload(cpu, mem)
+  assert.deepEqual(p, { cpu: [{ t: 1, v: 1 }], mem: [{ t: 2, v: 2 }] })
+  p.cpu.push({ t: 9, v: 9 })
+  assert.equal(cpu.length, 1)
+})
+
+test('常量: 15 分钟窗口 / 180 条上限', () => {
+  assert.equal(WINDOW_MS, 900000)
+  assert.equal(MAX_SAMPLES, 180)
+})
+
 // --- 汇总 ---
 const failed = results.filter(r => !r.ok)
 for (const r of results) {
