@@ -15,6 +15,7 @@ import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC
 import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
 import { deriveClusterCounts } from '@/logic/clusterCounts'
+import { pushSample, restoreSamples, persistPayload } from '@/logic/metricsWindow'
 
 // YAML 强制双引号序列化：metadata.name/namespace/标签值/容器名等必须是字符串,
 // 裸 ${name} 在 name 形如数字(如 123)时会被 YAML 解析成 int → K8s "expected string"。
@@ -771,6 +772,75 @@ export const useClusterStore = defineStore('cluster', () => {
     } catch { /* 静默：保留上次 metricsAvailable */ }
   }
 
+  // === 集群指标采样(全局共享,15min 窗口按集群持久化) ===
+  // ClusterOverview/MonitoringCenter 引用计数共享:切页不清零、不双倍轮询;
+  // 恢复窗口来自 localStorage,图表首屏即有最近 15 分钟历史。
+  const cpuSamples = ref([])
+  const memSamples = ref([])
+  const metricsSampling = ref(false)
+  const metricsLastRefresh = ref(null)
+  let metricsTimer = null
+  let metricsConsumers = 0
+  let metricsVisListener = null
+
+  function metricsStorageKey() {
+    return currentCluster.value ? `aliangboard.metrics.${encodeURIComponent(currentCluster.value)}.v1` : null
+  }
+  function persistMetricsWindow() {
+    const key = metricsStorageKey()
+    if (!key) return
+    try { localStorage.setItem(key, JSON.stringify(persistPayload(cpuSamples.value, memSamples.value))) } catch { /* 配额/隐私模式:退化为会话内窗口 */ }
+  }
+  // 从 localStorage 恢复当前集群窗口(切集群/首个消费者上线时调用)
+  function reloadMetricsWindow() {
+    const key = metricsStorageKey()
+    let cpu = [], mem = []
+    if (key) {
+      try {
+        const raw = JSON.parse(localStorage.getItem(key) || 'null')
+        const now = Date.now()
+        cpu = restoreSamples(raw?.cpu, { now })
+        mem = restoreSamples(raw?.mem, { now })
+      } catch { cpu = []; mem = [] }
+    }
+    cpuSamples.value = cpu
+    memSamples.value = mem
+  }
+  async function metricsTick() {
+    if (document.hidden) return
+    metricsSampling.value = true
+    try {
+      await refreshMetrics()
+      const now = Date.now()
+      const cpu = cluster.value.cpuUsage
+      const mem = cluster.value.memoryUsage
+      if (cpu != null) cpuSamples.value = pushSample(cpuSamples.value, { t: now, v: cpu })
+      if (mem != null) memSamples.value = pushSample(memSamples.value, { t: now, v: mem })
+      if (cpu != null || mem != null) {
+        metricsLastRefresh.value = now
+        persistMetricsWindow()
+      }
+    } finally { metricsSampling.value = false }
+  }
+  function startMetricsSampling() {
+    metricsConsumers++
+    if (metricsConsumers === 1) {
+      reloadMetricsWindow()
+      metricsVisListener = () => { if (!document.hidden && metricsTimer) metricsTick() }
+      document.addEventListener('visibilitychange', metricsVisListener)
+      metricsTick()   // 立即一轮(不 await)
+      metricsTimer = setInterval(metricsTick, 10000)
+    }
+  }
+  function stopMetricsSampling() {
+    metricsConsumers = Math.max(0, metricsConsumers - 1)
+    if (metricsConsumers === 0) {
+      if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null }
+      if (metricsVisListener) { document.removeEventListener('visibilitychange', metricsVisListener); metricsVisListener = null }
+    }
+  }
+  function sampleNow() { return metricsTick() }
+
   // (NetworkPolicies / HPAs / ResourceQuotas / LimitRanges CRUD 已进工厂)
 
   // === CRUD: RBAC (Role 手写——Cluster/Namespace 双 scope；ServiceAccount/RoleBinding 已进工厂)===
@@ -887,6 +957,7 @@ export const useClusterStore = defineStore('cluster', () => {
     setActiveToken(c.token)
     activeApiServerRef.value = c.apiServer
     currentCluster.value = c.name
+    reloadMetricsWindow()
     cluster.value = { ...cluster.value, name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy' }
     connectionState.value = 'loading'
     try { queryClient.clear(); await hydrateCriticalResources() } catch { connectionState.value = 'error' }
@@ -908,6 +979,7 @@ export const useClusterStore = defineStore('cluster', () => {
     savedClusters.value = getSavedClusters()
     activeApiServerRef.value = info.apiServer
     currentCluster.value = name
+    reloadMetricsWindow()
     cluster.value = {
       ...cluster.value,
       name,
@@ -1825,6 +1897,9 @@ status:
     fetchNamespaces, fetchNamespace,
     fetchPods, fetchPod, fetchEvents,
     refreshMetrics,
+    // 全局指标采样(引用计数 + localStorage 持久化)
+    cpuSamples, memSamples, metricsSampling, metricsLastRefresh,
+    startMetricsSampling, stopMetricsSampling, sampleNow,
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch,
