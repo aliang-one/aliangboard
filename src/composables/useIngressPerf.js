@@ -14,8 +14,8 @@ export const INGRESS_DIALECTS = {
       { key: 'proxy-read-timeout', labelKey: 'ingressPerf.readTimeout', ph: '60', vt: 'int', unitKey: 'ingressPerf.unitSeconds' },
     ]},
     { tab: 'perf', titleKey: 'ingressPerf.groupBufferBody', icon: 'inventory_2', fields: [
-      { key: 'proxy-body-size', labelKey: 'ingressPerf.maxBodySize', ph: '10m', vt: 'size' },
-      { key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size' },
+      { key: 'proxy-body-size', labelKey: 'ingressPerf.maxBodySize', ph: '10m', vt: 'size' },  // 0 合法=不限制(client_max_body_size 0)
+      { key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size', min: 1 },  // nginx [emerg] 拒 0 尺寸 buffer(dry-run 实测),故设下限
       { key: 'proxy-buffering', labelKey: 'ingressPerf.responseBuffering', options: ['', 'on', 'off'] },
       { key: 'proxy-request-buffering', labelKey: 'ingressPerf.requestBuffering', options: ['', 'on', 'off'] },
     ]},
@@ -191,7 +191,13 @@ export function validateAdvValue(fld, raw) {
   }
   const vt = FIELD_VTS[fld.vt]
   if (!vt || !vt.re) return null
-  return vt.re.test(s) ? null : vt.errKey
+  if (!vt.re.test(s)) return vt.errKey
+  // 带 min 的正则类字段(如 buffer-size):按数字部分比对下限('0k' 的 0 < 1 → 拒)
+  if (fld.min != null) {
+    const n = s.match(/\d+/)
+    if (n && Number(n[0]) < fld.min) return 'ingressPerf.errRange'
+  }
+  return null
 }
 
 // 整表校验:方言下全部性能字段。返回 [{ key, labelKey, msgKey }](labelKey 供 toast 指名字段)。
