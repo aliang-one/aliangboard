@@ -78,6 +78,24 @@ test('buildIngressRulesPatch 存量回归:不因本次改动破坏', () => {
   assert.deepEqual(patch.spec.rules[0].http.paths[0].backend.service.name, 's')
 })
 
+test('buildIngressRulesPatch: 数字端口 → {number}(path 级 + defaultBackend)', () => {
+  const patch = buildIngressRulesPatch(
+    [{ host: 'a.com', path: '/', pathType: 'Prefix', serviceName: 's', servicePort: '8080' }],
+    { enabled: true, serviceName: 'db-svc', servicePort: '443' },
+  )
+  assert.deepEqual(patch.spec.rules[0].http.paths[0].backend.service.port, { number: 8080 })
+  assert.deepEqual(patch.spec.defaultBackend.service.port, { number: 443 })
+})
+
+test('buildIngressRulesPatch: 命名端口分流 → {name},不再 ||80 改写', () => {
+  const patch = buildIngressRulesPatch(
+    [{ host: 'a.com', path: '/', pathType: 'Prefix', serviceName: 's', servicePort: 'http' }],
+    { enabled: true, serviceName: 'db-svc', servicePort: 'metrics' },
+  )
+  assert.deepEqual(patch.spec.rules[0].http.paths[0].backend.service.port, { name: 'http' })
+  assert.deepEqual(patch.spec.defaultBackend.service.port, { name: 'metrics' })
+})
+
 const ING = {
   name: 'app-ingress',
   rules: [
@@ -158,4 +176,16 @@ test('buildWizardIngressYaml: 显式 tlsSecret 优先于 defaultTlsSecret', () =
   const y = buildWizardIngressYaml(hosts, { name: 'app', namespace: 'd', defaultTlsSecret: 'app-tls' })
   assert.ok(y.includes('    secretName: explicit-sec'))
   assert.ok(!y.includes('secretName: app-tls'))
+})
+
+test('buildWizardIngressYaml: 零 path/全空 path 的 host 被跳过(生成层防御,免产空 paths 非法文档)', () => {
+  const hosts = [
+    { host: 'a.com', tls: false, paths: [{ path: '/', pathType: 'Prefix', serviceName: 's', servicePort: '80' }] },
+    { host: 'b.com', tls: false, paths: [] },                                                    // 零 path
+    { host: 'c.com', tls: false, paths: [{ path: '', pathType: 'Prefix', serviceName: 's', servicePort: '80' }] },  // path 全空
+  ]
+  const y = buildWizardIngressYaml(hosts, { name: 'app', namespace: 'd' })
+  assert.ok(y.includes('host: a.com'))
+  assert.ok(!y.includes('host: b.com'))
+  assert.ok(!y.includes('host: c.com'))
 })

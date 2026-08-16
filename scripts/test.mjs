@@ -262,11 +262,12 @@ test('Ingress 规则 PATCH 构造：按 host 聚合 + defaultBackend 启用/删�
   assert.equal(r3.spec.defaultBackend, null, 'enabled 但无 serviceName → null')
   // 空入参
   assert.deepEqual(buildIngressRulesPatch([], null), { spec: { rules: [], defaultBackend: null } })
-  // 默认值：空 path→'/'，空 pathType→'Prefix'，空 port→80
+  // 默认值：空 path→'/'，空 pathType→'Prefix'；空 port 无数字兜底——端口按类型分流
+  // (纯数字→number,否则→name;命名端口不再被 ||80 改写,空值由各入口校验拦截)
   const r4 = buildIngressRulesPatch([{ host: 'x', path: '', pathType: '', serviceName: 's', servicePort: '' }], null)
   assert.equal(r4.spec.rules[0].http.paths[0].path, '/')
   assert.equal(r4.spec.rules[0].http.paths[0].pathType, 'Prefix')
-  assert.equal(r4.spec.rules[0].http.paths[0].backend.service.port.number, 80)
+  assert.deepEqual(r4.spec.rules[0].http.paths[0].backend.service.port, { name: '' })
 })
 
 // --- Node 丰富信息抽取：容器运行时短名、Taint 归一化、额外字段 ---

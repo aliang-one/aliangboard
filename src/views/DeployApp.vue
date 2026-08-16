@@ -263,8 +263,10 @@ const stepBlockReason = computed(() => {
     }
     if (f.createIngress) {
       if (!f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
-      // 端口门禁:非空且为纯数字(向导 YAML port.number 只收数字;PortSelect 手输的命名端口在此拦截)
-      const badBackend = f.ingressRules.filter(r => r.host).some(r => r.paths.some(p => !p.serviceName || !p.servicePort || !/^\d+$/.test(String(p.servicePort))))
+      // 端口/path 门禁:有 host 的组须至少一条 path,且 path/serviceName 非空、端口为纯数字
+      // (向导 YAML port.number 只收数字;PortSelect 手输的命名端口与零 path 空组在此拦截,免产非法 YAML)
+      const badBackend = f.ingressRules.filter(r => r.host).some(r =>
+        !r.paths.length || r.paths.some(p => !p.path || !p.serviceName || !p.servicePort || !/^\d+$/.test(String(p.servicePort))))
       if (badBackend) return t('deploy.ingressBackendRequired')
     }
   }

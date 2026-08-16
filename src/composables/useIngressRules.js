@@ -3,7 +3,9 @@ import { yamlScalar } from './useYaml.js'
 // 构造 Ingress 路由规则的 PATCH body（networking.k8s.io/v1，merge-patch 语义）。
 // 入参：flatRules [{host,path,pathType,serviceName,servicePort}] + defaultBackend {enabled,serviceName,servicePort} | null
 // 出参：{ spec: { rules, defaultBackend } }；defaultBackend===null 表示删除该字段。
+// 端口按类型分流：纯数字串 → port.number；否则(命名端口如 'http')→ port.name；无数字兜底(不把命名端口改写成 80)。
 // 无依赖纯函数，便于 scripts/test.mjs 直接 import；stores/cluster.js 的 updateIngressRules 复用本函数。
+const k8sPortOf = port => (/^\d+$/.test(String(port)) ? { number: Number(port) } : { name: String(port) })
 export function buildIngressRulesPatch(flatRules = [], defaultBackend = null) {
   const byHost = new Map()
   for (const r of flatRules) {
@@ -12,13 +14,13 @@ export function buildIngressRulesPatch(flatRules = [], defaultBackend = null) {
     byHost.get(host).push({
       path: r.path || '/',
       pathType: r.pathType || 'Prefix',
-      backend: { service: { name: r.serviceName || '', port: { number: Number(r.servicePort) || 80 } } },
+      backend: { service: { name: r.serviceName || '', port: k8sPortOf(r.servicePort) } },
     })
   }
   const rules = Array.from(byHost.entries()).map(([host, paths]) => ({ host, http: { paths } }))
   let db = null
   if (defaultBackend && defaultBackend.enabled && defaultBackend.serviceName) {
-    db = { service: { name: defaultBackend.serviceName, port: { number: Number(defaultBackend.servicePort) || 80 } } }
+    db = { service: { name: defaultBackend.serviceName, port: k8sPortOf(defaultBackend.servicePort) } }
   }
   return { spec: { rules, defaultBackend: db } }
 }
@@ -98,7 +100,7 @@ export function appendPathToIngress(ingress, rule) {
 // backend 一律取 path 级 serviceName/servicePort;无兜底(向导校验负责拦截)。
 // tls secret 回退链:h.tlsSecret || defaultTlsSecret || name+'-tls'(name 逐字使用,后缀由调用方决定)。
 export function buildWizardIngressYaml(hosts, { name, namespace, ingressClassName = '', annotations = {}, defaultTlsSecret = '' } = {}) {
-  const valid = (hosts || []).filter(h => h.host)
+  const valid = (hosts || []).filter(h => h.host && (h.paths || []).some(p => p.path))
   if (!valid.length) return ''
   let yaml = `\n---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ${name}\n  namespace: ${namespace}`
   if (Object.keys(annotations).length) {

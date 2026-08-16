@@ -57,6 +57,14 @@ test('validation:serviceName 缺失时 emit 校验错误', async () => {
   expect(v.at(-1)[0].some(e => e.field === 'serviceName' && e.loc === 'host[0].path[0]')).toBe(true)
 })
 
+test('validation:零 path 的 host 触发 host 级 path 必填错误(③④创建/保存按钮被拦)', async () => {
+  const w = mountEditor({ modelValue: [{ host: 'a.com', tls: false, tlsSecret: '', paths: [] }] })
+  await nextTick()
+  const v = w.emitted('validation')
+  expect(v).toBeTruthy()
+  expect(v.at(-1)[0].some(e => e.field === 'path' && e.loc === 'host[0]' && e.msg === i18n.global.t('ns.ingressDetail.valPathRequired'))).toBe(true)
+})
+
 test('withTls/withDefaultBackend 关闭时不渲染对应区块', () => {
   const w = mountEditor()
   expect(w.findAll('input[type=checkbox]').length).toBe(0)   // TLS 行与 defaultBackend 卡片都未开 → 无 checkbox

@@ -110,6 +110,7 @@ async function saveRules() {
   const flat = hostsToFlat(editHosts.value)
   try {
     await store.updateIngressRules(route.params.name, route.params.namespace, flat, editDb.value)
+    notify('success', t('ns.ingressDetail.rulesSaved'))
     showRulesModal.value = false
   } catch (e) { notify('error', e.message || t('ns.ingressDetail.saveRulesFailed')) }
 }

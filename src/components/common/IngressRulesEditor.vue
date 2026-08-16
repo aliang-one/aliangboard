@@ -64,6 +64,7 @@ function setDb(patch) { emit('update:defaultBackend', { ...props.defaultBackend,
 const errors = computed(() => {
   const errs = []
   props.modelValue.forEach((h, hi) => {
+    if (!h.paths.length) { errs.push({ loc: `host[${hi}]`, field: 'path', msg: t('ns.ingressDetail.valPathRequired') }); return }
     const seen = {}
     h.paths.forEach((p, i) => {
       const loc = `host[${hi}].path[${i}]`
