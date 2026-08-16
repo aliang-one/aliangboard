@@ -6,9 +6,12 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
-import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
+import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
+import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
+import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { notify } from '@/composables/useToast'
@@ -197,7 +200,7 @@ function addEnvCMKey() { form.value.envCMKeys.push({ name: '', cmName: '', key: 
 function removeEnvCMKey(idx) { form.value.envCMKeys.splice(idx, 1) }
 function addEnvSecretKey() { form.value.envSecretKeys.push({ name: '', secretName: '', key: '' }) }
 function removeEnvSecretKey(idx) { form.value.envSecretKeys.splice(idx, 1) }
-function addExtraContainer() { form.value.extraContainers.push({ name: '', image: '', command: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function addExtraContainer() { form.value.extraContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
 function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
@@ -390,7 +393,7 @@ const previewYAML = computed(() => {
     let s = `        ${name}:`
     if (p.type === 'http') s += `\n          httpGet:\n            path: ${p.httpPath}\n            port: ${p.port}`
     else if (p.type === 'tcp') s += `\n          tcpSocket:\n            port: ${p.port}`
-    else if (p.type === 'exec') s += `\n          exec:\n            command: ["${p.execCommand}"]`
+    else if (p.type === 'exec') s += `\n          exec:\n            command: [${splitCommandTokens(p.execCommand).map(x => `"${x}"`).join(', ')}]`
     s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}\n          timeoutSeconds: ${p.timeoutSeconds}\n          failureThreshold: ${p.failureThreshold}\n          successThreshold: ${p.successThreshold}`
     return s
   }
@@ -411,7 +414,8 @@ const previewYAML = computed(() => {
   // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
   const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -419,8 +423,8 @@ const previewYAML = computed(() => {
   // 初始容器（init）
   const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (c.command ? `\n        command: [${c.command.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
-    (c.args ? `\n        args: [${c.args.split(' ').map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -575,8 +579,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
         image: ${f.image}
         imagePullPolicy: ${f.pullPolicy}`
 
-  if (f.command) yaml += `\n        command: [${f.command.split(' ').map(c => `"${c}"`).join(', ')}]`
-  if (f.args) yaml += `\n        args: [${f.args.split(' ').map(c => `"${c}"`).join(', ')}]`
+  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => `"${c}"`).join(', ')}]`
+  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => `"${c}"`).join(', ')}]`
   if (f.workingDir) yaml += `\n        workingDir: ${f.workingDir}`
   if (f.stdin) yaml += `\n        stdin: true`
   if (f.tty) yaml += `\n        tty: true`
@@ -604,8 +608,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
   // lifecycle
   if (f.lifecycle.postStart || f.lifecycle.preStop) {
     yaml += `\n        lifecycle:`
-    if (f.lifecycle.postStart) yaml += `\n          postStart:\n            exec:\n              command: [${f.lifecycle.postStart.split(' ').map(c => `"${c}"`).join(', ')}]`
-    if (f.lifecycle.preStop) yaml += `\n          preStop:\n            exec:\n              command: [${f.lifecycle.preStop.split(' ').map(c => `"${c}"`).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => `"${c}"`).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => `"${c}"`).join(', ')}]`
   }
   if (probesYaml) yaml += '\n' + probesYaml
   if (mountLines('main')) yaml += '\n' + mountLines('main')
@@ -679,6 +683,10 @@ function validate() {
   f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
   const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
   if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
+  if (f.createIngress) {
+    for (const e of validateIngressAdv(ingressDialect.value, f.ingressAdv)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+    for (const e of validateCustomAnnotations(f.ingressCustomAnnotations)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+  }
   return errs
 }
 async function handleDeploy() {
@@ -966,10 +974,10 @@ async function handleDeploy() {
                 </div>
               </div>
               <div class="flex-1 flex flex-col mb-sm">
-                <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}</label>
-                <textarea v-model="form.args" rows="2" @input="form.args = form.args.replace(/\n/g, ' ')"
+                <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.args') }}<span class="ml-xs font-normal text-on-surface-variant/70">{{ $t('deploy.argsHint') }}</span></label>
+                <textarea v-model="form.args" rows="2"
                   class="w-full flex-1 min-h-16 bg-code-surface text-on-code-surface font-mono rounded-lg px-sm py-sm text-body-sm resize-y placeholder:text-on-code-surface/40 focus:ring-2 focus:ring-primary/40"
-                  placeholder="--port 8080 --debug"></textarea>
+                  placeholder="--port=8080"></textarea>
               </div>
               <div class="flex items-center gap-md pt-sm border-t border-outline-variant/60">
                 <button type="button" @click="form.stdin = !form.stdin" :class="['w-10 h-6 rounded-full relative transition-colors', form.stdin ? 'bg-primary' : 'bg-surface-container-highest']" :aria-pressed="form.stdin" aria-label="stdin">
@@ -1072,8 +1080,8 @@ async function handleDeploy() {
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
-                  <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="command" />
-                  <input v-model="c.args" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="args" />
+                  <input data-testid="init-command-input" v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="sh -c" />
+                  <textarea data-testid="init-args-input" v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
                   <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
@@ -1101,6 +1109,10 @@ async function handleDeploy() {
                 <div class="grid grid-cols-2 gap-sm mb-xs">
                   <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
+                </div>
+                <div class="grid grid-cols-2 gap-sm mb-xs">
+                  <input data-testid="sidecar-command-input" v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" placeholder="sh -c" />
+                  <textarea data-testid="sidecar-args-input" v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
                   <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
@@ -1457,11 +1469,7 @@ async function handleDeploy() {
                   <div class="grid grid-cols-2 gap-xs">
                     <div v-for="fld in g.fields" :key="fld.key">
                       <label class="text-xs text-on-surface-variant block mb-xs">{{ $t(fld.labelKey) }}</label>
-                      <textarea v-if="fld.area" v-model="form.ingressAdv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
-                      <select v-else-if="fld.options" v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
-                        <option v-for="o in fld.options" :key="o" :value="o">{{ o || $t('deploy.default') }}</option>
-                      </select>
-                      <input v-else v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
+                      <IngressPerfField v-model="form.ingressAdv[fld.key]" :fld="fld" />
                     </div>
                   </div>
                 </div>
@@ -1473,7 +1481,10 @@ async function handleDeploy() {
                   </div>
                   <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
                     <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-                    <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
+                    <div class="flex-1 flex flex-col gap-xs">
+                      <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || $t('ns.ingress.valuePlaceholder')" />
+                      <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(a.key)) }}</p>
+                    </div>
                     <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
                   </div>
                   <p v-if="!form.ingressCustomAnnotations.length" class="text-xs text-on-surface-variant">{{ $t('deploy.noCustomAnnotations') }}</p>

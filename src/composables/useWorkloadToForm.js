@@ -2,6 +2,8 @@
 // 纯函数,不引 Vue,可被 scripts/test.mjs 零依赖运行器测试。
 // 仅映射向导已建模字段;多容器:主容器完整 + 其余进 extraContainers(窄)、init 进 initContainers(窄);
 // 复杂 affinity/自定义 strategy/未知 volume 类型等不映射或降级。
+// command/args 的文本切分约定见 src/utils/containerTokens.js:command 空格 join,args 每条一行。
+import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 
 function podSpecOf(obj, kind) {
   if (kind === 'CronJob') return obj?.spec?.jobTemplate?.spec?.template?.spec
@@ -29,8 +31,8 @@ function mapMainContainer(c) {
     containerName: c?.name || '',
     image: c?.image || '',
     pullPolicy: c?.imagePullPolicy || 'IfNotPresent',
-    command: Array.isArray(c?.command) ? c.command.join(' ') : '',
-    args: Array.isArray(c?.args) ? c.args.join(' ') : '',
+    command: joinCommandTokens(c?.command),
+    args: joinArgLines(c?.args),
     workingDir: c?.workingDir || '',
     cpuRequest: r.requests?.cpu || '250m',
     cpuLimit: r.limits?.cpu || '500m',
@@ -49,7 +51,8 @@ function mapSidecar(c) {
   return {
     name: c?.name || '',
     image: c?.image || '',
-    command: Array.isArray(c?.command) ? c.command.join(' ') : '',
+    command: joinCommandTokens(c?.command),
+    args: joinArgLines(c?.args),
     cpuRequest: r.requests?.cpu || '100m',
     cpuLimit: r.limits?.cpu || '250m',
     memoryRequest: r.requests?.memory || '128Mi',
@@ -58,9 +61,7 @@ function mapSidecar(c) {
 }
 
 function mapInit(c) {
-  const s = mapSidecar(c)
-  s.args = Array.isArray(c?.args) ? c.args.join(' ') : ''
-  return s
+  return mapSidecar(c)
 }
 
 function mapPairs(map) {

@@ -21,6 +21,7 @@ import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
 import { formatBytes, parseSizeToBytes } from '../src/utils/bytes.js'
+import { splitCommandTokens, splitArgLines } from '../src/utils/containerTokens.js'
 import { deriveClusterCounts } from '../src/logic/clusterCounts.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -566,6 +567,48 @@ test('workloadToForm: toleration 缺 operator 时按 value 推断(Equal/Exists)'
   assert.equal(workloadToForm(withVal, 'Deployment').tolerations[0].operator, 'Equal')
   const noVal = { kind: 'Deployment', metadata: { name: 'b', namespace: 'n' }, spec: { template: { spec: { tolerations: [{ key: 'k', effect: 'NoSchedule' }] } } } }
   assert.equal(workloadToForm(noVal, 'Deployment').tolerations[0].operator, 'Exists')
+})
+
+// --- command/args 切分约定(command=空白切分 shell token;args=每行一条,含空格不拆散) ---
+test('containerTokens: splitCommandTokens 空白切分去空项;splitArgLines 每行一条', () => {
+  assert.deepEqual(splitCommandTokens('  sh   -c '), ['sh', '-c'])
+  assert.deepEqual(splitCommandTokens(''), [])
+  assert.deepEqual(splitArgLines('cp /data/config.yaml /initconfig/config.yaml'), ['cp /data/config.yaml /initconfig/config.yaml'])
+  assert.deepEqual(splitArgLines('--port=8080\n--debug\n\n  \n-x'), ['--port=8080', '--debug', '-x'])
+  assert.deepEqual(splitArgLines(''), [])
+})
+
+test('workloadToForm: args 按行映射 —— 单条含空格整行保留,多条换行分隔(command 仍空格 join)', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'a', namespace: 'n' }, spec: { template: { spec: {
+    containers: [{ name: 'main', image: 'img', command: ['sh', '-c'], args: ['cp /a /b'] }],
+    initContainers: [{ name: 'init', image: 'i', command: ['sh', '-c'], args: ['cp /a /b', '-x'] }],
+  } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.command, 'sh -c')
+  assert.equal(f.args, 'cp /a /b')                       // 单条 → 单行,空格保留
+  assert.equal(f.initContainers[0].args, 'cp /a /b\n-x') // 多条 → 每行一条
+  assert.equal(f.initContainers[0].command, 'sh -c')
+})
+
+test('workloadToForm: sidecar 不再丢 args(按行映射)', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'a', namespace: 'n' }, spec: { template: { spec: {
+    containers: [{ name: 'main', image: 'img' }, { name: 'side', image: 'envoy', command: ['envoy'], args: ['-c', '/etc/envoy.yaml'] }],
+  } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.extraContainers[0].args, '-c\n/etc/envoy.yaml')
+  assert.equal(f.extraContainers[0].command, 'envoy')
+})
+
+test('command/args 往返:K8s 数组 → workloadToForm → 切分工具 → 还原数组(无损)', () => {
+  const src = { kind: 'Deployment', metadata: { name: 'a', namespace: 'n' }, spec: { template: { spec: {
+    containers: [{ name: 'main', image: 'img', command: ['sh', '-c'], args: ['cp /data/config.yaml /initconfig/config.yaml', '--flag=1'] }],
+    initContainers: [{ name: 'init', image: 'i', command: ['sh', '-c'], args: ['cp /a /b'] }],
+  } } } }
+  const f = workloadToForm(src, 'Deployment')
+  assert.deepEqual(splitCommandTokens(f.command), ['sh', '-c'])
+  assert.deepEqual(splitArgLines(f.args), ['cp /data/config.yaml /initconfig/config.yaml', '--flag=1'])
+  assert.deepEqual(splitCommandTokens(f.initContainers[0].command), ['sh', '-c'])
+  assert.deepEqual(splitArgLines(f.initContainers[0].args), ['cp /a /b'])
 })
 
 // --- StorageClass 预设目录完整性 ---

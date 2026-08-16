@@ -13,8 +13,10 @@ import Pagination from '@/components/common/Pagination.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import { usePagination } from '@/composables/usePagination'
-import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
+import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { hostsToK8sSpec } from '@/composables/useIngressRules'
+import { notify } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
@@ -109,6 +111,12 @@ function removeCustomAnnotation(i) { customAnnotations.value.splice(i, 1) }
 
 async function handleCreate() {
   const f = createForm.value
+  // 客户端格式门:性能字段 + 自定义注解非法值(数字框拦不住脚本注入,走校验器兜底)拦截提交
+  const errs = [...validateIngressAdv(createDialect.value, adv.value), ...validateCustomAnnotations(customAnnotations.value)]
+  if (errs.length) {
+    notify('error', t('ingressPerf.invalidField', { field: t(errs[0].labelKey), msg: t(errs[0].msgKey) }))
+    return
+  }
   const spec = hostsToK8sSpec(hosts.value, { defaultTlsSecret: `${f.name}-tls` })
   const r = await store.addIngress({
     name: f.name,
@@ -272,11 +280,7 @@ async function handleDelete() {
         <div class="grid grid-cols-2 gap-sm">
           <div v-for="fld in g.fields" :key="fld.key">
             <label class="text-xs text-on-surface-variant block mb-xs">{{ t(fld.labelKey) }}</label>
-            <textarea v-if="fld.area" v-model="adv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
-            <select v-else-if="fld.options" v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-              <option v-for="o in fld.options" :key="o" :value="o">{{ o || t('ns.ingress.defaultOpt') }}</option>
-            </select>
-            <input v-else v-model="adv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
+            <IngressPerfField v-model="adv[fld.key]" :fld="fld" />
           </div>
         </div>
       </div>
@@ -289,7 +293,10 @@ async function handleDelete() {
         </div>
         <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs">
           <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-          <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.ingress.valuePlaceholder')" />
+          <div class="flex-1 flex flex-col gap-xs">
+            <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || t('ns.ingress.valuePlaceholder')" />
+            <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ t(hintKeyOfKey(a.key)) }}</p>
+          </div>
           <button @click="removeCustomAnnotation(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
         <p v-if="!customAnnotations.length" class="text-xs text-on-surface-variant">{{ t('ns.ingress.noCustomAnno') }}</p>
