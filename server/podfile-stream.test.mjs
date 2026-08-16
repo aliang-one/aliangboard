@@ -132,6 +132,14 @@ test('streamUpload: req 中途 aborted → conn.close 被调 + 抛 canceled', as
   assert.ok(conn.closed)
 })
 
+test('streamUpload: conn 提前 close 且 req 未 end、无 stderr → 502,不假成功', async () => {
+  const conn = fakeConn()
+  const req = new Readable({ read() {} })   // 上传中途 ws 被掐:body 永不 end,cat 无 stderr 退出
+  const p = streamUpload({ contentLength: 100, limitBytes: 1000, req,
+    openConn: (stdinSink) => { stdinSink.on('error', () => {}); setImmediate(() => conn.close()); return Promise.resolve(conn) } })
+  await assert.rejects(p, e => e.status === 502 && /上传中断/.test(e.message))
+})
+
 test('limitMbFromValue/fmtMB: 边界', () => {
   assert.equal(PODFILE_LIMIT_DEFAULT_MB, 1024)
   assert.equal(limitMbFromValue('2048'), 2048)

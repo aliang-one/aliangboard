@@ -58,6 +58,7 @@ export async function streamDownload({ statBytes, limitBytes, openConn, res, fil
   const stderrSink = new Writable({ write(c, _e, cb) { errChunks.push(c); cb() } })
   let received = false
   let headSent = false
+  let connErrored = false
   const decoder = createBase64LineDecoder((chunk) => {
     if (!headSent) {
       headSent = true
@@ -74,6 +75,7 @@ export async function streamDownload({ statBytes, limitBytes, openConn, res, fil
   await new Promise((resolve) => {
     conn.on('close', resolve)
     conn.on('error', (err) => {
+      connErrored = true
       if (headSent) res.destroy()
       resolve()
     })
@@ -84,6 +86,7 @@ export async function streamDownload({ statBytes, limitBytes, openConn, res, fil
     const errText = cleanTty(Buffer.concat(errChunks).toString('utf8'))
     throw Object.assign(new Error(errText || '文件读取失败'), { status: 404 })
   }
+  if (connErrored) return          // error 分支已 res.destroy():destroy 后不得再 end(语义脏,交给浏览器报中断)
   if (received) res.end()
   else { res.destroy(); return }  // 头都发了却零数据:毁连接让浏览器报错,而非挂空文件
 }
@@ -99,6 +102,10 @@ export function streamUpload({ contentLength, limitBytes, openConn, req }) {
     const stderrSink = new Writable({ write(c, _e, cb) { errChunks.push(c); cb() } })
     let conn = null
     let settled = false
+    // 请求体是否完整结束:必须挂在 openConn 之前(监听序先于调用方 pipe 的 'end'),
+    // 正常路径 req end 早于 conn close;未结束就关 → 上传中断,不得假报成功。
+    let reqDone = false
+    req.on('end', () => { reqDone = true })
     const fail = (e) => { if (settled) return; settled = true; try { conn?.close() } catch { /* noop */ } reject(e) }
     openConn(req, stderrSink)          // 注意:openConn 的第一参即 stdin(=req 原样传给 exec 也可,但为对齐 seam 统一由调用方 pipe)
       .then(c => {
@@ -111,6 +118,7 @@ export function streamUpload({ contentLength, limitBytes, openConn, req }) {
           settled = true
           const errText = cleanTty(Buffer.concat(errChunks).toString('utf8'))
           if (errText) reject(Object.assign(new Error(errText), { status: 502 }))
+          else if (!reqDone) reject(Object.assign(new Error('上传中断(连接提前关闭)'), { status: 502 }))
           else resolve({ ok: true, path: '', bytes: contentLength })
         })
         conn.on('error', () => fail(Object.assign(new Error('exec 连接错误'), { status: 502 })))
