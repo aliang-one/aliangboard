@@ -7,6 +7,7 @@ import { useResourceList } from '@/composables/useK8sQuery'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { sameHostIngresses, appendPathToIngress } from '@/composables/useIngressRules'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -25,6 +26,7 @@ import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 import { useTerminalStore } from '@/stores/terminals'
 
 const route = useRoute()
@@ -731,25 +733,70 @@ async function saveExpose() {
   } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
 }
 const showIngressMapModal = ref(false)
-const ingressMapForm = ref({ name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' })
+const ingressMapForm = ref({ name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '', target: '' })
+// 同 host 候选（精确匹配、trim 后空 host → []）——追加优先，根治同 host Ingress 碎片化
+const sameHost = computed(() => sameHostIngresses(ingressList.value || [], ingressMapForm.value.host))
+// target 与候选同步：候选出现/变化时默认选首项（追加优先——原生 select v-model='' 只会显示空白并落入新建分支）；
+// 现 target 已不在候选（host 改过）则改选新候选首项，杜绝向不同 host 的 Ingress 静默追加；用户显式选 'new' 不覆盖。
+watch(sameHost, list => {
+  const cur = ingressMapForm.value.target
+  if (cur === 'new') return
+  if (cur && list.some(i => i.name === cur)) return
+  ingressMapForm.value.target = list.length ? list[0].name : ''
+})
+// Service 候选：关联置顶（label 缀「关联」徽标）+ ns 全量；PortSelect 平铺 options 须 {label,value}
+const mapSvcOptions = computed(() => {
+  const related = new Set(relatedServices.value.map(s => s.name))
+  const badge = t('workload.ingressMap.relatedBadge')
+  return (serviceList.value || [])
+    .map(s => ({ related: related.has(s.name), label: related.has(s.name) ? `${s.name}${badge}` : s.name, value: s.name }))
+    .sort((a, b) => Number(b.related) - Number(a.related))
+    .map(({ label, value }) => ({ label, value }))
+})
+// 端口联动：候选 = 选中 Service 的 portList（数字数组，PortSelect 平铺裸值）
+const mapPortsFor = computed(() => {
+  const svc = (serviceList.value || []).find(s => s.name === ingressMapForm.value.serviceName)
+  return (svc?.portList || []).map(p => p.port)
+})
 function openIngressMap() {
   const svc = relatedServices.value[0]
-  const firstPort = svc?.ports?.split(',')[0]?.split(':')[0] || '80'
   // 默认名避重：支持连续多次「+」创建多个 Ingress（与 openExpose 同策略；按命名空间内全量 Ingress 去重，避免与同名清单冲突）
   const base = workload.value?.name || 'app'
   const existing = new Set(ingressList.value.map(i => i.name))
   let name = `${base}-ingress`, n = 2
   while (existing.has(name)) name = `${base}-ingress-${n++}`
-  ingressMapForm.value = { name, host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: firstPort }
+  // target 默认 ''：同 host 候选出现时由上方 watch 自动改选首项（追加优先语义）；顺带清掉上次的冲突提示
+  mapConflict.value = ''
+  ingressMapForm.value = { name, host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: (svc?.portList || [])[0]?.port || '', target: '' }
   showIngressMapModal.value = true
 }
+const mapConflict = ref('')
 async function saveIngressMap() {
   const f = ingressMapForm.value
   if (!f.serviceName) { notify('error', t('workload.notify.selectService')); return }
+  const rule = { host: (f.host || '').trim(), path: f.path || '/', pathType: f.pathType, serviceName: f.serviceName, servicePort: f.servicePort }
+  const targetIng = f.target && f.target !== 'new' ? (ingressList.value || []).find(i => i.name === f.target) : null
+  if (targetIng) {
+    // 追加模式：拍平现有规则 + 新 path → 冲突拦截 → updateIngressRules
+    const { flatRules, conflict } = appendPathToIngress(targetIng, rule)
+    if (conflict) { mapConflict.value = t('workload.ingressMap.conflict', { path: rule.path }); return }
+    mapConflict.value = ''
+    // defaultBackend 陷阱：updateIngressRules 传 null=merge-patch 删除该字段——必须回传现有值，仅在确实无 defaultBackend 时传 null
+    const db = targetIng.defaultBackend?.serviceName
+      ? { enabled: true, serviceName: targetIng.defaultBackend.serviceName, servicePort: targetIng.defaultBackend.servicePort }
+      : null
+    try {
+      await store.updateIngressRules(targetIng.name, route.params.namespace, flatRules, db)
+    } catch (e) { notify('error', e.message || t('workload.notify.createIngressFailed')); return }
+    notify('success', t('workload.notify.createdIngress', { host: rule.host || '*', path: rule.path, service: rule.serviceName, port: rule.servicePort }))
+    showIngressMapModal.value = false
+    return
+  }
+  // 新建模式（'new' 或无同 host 候选）：走存量 addIngress
   // addIngress 失败返回 {ok:false}（store 已 toast 错误，不抛异常）：据 r.ok 决定后续，失败时保留弹窗、不误报成功
-  const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: f.host, http: { paths: [{ path: f.path, pathType: f.pathType, backend: { serviceName: f.serviceName, servicePort: Number(f.servicePort) || 80 } }] } }] })
+  const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: rule.host, http: { paths: [{ path: rule.path, pathType: rule.pathType, backend: { serviceName: rule.serviceName, servicePort: Number(rule.servicePort) || 80 } }] } }] })
   if (r && r.ok === false) return
-  notify('success', t('workload.notify.createdIngress', { host: f.host || '*', path: f.path, service: f.serviceName, port: f.servicePort })); showIngressMapModal.value = false
+  notify('success', t('workload.notify.createdIngress', { host: rule.host || '*', path: rule.path, service: rule.serviceName, port: rule.servicePort })); showIngressMapModal.value = false
 }
 
 // === Edit（结构化深编辑：与创建 DeployApp 字段对齐）===
@@ -2177,9 +2224,21 @@ function podStatusBorder(s) {
       <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.host') }}</label><input v-model="ingressMapForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" /></div>
       <div class="grid grid-cols-2 gap-md">
         <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.path') }}</label><input v-model="ingressMapForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="/" /></div>
-        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.service') }}</label><select v-model="ingressMapForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono"><option v-for="s in relatedServices" :key="s.name" :value="s.name">{{ s.name }}</option></select></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.pathType') }}</label><select v-model="ingressMapForm.pathType" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option></select></div>
       </div>
-      <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.port') }}</label><input v-model="ingressMapForm.servicePort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="80" /></div>
+      <div class="grid grid-cols-2 gap-md">
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.service') }}</label><PortSelect v-model="ingressMapForm.serviceName" :options="mapSvcOptions" placeholder="my-service" :empty-hint="$t('ns.ingressDetail.noService')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+        <div><label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.port') }}</label><PortSelect v-model="ingressMapForm.servicePort" :options="mapPortsFor" placeholder="80" :empty-hint="$t('workload.ingressMap.selectSvcForPorts')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" /></div>
+      </div>
+      <!-- 智能追加：同 host 已有 Ingress 时选择保存目标 -->
+      <div v-if="sameHost.length">
+        <label class="text-xs text-on-surface-variant">{{ $t('workload.ingressMap.targetMode') }}</label>
+        <select v-model="ingressMapForm.target" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+          <option v-for="i in sameHost" :key="i.name" :value="i.name">{{ $t('workload.ingressMap.appendTo', { name: i.name }) }}</option>
+          <option value="new">{{ $t('workload.ingressMap.createNew') }}</option>
+        </select>
+      </div>
+      <p v-if="mapConflict" class="text-xs text-error flex items-center gap-xs"><span class="material-symbols-outlined text-sm">warning</span>{{ mapConflict }}</p>
     </div>
     <template #actions>
       <button @click="showIngressMapModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.ingressMap.cancel') }}</button>

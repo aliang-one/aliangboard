@@ -1826,7 +1826,14 @@
       "service": "Service",
       "port": "Port",
       "cancel": "Cancel",
-      "create": "Create"
+      "create": "Create",
+      "pathType": "Path Type",
+      "targetMode": "Save To",
+      "appendTo": "Append to {name}",
+      "createNew": "New Ingress",
+      "conflict": "Path {path} already exists in this ingress",
+      "selectSvcForPorts": "Select a service to list its ports",
+      "relatedBadge": " (related)"
     },
     "imageTag": {
       "repoReadonly": "Image repo (read-only)",
@@ -1867,6 +1874,7 @@
       "createServiceFailed": "Failed to create Service",
       "selectService": "Please select a target Service",
       "createdIngress": "Created Ingress {host}{path} → {service}:{port}",
+      "createIngressFailed": "Failed to update ingress",
       "fixErrors": "Please fix: "
     },
     "validation": {

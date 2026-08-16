@@ -1826,7 +1826,14 @@
       "service": "Service",
       "port": "Port",
       "cancel": "取消",
-      "create": "创建"
+      "create": "创建",
+      "pathType": "路径类型",
+      "targetMode": "保存到",
+      "appendTo": "追加到 {name}",
+      "createNew": "新建 Ingress",
+      "conflict": "该 Ingress 已存在路径 {path}",
+      "selectSvcForPorts": "先选择 Service 再选端口",
+      "relatedBadge": "(关联)"
     },
     "imageTag": {
       "repoReadonly": "镜像仓库（不可改）",
@@ -1867,6 +1874,7 @@
       "createServiceFailed": "创建 Service 失败",
       "selectService": "请选择目标 Service",
       "createdIngress": "已创建 Ingress {host}{path} → {service}:{port}",
+      "createIngressFailed": "Ingress 更新失败",
       "fixErrors": "请修正："
     },
     "validation": {
