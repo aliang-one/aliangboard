@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
+import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { createAuditSchema } from './audit.mjs'
@@ -288,12 +289,8 @@ function sendJson(res, status, payload) {
   res.end(body)
 }
 
-async function readBody(req) {
-  const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
-  if (!chunks.length) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
-}
+// readBody 已迁 server/body.mjs(裸 JSON.parse 会把 V8 SyntaxError 泄漏给前端,现统一 400)
+
 
 // 解析镜像引用 → { registry, repo }：registry 为含 . 或 : 或 localhost 的首段
 // 形如 registry.liang.home/library/app:v1 → { registry:'registry.liang.home', repo:'library/app' }
