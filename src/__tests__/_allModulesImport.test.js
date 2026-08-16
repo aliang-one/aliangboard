@@ -4,8 +4,8 @@
 // 本套件补上 composables/stores/api/data/components 的加载覆盖。
 import { test, expect } from 'vitest'
 
-// 排除：入口(main.js 会 mount #app)、测试自身、fixture。loader 是惰性的，跳过 key 即不加载。
-const SKIP = /(^|\/)(main\.js|.*\.test\.[a-z]+\.[a-z]+|.*\.spec\.js|__tests__|fixtures)\b/
+// 排除：入口(main.js 会 mount #app)、测试自身(含 node:test 风格 .test.mjs——vitest.config 只收 .js,见其注释)、fixture。loader 是惰性的，跳过 key 即不加载。
+const SKIP = /(^|\/)(main\.js|.*\.test\.[a-z]+(\.[a-z]+)*|.*\.spec\.js|__tests__|fixtures)\b/
 const mods = import.meta.glob('/src/**/*.{js,mjs,vue}')
 
 let n = 0
