@@ -211,9 +211,8 @@ function nsStatusColor(status) {
         :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
         <img src="/aliang-logo.svg" alt="" class="h-5 w-auto shrink-0" width="22" height="20" />
         <span class="text-body-md font-semibold text-on-surface truncate">{{ store.cluster.name || 'Cluster' }}</span>
-        <span class="ml-auto flex items-center gap-2xs text-body-sm text-on-surface-variant transition-colors group-hover:text-primary">
+        <span class="ml-auto flex items-center text-body-sm text-on-surface-variant transition-colors group-hover:text-primary">
           <span class="material-symbols-outlined text-base">chevron_left</span>
-          <span class="whitespace-nowrap">{{ $t('nav.backToCluster') }}</span>
         </span>
       </button>
     </div>
