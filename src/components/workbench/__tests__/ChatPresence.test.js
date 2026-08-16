@@ -1,5 +1,6 @@
 // ChatPresence 契约:轮询 → 显隐/徽标;单个活跃直开 Modal;≥2 个先微型列表;
-// 空列表不渲染;连续 3 失败隐藏;打开 Modal 即写 readAt。
+// 空列表不渲染;连续 3 失败隐藏(成功自愈恢复);打开 Modal 即写 readAt;
+// Modal 关闭(update:modelValue=false)清空 selected。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
@@ -108,9 +109,48 @@ test('Modal 开着唯一 running 对话跑完:下一轮 poll 后 FAB 消失但 M
   } finally { vi.useRealTimers() }
 })
 
+// 关闭通路:Modal 开着时 ChatModal emit update:modelValue=false → selected 置空、Modal 卸载。
+// FAB 在场与否取决于对话是否仍活跃 running,此处不断言 FAB(不误伤)
+test('Modal 关闭:emit update:modelValue=false → chat-modal 卸载', async () => {
+  const w = await mountPresence({ conversations: [conv()] })
+  await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+  await flushPromises() // ChatModal 为 defineAsyncComponent,动态 import 解析需冲刷(同上)
+  expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
+  w.findComponent({ name: 'ChatModal' }).vm.$emit('update:modelValue', false)
+  await flushPromises()
+  expect(w.find('[data-testid="chat-modal"]').exists()).toBe(false)
+})
+
 test('无活跃对话 → 整个组件不渲染按钮', async () => {
   const w = await mountPresence({ conversations: [] })
   expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false)
+})
+
+// 组件头注释契约「连续 3 次轮询失败(含 401)→ 隐藏按钮但继续轮询,成功自愈恢复」。
+// fake timers 同「Modal 开着跑完」测试:advanceTimersByTimeAsync 兼作冲刷(不依赖 flushPromises)
+test('连续 3 失败隐藏 FAB;成功自愈复活;非空列表 3 失败同样隐藏(1~2 次不隐藏)', async () => {
+  vi.useFakeTimers()
+  try {
+    const fail = async () => { throw new Error('network down') }
+    api.active.mockImplementation(fail)
+    const w = mount(ChatPresence, { global: { plugins: [i18n] } })
+    await vi.advanceTimersByTimeAsync(0) // 首拉失败(failCount=1)
+    await vi.advanceTimersByTimeAsync(10_000) // 失败 2
+    await vi.advanceTimersByTimeAsync(10_000) // 失败 3 → failCount=MAX_FAILS
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false) // 隐藏/不渲染
+    // 成功自愈:继续轮询未停 → failCount 归零 + running 回填 → FAB 复活
+    api.active.mockImplementation(async () => ({ conversations: [conv()] }))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true)
+    // 反向钉死 MAX_FAILS 门:conversations 非空时 1~2 次失败不隐藏,第 3 次才隐藏
+    api.active.mockImplementation(fail)
+    await vi.advanceTimersByTimeAsync(10_000) // 失败 1
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(10_000) // 失败 2
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(10_000) // 失败 3 → 隐藏
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false)
+  } finally { vi.useRealTimers() }
 })
 
 // 需求书注:$route 全局属性注入与 useRoute()(走 inject)不兼容,改挂最小真路由,

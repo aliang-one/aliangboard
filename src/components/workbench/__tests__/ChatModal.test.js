@@ -54,3 +54,11 @@ test('切换 conversation → :key 重建 WorkbenchChat(新实例)', async () =>
   expect(w.find('[data-testid="wb-chat"]').exists()).toBe(true)
   expect(chatProps.at(-1)).toMatchObject({ conversationId: 'c2' })
 })
+
+// 关闭通路:Modal 壳 emit update:modelValue=false → ChatModal 原样透传给父级
+// (ChatPresence 靠它把 selected 置空;透传链断则 Modal 永远关不上)
+test('Modal 桩 emit update:modelValue=false → 对外 emitted 收到 false', () => {
+  const w = mountModal()
+  w.findComponent({ name: 'Modal' }).vm.$emit('update:modelValue', false)
+  expect(w.emitted('update:modelValue')).toEqual([[false]])
+})
