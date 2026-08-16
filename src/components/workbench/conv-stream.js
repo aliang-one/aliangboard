@@ -13,6 +13,15 @@ export function applyStreamEvent(state, evt) {
     case 'step':
       // 工具调用 step:追加 trace
       return { ...state, trace: [...state.trace, evt.step] }
+    case 'snapshot':
+      // 服务端 gap 补齐(断线重连/晚连时一键吃齐此前 delta/step):整体替换而非追加,
+      // 避免与连接恢复后到达的增量重复拼接
+      return {
+        ...state,
+        content: evt.content ?? state.content,
+        trace: evt.trace ?? state.trace,
+        steps: evt.steps ?? state.steps,
+      }
     case 'approval':
       // 工具待审批:置 pendingApproval + 切 pending_approval
       return { ...state, pendingApproval: evt.pending, status: 'pending_approval' }

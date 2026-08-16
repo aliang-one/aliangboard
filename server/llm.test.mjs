@@ -101,3 +101,35 @@ test('chatStream: HTTP 错误提取 json.error.message(非 raw body)', async () 
   })
   await assert.rejects(() => c.chatStream({ messages: [] }), /Incorrect API key/)
 })
+
+// ═══ 断流修复:流式空闲超时(每 chunk 重 arm,无总时限) ═══
+// 真实 undici 的 body read 会随 fetch signal abort 而拒绝——桩同样竞速 signal
+function sseBody(chunks, gapMs, getSignal) {
+  const encoder = new TextEncoder()
+  let i = 0
+  return { getReader() { return { read: () => {
+    if (i >= chunks.length) return Promise.resolve({ done: true, value: undefined })
+    const c = chunks[i++]
+    const sleep = new Promise(r => setTimeout(() => r({ done: false, value: encoder.encode(c) }), gapMs))
+    const sig = getSignal?.()
+    if (!sig) return sleep
+    return Promise.race([sleep, new Promise((_, rej) => sig.addEventListener('abort', () => rej(sig.reason || new Error('aborted'))))])
+  }, cancel: async () => {} } } }
+}
+
+test('chatStream 空闲超时:总时长超过旧总限但每 chunk 间隔 < idleMs → 不再被总限掐死(旧实现必 abort)', async () => {
+  const chunks = ['data: {"choices":[{"delta":{"content":"A"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"B"}}]}\n\n', 'data: [DONE]\n\n']
+  let sig1; const fake = async (u, o) => { sig1 = o.signal; return { ok: true, body: sseBody(chunks, 40, () => sig1) } } // 总时长 ~120ms > timeoutMs(60),每段 40ms < idle(80)
+  const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 60, idleMs: 80, fetch: fake })
+  let got = ''
+  const out = await c.chatStream({}, { onDelta: d => { got += d } })
+  assert.equal(out.content, 'AB', '长总时长存活,内容完整')
+  assert.equal(got, 'AB')
+})
+
+test('chatStream 空闲超时:chunk 间隔 > idleMs → 抛 LLM 流式空闲超时', async () => {
+  const chunks = ['data: {"choices":[{"delta":{"content":"A"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"B"}}]}\n\n', 'data: [DONE]\n\n']
+  let sig2; const fake = async (u, o) => { sig2 = o.signal; return { ok: true, body: sseBody(chunks, 120, () => sig2) } } // 间隔 120 > idle 50
+  const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 50, fetch: fake })
+  await assert.rejects(c.chatStream({}, {}), /空闲超时|TimeoutError|aborted/)
+})

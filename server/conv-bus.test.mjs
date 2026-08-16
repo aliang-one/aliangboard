@@ -36,3 +36,39 @@ test('dispose 清理该 convId 所有监听', () => {
   emit('t4', { type: 'end' })
   assert.equal(got.length, 0)
 })
+
+// ═══ 断流修复(2026-08-16):per-conv 快照——重连/晚连补齐 ═══
+import { emit as _emit, snapshot as _snapshot, subscribe as _sub, dispose as _dispose } from './conv-bus.mjs'
+
+test('snapshot: delta/step 累积;status running 重置新一轮;dispose 后保留;返回只读副本', () => {
+  const events = []
+  _sub('snap-conv', e => events.push(e))
+  _emit('snap-conv', { type: 'status', status: 'running' })
+  _emit('snap-conv', { type: 'delta', text: '回答' })
+  _emit('snap-conv', { type: 'delta', text: '前半' })
+  _emit('snap-conv', { type: 'step', step: { name: 'wb_list_resources' } })
+  let s = _snapshot('snap-conv')
+  assert.equal(s.content, '回答前半', 'delta 拼接')
+  assert.equal(s.trace.length, 1, 'step 累积')
+  assert.equal(s.steps, 1)
+  assert.equal(s.status, 'running')
+  // 副本只读:改副本不影响内部
+  s.content = 'tampered'
+  assert.equal(_snapshot('snap-conv').content, '回答前半')
+  // done 终态:快照保留(重连仍可补齐)
+  _emit('snap-conv', { type: 'status', status: 'done' })
+  _dispose('snap-conv')
+  s = _snapshot('snap-conv')
+  assert.equal(s.status, 'done')
+  assert.equal(s.content, '回答前半', 'dispose 后保留')
+  // 新一轮 running 重置
+  _emit('snap-conv', { type: 'status', status: 'running' })
+  assert.equal(_snapshot('snap-conv').content, '', '新一轮清零')
+  // approval 记录
+  _emit('snap-conv', { type: 'approval', pending: { toolCallId: 't1', name: 'wb_scale', args: {} } })
+  assert.equal(_snapshot('snap-conv').pending.name, 'wb_scale')
+})
+
+test('snapshot: 未 start 的 conv 返回 null', () => {
+  assert.equal(_snapshot('never-started'), null)
+})

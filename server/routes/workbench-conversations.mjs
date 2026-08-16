@@ -182,13 +182,19 @@ export function createWorkbenchConvRoutes(deps) {
         res.end()
         return true
       }
-      if (conv.status === 'done' || conv.status === 'failed') {
+      if (conv.status === 'done' || conv.status === 'failed' || conv.status === 'cancelled') {
         send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
         send({ type: 'end' })
         res.end()
         return true
       }
+      // running:先订阅再补发快照(同步执行无竞态)——断线重连/晚连的客户端一键吃齐
+      // 此前已 emit 的 delta/step(conv.content 只在 done 落库,不补则中段文本永久丢失)
       busSubscribe(id, send)
+      const snap = busSnapshot(id)
+      if (snap && (snap.content || (snap.trace && snap.trace.length))) {
+        send({ type: 'snapshot', content: snap.content || '', trace: snap.trace || [], steps: snap.steps || 0 })
+      }
       const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
       req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })
       return true

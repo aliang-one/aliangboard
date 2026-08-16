@@ -279,3 +279,45 @@ test('stop button cancels run, marks turn stopped, restores input for resend', a
   expect(w.find('textarea').element.value).toBe('输错的消息')
   expect(w.find('textarea').attributes('disabled')).toBeUndefined()
 })
+
+// 断流修复:onerror CONNECTING(浏览器将自动重连)不关流不降级——等 snapshot 续流;
+// CLOSED(服务端关流)才降级轮询。旧实现直接 close+降级 → 中段流式永久停止。
+test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades to polling', async () => {
+  let esInstance = null
+  class FakeES2 {
+    constructor(url) { this.url = url; this.onmessage = null; this.onerror = null; this.readyState = 0; esInstance = this }
+    close() { this.readyState = 2; this.closed = true }
+  }
+  vi.stubGlobal('EventSource', FakeES2)
+  try {
+    const w = await mountChat({ activeConversationId: 'conv-recon' })
+    api.conversations.append.mockResolvedValue({ status: 'running' })
+    api.conversations.get.mockResolvedValue({ id: 'conv-recon', status: 'running', messages: [{ role: 'user', content: 'q' }], trace: '[]', steps: 0, recap: '' })
+    await w.find('textarea').setValue('long question')
+    await w.find('button.bg-primary').trigger('click')
+    await flushPromises()
+    esInstance.onmessage({ data: JSON.stringify({ type: 'delta', text: 'part1' }) })
+    await flushPromises()
+    expect(w.html()).toContain('part1')
+
+    // ── 断连#1-2:readyState=CONNECTING → 不 close、不降级(等浏览器自动重连+snapshot)──
+    esInstance.readyState = 0
+    esInstance.onerror()
+    expect(esInstance.closed, 'CONNECTING 不关流').toBeFalsy()
+    expect(w.html()).toContain('part1')
+    esInstance.onerror()
+    expect(esInstance.closed, '第二次 CONNECTING 仍不关流').toBeFalsy()
+
+    // ── 自动重连成功:服务端 snapshot 补齐 gap ──
+    esInstance.onmessage({ data: JSON.stringify({ type: 'snapshot', content: 'part1part2', trace: [], steps: 1 }) })
+    await flushPromises()
+    expect(w.html()).toContain('part1part2', '快照替换续流')
+
+    // ── CLOSED(服务端关流且未终态)→ 降级轮询 ──
+    esInstance.readyState = 2
+    esInstance.onerror()
+    await flushPromises()
+    expect(esInstance.closed, 'CLOSED 关流').toBeTruthy()
+    expect(api.conversations.get).toHaveBeenCalled()
+  } finally { vi.unstubAllGlobals() }
+})

@@ -40,6 +40,7 @@ const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填
 
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
 let es = null
+let esErrCount = 0 // onerror 中 CONNECTING 态的自动重连次数(防风暴,>5 降级轮询)
 
 // --- @-mention state ---
 const refs = ref([])
@@ -326,6 +327,7 @@ function agentTurnDoneOrFinal() {
 function startStreaming(id) {
   stopStreaming()
   stopPolling()
+  esErrCount = 0 // 每次建连重置重连风暴计数
   const token = getPlatformToken()
   // EventSource 不能加自定义 header;走 ?token= query(服务端 requirePlatform 已支持 query 回退)。
   const url = `/api/workbench/conversations/${encodeURIComponent(id)}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`
@@ -378,7 +380,11 @@ function startStreaming(id) {
     }
   }
   es.onerror = () => {
-    // 连接异常(EventSource 默认会自动重连,这里主动关闭避免重复连接)
+    // 断流修复(2026-08-16):readyState=CONNECTING 表示浏览器将自动重连(~3s)——不关流,
+    // 重连后服务端补发 snapshot,中段文本无缝续上(旧实现这里直接 close + 降级轮询,
+    // 轮询不显示增量 → "回答到一半就没有后续流式"的直接原因)。
+    // CLOSED(服务端正常关流且未自动重连)或重连风暴(>5 次未恢复)才降级轮询兜底。
+    if (es && es.readyState === 0 /* CONNECTING */ && esErrCount < 5) { esErrCount++; return }
     stopStreaming()
     // 已到终态:无需降级
     if (agentTurnDoneOrFinal()) { sending.value = false; return }

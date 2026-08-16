@@ -99,3 +99,15 @@ test('不可变性:step 事件 trace 为新数组,不修改原 trace', () => {
   expect(after.trace).not.toBe(before.trace)  // 新数组
   expect(after.trace).toHaveLength(1)
 })
+
+// 断流修复:snapshot 事件整体替换(gap 补齐),不与已收 delta 重复拼接
+test('snapshot: 整体替换 content/trace/steps(重连补齐,非追加)', () => {
+  let state = { status: 'thinking', content: '旧半句', trace: [{ name: 'a' }], steps: 1 }
+  state = applyStreamEvent(state, { type: 'snapshot', content: '服务端全量', trace: [{ name: 'a' }, { name: 'b' }], steps: 2 })
+  expect(state.content).toBe('服务端全量')
+  expect(state.trace.length).toBe(2)
+  expect(state.steps).toBe(2)
+  // 缺字段时保留现有值
+  state = applyStreamEvent(state, { type: 'snapshot' })
+  expect(state.content).toBe('服务端全量')
+})

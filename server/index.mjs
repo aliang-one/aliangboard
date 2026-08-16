@@ -19,7 +19,7 @@ import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
+import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
 import { KIND_API_PATH } from './kind-paths.mjs'
@@ -1396,7 +1396,7 @@ async function handle(req, res) {
   const convRoutes = createWorkbenchConvRoutes({
     db, sendJson, readBody, requireAdmin, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe,
+    busSubscribe, busUnsubscribe, busSnapshot,
   })
   // SP3: 工作台对话端点 dispatcher(7 端点抽到 routes/workbench-conversations.mjs)。命中即 return。
   // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。
