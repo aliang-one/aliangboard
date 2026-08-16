@@ -27,6 +27,41 @@ export function createWorkbenchProjectRoutes(deps) {
 
   // 匹配工作台非对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
+
+    // GET /api/workbench/records — 工作台「记录」页:跨项目对话记录 + 计数 + 存储信息(admin)。
+    // 对话/消息在 SQLite;项目文件与台账是 git 仓库;AI 工具调用在审计链(audit_log
+    // source=workbench,明细由前端经 /api/admin/audit-log?source=workbench 取,此处只给计数)。
+    if (url.pathname === '/api/workbench/records' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const conversations = db.prepare(`
+          SELECT c.id, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
+                 p.id AS projectId, p.name AS projectName,
+                 (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
+          FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
+          ORDER BY c.updatedAt DESC LIMIT 200`).all()
+        const counts = {
+          projects: db.prepare('SELECT count(*) c FROM workbench_projects').get().c,
+          conversations: db.prepare('SELECT count(*) c FROM workbench_conversations').get().c,
+          messages: db.prepare('SELECT count(*) c FROM workbench_messages').get().c,
+          aiToolCalls: db.prepare("SELECT count(*) c FROM audit_log WHERE source='workbench'").get().c,
+        }
+        let dbSize = 0
+        try { dbSize = statSync(dbPath).size } catch { /* 库文件不可读,显示 0 */ }
+        let workbenchSize = 0, fileCount = 0
+        try {
+          for (const f of readdirSync(WORKBENCH_DIR, { recursive: true })) {
+            try { const st = statSync(join(WORKBENCH_DIR, f)); if (st.isFile()) { workbenchSize += st.size; fileCount++ } } catch { /* 并发变更,跳过 */ }
+          }
+        } catch { /* 目录不可读 */ }
+        sendJson(res, 200, {
+          conversations, counts,
+          storage: { dbPath, dbSize, workbenchDir: WORKBENCH_DIR, workbenchSize, fileCount },
+        })
+      } catch (e) { sendJson(res, 500, { message: e?.message || '读取记录失败' }); return true }
+      return true
+    }
+
     // ====== 项目 CRUD(W2)。requirePlatform + ownership(ownerId==userId || admin)======
     if (url.pathname.startsWith('/api/workbench/projects')) {
       const ps = requirePlatform(req, res); if (!ps) return true
