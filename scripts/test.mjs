@@ -569,6 +569,30 @@ test('workloadToForm: toleration 缺 operator 时按 value 推断(Equal/Exists)'
   assert.equal(workloadToForm(noVal, 'Deployment').tolerations[0].operator, 'Exists')
 })
 
+// 系统管理注解剔除(2026-08-16 线上事故):复制 workload 把 deployment.kubernetes.io/revision:"14"
+// 带进新负载表单 → 向导 YAML 裸拼成数字 14 → apiserver SSA 拒绝(expected string)。
+// revision/restartedAt/last-applied 等是控制器/平台管理的字段,不属于用户意图,复制时必须丢弃。
+test('workloadToForm: 系统管理注解(revision/restartedAt/last-applied/平台痕迹)不带入表单,用户注解保留', () => {
+  const obj = {
+    kind: 'Deployment',
+    metadata: {
+      name: 'api', namespace: 'prod',
+      labels: { app: 'api', 'pod-template-hash': 'abc' },
+      annotations: {
+        'deployment.kubernetes.io/revision': '14',
+        'kubectl.kubernetes.io/restartedAt': '2026-08-16T09:00:00Z',
+        'kubectl.kubernetes.io/last-applied-configuration': '{"kind":"Deployment"}',
+        'aliangboard.io/last-edited': '2026-08-15',
+        'aliangboard.io/last-action': 'scale',
+        note: 'keep-me',
+      },
+    },
+    spec: { template: { spec: { containers: [{ name: 'api', image: 'nginx' }] } } },
+  }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.deepEqual(f.annotations, [{ key: 'note', value: 'keep-me' }])
+})
+
 // --- command/args 切分约定(command=空白切分 shell token;args=每行一条,含空格不拆散) ---
 test('containerTokens: splitCommandTokens 空白切分去空项;splitArgLines 每行一条', () => {
   assert.deepEqual(splitCommandTokens('  sh   -c '), ['sh', '-c'])

@@ -9,7 +9,9 @@ export function useResourceApply() {
   async function applyYaml(yamlStr) {
     const res = await store.applyResourceYaml(yamlStr)
     if (res.ok) {
-      notify('success', i18n.global.t('store.resourceUpdated', { kind: res.kind, name: res.name }))
+      const base = i18n.global.t('store.resourceUpdated', { kind: res.kind, name: res.name })
+      // 部分成功(多文档中有资源失败):warning 呈报失败明细,不得报纯 success 掩盖(2026-08-16 线上事故)
+      notify(res.partial ? 'warning' : 'success', res.partial ? `${base} · ${res.warning}` : base)
     } else {
       notify('error', res.error || i18n.global.t('common.applyFailed'))
     }

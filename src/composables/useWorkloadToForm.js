@@ -4,6 +4,7 @@
 // 复杂 affinity/自定义 strategy/未知 volume 类型等不映射或降级。
 // command/args 的文本切分约定见 src/utils/containerTokens.js:command 空格 join,args 每条一行。
 import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
+import { SYSTEM_ANNOTATIONS } from '../utils/systemMeta.js'
 
 function podSpecOf(obj, kind) {
   if (kind === 'CronJob') return obj?.spec?.jobTemplate?.spec?.template?.spec
@@ -66,7 +67,9 @@ function mapInit(c) {
 
 function mapPairs(map) {
   if (!map) return []
-  const SKIP = new Set(['pod-template-hash'])
+  // pod-template-hash 是控制器指纹;系统注解(revision/last-applied 等)是控制器/平台管理的字段,
+  // 复制进新负载语义错误(2026-08-16:revision 裸拼成数字还触发 SSA 类型拒绝),一并剔除。
+  const SKIP = new Set(['pod-template-hash', ...SYSTEM_ANNOTATIONS])
   return Object.entries(map)
     .filter(([k]) => !SKIP.has(k) && !k.endsWith('pod-template-hash'))
     .map(([k, v]) => ({ key: k, value: String(v) }))
