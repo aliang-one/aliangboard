@@ -20,3 +20,56 @@ export function buildIngressRulesPatch(flatRules = [], defaultBackend = null) {
   }
   return { spec: { rules, defaultBackend: db } }
 }
+
+// === hosts 编辑模型 ↔ 扁平规则 ↔ K8s spec(四入口共享)===
+// K8s rules 数组 → 扁平规则。兼容两种 backend 形状:
+// 新:backend.service.{name,port:{number|name}};旧:backend.{serviceName,servicePort}
+export function ingressRulesToFlat(rules) {
+  const out = []
+  for (const r of rules || []) {
+    for (const p of (r.http?.paths || [])) {
+      const svc = p.backend?.service || p.backend
+      out.push({
+        host: r.host || '',
+        path: p.path || '/',
+        pathType: p.pathType || 'Prefix',
+        serviceName: svc?.name ?? svc?.serviceName ?? '',
+        servicePort: String(svc?.port?.number ?? svc?.port?.name ?? svc?.servicePort ?? ''),
+      })
+    }
+  }
+  return out
+}
+
+// 扁平规则 → hosts 编辑模型(按 host 首次出现顺序分组,非相邻同 host 合并)
+export function flatToHosts(flatRules) {
+  const byHost = new Map()
+  for (const r of flatRules || []) {
+    if (!byHost.has(r.host)) byHost.set(r.host, [])
+    byHost.get(r.host).push({ path: r.path || '/', pathType: r.pathType || 'Prefix', serviceName: r.serviceName || '', servicePort: String(r.servicePort ?? '') })
+  }
+  return Array.from(byHost.entries()).map(([host, paths]) => ({ host, tls: false, tlsSecret: '', paths }))
+}
+
+// hosts 编辑模型 → 扁平规则(updateIngressRules / 追加决策共用)
+export function hostsToFlat(hosts) {
+  return (hosts || []).flatMap(h => (h.paths || []).map(p => ({
+    host: h.host || '', path: p.path || '/', pathType: p.pathType || 'Prefix', serviceName: p.serviceName || '', servicePort: p.servicePort,
+  })))
+}
+
+// hosts → K8s spec 片段(③ addIngress 构造 rules/tls 用)。
+// 注意:port 不做 || 80 兜底——未填由各入口校验拦截(生成层不变式,见 spec §3.3)。
+export function hostsToK8sSpec(hosts, { defaultTlsSecret = '' } = {}) {
+  const rules = [], tls = []
+  for (const h of hosts || []) {
+    const paths = (h.paths || []).map(p => ({
+      path: p.path || '/',
+      pathType: p.pathType || 'Prefix',
+      backend: { service: { name: p.serviceName || '', port: { number: Number(p.servicePort) } } },
+    }))
+    rules.push({ host: h.host || '', http: { paths } })
+    if (h.tls && h.host) tls.push({ hosts: [h.host], secretName: h.tlsSecret || defaultTlsSecret })
+  }
+  return { rules, tls }
+}
