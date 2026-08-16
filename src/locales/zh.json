@@ -2810,7 +2810,9 @@
       "renameConv": "重命名",
       "convTitlePlaceholder": "输入对话标题",
       "convRenamed": "对话已重命名",
-      "renameFailed": "重命名失败"
+      "renameFailed": "重命名失败",
+      "backgroundChat": "挂到后台",
+      "backgroundChatTitle": "对话将在后台继续运行,回到当前命名空间总览"
     },
     "ide": {
       "collapseFiles": "折叠文件树",
