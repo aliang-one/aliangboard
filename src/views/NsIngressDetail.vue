@@ -9,8 +9,9 @@ import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
-import PortSelect from '@/components/common/PortSelect.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
+import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
+import { flatToHosts, hostsToFlat } from '@/composables/useIngressRules'
 
 const { t } = useI18n()
 
@@ -39,7 +40,6 @@ const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
 const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
-const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 // TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
 const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const allSecrets = computed(() => _secQ.data.value || [])
@@ -87,96 +87,29 @@ const backendServices = computed(() => {
   return out
 })
 
-// === Rules 结构化编辑（按 host 分组 + defaultBackend + 校验 + 操作）===
+// === Rules 结构化编辑（共享 IngressRulesEditor：host 分组 + defaultBackend + 校验内置于组件）===
 const showRulesModal = ref(false)
-const pathTypeOptions = ['Prefix', 'Exact', 'ImplementationSpecific']
-// 当前 ns Service 名候选（serviceName 下拉）
-const nsServiceNames = computed(() => nsServices.value.map(s => s.name))
-// 按行 serviceName 取其暴露端口（servicePort 下拉）
-function portsFor(serviceName) {
-  const svc = svcByName(serviceName, route.params.namespace)
-  return (svc?.portList || []).map(p => p.port)
-}
-// 编辑模型：host 分组 + defaultBackend（告别平铺 editRules）
-const editModel = ref({ hosts: [], defaultBackend: { enabled: false, serviceName: '', servicePort: '' } })
+const showClearConfirm = ref(false)
+const editHosts = ref([])
+const editDb = ref({ enabled: false, serviceName: '', servicePort: '' })
+const rulesErrors = ref([])
+const svcOptions = computed(() => nsServices.value.map(s => ({ name: s.name, ports: (s.portList || []).map(p => p.port) })))
 
 function openRulesEditor() {
-  const byHost = {}
-  for (const r of allRules.value) {
-    const h = r.host || ''
-    ;(byHost[h] ||= []).push({ path: r.path || '/', pathType: r.pathType || 'Prefix', serviceName: r.serviceName || '', servicePort: String(r.servicePort ?? '') })
-  }
-  const hosts = Object.entries(byHost).map(([host, paths]) => ({ host, paths }))
-  if (!hosts.length) hosts.push({ host: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }] })
+  editHosts.value = flatToHosts(allRules.value)
+  if (!editHosts.value.length) editHosts.value = [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }] }]
   const db = ing.value?.defaultBackend
-  editModel.value = {
-    hosts,
-    defaultBackend: db && db.serviceName
-      ? { enabled: true, serviceName: db.serviceName, servicePort: db.servicePort }
-      : { enabled: false, serviceName: '', servicePort: '' },
-  }
+  editDb.value = db && db.serviceName
+    ? { enabled: true, serviceName: db.serviceName, servicePort: db.servicePort }
+    : { enabled: false, serviceName: '', servicePort: '' }
   showRulesModal.value = true
 }
-// host / path 增删
-function addHost() { editModel.value.hosts.push({ host: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }] }) }
-function removeHost(hi) { editModel.value.hosts.splice(hi, 1) }
-function addPath(hi) { editModel.value.hosts[hi].paths.push({ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }) }
-function removePath(hi, i) { editModel.value.hosts[hi].paths.splice(i, 1) }
-// 复制 / 上下移
-function duplicateHost(hi) {
-  const h = editModel.value.hosts[hi]
-  editModel.value.hosts.splice(hi + 1, 0, { host: h.host ? h.host + '-copy' : '', paths: h.paths.map(p => ({ ...p })) })
-}
-function moveHost(hi, dir) {
-  const j = hi + dir
-  if (j < 0 || j >= editModel.value.hosts.length) return
-  const a = editModel.value.hosts, t = a[hi]; a[hi] = a[j]; a[j] = t
-}
-function duplicatePath(hi, i) {
-  editModel.value.hosts[hi].paths.splice(i + 1, 0, { ...editModel.value.hosts[hi].paths[i] })
-}
-function movePath(hi, i, dir) {
-  const paths = editModel.value.hosts[hi].paths, j = i + dir
-  if (j < 0 || j >= paths.length) return
-  const t = paths[i]; paths[i] = paths[j]; paths[j] = t
-}
-const showClearConfirm = ref(false)
-function clearAll() {
-  editModel.value.hosts = []
-  editModel.value.defaultBackend = { enabled: false, serviceName: '', servicePort: '' }
-  showClearConfirm.value = false
-}
-// 校验：错误列表，用于顶部汇总 + 行标红 + Save 禁用
-const errors = computed(() => {
-  const errs = []
-  editModel.value.hosts.forEach((h, hi) => {
-    const seen = {}
-    h.paths.forEach((p, i) => {
-      const loc = `host[${hi}].path[${i}]`
-      if (!p.path) errs.push({ loc, field: 'path', msg: t('ns.ingressDetail.valPathRequired') })
-      else if (!p.path.startsWith('/')) errs.push({ loc, field: 'path', msg: t('ns.ingressDetail.valPathSlash', { val: p.path }) })
-      else { if (seen[p.path]) errs.push({ loc: `host[${hi}]`, field: 'path', msg: t('ns.ingressDetail.valPathDup', { val: p.path }) }); seen[p.path] = true }
-      if (!p.serviceName) errs.push({ loc, field: 'serviceName', msg: t('ns.ingressDetail.valSvcRequired') })
-      if (!p.servicePort) errs.push({ loc, field: 'servicePort', msg: t('ns.ingressDetail.valPortRequired') })
-      else if (isNaN(Number(p.servicePort))) errs.push({ loc, field: 'servicePort', msg: t('ns.ingressDetail.valPortNumber', { val: p.servicePort }) })
-    })
-  })
-  const db = editModel.value.defaultBackend
-  if (db.enabled) {
-    if (!db.serviceName) errs.push({ loc: 'defaultBackend', field: 'serviceName', msg: t('ns.ingressDetail.valDefaultSvcRequired') })
-    if (!db.servicePort) errs.push({ loc: 'defaultBackend', field: 'servicePort', msg: t('ns.ingressDetail.valDefaultPortRequired') })
-    else if (isNaN(Number(db.servicePort))) errs.push({ loc: 'defaultBackend', field: 'servicePort', msg: t('ns.ingressDetail.valDefaultPortNumber') })
-  }
-  return errs
-})
-function fieldError(hi, i, field) {
-  return errors.value.find(e => e.loc === `host[${hi}].path[${i}]` && e.field === field)
-}
+function onClearAll() { editHosts.value = []; editDb.value = { enabled: false, serviceName: '', servicePort: '' }; showClearConfirm.value = false }
 async function saveRules() {
-  if (errors.value.length) return
-  const flat = editModel.value.hosts.flatMap(h => h.paths.map(p => ({ host: h.host, path: p.path, pathType: p.pathType, serviceName: p.serviceName, servicePort: p.servicePort })))
+  if (rulesErrors.value.length) return
+  const flat = hostsToFlat(editHosts.value)
   try {
-    await store.updateIngressRules(route.params.name, route.params.namespace, flat, editModel.value.defaultBackend)
+    await store.updateIngressRules(route.params.name, route.params.namespace, flat, editDb.value)
     showRulesModal.value = false
   } catch (e) { notify('error', e.message || t('ns.ingressDetail.saveRulesFailed')) }
 }
@@ -500,81 +433,21 @@ function saveEditLabel() {
   <Modal v-model="showRulesModal" :title="$t('ns.ingressDetail.editRulesTitle')" width="max-w-4xl">
     <p class="text-body-sm text-on-surface-variant mb-md">{{ $t('ns.ingressDetail.editRulesHint', { name: route.params.name }) }}<code class="font-mono text-code-sm bg-surface-container-low px-1 rounded">kubectl patch ingress</code>）。</p>
 
-    <!-- 校验错误汇总 -->
-    <div v-if="errors.length" class="mb-md rounded-lg border border-error/40 bg-error-container/10 p-sm">
-      <div class="flex items-center gap-xs text-error text-body-sm font-medium mb-xs"><span class="material-symbols-outlined text-base">error</span>{{ $t('ns.ingressDetail.errorsCount', { n: errors.length }) }}</div>
+    <!-- 校验错误汇总（来自组件 validation 事件） -->
+    <div v-if="rulesErrors.length" class="mb-md rounded-lg border border-error/40 bg-error-container/10 p-sm">
+      <div class="flex items-center gap-xs text-error text-body-sm font-medium mb-xs"><span class="material-symbols-outlined text-base">error</span>{{ $t('ns.ingressDetail.errorsCount', { n: rulesErrors.length }) }}</div>
       <ul class="text-xs text-error/80 space-y-0.5 list-disc list-inside">
-        <li v-for="(e, ei) in errors" :key="ei"><span class="font-mono">{{ e.loc }}</span>：{{ e.msg }}</li>
+        <li v-for="(e, ei) in rulesErrors" :key="ei"><span class="font-mono">{{ e.loc }}</span>：{{ e.msg }}</li>
       </ul>
     </div>
 
-    <!-- 默认后端（开关式卡片，默认收起）-->
-    <div class="rounded-lg border border-outline-variant p-sm mb-md">
-      <label class="flex items-center gap-sm cursor-pointer">
-        <input v-model="editModel.defaultBackend.enabled" type="checkbox" class="h-4 w-4 accent-primary" />
-        <span class="text-body-sm font-medium">{{ $t('ns.ingressDetail.enableDefaultBackend') }} <code class="font-mono text-xs text-on-surface-variant">spec.defaultBackend</code></span>
-      </label>
-      <div v-if="editModel.defaultBackend.enabled" class="grid grid-cols-2 gap-sm mt-sm">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Service</label>
-          <PortSelect v-model="editModel.defaultBackend.serviceName" :options="nsServiceNames" placeholder="my-svc" :empty-hint="$t('ns.ingressDetail.defaultBackendSvcHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" />
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Port</label>
-          <PortSelect v-model="editModel.defaultBackend.servicePort" :options="portsFor(editModel.defaultBackend.serviceName)" placeholder="80" :empty-hint="$t('ns.ingressDetail.defaultBackendPortHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" />
-        </div>
-      </div>
-    </div>
-
-    <!-- host 分组卡片 -->
-    <div class="flex flex-col gap-sm">
-      <div v-for="(h, hi) in editModel.hosts" :key="hi" class="rounded-lg border border-outline-variant overflow-hidden">
-        <div class="px-sm py-1.5 bg-surface-container-low flex items-center gap-xs">
-          <span class="material-symbols-outlined text-primary text-base">language</span>
-          <input v-model="h.host" class="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" :placeholder="$t('ns.ingressDetail.hostPlaceholder')" />
-          <span class="text-[10px] text-on-surface-variant shrink-0">{{ $t('ns.ingressDetail.pathCount', { n: h.paths.length }) }}</span>
-          <div class="flex items-center gap-0.5 shrink-0">
-            <button @click="moveHost(hi, -1)" :disabled="hi === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="$t('ns.ingressDetail.moveUpHost')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
-            <button @click="moveHost(hi, 1)" :disabled="hi === editModel.hosts.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="$t('ns.ingressDetail.moveDownHost')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
-            <button @click="duplicateHost(hi)" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="$t('ns.ingressDetail.dupHost')"><span class="material-symbols-outlined text-base">content_copy</span></button>
-            <button @click="removeHost(hi)" class="p-0.5 text-on-surface-variant hover:text-error rounded" :title="$t('ns.ingressDetail.removeHost')"><span class="material-symbols-outlined text-base">delete</span></button>
-          </div>
-        </div>
-        <div class="p-sm flex flex-col gap-xs">
-          <div v-for="(p, i) in h.paths" :key="i" class="flex gap-xs items-center flex-wrap">
-            <input v-model="p.path" :class="['w-28 bg-surface-container-low border rounded px-sm py-1 text-body-sm font-mono', fieldError(hi, i, 'path') ? 'border-error' : 'border-outline-variant']" placeholder="/" />
-            <select v-model="p.pathType" class="bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm">
-              <option v-for="t in pathTypeOptions" :key="t" :value="t">{{ t }}</option>
-            </select>
-            <PortSelect v-model="p.serviceName" :options="nsServiceNames" placeholder="my-svc" :empty-hint="$t('ns.ingressDetail.noService')" :input-class="['w-32 bg-surface-container-low border rounded px-sm py-1 text-body-sm font-mono', fieldError(hi, i, 'serviceName') ? 'border-error' : 'border-outline-variant'].join(' ')" />
-            <PortSelect v-model="p.servicePort" :options="portsFor(p.serviceName)" placeholder="80" :empty-hint="$t('ns.ingressDetail.selectServiceForPort')" :input-class="['w-20 bg-surface-container-low border rounded px-sm py-1 text-body-sm font-mono', fieldError(hi, i, 'servicePort') ? 'border-error' : 'border-outline-variant'].join(' ')" />
-            <div class="flex items-center gap-0.5 shrink-0">
-              <button @click="movePath(hi, i, -1)" :disabled="i === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="$t('ns.ingressDetail.moveUpPath')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
-              <button @click="movePath(hi, i, 1)" :disabled="i === h.paths.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="$t('ns.ingressDetail.moveDownPath')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
-              <button @click="duplicatePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="$t('ns.ingressDetail.dupPath')"><span class="material-symbols-outlined text-base">content_copy</span></button>
-              <button @click="removePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-error rounded" :title="$t('ns.ingressDetail.removePath')"><span class="material-symbols-outlined text-base">delete</span></button>
-            </div>
-          </div>
-          <button @click="addPath(hi)" class="self-start flex items-center gap-xs px-sm py-xs text-body-sm text-primary hover:bg-primary-container/10 rounded">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.ingressDetail.addPath') }}
-          </button>
-        </div>
-      </div>
-      <div v-if="!editModel.hosts.length" class="text-center text-on-surface-variant text-body-sm py-md">{{ $t('ns.ingressDetail.noHost') }}</div>
-    </div>
-
-    <div class="flex items-center gap-sm mt-md">
-      <button @click="addHost" class="flex items-center gap-xs px-md py-xs border border-dashed border-outline-variant rounded-lg text-body-sm text-on-surface-variant hover:bg-surface-container-low">
-        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.ingressDetail.addHost') }}
-      </button>
-      <button @click="showClearConfirm = true" :disabled="!editModel.hosts.length && !editModel.defaultBackend.enabled" class="ml-auto flex items-center gap-xs px-md py-xs text-body-sm text-error hover:bg-error-container/10 rounded-lg disabled:opacity-40">
-        <span class="material-symbols-outlined text-sm">delete_sweep</span> {{ $t('ns.ingressDetail.clearAll') }}
-      </button>
-    </div>
+    <!-- host 分组卡片 + defaultBackend + 增删移复制（共享组件，校验内置） -->
+    <IngressRulesEditor v-model="editHosts" v-model:default-backend="editDb" :services="svcOptions"
+      :with-default-backend="true" :with-clear-all="true" @validation="v => rulesErrors = v" @clear-all="showClearConfirm = true" />
 
     <template #actions>
       <button @click="showRulesModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.ingressDetail.cancel') }}</button>
-      <button @click="saveRules" :disabled="errors.length > 0" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('ns.ingressDetail.saveRules') }}</button>
+      <button @click="saveRules" :disabled="rulesErrors.length > 0" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('ns.ingressDetail.saveRules') }}</button>
     </template>
   </Modal>
 
@@ -583,7 +456,7 @@ function saveEditLabel() {
     <p class="text-body-md text-on-surface-variant">{{ $t('ns.ingressDetail.clearAllConfirm') }}</p>
     <template #actions>
       <button @click="showClearConfirm = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.ingressDetail.cancel') }}</button>
-      <button @click="clearAll" class="px-md py-sm bg-error text-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('ns.ingressDetail.clear') }}</button>
+      <button @click="onClearAll" class="px-md py-sm bg-error text-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('ns.ingressDetail.clear') }}</button>
     </template>
   </Modal>
 
