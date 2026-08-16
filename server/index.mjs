@@ -1664,7 +1664,9 @@ async function handle(req, res) {
             openConn: (input, stderrSink) => {
               const stdin = new PassThrough()   // 过早 EOF 会让 kubelet 提前关 exec(见 execCapture 注释),pipe 保持到 req end
               input.pipe(stdin)
-              return exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"', 'podfile-upload', path], null, stderrSink, stdin, false)
+              // 命令必须带尾巴 `; :`:busybox ash 对单命令做 exec 优化,该形态下进程立即收到 stdin EOF
+              // → cat 写 0 字节即退出(实测网关上传与 podfile/write 均中招);复合命令迫使 ash 正常 fork,stdin 才是活管道。
+              return exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"; :', 'podfile-upload', path], null, stderrSink, stdin, false)
             },
           })
           return sendJson(res, 200, { ...r, path })
@@ -1704,7 +1706,8 @@ async function handle(req, res) {
         const kc = buildKubeConfig(KubeConfig, session)
         const exec = new Exec(kc)
         const stdin = new PassThrough()
-        const conn = await exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"', 'podfile-write', path], null, null, stdin, false)
+        // 尾巴 `; :` 必须保留:busybox ash 单命令 exec 优化下 stdin 立即 EOF,曾静默写出 0 字节文件(write 返回 ok 但内容为空)
+        const conn = await exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"; :', 'podfile-write', path], null, null, stdin, false)
         stdin.end(bytes)
         await new Promise(resolve => conn.on('close', resolve))
         return sendJson(res, 200, { ok: true, path, bytes: bytes.length })
