@@ -14,13 +14,16 @@ const COLLAPSE_THRESHOLD = 5
 
 function toggle(i) { expanded.value = expanded.value === i ? null : i }
 
-const needsCollapse = computed(() => props.trace.length > COLLAPSE_THRESHOLD)
-const visibleTrace = computed(() => needsCollapse.value && !showAll.value ? props.trace.slice(0, 3) : props.trace)
+// 只展示工具类事件:assistant 轮(LLM 思考回合,无 name)曾渲染成无名 chip +
+// 摘要里计为 "N× unknown"——用户无法解读,直接滤掉
+const toolTrace = computed(() => props.trace.filter(x => x && x.type !== 'assistant'))
+const needsCollapse = computed(() => toolTrace.value.length > COLLAPSE_THRESHOLD)
+const visibleTrace = computed(() => needsCollapse.value && !showAll.value ? toolTrace.value.slice(0, 3) : toolTrace.value)
 
 // 摘要:统计每个工具的调用次数(tool_start 是执行前瞬态,不计入防虚高)
 const summary = computed(() => {
   const counts = {}
-  for (const ev of props.trace) {
+  for (const ev of toolTrace.value) {
     if (ev.type === 'tool_start') continue
     if (ev.type === 'denied') { counts['denied'] = (counts['denied'] || 0) + 1; continue }
     const n = ev.name || 'unknown'
@@ -147,7 +150,7 @@ function fmtTop(r) {
 </script>
 
 <template>
-  <div v-if="trace.length" class="flex flex-col gap-xs">
+  <div v-if="toolTrace.length" class="flex flex-col gap-xs">
     <div class="flex flex-wrap gap-sm items-center">
       <button v-for="(ev, i) in visibleTrace" :key="i" type="button" @click="toggle(i)"
         class="flex items-center gap-xs text-body-xs font-mono px-sm py-0.5 rounded-full border transition-colors"
@@ -167,7 +170,7 @@ function fmtTop(r) {
       <button v-if="needsCollapse" @click="showAll = !showAll" type="button"
         class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary px-sm py-xs rounded-md transition-colors whitespace-nowrap">
         <span class="material-symbols-outlined text-sm">{{ showAll ? 'expand_less' : 'expand_more' }}</span>
-        {{ showAll ? t('workbench.chat.collapse') : '+' + (trace.length - 3) }}
+        {{ showAll ? t('workbench.chat.collapse') : '+' + (toolTrace.length - 3) }}
       </button>
       <span v-if="needsCollapse && !showAll" class="text-body-xs text-on-surface-variant/70 truncate ml-xs">{{ summary }}</span>
     </div>
