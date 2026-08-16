@@ -14,8 +14,10 @@
 
 - 已合规(有单位选择/数字框+范围/结构化约束):**16 组**(Ingress 3 处已修 + ResourceInput 系/HPA/端口 min-max 系等 13 组)
 - 不合规(裸文本数量单位/纯数值缺约束/缺提示):**19 组、约 60 个字段**(其中 1 组为未被引用的遗留组件,实际可达 18 组),按风险排序见 Backlog
-- 半合规(格式受限已有 placeholder 提示、无客户端校验):**6 组**
+- 半合规(格式受限已有 placeholder 提示、无客户端校验):**6 组**(含 Backlog 中 PEM/Secrets 项)
 - 自由文本(规则不适用:ConfigMap/Secret 数据、注释、描述、检索框等):不逐行列举
+
+> **计数口径**:按视图级分组计数(同一视图多字段归一组);半合规计数含 Backlog 中 PEM/Secrets 项。
 
 ## 明细
 
@@ -31,12 +33,12 @@
 | NsResourceQuotas 创建弹窗 | podsHard / servicesHard | 纯数值 | 裸文本框(非数字框),placeholder `20`/`10` | type=number + min=0 | 中:填字母被 apiserver 拒(有兜底,报错晚) |
 | NsResourceQuotaDetail 编辑弹窗 | cpuHard / memoryHard / pvcHard / storageHard | 数值+单位 | 4 个裸文本框;仅 cpuHard 有毫核 hint+placeholder `20000`(且 `handleEdit` 同样 `milliToCpu(Number())` 陷阱);memory/pvc/storage **无任何提示** | 同创建弹窗方案 | **高**:pvc/storage 的 requests.storage 配额裸数字=字节,静默 |
 | NsResourceQuotaDetail 编辑弹窗 | podsHard / servicesHard | 纯数值 | 裸文本框,无提示 | type=number | 中 |
-| CreatePvcDialog(工作台/NsStorage 共用) | capacity | 数值+单位 | 裸文本框,placeholder `10Gi`;创建失败有 error 提示与留窗 | 数字框+Gi/Mi/Ti 单位下拉 | 中高:填 `10` = 10 字节 PVC,apiserver 接受,静默 |
+| CreatePvcDialog(VolumeMountCard 引用) | capacity | 数值+单位 | 裸文本框,placeholder `10Gi`;创建失败有 error 提示与留窗 | 数字框+Gi/Mi/Ti 单位下拉 | 中高:填 `10` = 10 字节 PVC,apiserver 接受,静默 |
 | NsStorage 创建 PVC 弹窗 | capacity | 数值+单位 | 裸文本框,placeholder 即 label「容量」——**连单位示例都没有**(全应用最差的容量输入) | 同上 | 中高:同上 |
 | Storage.vue(集群级)创建 PVC + 创建 PV | capacity ×2 | 数值+单位 | 裸文本框,placeholder `10Gi`(zh `storage.capacityPlaceholder`) | 同上 | 中高:同上(PV 建错容量更难回收) |
 | NsPVCDetail 编辑弹窗 | capacity | 数值+单位 | 裸文本框,placeholder `50Gi`;storageClass 有 datalist 建议良好 | 数字框+单位下拉 | 中:PVC 只能扩不能缩,错值影响后续扩容基准 |
-| DeployApp 第 2 步容器端口 | containerPort | 纯数值 | **文本框**(无 type=number),placeholder `Port (e.g. 8080)`;`validate()` 仅查非空,不查数字/范围 | type=number min=1 max=65535 | 中:字母/超范围要等 applyResourceYaml 远端报错(有兜底但晚、不指名字段) |
-| DeployApp 第 5 步 Service 端口 | port / nodePort | 纯数值 | **文本框**,placeholder `port`/`nodePort`;NodePort 下方有 info 行但只说「留空自动分配」,未给 30000-32767 范围 | type=number + min/max | 中:同上 |
+| DeployApp 第 2 步容器端口 | containerPort | 纯数值 | **文本框**(无 type=number),placeholder `Port (e.g. 8080)`;**下一步门禁已查 `/^\d+$/` 数字校验**(「端口号必须为正整数」);缺 min/max 范围(0/70000) | type=number + min=1 max=65535 | 低:字母被客户端拦,范围超限到远端报错(有兜底但晚) |
+| DeployApp 第 5 步 Service 端口 | port / nodePort | 纯数值 | **文本框**,placeholder `port`/`nodePort`;NodePort 下方有 info 行但只说「留空自动分配」,未给 30000-32767 范围;**port/nodePort 都无客户端数字校验** | type=number + min/max (port 1-65535, nodePort 30000-32767) | 中:字母/超范围要等 applyResourceYaml 远端报错(有兜底但晚、不指名字段) |
 | NsServices 创建弹窗端口行 | port / nodePort | 纯数值 | type=number 但**无 min/max**(应 1-65535 / 30000-32767);targetPort 用 PortSelect 结构化(良好) | 补 min/max | 中低:超范围被 apiserver 拒(兜底存在,报错晚) |
 | NsServiceDetail 编辑弹窗端口行 | port / nodePort | 纯数值 | 同上:数字框无 min/max(同视图「快速添加端口」弹窗却有 min/max,双标准) | 对齐快速添加弹窗的 min/max | 中低:同上 |
 | NsWorkloadDetail 编辑弹窗健康探针 | 3 探针 × port/initialDelay/period/timeout/failure/success | 纯数值 | type=number 无 min/max;label 硬编码英文(`Initial Delay`/`Timeout`…)且**无 (s) 单位提示**(对比 DeployApp 同字段 label 带 `(s)`) | label 补单位;关键项补 min≥1 | 中:语义错值(如 timeout 巨大、period=1)apiserver 不拒→探针行为异常,无兜底 |
