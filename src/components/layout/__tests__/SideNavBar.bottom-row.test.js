@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
-// 回归:底部「事件/活动记录/设置」从整行文本项改为单行 icon-only。
-// 守护:三个入口存在、各自含正确 icon、无 .text-body-sm 文本标签(icon-only)、
-// 事件受 ns 作用域 gating(选中 ns 才出现)。
+// 回归:底部「事件/活动记录/设置」三入口两态——
+// ns 态 = 角板停靠坞 dock 图标,各带微标签(.dock-ig__lb);集群态 = icon-only 双图标。
+// 守护:ns 态三入口存在、各自含正确 icon 与微标签、
+// 事件受 ns 作用域 gating(集群态不出现,仅 icon-only 活动/设置)。
 
 const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }))
 let currentNs = 'default'
@@ -32,7 +33,7 @@ import SideNavBar from '../SideNavBar.vue'
 const mountIt = () => mount(SideNavBar, { global: { mocks: { $t: (k) => k } } })
 
 describe('SideNavBar 底部 icon 行(事件/活动记录/设置)', () => {
-  it('选中 ns:三项都在,各含正确 icon 且 icon-only(无文本标签)', () => {
+  it('选中 ns:三项都在,各含正确 icon 与 dock 微标签', () => {
     currentNs = 'default'
     const w = mountIt()
     const cases = [
@@ -46,7 +47,7 @@ describe('SideNavBar 底部 icon 行(事件/活动记录/设置)', () => {
       const ic = el.find('.material-symbols-outlined')
       expect(ic.exists(), `${t} 应含 icon`).toBe(true)
       expect(ic.text(), `${t} icon 应为 ${icon}`).toBe(icon)
-      expect(el.find('.text-body-sm').exists(), `${t} 应 icon-only(无文本标签)`).toBe(false)
+      expect(el.find('.dock-ig__lb').exists(), `${t} 应含 dock 微标签`).toBe(true)
     }
   })
 
