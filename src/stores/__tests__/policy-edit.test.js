@@ -34,7 +34,8 @@ describe('策略组 updateXxx 真正下发', () => {
     expect(applyYaml).toHaveBeenCalledTimes(1)
     const obj = yamlLoad(applyYaml.mock.calls.at(-1)[0])
     expect(obj.metadata.name).toBe('rq1')
-    expect(obj.spec.hard.pods).toBe(5)
+    // 纯数字串经 yamlScalar 隐式类型化防线加引号,round-trip 保真为字符串(Quantity 接受字符串,kubectl 同款)
+    expect(obj.spec.hard.pods).toBe('5')
   })
 
   it('updatePDB: 下发新 minAvailable 且保留 selector', async () => {

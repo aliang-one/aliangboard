@@ -1,15 +1,36 @@
 import { dump } from 'js-yaml'
 
 // YAML 标量序列化：把任意字符串值安全地编进 YAML（用于 metadata.annotations / labels 等键值）。
-// 含换行走 block scalar(|-)，含特殊字符走双引号转义，否则裸值。
+// 含换行走 block scalar(|-)，含特殊字符或会被 YAML 隐式类型化的值走双引号转义，否则裸值。
 //
 // block scalar 内容固定缩进 6 空格——对应 metadata 下 4 空格缩进的键（annotations/labels）。
 // 单一事实源：cluster.js 的 generateYAML 与 DeployApp 向导的手写 YAML 都用本函数，
 // 避免「多行 server-snippet / 反斜杠 / 双引号」等值损坏 YAML（曾导致 Ingress apply 失败）。
+//
+// 隐式类型化防线（2026-08-16 Ingress 注解线上事故）：annotations/labels/ConfigMap data/
+// Secret stringData 的 K8s 目标类型都是 map[string]string，而 apiserver 以 YAML 1.1 语义
+// （sigs.k8s.io/yaml→yaml.v2）解析 apply-patch——裸 3600/true/~/2026-08-16 会被解析成
+// int/bool/null/timestamp：int/bool 直接被拒（expected string, got valueUnstructured），
+// timestamp 更遭静默改写成 RFC3339。故凡 1.1 真相表内会变成非字符串的值，一律加引号。
+
+// yaml.v2 的 bool/null 全家（YAML 1.1 语义，比 1.2 多 y/n/yes/no/on/off 系——js-yaml 按 1.2
+// 解析这些会得到字符串，不能拿它当裁判，须按 K8s 实际语义硬编码真相表）。
+const YAML11_NULL = new Set(['~', 'null', 'Null', 'NULL'])
+const YAML11_BOOL = new Set([
+  'y', 'Y', 'yes', 'Yes', 'YES', 'n', 'N', 'no', 'No', 'NO',
+  'true', 'True', 'TRUE', 'false', 'False', 'FALSE', 'on', 'On', 'ON', 'off', 'Off', 'OFF',
+])
+function yaml11NonString(s) {
+  return YAML11_NULL.has(s) || YAML11_BOOL.has(s)
+    || /^[-+]?(?:[\d_]+|0[xXoObB][0-9a-fA-F_]+)$/.test(s)               // int（十进制/下划线 1_000/0x 0b 0o，0755 为八进制）
+    || /^[-+]?(\d[\d_]*(\.[\d_]*)?|\.\d[\d_]*)([eE][-+]?\d+)?$/.test(s) // float/科学计数（含 int，冗余无害）
+    || /^[-+]?\.(?:inf|Inf|INF)$/.test(s) || /^\.(?:nan|NaN|NAN)$/.test(s)
+    || /^\d{4}-\d{1,2}-\d{1,2}([Tt ].*)?$/.test(s)                      // timestamp（yaml.v2 解析后转 JSON 会改写值）
+}
 export function yamlScalar(v) {
   const s = String(v ?? '')
   if (s.includes('\n')) return '|-\n' + s.split('\n').map(l => '      ' + l).join('\n')
-  if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s)) {
+  if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s) || yaml11NonString(s)) {
     return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
   }
   return s
