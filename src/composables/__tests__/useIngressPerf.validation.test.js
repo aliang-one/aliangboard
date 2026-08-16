@@ -45,6 +45,22 @@ describe('validateAdvValue 真相表', () => {
     expect(validateAdvValue(buf, '4k')).toBe(null)
     expect(validateAdvValue(buf, '100')).toBe(null)
   })
+  it('size per-field units/max(buffer-size): g 单位拒、>1GiB 拒、恰 1GiB 过——nginx 直通不认 g 且 1GiB 封顶(dry-run 实测 1g/1G/2g/1025m/1500m 拒,1024m/1048576k/裸 1073741824 过)', () => {
+    const buf = { key: 'proxy-buffer-size', vt: 'size', min: 1, units: ['k', 'm'], max: 1073741824 }
+    expect(validateAdvValue(buf, '1g')).toBe('ingressPerf.errSize')
+    expect(validateAdvValue(buf, '1G')).toBe('ingressPerf.errSize')
+    expect(validateAdvValue(buf, '1025m')).toBe('ingressPerf.errRange')
+    expect(validateAdvValue(buf, '1500m')).toBe('ingressPerf.errRange')
+    expect(validateAdvValue(buf, '2000000k')).toBe('ingressPerf.errRange')
+    expect(validateAdvValue(buf, '1024m')).toBe(null)
+    expect(validateAdvValue(buf, '4K')).toBe(null)              // 大写 k/m 可(集群实测 4K 过)
+    expect(validateAdvValue(buf, '1073741824')).toBe(null)     // 裸字节恰 1GiB 过
+  })
+  it('size 无 per-field 限制(body-size): g 合法——控制器换算字节后下发,1g/5g 过(dry-run 实测)', () => {
+    const body = { key: 'proxy-body-size', vt: 'size' }
+    expect(validateAdvValue(body, '1g')).toBe(null)
+    expect(validateAdvValue(body, '5g')).toBe(null)
+  })
   it('size 无 min(body-size): 0 合法=不限制(client_max_body_size 0)', () => {
     expect(validateAdvValue({ key: 'proxy-body-size', vt: 'size' }, '0')).toBe(null)
   })
@@ -95,6 +111,12 @@ describe('vfmtOfKey / hintKeyOfKey / placeholderOfKey: 注解 key → 元信息'
   it('字段元信息: buffer-size 带 min 1(nginx 拒 0);body-size 无 min(0=不限制)', () => {
     expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-buffer-size').min).toBe(1)
     expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-body-size').min).toBeUndefined()
+  })
+  it('字段元信息: buffer-size units 无 g 且 max=1GiB(nginx 直通);body-size 不限单位', () => {
+    const b = vfmtOfKey('nginx.ingress.kubernetes.io/proxy-buffer-size')
+    expect(b.units).toEqual(['k', 'm'])
+    expect(b.max).toBe(1073741824)
+    expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-body-size').units).toBeUndefined()
   })
   it('未知 key → undefined,不限制', () => {
     expect(vfmtOfKey('custom.example/x')).toBeUndefined()

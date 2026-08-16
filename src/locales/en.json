@@ -3293,7 +3293,8 @@
     "errCsvInt": "must be comma-separated status codes, e.g. 404,503",
     "errPath": "must start with /",
     "errEnum": "value not in allowed list",
-    "invalidField": "\"{field}\": {msg}"
+    "invalidField": "\"{field}\": {msg}",
+    "hintBufferSize": "response header buffer; k/m only (controller nginx rejects g), max 1GiB"
   },
   "workloads": {
     "restartSuccess": "Workload {name} restarted",

@@ -16,6 +16,8 @@ const { t } = useI18n()
 
 const vt = computed(() => FIELD_VTS[props.fld.vt] || FIELD_VTS.free)
 const isUnit = computed(() => vt.value.input === 'number-unit')
+// 单位表可被字段收窄(如 buffer-size 不认 g,nginx 直通限制)——fld.units 优先
+const units = computed(() => props.fld.units || vt.value.units || [])
 // text/select 分支无内部状态,直接 computed 代理;number 系用 num/unit 拆合
 const raw = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const num = ref('')
@@ -26,7 +28,7 @@ function sync(v) {
   const m = isUnit.value ? s.match(/^(\d+)([a-z]+)?$/) : null
   if (m) {
     num.value = m[1]
-    unit.value = (m[2] && vt.value.units.includes(m[2])) ? m[2] : vt.value.defUnit
+    unit.value = (m[2] && units.value.includes(m[2])) ? m[2] : vt.value.defUnit
   } else if (vt.value.input === 'number') {
     // 非 number-unit 的 number 输入(如 int),纯数字直接赋值
     num.value = s
@@ -54,7 +56,7 @@ const unitCls = 'bg-surface-container-low border border-l-0 border-outline-varia
     <div v-else-if="isUnit" class="flex items-stretch">
       <input type="number" :min="fld.min ?? 0" v-model="num" @input="emitVal" :class="inputCls + ' rounded-r-none'" :placeholder="fld.ph" />
       <select v-model="unit" @change="emitVal" :data-testid="'unit-' + fld.key" :class="unitCls + ' font-mono'">
-        <option v-for="u in vt.units" :key="u" :value="u">{{ u }}</option>
+        <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
       </select>
     </div>
     <div v-else-if="vt.input === 'number'" class="flex items-stretch">
@@ -63,6 +65,6 @@ const unitCls = 'bg-surface-container-low border border-l-0 border-outline-varia
     </div>
     <input v-else v-model="raw" :class="inputCls" :placeholder="fld.ph" />
     <p v-if="fld.area" class="text-xs text-on-surface-variant">{{ t('ingressPerf.hintSnippet') }}</p>
-    <p v-else-if="vt.hintKey" class="text-xs text-on-surface-variant">{{ t(vt.hintKey) }}</p>
+    <p v-else-if="fld.hintKey || vt.hintKey" class="text-xs text-on-surface-variant">{{ t(fld.hintKey || vt.hintKey) }}</p>
   </div>
 </template>

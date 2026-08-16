@@ -3293,7 +3293,8 @@
     "errCsvInt": "须为逗号分隔的状态码,如 404,503",
     "errPath": "须以 / 开头",
     "errEnum": "值不在允许列表内",
-    "invalidField": "「{field}」{msg}"
+    "invalidField": "「{field}」{msg}",
+    "hintBufferSize": "响应头缓冲;单位仅 k/m(控制器 nginx 不认 g),上限 1GiB"
   },
   "workloads": {
     "restartSuccess": "已重启工作负载 {name}",

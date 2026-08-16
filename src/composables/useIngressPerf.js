@@ -14,8 +14,8 @@ export const INGRESS_DIALECTS = {
       { key: 'proxy-read-timeout', labelKey: 'ingressPerf.readTimeout', ph: '60', vt: 'int', unitKey: 'ingressPerf.unitSeconds' },
     ]},
     { tab: 'perf', titleKey: 'ingressPerf.groupBufferBody', icon: 'inventory_2', fields: [
-      { key: 'proxy-body-size', labelKey: 'ingressPerf.maxBodySize', ph: '10m', vt: 'size' },  // 0 合法=不限制(client_max_body_size 0)
-      { key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size', min: 1 },  // nginx [emerg] 拒 0 尺寸 buffer(dry-run 实测),故设下限
+      { key: 'proxy-body-size', labelKey: 'ingressPerf.maxBodySize', ph: '10m', vt: 'size' },  // 0 合法=不限制;g 合法(控制器换算字节下发,dry-run 实测 1g/5g 过)
+      { key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size', min: 1, units: ['k', 'm'], max: 1073741824, hintKey: 'ingressPerf.hintBufferSize' },  // nginx 直通该值:拒 0、不认 g、>1GiB 拒(dry-run 实测 1024m 过/1025m 拒/1g 拒)
       { key: 'proxy-buffering', labelKey: 'ingressPerf.responseBuffering', options: ['', 'on', 'off'] },
       { key: 'proxy-request-buffering', labelKey: 'ingressPerf.requestBuffering', options: ['', 'on', 'off'] },
     ]},
@@ -191,8 +191,20 @@ export function validateAdvValue(fld, raw) {
   }
   const vt = FIELD_VTS[fld.vt]
   if (!vt || !vt.re) return null
+  if (fld.vt === 'size') {
+    // size 专属:per-field 单位白名单(fld.units)+ 按字节比对 min/max。
+    // buffer-size 直通 nginx(旧版不认 g、>1GiB 拒,dry-run 实测);body-size 由控制器换算,g 合法。
+    const m = s.match(/^(\d+)([kmgKMG])?$/)
+    if (!m) return 'ingressPerf.errSize'
+    const unit = (m[2] || '').toLowerCase()
+    if (unit && !(fld.units || FIELD_VTS.size.units).includes(unit)) return 'ingressPerf.errSize'
+    const bytes = Number(m[1]) * ({ k: 1024, m: 1024 ** 2, g: 1024 ** 3 }[unit] || 1)
+    if (fld.min != null && bytes < fld.min) return 'ingressPerf.errRange'   // '0'/'0k' → 0 字节拒
+    if (fld.max != null && bytes > fld.max) return 'ingressPerf.errRange'   // '1025m' → >1GiB 拒
+    return null
+  }
   if (!vt.re.test(s)) return vt.errKey
-  // 带 min 的正则类字段(如 buffer-size):按数字部分比对下限('0k' 的 0 < 1 → 拒)
+  // 带 min 的正则类字段:按数字部分比对下限('0k' 的 0 < 1 → 拒)
   if (fld.min != null) {
     const n = s.match(/\d+/)
     if (n && Number(n[0]) < fld.min) return 'ingressPerf.errRange'

@@ -36,6 +36,11 @@ describe('IngressPerfField: size(数字+单位下拉)', () => {
     expect(w.find('input[type="number"]').element.value).toBe('100')
     expect(w.find('select').element.value).toBe('m')
   })
+  it('per-field units 收窄(buffer-size 实字段:k/m,无 g)+ 字段级 hint', () => {
+    const w = mountFld({ key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size', min: 1, units: ['k', 'm'], max: 1073741824, hintKey: 'ingressPerf.hintBufferSize' })
+    expect(w.findAll('select option').map(o => o.element.value)).toEqual(['k', 'm'])
+    expect(w.text()).toContain('1GiB')
+  })
   it('空值 mount + 输入 4 → emit "4m"(默认单位兜底),单位下拉显示 m', async () => {
     const w = mountFld(fld)
     await w.find('input[type="number"]').setValue('4')
