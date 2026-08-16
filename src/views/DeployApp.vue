@@ -1492,6 +1492,7 @@ async function handleDeploy() {
                   </div>
                   <div class="grid grid-cols-2 gap-xs">
                     <div v-for="fld in g.fields" :key="fld.key">
+                      <label class="text-xs text-on-surface-variant block mb-xs">{{ $t(fld.labelKey) }}</label>
                       <IngressPerfField v-model="form.ingressAdv[fld.key]" :fld="fld" />
                     </div>
                   </div>
@@ -1505,7 +1506,7 @@ async function handleDeploy() {
                   <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
                     <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
                     <div class="flex-1 flex flex-col gap-xs">
-                      <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || 'value'" />
+                      <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || $t('ns.ingress.valuePlaceholder')" />
                       <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(a.key)) }}</p>
                     </div>
                     <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
