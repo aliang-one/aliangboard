@@ -60,5 +60,57 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
     return response.blob()
   }
 
-  return { request, blob, authHeaders, baseUrl }
+  // 流式下载:fetch + reader 逐块读,onProgress({received,total});完成返回 Blob。
+  // total 来自 content-length(缺失/0 → 不确定态,调用方只显示已收字节)。
+  async function downloadStream(path, { body, onProgress, signal } = {}) {
+    const headers = {
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...authHeaders(),
+    }
+    const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined, signal })
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      if (response.status === 401) onUnauthorized?.(path, response)
+      const b = parseBody(text)
+      throw Object.assign(new Error(b?.message || i18n.global.t('api.downloadFailed', { status: response.status })), { status: response.status, details: b })
+    }
+    const total = parseInt(response.headers.get('content-length') || '0', 10) || 0
+    const reader = response.body?.getReader?.()
+    if (!reader) return response.blob()
+    const chunks = []
+    let received = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      received += value.length
+      onProgress?.({ received, total })
+    }
+    return new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' })
+  }
+
+  // 二进制流式上传:XHR(fetch 拿不到上传进度)。createXhr 可注入(测试)。
+  function uploadBinary(path, file, { onProgress, signal } = {}, createXhr = () => new XMLHttpRequest()) {
+    return new Promise((resolve, reject) => {
+      const xhr = createXhr()
+      const onAbort = () => xhr.abort()
+      signal?.addEventListener('abort', onAbort)
+      const detach = () => signal?.removeEventListener?.('abort', onAbort)
+      xhr.open('POST', `${baseUrl}${path}`)
+      for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v)
+      xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress?.({ received: e.loaded, total: e.total }) }
+      xhr.onload = () => {
+        detach()
+        const b = parseBody(xhr.responseText)
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(b)
+        if (xhr.status === 401) onUnauthorized?.(path, { status: 401 })
+        reject(Object.assign(new Error(b?.message || i18n.global.t('api.requestFailed', { status: xhr.status })), { status: xhr.status, details: b }))
+      }
+      xhr.onerror = () => { detach(); reject(Object.assign(new Error(i18n.global.t('api.downloadFailed', { status: 0 })), { status: 0 })) }
+      xhr.onabort = () => { detach(); reject(Object.assign(new Error('aborted'), { aborted: true })) }
+      xhr.send(file)
+    })
+  }
+
+  return { request, blob, downloadStream, uploadBinary, authHeaders, baseUrl }
 }
