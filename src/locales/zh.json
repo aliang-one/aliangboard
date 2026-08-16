@@ -2756,6 +2756,7 @@
       "newFilePlaceholder": "manifests/x.yaml",
       "newFileButton": "新建文件",
       "noFileSelected": "(未选文件)",
+      "editorEmptyHint": "从左侧选择一个文件开始编辑，或在下方输入路径新建",
       "unsaved": "未保存",
       "save": "保存",
       "editorPlaceholder": "选个文件或新建,然后编辑…",
