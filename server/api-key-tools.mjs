@@ -365,7 +365,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       fn: async (saCtx) => {
         if (!execFn) throw new Error('read_file 未启用')
         if (!a.path) throw new Error('read_file 缺 path')
-        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat ${safePodPath(a.path)}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat -- ${safePodPath(a.path)}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
         return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
       } }),
     apply_yaml: async (keyRow, cluster, a, source) => runBoundedTool({

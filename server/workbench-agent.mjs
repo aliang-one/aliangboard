@@ -17,6 +17,10 @@ import { eventsForResult } from './conv-events.mjs'
 export function createWorkbenchAgent(deps) {
   const { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose } = deps
 
+// SRE 深调查步数上限(dev29):agent.mjs 默认 8 对"调查→诊断→行动"太紧(实测定位
+// ImagePullBackOff 走了 26 步);工作台侧放宽到 16,env WB_MAX_STEPS 可调。
+const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
+
   // checkpoint → paused; done → done + history
   function handleAgentResult(convId, project, out) {
     if (out.status === 'pending_approval') {
@@ -67,7 +71,7 @@ export function createWorkbenchAgent(deps) {
       }
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId } })
+      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
@@ -112,7 +116,7 @@ export function createWorkbenchAgent(deps) {
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId } })
+      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)

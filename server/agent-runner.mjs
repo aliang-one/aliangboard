@@ -35,7 +35,8 @@ export function buildToolDefs(tier) {
 // 工厂:注入 llmClient + (apiKeyTools,keyRow,cluster) 和/或 workbench。返回 { run, toolDefs }。
 // workbench = { readLedger, readFile, writeFile }(端点注入的闭包,操作项目/台账 repo)。
 // audit = { db, owner, clusterId }(可选,workbench 路径传):wb_* 工具执行进 audit_log。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit }) {
+// maxSteps(可选):透传 createAgent;缺省用 agent.mjs 的 MAX_STEPS=8(API-key 路径保持旧默认)。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs() : []),
@@ -63,6 +64,6 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     opts?.onDelta ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta })
                   : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调
-  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && offered.has(n) })
+  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && offered.has(n), ...(maxSteps ? { maxSteps } : {}) })
   return { run: agent.run, toolDefs }
 }

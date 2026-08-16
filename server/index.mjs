@@ -1223,7 +1223,8 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error('项目绑定的集群不存在')
           if (!args.pod) throw new Error('缺 pod')
           const p = safePodPath(args.path)
-          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', `cat ${p}`, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差)
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', `cat -- ${p}`, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {

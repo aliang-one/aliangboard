@@ -5,7 +5,7 @@ import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
-  truncateAfterLastUser,
+  truncateAfterLastUser, regenWatermark,
 } from '../workbench-projects.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
 
@@ -126,10 +126,11 @@ export function createWorkbenchConvRoutes(deps) {
         if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问' }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
-        const removed = truncateAfterLastUser(db, id)
+        const { removed, lastUserSeq } = truncateAfterLastUser(db, id)
         if (removed === 0) { sendJson(res, 400, { message: '没有可重新生成的回复' }); return true }
         setActiveConversation(db, conv.projectId, id)
-        updateConversation(db, id, { status: 'running', content: '', error: '', trace: '[]', steps: 0, pendingApproval: null })
+        // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
+        updateConversation(db, id, { status: 'running', content: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
         sendJson(res, 200, { status: 'running' })
