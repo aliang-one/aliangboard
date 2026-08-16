@@ -363,3 +363,27 @@ test('regenerate: 移除最后 assistant turn → 调端点 → 补 thinking tur
   expect(roles).toEqual([['user', undefined], ['assistant', 'thinking']], '旧 done 回复被移除,补 thinking')
   expect(w.vm.sending).toBe(true)
 })
+
+// dev31: SSE 看门狗——SSE 事件全丢(模拟死亡连接)时 ≤10s 由 pollOnce 对齐终态,
+// 不再依赖手动刷新。fake timers 推进看门狗周期。
+test('SSE 死亡无 onerror:看门狗 10s 后 pollOnce 对齐 done 并停表', async () => {
+  vi.useFakeTimers()
+  try {
+    api.conversations.get.mockResolvedValue({ id: 'conv-wd', status: 'done', content: '服务端终答', trace: '[]', steps: 1, messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: '旧轮', trace: '[]' }] })
+    const w = await mountChat({ activeConversationId: 'conv-wd' })
+    // 手动触发 startStreaming 路径(running 态建连后转 done 的窗口):
+    api.conversations.append.mockResolvedValue({ references: [] })
+    api.conversations.get.mockResolvedValue({ id: 'conv-wd', status: 'running', messages: [{ role: 'user', content: 'q' }], trace: '[]', steps: 0, recap: '' })
+    w.vm.turns.push({ _id: 99, role: 'user', content: '新问题' })
+    w.vm.turns.push({ _id: 100, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+    w.vm.startStreaming('conv-wd')
+    expect(w.vm.turns.find(x => x._id === 100)?.status).toBe('thinking')
+    // SSE 一个事件都不来(死亡);服务端其实已 done
+    api.conversations.get.mockResolvedValue({ id: 'conv-wd', status: 'done', content: '服务端终答', trace: '[]', steps: 2, messages: [{ role: 'user', content: 'q' }], recap: '' })
+    api.conversations.get.mockResolvedValue({ id: 'conv-wd', status: 'done', content: '服务端终答', trace: '[]', steps: 2, messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: '服务端终答', trace: '[]' }], recap: '' })
+    await vi.advanceTimersByTimeAsync(10050)
+    const t = w.vm.turns.find(x => x._id === 100)
+    expect(t?.status).toBe('done')
+    expect(t?.content).toBe('服务端终答')
+  } finally { vi.useRealTimers() }
+})
