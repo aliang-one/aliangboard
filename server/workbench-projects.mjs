@@ -107,6 +107,17 @@ export function listConversations(db, projectId) {
     FROM workbench_conversations WHERE projectId=? ORDER BY updatedAt DESC`).all(projectId)
 }
 
+// 悬浮入口原料(2026-08-16 AI 悬浮对话):跨项目活跃对话——running/paused + 24h 内终态。
+// 未读判定在前端(readAt 是浏览器本地概念),服务端只供原料;cancelled 不算(用户主动停,无未读价值)。
+// JOIN 项目名供悬浮微型列表直接显示,免前端二次拉取。
+export function listActiveConversations(db, { now = Date.now(), windowMs = 24 * 3600 * 1000, cap = 20 } = {}) {
+  return db.prepare(`SELECT c.id, c.projectId, p.name AS projectName, c.title, c.status, c.updatedAt
+    FROM workbench_conversations c JOIN workbench_projects p ON p.id = c.projectId
+    WHERE c.status IN ('running','paused')
+       OR (c.status IN ('done','failed') AND c.updatedAt > ?)
+    ORDER BY c.updatedAt DESC LIMIT ?`).all(now - windowMs, cap)
+}
+
 export function appendTrace(db, id, step) {
   const row = db.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(id)
   if (!row) throw new Error(`appendTrace: conversation ${id} not found`)
