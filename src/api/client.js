@@ -167,6 +167,14 @@ export const podFileApi = {
   read: payload => k8sHttp.request('/api/podfile/read', { method: 'POST', body: JSON.stringify(payload) }),
   write: payload => k8sHttp.request('/api/podfile/write', { method: 'POST', body: JSON.stringify(payload) }),
   download: payload => k8sHttp.blob('/api/podfile/download', { method: 'POST', body: JSON.stringify(payload) }),
+  // 流式下载(进度):POST JSON → Blob,onProgress({received,total})
+  downloadStream: (payload, { onProgress, signal } = {}) =>
+    k8sHttp.downloadStream('/api/podfile/download', { body: payload, onProgress, signal }),
+  // 流式上传(进度):元信息查询串 + 原始文件体
+  uploadStream: ({ namespace, pod, container, path }, file, { onProgress, signal } = {}) => {
+    const q = new URLSearchParams({ namespace, pod, container: container || '', path })
+    return k8sHttp.uploadBinary(`/api/podfile/upload?${q}`, file, { onProgress, signal })
+  },
 }
 
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
