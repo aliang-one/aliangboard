@@ -430,6 +430,30 @@ function startStreaming(id) {
   }
 }
 
+// 重新生成最后一条回复(P1):调 regenerate 端点(服务端截掉最后 user 之后的回复重跑),
+// 本地同步移除该 assistant turn → 补 thinking → 续流。failed turn 重试同路径。
+const lastAssistantIndex = computed(() => {
+  for (let i = turns.value.length - 1; i >= 0; i--) if (turns.value[i].role === 'assistant') return i
+  return -1
+})
+async function regenerate() {
+  const id = props.activeConversationId || conversationId.value
+  if (!id || sending.value) return
+  errorBanner.value = ''
+  try {
+    await workbenchApi.conversations.regenerate(id)
+    if (lastAssistantIndex.value >= 0) turns.value.splice(lastAssistantIndex.value, 1)
+    turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+    conversationId.value = id
+    convStatus.value = 'running'
+    sending.value = true
+    await scrollToBottom()
+    startStreaming(id)
+  } catch (e) {
+    errorBanner.value = e.message || t('workbench.chat.agentFailed')
+  }
+}
+
 // 停止运行中的对话(输错内容→停止→修改重发):调 cancel 端点;本地即刻停流/停轮询、
 // thinking turn 置停止态,并把最后一条 user 消息回填输入框供修改重发。
 // 竞态:agent 恰在 cancel 前完成 → cancel 返 400 → pollOnce 对齐终态。
@@ -592,8 +616,10 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
         </details>
 
         <!-- Conversation -->
-        <div v-for="turn in turns" :key="turn._id">
-          <ChatTurn :turn="turn" />
+        <div v-for="(turn, i) in turns" :key="turn._id">
+          <ChatTurn :turn="turn"
+            :show-regenerate="turn.role === 'assistant' && i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
+            @regenerate="regenerate" />
         </div>
 
         <!-- 回到底部:非贴底时悬浮露出(流式中上翻读历史的回程入口;sticky 随内容驻留视口底) -->
