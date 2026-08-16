@@ -10,6 +10,7 @@ import {
   createConversation,
   getConversation,
   updateConversation,
+  listConversations,
   appendMessage,
   getMaxSeq,
   buildHistory,
@@ -200,4 +201,17 @@ test('updateConversation: patch references(保留字)不抛 + 值落库', () => 
   assert.equal(updated.status, 'running', '其他字段不受影响')
   const row = getConversation(db, conv.id)
   assert.deepEqual(JSON.parse(row.references), refs, 'references 落库可读回')
+})
+
+// 活跃度排序(2026-08-16 交互审查):updatedAt DESC——续接旧对话浮顶,createdAt 沉底违背直觉
+test('listConversations 按 updatedAt DESC(活跃优先,非创建时间)', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  const old = createConversation(db, { projectId: pid, system: '', userMessage: '旧的' })
+  const fresh = createConversation(db, { projectId: pid, system: '', userMessage: '新的' })
+  // 旧对话后来被续接(updatedAt 更新)→ 应排到最前
+  updateConversation(db, old.id, { content: '续接后' })
+  const list = listConversations(db, pid)
+  assert.equal(list[0].id, old.id, '最近活跃的旧对话排最前')
+  assert.equal(list[1].id, fresh.id)
 })

@@ -321,3 +321,26 @@ test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades 
     expect(api.conversations.get).toHaveBeenCalled()
   } finally { vi.unstubAllGlobals() }
 })
+
+// 草稿保持:切换对话不丢未发送输入;发送后清
+test('draft preserved across conversation switch, cleared on send', async () => {
+  const w = await mountChat({ conversationId: 'conv-a' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-a', status: 'done', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }], trace: '[]', steps: 0, recap: '' })
+  await flushPromises()
+  await w.find('textarea').setValue('写了一半的长问题')
+  // 切到对话 B
+  api.conversations.get.mockResolvedValue({ id: 'conv-b', status: 'done', messages: [], trace: '[]', steps: 0, recap: '' })
+  await w.setProps({ conversationId: 'conv-b' })
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('', '切走后 B 无草稿')
+  // 切回 A → 草稿恢复
+  api.conversations.get.mockResolvedValue({ id: 'conv-a', status: 'done', messages: [], trace: '[]', steps: 0, recap: '' })
+  await w.setProps({ conversationId: 'conv-a' })
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('写了一半的长问题', '切回恢复草稿')
+  // 发送 → 草稿清
+  api.conversations.append.mockResolvedValue({ status: 'running' })
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('', '发送后清空')
+})
