@@ -25,6 +25,7 @@ import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
+import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } from '@/utils/containerTokens'
 import { useTerminalStore } from '@/stores/terminals'
 
 const route = useRoute()
@@ -759,7 +760,7 @@ function probeToForm(p, def) {
   if (!p) return f
   if (p.httpGet) { f.type = 'http'; f.httpPath = p.httpGet.path ?? def.httpPath; f.port = p.httpGet.port ?? def.port }
   else if (p.tcpSocket) { f.type = 'tcp'; f.port = p.tcpSocket.port ?? def.port }
-  else if (p.exec) { f.type = 'exec'; f.execCommand = (p.exec.command || []).join(' ') }
+  else if (p.exec) { f.type = 'exec'; f.execCommand = joinCommandTokens(p.exec.command || []) }
   f.initialDelaySeconds = p.initialDelaySeconds ?? 30; f.periodSeconds = p.periodSeconds ?? 10
   f.timeoutSeconds = p.timeoutSeconds ?? 1; f.failureThreshold = p.failureThreshold ?? 3; f.successThreshold = p.successThreshold ?? 1
   return f
@@ -778,7 +779,7 @@ function scToForm(sc) {
 }
 // init/sidecar 容器 → 表单
 function containerToForm(c) {
-  return { name: c.name || '', image: c.image || '', command: (c.command || []).join(' '), args: (c.args || []).join(' '),
+  return { name: c.name || '', image: c.image || '', command: joinCommandTokens(c.command || []), args: joinArgLines(c.args || []),
     cpuReq: c.resources?.requests?.cpu || '', cpuLim: c.resources?.limits?.cpu || '', memReq: c.resources?.requests?.memory || '', memLim: c.resources?.limits?.memory || '' }
 }
 // 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
@@ -843,8 +844,8 @@ function openEdit() {
     tier: workload.value.tier || 'default',
     // 主容器
     imagePullPolicy: c0.imagePullPolicy || 'IfNotPresent',
-    command: (c0.command || []).join(' '),
-    args: (c0.args || []).join(' '),
+    command: joinCommandTokens(c0.command || []),
+    args: joinArgLines(c0.args || []),
     workingDir: c0.workingDir || '',
     cpuReq: c0.resources?.requests?.cpu || '', cpuLim: c0.resources?.limits?.cpu || '',
     memReq: c0.resources?.requests?.memory || '', memLim: c0.resources?.limits?.memory || '',
@@ -863,7 +864,7 @@ function openEdit() {
     volumeMounts: mergeVolumes(tplSpec, c0),
     // 安全上下文 + 生命周期
     securityContext: scToForm(c0.securityContext),
-    lifecycle: { postStart: (c0.lifecycle?.postStart?.exec?.command || []).join(' '), preStop: (c0.lifecycle?.preStop?.exec?.command || []).join(' ') },
+    lifecycle: { postStart: joinCommandTokens(c0.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(c0.lifecycle?.preStop?.exec?.command || []) },
     // 多容器
     initContainers: (tplSpec.initContainers || []).map(containerToForm),
     extraContainers: (tplSpec.containers || []).slice(1).map(containerToForm),
@@ -884,7 +885,6 @@ function openEdit() {
 
 // ---- 正向映射辅助（表单 → k8s 对象；空值置 null 以便 merge-patch 删除）----
 function splitCsv(s) { return String(s || '').split(',').map(x => x.trim()).filter(Boolean) }
-function splitSpace(s) { return String(s || '').split(/\s+/).filter(Boolean) }
 function buildResources(cpuReq, cpuLim, memReq, memLim) {
   const req = {}, lim = {}
   if (cpuReq) req.cpu = cpuReq; if (memReq) req.memory = memReq
@@ -899,7 +899,7 @@ function buildProbe(p) {
   const o = { initialDelaySeconds: Number(p.initialDelaySeconds) || 0, periodSeconds: Number(p.periodSeconds) || 10, timeoutSeconds: Number(p.timeoutSeconds) || 1, failureThreshold: Number(p.failureThreshold) || 3, successThreshold: Number(p.successThreshold) || 1 }
   if (p.type === 'http') o.httpGet = { path: p.httpPath || '/', port: Number(p.port) || 8080 }
   else if (p.type === 'tcp') o.tcpSocket = { port: Number(p.port) || 8080 }
-  else if (p.type === 'exec') o.exec = { command: splitSpace(p.execCommand) }
+  else if (p.type === 'exec') o.exec = { command: splitCommandTokens(p.execCommand) }
   return o
 }
 function buildSc(s) {
@@ -921,7 +921,7 @@ function mountObjs(target, f) {
 }
 function buildSubContainer(c, target, f) {
   const o = { name: c.name || (c.image || '').split(':')[0] || 'container', image: c.image || '' }
-  const cmd = splitSpace(c.command), args = splitSpace(c.args)
+  const cmd = splitCommandTokens(c.command), args = splitArgLines(c.args)
   if (cmd.length) o.command = cmd
   if (args.length) o.args = args
   o.resources = buildResources(c.cpuReq, c.cpuLim, c.memReq, c.memLim)
@@ -977,7 +977,7 @@ async function saveEdit() {
       const c0 = spec.containers[0]
       c0.image = image
       c0.imagePullPolicy = f.imagePullPolicy || 'IfNotPresent'
-      const cmd = splitSpace(f.command), args = splitSpace(f.args)
+      const cmd = splitCommandTokens(f.command), args = splitArgLines(f.args)
       c0.command = cmd.length ? cmd : null
       c0.args = args.length ? args : null
       c0.workingDir = f.workingDir || null
@@ -999,7 +999,7 @@ async function saveEdit() {
       c0.volumeMounts = mountObjs('main', f)
       c0.securityContext = buildSc(f.securityContext) || null
       const lc = {}
-      const ps = splitSpace(f.lifecycle?.postStart), pst = splitSpace(f.lifecycle?.preStop)
+      const ps = splitCommandTokens(f.lifecycle?.postStart), pst = splitCommandTokens(f.lifecycle?.preStop)
       if (ps.length) lc.postStart = { exec: { command: ps } }
       if (pst.length) lc.preStop = { exec: { command: pst } }
       c0.lifecycle = Object.keys(lc).length ? lc : null
@@ -1922,7 +1922,7 @@ function podStatusBorder(s) {
           <div class="grid grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.pullPolicy') }}</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.command') }}</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" /></div>
-            <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.args') }}</label><input v-model="editForm.args" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.argsPlaceholder')" /></div>
+            <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.args') }}<span class="ml-xs font-normal text-on-surface-variant/70">{{ $t('workload.edit.argsHint') }}</span></label><textarea v-model="editForm.args" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
           </div>
           <div class="grid grid-cols-4 gap-xs">
@@ -1936,6 +1936,7 @@ function podStatusBorder(s) {
             <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
             <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
             <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
+            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
             <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
             <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
             <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
@@ -1945,6 +1946,7 @@ function podStatusBorder(s) {
             <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
             <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
             <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
+            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
             <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
             <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
             <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
