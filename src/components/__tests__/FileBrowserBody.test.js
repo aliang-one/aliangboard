@@ -1,5 +1,6 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 
 vi.mock('@/api/client', () => ({
@@ -8,17 +9,21 @@ vi.mock('@/api/client', () => ({
     read: vi.fn(),
     write: vi.fn(),
     download: vi.fn(),
+    uploadStream: vi.fn(),
   },
 }))
 import { podFileApi } from '@/api/client'
 vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
+import { notify } from '@/composables/useToast'
 
 let _ls
 beforeEach(() => {
   _ls = globalThis.localStorage
   const mem = new Map()
   globalThis.localStorage = { getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k), clear: () => mem.clear() }
-  podFileApi.list.mockReset(); podFileApi.read.mockReset(); podFileApi.write.mockReset(); podFileApi.download.mockReset()
+  setActivePinia(createPinia())
+  podFileApi.list.mockReset(); podFileApi.read.mockReset(); podFileApi.write.mockReset(); podFileApi.download.mockReset(); podFileApi.uploadStream.mockReset()
+  notify.mockReset()
 })
 afterEach(() => { if (_ls) globalThis.localStorage = _ls })
 import FileBrowserBody from '../common/FileBrowserBody.vue'
@@ -100,18 +105,18 @@ test('FileBrowserBody: 切换 container 触发 reset + 以新容器重拉根', a
   expect(podFileApi.list).toHaveBeenCalledWith(expect.objectContaining({ container: 'c', path: '/' }))
 })
 
-test('FileBrowserBody: onUpload 写入选中文件夹并强制刷新该目录', async () => {
+test('FileBrowserBody: onUpload 起上传任务(流式)并强制刷新该目录 + 成功 toast', async () => {
   // 根有 app(dir)，app 下有 inner.go(file)
   podFileApi.list.mockImplementation(({ path }) => {
     if (path === '/app') return Promise.resolve({ entries: [{ name: 'inner.go', type: 'file' }] })
     return Promise.resolve({ entries: [{ name: 'app', type: 'dir' }] })
   })
-  podFileApi.write.mockResolvedValue({ ok: true })
+  podFileApi.uploadStream.mockResolvedValue({ ok: true })
 
   const w = mount(FileBrowserBody, { props: { namespace: 'ns', pod: 'p', container: 'c' }, global: { plugins: [i18n] } })
   await flushPromises()
 
-  // 先展开 app(让 /app 进缓存)，这样后续上传后的 list 必然是 force 覆盖缓存而非首次懒加载
+  // 先展开 app(让 /app 进缓存)，这样上传完成后的 list 必然是 force 覆盖缓存而非首次懒加载
   const appRow0 = w.findAll('.fb-row').filter(r => r.text().includes('app'))[0]
   await appRow0.find('.fb-twisty').trigger('click')
   await flushPromises()
@@ -121,7 +126,7 @@ test('FileBrowserBody: onUpload 写入选中文件夹并强制刷新该目录', 
   await appRow0.trigger('click')
   await flushPromises()
 
-  // 通过 input change 触发 onUpload：写入 /app/up.txt
+  // 通过 input change 触发 onUpload：上传到 /app/up.txt(流式任务,非 base64 write)
   const input = w.find('input[type=file]')
   const file = new File(['x'], 'up.txt')
   // happy-dom 下 .files 只读，用 defineProperty 强制覆盖
@@ -130,9 +135,36 @@ test('FileBrowserBody: onUpload 写入选中文件夹并强制刷新该目录', 
   await input.trigger('change')
   await flushPromises()
 
-  // 写入路径 = 选中目录 + 文件名
-  expect(podFileApi.write).toHaveBeenCalledWith(expect.objectContaining({ container: 'c', path: '/app/up.txt' }))
-  // 写完后强制刷新该目录：/app 已缓存却仍被 list(force 在 listDir 层覆盖缓存，故 list 调用数 +1)
+  // 上传走 transfers store 的流式接口：路径 = 选中目录 + 文件名
+  expect(podFileApi.uploadStream).toHaveBeenCalledWith(expect.objectContaining({ container: 'c', path: '/app/up.txt' }), file, expect.anything())
+  expect(podFileApi.write).not.toHaveBeenCalled()
+  // 任务完成 → watcher 强制刷新该目录：/app 已缓存却仍被 list(force 在 listDir 层覆盖缓存，故 list 调用数 +1)
   expect(podFileApi.list.mock.calls.length).toBe(listCallsBeforeUpload + 1)
   expect(podFileApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ container: 'c', path: '/app' }))
+})
+
+test('FileBrowserBody: 上传任务失败 → error toast,不刷新目录', async () => {
+  podFileApi.list.mockImplementation(({ path }) => {
+    if (path === '/app') return Promise.resolve({ entries: [{ name: 'inner.go', type: 'file' }] })
+    return Promise.resolve({ entries: [{ name: 'app', type: 'dir' }] })
+  })
+  podFileApi.uploadStream.mockRejectedValue(new Error('boom'))
+
+  const w = mount(FileBrowserBody, { props: { namespace: 'ns', pod: 'p', container: 'c' }, global: { plugins: [i18n] } })
+  await flushPromises()
+
+  const appRow0 = w.findAll('.fb-row').filter(r => r.text().includes('app'))[0]
+  await appRow0.trigger('click')   // 选中 app 文件夹 → 上传目标目录
+  await flushPromises()
+  const listCallsBeforeUpload = podFileApi.list.mock.calls.length
+
+  const input = w.find('input[type=file]')
+  const file = new File(['x'], 'up.txt')
+  Object.defineProperty(input.element, 'files', { value: [file], configurable: true, writable: true })
+  Object.defineProperty(input.element, 'value', { value: '', configurable: true, writable: true })
+  await input.trigger('change')
+  await flushPromises()
+
+  expect(notify).toHaveBeenCalledWith('error', 'boom')
+  expect(podFileApi.list.mock.calls.length).toBe(listCallsBeforeUpload) // 失败不刷新
 })

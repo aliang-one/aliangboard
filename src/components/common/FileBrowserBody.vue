@@ -6,6 +6,7 @@ import { ref, computed, provide, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
 import { usePodFiles } from '@/composables/usePodFiles'
+import { useTransferStore, fmtBytes } from '@/stores/transfers'
 import SplitPane from './SplitPane.vue'
 import FileTree from './FileTree.vue'
 import FolderPreview from './FolderPreview.vue'
@@ -19,6 +20,7 @@ const props = defineProps({
 })
 
 const files = usePodFiles()
+const transferStore = useTransferStore()
 const selected = ref(null)            // path | null
 const selectedIsDir = ref(false)
 const expanded = ref(new Set())
@@ -47,7 +49,7 @@ provide('fileExplorer', {
   listDir: (path, opts) => files.listDir(ctx.value, path, opts),
   readFile: (path, opts) => files.readFile(ctx.value, path, opts),
   writeFile: (path, bytes) => files.writeFile(ctx.value, path, bytes),
-  download: (path) => files.download(ctx.value, path),
+  ctx,
   dirCache: files.dirCache,
 })
 
@@ -59,12 +61,8 @@ async function onUpload(e) {
   const f = e.target.files?.[0]; if (!f) return
   const dir = selectedIsDir.value ? selected.value : (selected.value ? parentDir(selected.value) : '/')
   const target = joinPath(dir, f.name)
-  try {
-    await files.writeFile(ctx.value, target, new Uint8Array(await f.arrayBuffer()))
-    notify('success', t('component.fileBrowser.uploaded', { name: f.name, size: f.size }))
-    await files.listDir(ctx.value, dir, { force: true })
-  } catch (err) { notify('error', err.message || t('component.fileBrowser.uploadFailed')) }
-  finally { e.target.value = '' }
+  transferStore.startUpload(ctx.value, { dir, path: target, file: f })   // 进度走任务栏;完成经下方 watcher 刷目录+toast
+  e.target.value = ''
 }
 
 async function refresh() {
@@ -79,6 +77,23 @@ watch(() => props.container, (next, prev) => {
   selected.value = null; selectedIsDir.value = false; expanded.value = new Set()
   if (props.namespace && props.pod) files.listDir(ctx.value, '/').catch(() => {})
 })
+
+// 传输完成联动:本窗口(ns/pod/container 匹配)的上传任务完成 → 强制重拉目录 + 成功/失败 toast。
+// usePodFiles 是每个 FileBrowserBody 各自实例化,store 无法直达缓存,故由各窗口自行监听刷新。
+const seenFinished = new Set()
+watch(() => transferStore.tasks, (ts) => {
+  for (const tk of ts) {
+    if (tk.kind !== 'upload' || (tk.status !== 'done' && tk.status !== 'error') || seenFinished.has(tk.id)) continue
+    if (tk.namespace !== props.namespace || tk.pod !== props.pod || (tk.container || '') !== (props.container || '')) continue
+    seenFinished.add(tk.id)
+    if (tk.status === 'done') {
+      notify('success', t('component.fileBrowser.uploaded', { name: tk.name, size: fmtBytes(tk.total) }))
+      files.listDir(ctx.value, tk.dir || '/', { force: true }).catch(() => {})
+    } else if (tk.status === 'error') {
+      notify('error', tk.error || t('component.fileBrowser.uploadFailed'))
+    }
+  }
+}, { deep: true })
 </script>
 
 <template>
