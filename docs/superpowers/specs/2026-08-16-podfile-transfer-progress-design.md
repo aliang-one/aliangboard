@@ -110,7 +110,7 @@ emits: ['focus', 'minimize', 'close']
 slots: default(窗体)、title-actions(标题栏右侧扩展)
 ```
 
-内置:标题栏拖拽(初始位置级联 `80 + n*30`)、双击标题或按钮最大化/还原、最小化/关闭按钮、z-index 置顶。**TerminalWindow 重构为壳 + InteractiveTerminal**,行为不变,需回归(拖拽/改名/最大化/最小化/新标签页)。
+内置:标题栏拖拽(初始位置级联 `80 + n*30`)、按钮最大化/还原、最小化/关闭按钮、z-index 置顶。**双击语义留给内容方**(终端标题双击=改名,既有行为保持);标题区与标题栏右侧均留插槽(`title` / `title-actions`)。**TerminalWindow 重构为壳 + InteractiveTerminal**,行为不变,需回归(拖拽/改名/最大化/最小化/新标签页)。
 
 ## 5. 文件浏览窗口(src/stores/fileBrowsers.js + FileBrowserWindow.vue)
 
