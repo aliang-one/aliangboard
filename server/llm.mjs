@@ -35,7 +35,7 @@ export function createLlmClient({
 
   // chatStream:流式版 chat。逐 chunk 解 OpenAI 兼容 SSE;content 累积并回调 onDelta;
   // tool_calls 按 index 合并分片。返回结构与 chat 一致。
-  async function chatStream({ messages, tools, toolChoice } = {}, { onDelta } = {}) {
+  async function chatStream({ messages, tools, toolChoice } = {}, { onDelta, onReasoning } = {}) {
     const body = { model, messages, stream: true }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
     // 空闲超时:每读到数据就重 arm;总时长不限。思考再久(深调查/长文)只要仍产 chunk 就活着。
@@ -63,12 +63,14 @@ export function createLlmClient({
     if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
-    let buf = '', content = '', toolCallsMap = {}
+    let buf = '', content = '', reasoning = '', toolCallsMap = {}
     const readChunk = async () => { const r = await reader.read(); armIdle(); return r }
     const finalize = () => {
       const tool_calls = Object.keys(toolCallsMap).sort((a, b) => a - b)
         .map(k => toolCallsMap[k]).filter(t => t.function.name || t.function.arguments)
-      return { role: 'assistant', content, ...(tool_calls.length ? { tool_calls } : {}) }
+      // reasoning(DeepSeek-R1/Qwen 深思考的 reasoning_content,OpenAI o 系列为 reasoning):
+      // 思考 token 也回调/返回——此前整段丢弃,前端只能干等 35-40s"思考中"。
+      return { role: 'assistant', content, ...(reasoning ? { reasoning } : {}), ...(tool_calls.length ? { tool_calls } : {}) }
     }
     while (true) {
       const { done, value } = await readChunk()
@@ -84,6 +86,8 @@ export function createLlmClient({
         let obj; try { obj = JSON.parse(payload) } catch { continue }
         const delta = obj.choices?.[0]?.delta
         if (!delta) continue
+        const rtext = delta.reasoning_content ?? delta.reasoning
+        if (typeof rtext === 'string' && rtext) { reasoning += rtext; onReasoning?.(rtext) }
         if (delta.content) { content += delta.content; onDelta?.(delta.content) }
         if (Array.isArray(delta.tool_calls)) {
           for (const tc of delta.tool_calls) {

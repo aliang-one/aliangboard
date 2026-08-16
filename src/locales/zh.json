@@ -2837,6 +2837,7 @@
       "toolTrace": "工具调用（{n} 步）",
       "decideCalling": "决定调用：",
       "reject": "用户拒绝执行",
+      "reasoningTitle": "思考过程",
       "thinking": "思考中…",
       "pendingApproval": "Agent 想写文件，请在弹窗审批",
       "regenerate": "重新生成",

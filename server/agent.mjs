@@ -63,7 +63,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   function callId(tc) { if (!tc.id) tc.id = `gen_${idSeq++}`; return tc.id }
   function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return {} } }
 
-  async function run({ system, history = [], onStep, onDelta, refreshSystem, resume } = {}) {
+  async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
     let messages, queue = [], denied = [], steps = 0
     let resumeToolCallId = null, resumeApproved = false
@@ -127,7 +127,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       if (refreshSystem && messages[0]?.role === 'system') {
         messages[0] = { role: 'system', content: await refreshSystem() }
       }
-      const assistant = await chat(messages, toolDefs, onDelta ? { onDelta } : {})
+      const assistant = await chat(messages, toolDefs, (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
       messages.push(assistant)
       onStep?.({ type: 'assistant', message: assistant })
       const toolCalls = assistant.tool_calls || []

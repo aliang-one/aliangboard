@@ -2837,6 +2837,7 @@
       "toolTrace": "Tool trace ({n} step(s))",
       "decideCalling": "Decided to call: ",
       "reject": "Rejected by user",
+      "reasoningTitle": "Reasoning",
       "thinking": "Thinking...",
       "pendingApproval": "Agent wants to write a file — please approve in the dialog",
       "regenerate": "Regenerate",

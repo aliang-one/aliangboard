@@ -133,3 +133,21 @@ test('chatStream 空闲超时:chunk 间隔 > idleMs → 抛 LLM 流式空闲超�
   const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 50, fetch: fake })
   await assert.rejects(c.chatStream({}, {}), /空闲超时|TimeoutError|aborted/)
 })
+
+// dev32: 深思考模型 reasoning_content(及 reasoning 别名)增量——累积/回调/返回,此前整段丢弃
+test('chatStream: reasoning_content 增量 → onReasoning 回调 + 返回值带 reasoning;content 不混入', async () => {
+  const rDeltas = [], cDeltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"reasoning_content":"先分析问题"}}]}\n\n',
+    'data: {"choices":[{"delta":{"reasoning_content":"再决定查日志"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"结论是"}}]}\n\n',
+    'data: {"choices":[{"delta":{"reasoning":"补充思考"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks, {}) })
+  const msg = await c.chatStream({}, { onDelta: t => cDeltas.push(t), onReasoning: t => rDeltas.push(t) })
+  assert.equal(msg.reasoning, '先分析问题再决定查日志补充思考')
+  assert.deepEqual(rDeltas, ['先分析问题', '再决定查日志', '补充思考'])
+  assert.equal(msg.content, '结论是')
+  assert.deepEqual(cDeltas, ['结论是'], 'content 与 reasoning 互不混入')
+})
