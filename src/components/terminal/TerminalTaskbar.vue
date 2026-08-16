@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
-import { useTransferStore } from '@/stores/transfers'
+import { useTransferStore, fmtBytes } from '@/stores/transfers'
 
 const { t } = useI18n()
 const termStore = useTerminalStore()
@@ -28,13 +28,12 @@ const transferText = computed(() => {
   const a = agg.value
   if (a.count === 1) {
     const tk = trStore.tasks[0]
-    const pct = tk.total > 0 ? Math.round((tk.received / tk.total) * 100) + '%' : fmt0(tk.received)
+    const pct = tk.total > 0 ? Math.round((tk.received / tk.total) * 100) + '%' : fmtBytes(tk.received)
     return `${tk.name} ${pct}`
   }
   const pct = a.pct !== null ? ` · ${a.pct}%` : ''
   return `${t('transfers.summaryMulti', { done: a.doneCount, count: a.count })}${pct}`
 })
-function fmt0(n) { return (n / 1024).toFixed(0) + ' KB' }
 
 function closeAll() {
   if (!sessionCount.value) return
@@ -82,6 +81,6 @@ function closeAll() {
       <span class="truncate">{{ transferText }}</span>
       <span v-if="!agg.activeCount" class="material-symbols-outlined text-sm">check_circle</span>
     </button>
-    <span class="ml-auto text-body-xs text-on-surface-variant/40 shrink-0">{{ t('terminal.countLabel', { count: sessionCount }) }}</span>
+    <span class="ml-auto text-body-xs text-on-surface-variant/40 shrink-0">{{ t('transfers.sessionsCount', { count: sessionCount }) }}</span>
   </div>
 </template>

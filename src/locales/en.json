@@ -146,11 +146,9 @@
       "close": "Close"
     },
     "fileBrowser": {
-      "title": "File Manager · {pod}{separator}{container}",
       "readDirFailed": "Failed to read directory",
       "readFailed": "Read failed",
-      "downloadFailed": "Download failed",
-      "uploaded": "Uploaded {name} ({size} bytes)",
+      "uploaded": "Uploaded {name} ({size})",
       "uploadFailed": "Upload failed",
       "saved": "Saved",
       "saveFailed": "Save failed",
@@ -3020,14 +3018,12 @@
     "title": "{name} · Terminal",
     "expired": "Session expired, please close this window and reopen the terminal from the original page.",
     "closeWindow": "Close Window",
-    "closeAllConfirm": "Close all {count} terminal sessions?",
     "closeAllTitle": "Close all terminals",
     "closeAll": "Close all",
     "statusFloating": "Floating window",
     "statusExternal": "Open in new tab",
     "statusMinimized": "Minimized",
     "closeThisTitle": "Close this terminal",
-    "countLabel": "{count} terminals",
     "dblClickRename": "{name} (double-click to rename)",
     "openInNewTabTitle": "Open in new tab",
     "restoreTitle": "Restore",
@@ -3359,6 +3355,7 @@
     "speedLabel": "{speed}/s",
     "summaryMulti": "Transfers {done}/{count}",
     "openPanelTitle": "Open transfers panel",
-    "closeAllConfirm": "Close {count} sessions (terminals & file windows)?"
+    "closeAllConfirm": "Close {count} sessions (terminals & file windows)?",
+    "sessionsCount": "{count} sessions"
   }
 }

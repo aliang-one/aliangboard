@@ -61,10 +61,6 @@ export function usePodFiles() {
     invalidateDir(ctx.container, parentDir(path))
   }
 
-  function download(ctx, path) {
-    return podFileApi.download({ namespace: ctx.namespace, pod: ctx.pod, container: ctx.container, path })
-  }
-
   function invalidate(container, path) {
     const k = dk(container, path)
     if (fileCache.value.has(k)) setMap(fileCache, (() => { const n = new Map(fileCache.value); n.delete(k); return n })())
@@ -81,5 +77,5 @@ export function usePodFiles() {
     setMap(fileCache, filterMap(fileCache.value))
   }
 
-  return { dirCache, fileCache, inflight, lastError, listDir, readFile, writeFile, download, invalidate, invalidateDir, resetForContainer }
+  return { dirCache, fileCache, inflight, lastError, listDir, readFile, writeFile, invalidate, invalidateDir, resetForContainer }
 }

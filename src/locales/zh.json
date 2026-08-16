@@ -146,11 +146,9 @@
       "close": "关闭"
     },
     "fileBrowser": {
-      "title": "文件管理 · {pod}{separator}{container}",
       "readDirFailed": "读取目录失败",
       "readFailed": "读取失败",
-      "downloadFailed": "下载失败",
-      "uploaded": "已上传 {name}（{size} 字节）",
+      "uploaded": "已上传 {name}（{size}）",
       "uploadFailed": "上传失败",
       "saved": "已保存",
       "saveFailed": "保存失败",
@@ -3020,14 +3018,12 @@
     "title": "{name} · 终端",
     "expired": "会话已过期，请关闭此窗口并在原页面重新打开终端。",
     "closeWindow": "关闭窗口",
-    "closeAllConfirm": "确定关闭全部 {count} 个终端会话？",
     "closeAllTitle": "关闭所有终端",
     "closeAll": "全部关闭",
     "statusFloating": "浮动窗口",
     "statusExternal": "在新标签页中打开",
     "statusMinimized": "已最小化",
     "closeThisTitle": "关闭此终端",
-    "countLabel": "{count} 个终端",
     "dblClickRename": "{name}（双击重命名）",
     "openInNewTabTitle": "在新标签页打开",
     "restoreTitle": "还原",
@@ -3359,6 +3355,7 @@
     "speedLabel": "{speed}/s",
     "summaryMulti": "传输 {done}/{count}",
     "openPanelTitle": "打开传输面板",
-    "closeAllConfirm": "确定关闭 {count} 个会话(终端与文件窗口)?"
+    "closeAllConfirm": "确定关闭 {count} 个会话(终端与文件窗口)?",
+    "sessionsCount": "{count} 个会话"
   }
 }
