@@ -2,8 +2,7 @@ name: build-and-publish-image
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']   # v1.2.3 这类版本 tag 触发发布构建(产出 semver 镜像标签)
+    tags: ['v*']   # 仅版本 tag 触发构建(普通 main 提交不再打包);如需手动构建走 workflow_dispatch
   workflow_dispatch:
 
 permissions:
@@ -43,9 +42,7 @@ jobs:
         with:
           images: ghcr.io/${{ steps.owner.outputs.lc }}/aliangboard
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}   # latest 只跟 main
-            type=raw,value=main,enable={{is_default_branch}}
-            type=sha,format=short,prefix=sha-
+            type=raw,value=latest                      # latest 跟随最新发布 tag
             type=semver,pattern={{version}}          # v1.2.3 → 1.2.3(不可变,锁版本用)
             type=semver,pattern={{major}}.{{minor}}  # 同时产 1.2 滚动标签
 

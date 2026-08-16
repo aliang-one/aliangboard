@@ -1,0 +1,69 @@
+name: cleanup-ghcr-images
+
+# 手动清理 ghcr 历史镜像版本:删除「只含 sha-*/main/无标签」的版本,
+# 保留带 semver(1.2.3 / 1.2)或 latest 标签的版本。
+# 干跑(dry-run)默认开——先在日志里核对将删除的清单,确认后再关掉实删。
+# 注:GITHUB_TOKEN 若无删除权限(HTTP 403),需在仓库 secrets 配
+#     GHCR_CLEANUP_TOKEN(经典 PAT,勾 read:packages + delete:packages)后重跑。
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: '只列出将删除的版本,不实际删除'
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete sha-*/main-only package versions
+        env:
+          GH_BUILTIN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GHCR_CLEANUP_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          # PAT 优先(删除需要 delete:packages),否则退回 GITHUB_TOKEN
+          TOKEN="${GH_PAT:-$GH_BUILTIN_TOKEN}"
+          auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
+
+          # 包可能挂在用户或组织名下:先试 /user,404 再试 /orgs
+          BASE=""
+          for candidate in "user" "orgs/$OWNER_LC"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${auth[@]}" \
+              "https://api.github.com/$candidate/packages/container/aliangboard/versions?per_page=1")
+            if [ "$code" != "404" ]; then BASE="$candidate"; break; fi
+          done
+          if [ -z "$BASE" ]; then echo "找不到 ghcr 包(用户/组织端点都 404)"; exit 1; fi
+          echo "包端点: $BASE"
+
+          page=1          while :; do
+            resp=$(curl -s "${auth[@]}" "https://api.github.com/$BASE/packages/container/aliangboard/versions?per_page=100&page=$page")
+            count=$(echo "$resp" | jq 'length')
+            [ "$count" -eq 0 ] && break
+
+            echo "$resp" | jq -c '.[]' | while read -r v; do
+              id=$(echo "$v" | jq -r '.id')
+              tags=$(echo "$v" | jq -r '.metadata.container.tags // [] | join(",")')
+              created=$(echo "$v" | jq -r '.created_at')
+              # 保留:任一标签是 semver(x.y[.z])或 latest;其余(sha-*/main/无标签)删除
+              keep=$(echo "$v" | jq -r '.metadata.container.tags // [] | map(test("^\\d+\\.\\d+(\\.\\d+)?$") or . == "latest") | any')
+              if [ "$keep" = "true" ]; then
+                echo "KEEP   $id  [$tags]  $created"
+              elif [ "$DRY_RUN" = "true" ]; then
+                echo "DRY-RUN would DELETE $id  [$tags]  $created"
+              else
+                code=$(curl -s -X DELETE "${auth[@]}" -o /dev/null -w '%{http_code}' \
+                  "https://api.github.com/$BASE/packages/container/aliangboard/versions/$id")
+                echo "DELETE $id  [$tags]  $created  → HTTP $code"
+              fi
+            done
+            page=$((page+1))
+          done
+          echo "done (dry-run=$DRY_RUN)"
