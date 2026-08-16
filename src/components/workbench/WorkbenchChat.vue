@@ -13,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import { applyStreamEvent } from './conv-stream'
 import { isNearBottomCalc } from '@/logic/chatScroll'
+import { getDraft, setDraft } from '@/logic/chatDrafts'
 
 const props = defineProps({
   projectId: String,
@@ -125,7 +126,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming() })
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopStick() })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
@@ -200,20 +201,34 @@ function scrollableOf(el) {
 }
 function chatScroller() { const el = scrollEl.value; return el ? scrollableOf(el) : null }
 function isNearBottom() { const t = chatScroller(); if (!t) return true; return isNearBottomCalc(t.scrollHeight, t.scrollTop, t.clientHeight) }
-// 强落底(打开/切换对话/发送/用户点「回到底部」):nextTick + rAF + 250ms 三段补偿——
-// markdown/Prism 高亮/字体在首渲后仍会撑高,单次 nextTick 会落在半途。
+// 强落底(打开/切换对话/发送/用户点「回到底部」):先落一次,再开「粘底观测」——
+// ResizeObserver 盯内容高度,markdown/Prism/字体/图片晚撑高也持续钉底(替代固定 250ms
+// 补偿:渲染快的多滚无谓,渲染慢的仍不够)。用户滚离底部即自然停观测(isNearBottom false),
+// 2s 后渲染稳定自动停;无 ResizeObserver 环境(测试)静默退化为单次落底。
+let stickObserver = null, stickTimer = null
+function stopStick() { if (stickObserver) { stickObserver.disconnect(); stickObserver = null } if (stickTimer) { clearTimeout(stickTimer); stickTimer = null } }
+function startStick() {
+  stopStick()
+  const el = scrollEl.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  stickObserver = new ResizeObserver(() => { if (isNearBottom()) { const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight } })
+  if (el.firstElementChild) stickObserver.observe(el.firstElementChild)
+  stickTimer = setTimeout(stopStick, 2000)
+}
 async function scrollToBottom() {
   await nextTick()
-  let t = chatScroller(); if (!t) return
+  const t = chatScroller(); if (!t) return
   t.scrollTop = t.scrollHeight
-  requestAnimationFrame(() => { const t2 = chatScroller(); if (t2) t2.scrollTop = t2.scrollHeight })
-  setTimeout(() => { const t2 = chatScroller(); if (t2) t2.scrollTop = t2.scrollHeight }, 250)
+  startStick()
 }
 // 跟随落底(流式 delta/done):仅当用户本来贴底才跟——上翻读历史不被拽到底(标准聊天交互)。
-function followBottom() { if (isNearBottom()) { const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight } }
+// 先 await nextTick 再量:delta 的内容此刻才渲染,渲染前量高度会差一段(慢流尾段差一行)。
+async function followBottom() { if (!isNearBottom()) return; await nextTick(); const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight }
 // 「回到底部」按钮:非贴底时露出(流式中上翻读历史的回程入口)
 const showJumpBtn = ref(false)
 function onChatScroll() { showJumpBtn.value = !isNearBottom() }
+// 草稿实时保存(空值即删;发送后 resetInput 自动清)
+watch(input, v => setDraft(conversationId.value || 'new', v))
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
@@ -230,8 +245,12 @@ watch(() => props.conversationId, async (convId) => {
   errorBanner.value = ''
   if (convId) {
     conversationId.value = convId
+    // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
+    input.value = getDraft(convId)
     await pollOnce(convId)
     if (convStatus.value === 'running') startStreaming(convId)
+  } else {
+    input.value = getDraft('new')
   }
 }, { immediate: true })
 
@@ -316,7 +335,7 @@ async function pollOnce(id) {
       stopPolling()
       if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), steps: conv.steps ?? agentTurn.steps })
       sending.value = false
-      await scrollToBottom()
+      await followBottom()
     } else if (conv.status === 'failed') {
       stopPolling()
       errorBanner.value = conv.error || t('workbench.chat.agentFailed')

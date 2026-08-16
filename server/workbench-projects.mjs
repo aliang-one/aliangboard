@@ -101,8 +101,10 @@ export function updateConversation(db, id, patch) {
 }
 
 export function listConversations(db, projectId) {
+  // updatedAt DESC(活跃度):续接/运行中的对话浮顶——createdAt 排序下旧对话永远沉底,
+  // 与「打开看到最新」的直觉相反(2026-08-16 交互审查)
   return db.prepare(`SELECT id,status,steps,userMessage,title,content,error,createdAt,updatedAt
-    FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC`).all(projectId)
+    FROM workbench_conversations WHERE projectId=? ORDER BY updatedAt DESC`).all(projectId)
 }
 
 export function appendTrace(db, id, step) {
