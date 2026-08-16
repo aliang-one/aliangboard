@@ -1,3 +1,4 @@
+<!-- 与 public/favicon.svg 保持同步(仅根 viewBox/尺寸属性不同) -->
 <svg width="269" height="245" viewBox="0 0 269 245" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path fill-rule="evenodd" clip-rule="evenodd" d="M102 0H142L219.5 181.5L186.5 195.5L174 166H70L44 222H0L102 0ZM87 128H158L122 48L87 128Z" fill="url(#paint0_linear_932_28)"/>
 <path d="M58 150L88 170L58 190" stroke="#767676" stroke-width="15" stroke-linecap="square"/>
