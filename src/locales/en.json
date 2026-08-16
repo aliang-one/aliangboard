@@ -2756,6 +2756,7 @@
       "newFilePlaceholder": "manifests/x.yaml",
       "newFileButton": "New File",
       "noFileSelected": "(no file selected)",
+      "editorEmptyHint": "Select a file on the left to edit, or type a path below to create one",
       "unsaved": "Unsaved",
       "save": "Save",
       "editorPlaceholder": "Select a file or create new, then edit…",
