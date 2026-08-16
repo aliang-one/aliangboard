@@ -166,7 +166,8 @@ test('streamUpload: req 中途 aborted → conn.close 被调 + 抛 canceled', as
   const req = new Readable({ read() {} })
   const p = streamUpload({ contentLength: 100, limitBytes: 1000, req,
     openConn: (stdinSink) => { stdinSink.on('error', () => {}); return Promise.resolve(conn) } })
-  req.push('partial'); req.destroy()           // 模拟客户端断开
+  req.push('partial')
+  req.destroy(new Error('client aborted'))   // destroy(err) → 'error' 事件(裸 destroy 只发 close,不够)
   await assert.rejects(p, e => e.canceled === true)
   assert.ok(conn.closed)
 })
