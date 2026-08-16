@@ -228,7 +228,7 @@ async function followBottom() { if (!isNearBottom()) return; await nextTick(); c
 const showJumpBtn = ref(false)
 function onChatScroll() { showJumpBtn.value = !isNearBottom() }
 // 草稿实时保存(空值即删;发送后 resetInput 自动清)
-watch(input, v => setDraft(conversationId.value || 'new', v))
+watch(input, v => { console.log('[draftDbg] save key=', conversationId.value || 'new', 'v=', v.slice(0, 10)); setDraft(conversationId.value || 'new', v) })
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
@@ -246,7 +246,7 @@ watch(() => props.conversationId, async (convId) => {
   if (convId) {
     conversationId.value = convId
     // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
-    input.value = getDraft(convId)
+    input.value = getDraft(convId); console.log('[draftDbg] restore key=', convId, 'got=', input.value.slice(0, 10))
     await pollOnce(convId)
     if (convStatus.value === 'running') startStreaming(convId)
   } else {
