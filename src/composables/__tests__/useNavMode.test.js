@@ -1,13 +1,53 @@
-// src/composables/__tests__/useNavMode.test.js
-import { test, expect } from 'vitest'
-import { drillDirection } from '../useNavMode'
+import { test, expect, vi } from 'vitest'
+import { reactive } from 'vue'
+
+// 用 reactive 对象模拟 vue-router 的 useRoute() 返回值(真实 route 也是 reactive),
+// 这样 computed 能在跨用例改 meta 时重新求值。
+const { routeRef } = vi.hoisted(() => {
+  const { reactive: _reactive } = require('vue')
+  return {
+    routeRef: _reactive({ meta: { scope: 'global' }, path: '/cluster', params: {} }),
+  }
+})
+
+vi.mock('vue-router', () => ({
+  useRoute: () => routeRef,
+  useRouter: () => ({ push: () => {} }),
+}))
+
+import { useNavMode, drillDirection } from '../useNavMode'
+
+test('scope=global → cluster mode', () => {
+  routeRef.meta.scope = 'global'
+  const { navMode, isNsMode, isClusterMode } = useNavMode()
+  expect(navMode.value).toBe('cluster')
+  expect(isClusterMode.value).toBe(true)
+  expect(isNsMode.value).toBe(false)
+})
+
+test('scope=namespace → namespace mode', () => {
+  routeRef.meta.scope = 'namespace'
+  const { navMode, isNsMode, isClusterMode } = useNavMode()
+  expect(navMode.value).toBe('namespace')
+  expect(isNsMode.value).toBe(true)
+  expect(isClusterMode.value).toBe(false)
+})
+
+test('missing scope meta → cluster mode (default)', () => {
+  routeRef.meta = {}
+  const { navMode, isClusterMode } = useNavMode()
+  expect(navMode.value).toBe('cluster')
+  expect(isClusterMode.value).toBe(true)
+})
 
 test('进入 ns = down(下钻)', () => {
   expect(drillDirection('cluster', 'namespace')).toBe('down')
 })
+
 test('返回集群 = up(上升)', () => {
   expect(drillDirection('namespace', 'cluster')).toBe('up')
 })
+
 test('未变化 = null', () => {
   expect(drillDirection('namespace', 'namespace')).toBe(null)
   expect(drillDirection('cluster', 'cluster')).toBe(null)
