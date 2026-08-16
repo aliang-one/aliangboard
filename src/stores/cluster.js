@@ -1195,7 +1195,10 @@ spec:
         http: { paths: [{ path: resource.path || '/', pathType: 'Prefix', backend: { serviceName: resource.backend?.split(':')[0], servicePort: Number(resource.backend?.split(':')[1]) || 80 } }] },
       }]
       const firstHost = rules[0]?.host || resource.hosts || ''
-      const tlsBlock = resource.tls ? `\n  tls:\n  - hosts:\n    - ${firstHost}\n    secretName: ${resource.tlsSecret || name + '-tls'}` : ''
+      // tlsList(多 host TLS,③ per-host 创建)优先;存量单 tls 布尔兜底(② 与其他调用方不变)
+      const tlsBlock = resource.tlsList?.length
+        ? '\n  tls:\n' + resource.tlsList.map(e => `  - hosts:\n    - ${e.hosts[0]}\n    secretName: ${e.secretName}`).join('\n')
+        : (resource.tls ? `\n  tls:\n  - hosts:\n    - ${firstHost}\n    secretName: ${resource.tlsSecret || name + '-tls'}` : '')
       const rulesYaml = rules.map(r => {
         const pathsYaml = (r.http?.paths || []).map(p => {
           const be = p.backend?.service || p.backend

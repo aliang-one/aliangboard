@@ -20,10 +20,12 @@ function mountDlg() {
 test('选 traefik + 填 entrypoints → addIngress 注解带 traefik 前缀、无 nginx 键', async () => {
   const w = mountDlg()
   await flushPromises()
-  // 填写必填字段以启用 create 按钮(PortSelect 被 stub,通过 vm 直接设值)
+  // 填写必填字段以启用 create 按钮(多 host 规则模型:hosts[0] + PortSelect 被 stub,通过 vm 直接设值)
   w.vm.createForm.name = 'test-ing'
-  w.vm.createForm.host = 'app.test.com'
-  w.vm.createForm.serviceName = 'svc1'
+  w.vm.hosts[0].host = 'app.test.com'
+  w.vm.hosts[0].paths[0].serviceName = 'svc1'
+  w.vm.hosts[0].paths[0].servicePort = '80'
+  await flushPromises()   // 编辑器 validation watch 重算,清空 rulesErrors 解锁按钮
   await w.find('[data-testid="ingress-class-select"]').setValue('traefik')
   await flushPromises()
   // 切到「性能调优」标签(traefik 有 perf 组)
@@ -41,7 +43,8 @@ test('选 traefik + 填 entrypoints → addIngress 注解带 traefik 前缀、�
 test('generic(未知类)→ perf 标签可达且自定义注解兜底显示,能进提交注解', async () => {
   const w = mountDlg()
   await flushPromises()
-  w.vm.createForm.name = 'g1'; w.vm.createForm.host = 'a.test'; w.vm.createForm.serviceName = 's'
+  w.vm.createForm.name = 'g1'; w.vm.hosts[0].host = 'a.test'; w.vm.hosts[0].paths[0].serviceName = 's'; w.vm.hosts[0].paths[0].servicePort = '80'
+  await flushPromises()
   await w.find('[data-testid="ingress-class-select"]').setValue('istio-thing')
   await flushPromises()
   await w.find('[data-testid="tab-perf"]').trigger('click')
@@ -76,10 +79,13 @@ test('cancel 事件(X/ESC/背景关闭)重置创建表单', async () => {
   const w = mountDlg()
   await flushPromises()
   w.vm.createForm.name = 'leak-test'
+  w.vm.hosts[0].host = 'leak.example.com'
   w.vm.customAnnotations.push({ key: 'a/b', value: '1' })
   await w.find('[data-testid="modal-x"]').trigger('click')
   await flushPromises()
   expect(w.vm.createForm.name).toBe('')
+  expect(w.vm.hosts[0].host).toBe('')
+  expect(w.vm.hosts[0].paths).toEqual([{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }])
   expect(w.vm.customAnnotations.length).toBe(0)
   expect(w.vm.createTab).toBe('basic')
 })

@@ -10,10 +10,11 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
-import PortSelect from '@/components/common/PortSelect.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
+import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import { usePagination } from '@/composables/usePagination'
 import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { hostsToK8sSpec } from '@/composables/useIngressRules'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,7 +37,6 @@ const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
 const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
-const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 // IngressClass 下拉源走 Vue Query（集群级，真实网关类；不再用硬编码列表，避免指向集群里不存在的类）
 const icQ = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
 const allIngressClasses = computed(() => icQ.data.value || [])
@@ -74,17 +74,13 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 // Create Ingress Dialog
 const showCreateModal = ref(false)
 const createTab = ref('basic')   // basic | perf | extra
-const createForm = ref({
-  name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80',
-  enableTLS: true, tlsSecret: '', className: '',
-})
-// 当前 ns Service 名候选（serviceName 下拉）
-const nsServiceNames = computed(() => nsServices.value.map(s => s.name))
-// 选中 Service 暴露的端口候选（servicePort 下拉）；service 不存在/未选时为空，允许手输兜底
-const selectedServicePorts = computed(() => {
-  const svc = svcByName(createForm.value.serviceName, route.params.namespace)
-  return (svc?.portList || []).map(p => p.port)
-})
+const createForm = ref({ name: '', className: '' })
+// 多 host 多 path 规则（共享 IngressRulesEditor；与 ④ Edit Rules 同一模型）
+const hosts = ref([{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }] }])
+const rulesErrors = ref([])
+// Service 下拉源（编辑器双下拉：name + 该 Service 暴露的端口）
+const svcOptions = computed(() => nsServices.value.map(s => ({ name: s.name, ports: (s.portList || []).map(p => p.port) })))
+const hasValidRule = computed(() => hosts.value.some(h => h.host && h.paths.some(p => p.path)))
 // 性能调优参数（→ <方言前缀>/<key> 注解，空值不写入;方言随 className 自动切换）
 const adv = ref({})
 // 自定义 annotations（键值对，兼容任意控制器）
@@ -100,7 +96,9 @@ watch(createDialect, (d) => {
 
 
 function resetCreate() {
-  createForm.value = { name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80', enableTLS: true, tlsSecret: '', className: '' }
+  createForm.value = { name: '', className: '' }
+  hosts.value = [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }] }]
+  rulesErrors.value = []
   adv.value = {}
   customAnnotations.value = []
   createTab.value = 'basic'
@@ -111,27 +109,17 @@ function removeCustomAnnotation(i) { customAnnotations.value.splice(i, 1) }
 
 async function handleCreate() {
   const f = createForm.value
+  const spec = hostsToK8sSpec(hosts.value, { defaultTlsSecret: `${f.name}-tls` })
   const r = await store.addIngress({
     name: f.name,
     namespace: route.params.namespace,
-    hosts: f.host,
-    path: f.path,
-    backend: f.serviceName + ':' + f.servicePort,
-    tls: f.enableTLS,
-    tlsSecret: f.enableTLS ? (f.tlsSecret || f.name + '-tls') : '',
-    age: 'Just now',
+    hosts: spec.rules.map(rr => rr.host).filter(Boolean).join(','),
+    tls: !!spec.tls.length,
+    tlsSecret: spec.tls[0]?.secretName || '',
+    tlsList: spec.tls,
     className: f.className,
     annotations: buildIngressAnnotations(createDialect.value, adv.value, customAnnotations.value),
-    rules: [{
-      host: f.host,
-      http: {
-        paths: [{
-          path: f.path,
-          pathType: f.pathType,
-          backend: { serviceName: f.serviceName, servicePort: parseInt(f.servicePort) }
-        }]
-      }
-    }],
+    rules: spec.rules,
   })
   if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
   queryClient.invalidateQueries({ queryKey: ingressesKey })
@@ -268,40 +256,8 @@ async function handleDelete() {
           </select>
         </div>
       </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.hostLabel') }}</label>
-        <input v-model="createForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="app.example.com" />
-      </div>
-      <div class="grid grid-cols-2 gap-md">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.pathLabel') }}</label>
-          <input v-model="createForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/" />
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.pathTypeLabel') }}</label>
-          <select v-model="createForm.pathType" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-            <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
-          </select>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-md">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.backendSvcLabel') }}</label>
-          <PortSelect v-model="createForm.serviceName" :options="nsServiceNames" placeholder="my-service" :empty-hint="t('ns.ingress.noServiceInNs')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.svcPortLabel') }}</label>
-          <PortSelect v-model="createForm.servicePort" :options="selectedServicePorts" placeholder="80" :empty-hint="t('ns.ingress.selectSvcForPort')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" />
-        </div>
-      </div>
-      <div class="flex items-center gap-sm">
-        <input v-model="createForm.enableTLS" type="checkbox" class="rounded text-primary h-4 w-4" />
-        <span class="text-body-md font-medium">{{ t('ns.ingress.enableTls') }}</span>
-      </div>
-      <div v-if="createForm.enableTLS">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.tlsSecretLabel') }}</label>
-        <input v-model="createForm.tlsSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('ns.ingress.tlsSecretPlaceholder')" />
-      </div>
+      <!-- 多 host 多 path 规则（共享编辑器:per-host TLS + 行级校验内置;validation 供创建按钮禁用） -->
+      <IngressRulesEditor v-model="hosts" :services="svcOptions" :with-tls="true" @validation="v => rulesErrors = v" />
     </div>
 
     <!-- 性能调优 / 安全与其它：参数分组 -->
@@ -342,7 +298,7 @@ async function handleDelete() {
 
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button @click="handleCreate" data-testid="create-ingress-btn" :disabled="!createForm.name || !createForm.host || !createForm.serviceName" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
+      <button @click="handleCreate" data-testid="create-ingress-btn" :disabled="!createForm.name || !hasValidRule || rulesErrors.length > 0" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
