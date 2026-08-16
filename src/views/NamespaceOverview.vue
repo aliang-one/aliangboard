@@ -1,11 +1,13 @@
 <script setup>
 // Namespace Overview：按分层体系展示工作负载卡片(Deployment/StatefulSet/DaemonSet;全层展示;监控/中间件/持久层可折叠)。
 // 关联 Service/Ingress 仅以标签呈现，hover 弹出富信息卡片（teleport 至 body，不被卡片裁切）。
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
+import { workloadCounts, isWorkloadTransitioning } from '@/logic/workloadTransition'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -20,15 +22,21 @@ const router = useRouter()
 const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
-// Workloads/Services/Ingresses 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+// === 部署感知自适应轮询:workload 变更进行中 → 三查询 3s;收敛+10s 保持后回 30s ===
+// 声明顺序即依赖顺序:pollInterval 先有值(闭包安全)→ 建查询 → fastMode 状态机消费查询数据。
+const pollInterval = ref(SLOW_MS)
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const workloadsKey = ['cluster', cid, 'workloads']
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: () => pollInterval.value },
 })
 const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
+
+// fastMode:对 ns 内 workload 判定进行中;pollInterval 随之切换(FAST/SLOW 常量同源)
+const { fastMode } = useDeployFastPoll(() => nsWorkloads.value.map(w => w.raw))
+watch(fastMode, f => { pollInterval.value = f ? FAST_MS : SLOW_MS }, { immediate: true })
 
 // 创建负载分割按钮：从 YAML 创建 / 复制 workload（弹窗状态）
 const showYamlDialog = ref(false)
@@ -38,7 +46,7 @@ const servicesKey = ['cluster', cid, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: () => pollInterval.value },
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
@@ -46,7 +54,7 @@ const ingressesKey = ['cluster', cid, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: () => pollInterval.value },
 })
 const nsIngresses = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 
@@ -177,18 +185,13 @@ const HEALTH_META = {
   failed: { dot: 'bg-status-failed', text: 'text-status-failed', label: 'ns.namespaceOverview.failed', spin: false, accent: 'border-l-status-failed' },
 }
 function healthOf(dep) {
-  const st = dep?.raw?.status || {}
-  const spec = dep?.raw?.spec || {}
-  // DaemonSet 无 spec.replicas,用调度数;Deployment/StatefulSet 用 replicas 系列。
-  const isDS = dep?.type === 'DaemonSet'
-  const desired = isDS ? (st.desiredNumberScheduled ?? 0) : (spec.replicas ?? 1)
-  const updated = isDS ? (st.updatedNumberScheduled ?? 0) : (st.updatedReplicas ?? 0)
-  const ready = isDS ? (st.numberReady ?? 0) : (st.readyReplicas ?? 0)
-  const total = isDS ? (st.currentNumberScheduled ?? ready) : (st.replicas ?? ready)
+  const raw = dep?.raw || {}
+  const { desired, updated, ready, total } = workloadCounts(raw)
+  const transitioning = isWorkloadTransitioning(raw)
   let level = 'healthy'
   if (ready === 0 && total > 0) level = 'failed'
   else if (desired === 0) level = 'warning'
-  else if (updated < desired) level = 'updating'
+  else if (transitioning) level = 'updating'
   else if (ready < desired) level = 'warning'
   const meta = HEALTH_META[level]
   return { desired, ready, ...meta, label: t(meta.label) }
@@ -231,6 +234,9 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
           <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }} <span class="text-on-surface-variant font-normal">· {{ t('ns.namespaceOverview.topology') }}</span></h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
             <span class="text-primary font-semibold">{{ workloads.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: workloads.length, layers: layerSections.filter(s => s.items.length).length }) }}
+            <span v-if="fastMode" class="ml-sm inline-flex items-center gap-xs px-sm py-0.5 rounded-full bg-primary-container/15 text-primary text-xs font-medium align-middle">
+              <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>{{ t('ns.namespaceOverview.fastPolling') }}
+            </span>
           </p>
         </div>
       </div>

@@ -1119,7 +1119,8 @@
       "healthy": "健康",
       "updating": "更新中",
       "warning": "警告",
-      "failed": "失败"
+      "failed": "失败",
+      "fastPolling": "部署进行中 · 3s 刷新"
     },
     "pdb": {
       "title": "中断预算",

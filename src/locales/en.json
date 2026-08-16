@@ -1119,7 +1119,8 @@
       "healthy": "Healthy",
       "updating": "Updating",
       "warning": "Warning",
-      "failed": "Failed"
+      "failed": "Failed",
+      "fastPolling": "Deploying · 3s refresh"
     },
     "pdb": {
       "title": "PodDisruptionBudgets",
