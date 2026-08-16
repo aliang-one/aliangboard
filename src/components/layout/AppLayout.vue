@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { useRoute } from 'vue-router'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
@@ -12,6 +13,8 @@ import { getSession } from '@/api/client'
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
 
 const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/TerminalWindow.vue'))
+// fullHeight 路由判定用:main 的 class 绑在 router-view 外,v-slot 的 route 够不到
+const route = useRoute()
 
 const store = useClusterStore()
 const termStore = useTerminalStore()
