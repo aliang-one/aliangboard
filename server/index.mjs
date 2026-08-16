@@ -250,6 +250,10 @@ if (process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true') {
 }
 
 function sendJson(res, status, payload) {
+  // 2026-08-16 断流修复·进程级免疫:响应已发 headers(如 SSE 流)后绝不能再 writeHead——
+  // 旧实现直接抛 ERR_HTTP_HEADERS_SENT,经 handle().catch 变 unhandledRejection 把整个网关
+  // 进程带走(全站 502/终极断流)。已发头只尽力 end,静默跳过。
+  if (res.headersSent) { try { res.end() } catch { /* 已断 */ } return }
   const body = JSON.stringify(payload)
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -1905,7 +1909,12 @@ async function handle(req, res) {
 }
 
 const httpServer = createServer((req, res) => {
-  handle(req, res).catch(error => sendJson(res, 500, { message: error.message || '服务器错误' }))
+  // 兜底 catch 自身也 try/catch:sendJson 若因 headersSent 等再抛,会变 unhandledRejection
+  // 直接杀死进程(曾致网关整体宕机)。错误打日志,进程必须活着。
+  handle(req, res).catch(error => {
+    console.error('[http] handle 未捕获:', error?.stack || error?.message || error)
+    try { sendJson(res, 500, { message: error.message || '服务器错误' }) } catch { /* res 已不可写 */ }
+  })
 })
 
 // WebSocket 升级：仅 /api/exec（exec 终端需要双向通道）
