@@ -52,25 +52,26 @@ test('多轮:第 2 轮 buildHistory 含第 1 轮 user/assistant + 新 user', () 
   assert.equal(history[2].content, '第 2 个详情?', '新 user 消息在末尾')
 })
 
-// @-ref 注入:续接端点把 refsCtx 拼进刚 append 的 user 消息 content → buildHistory 读到带资源上下文的版本。
-test('多轮:@-ref context 注入到新 user 消息 content,buildHistory 可见', () => {
+// @-ref 注入(2026-08-16 契约修订):续接端点不再把 refsCtx 烤进 user content(刷新后
+// 原始 JSON 当消息显示),改存干净正文;新 refs 并入对话级 "references",由 runConversation
+// 的 refreshSystem 每轮注入 system(HTTP 层契约见 workbench-conv-routes.test.mjs,此处验
+// 存储语义:content 干净可直读,references 承载 agent 上下文)。
+test('多轮:@-ref 续接 content 干净,refs 走对话级 references(refreshSystem 注入)', () => {
   const db = freshDb()
   createConversation(db, { projectId: p1Id(db), system: '', userMessage: '首轮' })
   const conv = getConversation(db, listConvId(db))
   appendMessage(db, { conversationId: conv.id, role: 'user', content: '首轮' })
   appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '首轮答' })
-  // 续接端点流程:先 append 干净 → 再 UPDATE 拼 refsCtx
+  // 续接端点流程:append 干净 user + 新 refs 并入 "references"
   const cleanMsg = '这个 pod 怎么了'
   appendMessage(db, { conversationId: conv.id, role: 'user', content: cleanMsg })
-  const refsCtx = 'Referenced resources (当前状态,供你参考):\n[pods/default/nginx]:\n{...}'
-  const maxSeq = getMaxSeq(db, conv.id)
-  db.prepare('UPDATE workbench_messages SET content=? WHERE conversationId=? AND seq=?')
-    .run(`${refsCtx}\n\n${cleanMsg}`, conv.id, maxSeq)
+  updateConversation(db, conv.id, { references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
 
   const history = buildHistory(db, conv)
   const lastUser = history[history.length - 1]
-  assert.match(lastUser.content, /Referenced resources/, '@-ref context 已注入新 user content')
-  assert.match(lastUser.content, /这个 pod 怎么了$/, '原始消息保留在末尾')
+  assert.equal(lastUser.content, cleanMsg, 'user content 干净(不含 refsCtx)')
+  const row = getConversation(db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), [{ kind: 'pods', namespace: 'default', name: 'nginx' }], 'refs 在对话级 references(refreshSystem 每轮注入 system)')
 })
 
 // done 分支 append assistant:handleAgentResult done 后消息表多一条 assistant → 下一轮 buildHistory 含它。

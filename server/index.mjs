@@ -25,6 +25,7 @@ import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscri
 import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
 import { k8sSystemPrompt } from './k8s-prompt.mjs'
 import { KIND_API_PATH } from './kind-paths.mjs'
+import { REFS_CTX_HEADER } from './refs-context.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill, gatherDistillMaterial, isNewMaterial } from './distill.mjs'
@@ -1041,7 +1042,7 @@ async function fetchRefContext(references, k8sSession) {
     } catch { return `${label}: (not found / 已删除)` }
   })
   const blocks = await Promise.all(tasks)
-  return `\n\nReferenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`
+  return `\n\n${REFS_CTX_HEADER}${blocks.join('\n\n')}`
 }
 // 从 clusterId 重建 k8sSession(POST 端点 + run/resumeConversation 共用,避免 6 字段重复)
 function buildK8sSession(clusterId) {

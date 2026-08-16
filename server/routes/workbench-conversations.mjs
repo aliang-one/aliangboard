@@ -8,6 +8,7 @@ import {
   truncateAfterLastUser, regenWatermark,
 } from '../workbench-projects.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
+import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
 
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
@@ -43,7 +44,7 @@ export function createWorkbenchConvRoutes(deps) {
         blocks.push(`${label}: (not found)`)
       }
     }
-    return { ctx: `Referenced resources (当前状态,供你参考):\n${blocks.join('\n\n')}`, resources }
+    return { ctx: `${REFS_CTX_HEADER}${blocks.join('\n\n')}`, resources }
   }
 
   // 匹配工作台对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -98,11 +99,25 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
-        const { ctx: refsCtx, resources: fetchedResources } = await buildRefsContext(project, input.references)
-        // 2) append user 消息(enriched refs + refsCtx 拼进 content 供 agent buildHistory 读;合并原两步 append+UPDATE)
-        appendMessage(db, { conversationId: id, role: 'user', content: refsCtx ? `${refsCtx}\n\n${cleanMessage}` : cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
-        // 3) 标记 running → 后台跑 → 异步摘要(失败忽略)
-        updateConversation(db, id, { status: 'running' })
+        const { resources: fetchedResources } = await buildRefsContext(project, input.references)
+        // 2) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
+        //    JSON 当消息显示;agent 上下文改由 references 走 system,见下)
+        appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
+        // 3) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
+        //    refreshSystem 每轮重写 messages[0] 注入引用资源最新状态(agent.mjs T5 漂移修复),
+        //    上下文与烤进 content 等价且更新鲜;新建路径(POST /conversations)本就走此机制。
+        let mergedRefs = []
+        try { mergedRefs = JSON.parse(conv.references || '[]') } catch { mergedRefs = [] }
+        if (Array.isArray(input.references)) {
+          const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
+          const seen = new Set(mergedRefs.map(key))
+          for (const r of input.references) {
+            const k = key(r)
+            if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) }
+          }
+        }
+        // 4) 标记 running → 后台跑 → 异步摘要(失败忽略)
+        updateConversation(db, id, { status: 'running', references: mergedRefs })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
@@ -150,7 +165,9 @@ export function createWorkbenchConvRoutes(deps) {
         pendingApproval: conv.pendingApproval, trace: conv.trace,
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
-        messages: listMessages(db, id),
+        // 出参剥掉历史版本烤进 user content 的 refsCtx 前缀(库内原文不动,agent/摘要不受
+        // 影响)——旧数据免迁移,刷新后不再把引用资源 JSON 当消息正文显示。
+        messages: listMessages(db, id).map(m => m.role === 'user' ? { ...m, content: stripRefsContext(m.content) } : m),
       })
       return true
     }
