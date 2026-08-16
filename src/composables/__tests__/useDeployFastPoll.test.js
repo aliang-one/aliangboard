@@ -1,6 +1,6 @@
 // src/composables/__tests__/useDeployFastPoll.test.js
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ref, computed, effectScope } from 'vue'
+import { ref, effectScope } from 'vue'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 
 const busyRaw = { kind: 'Deployment', spec: { replicas: 3 }, status: { readyReplicas: 1 } }

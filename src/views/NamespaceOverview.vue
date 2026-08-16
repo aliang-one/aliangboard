@@ -23,14 +23,17 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 
 // === 部署感知自适应轮询:workload 变更进行中 → 三查询 3s;收敛+10s 保持后回 30s ===
-// 声明顺序即依赖顺序:pollInterval 先有值(闭包安全)→ 建查询 → fastMode 状态机消费查询数据。
+// 声明顺序即依赖顺序:pollInterval 先声明(直传 ref 给三查询,无 TDZ)→ 建查询 → fastMode 状态机消费查询数据。
 const pollInterval = ref(SLOW_MS)
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const workloadsKey = ['cluster', cid, 'workloads']
+// refetchInterval 直传 ref(cloneDeepUnref 会 unref 并追踪 .value):
+// pollInterval 变化 → defaultedOptions watcher → setOptions → 立即重排定时器,
+// 进入/退出 fast 沿都即时生效(闭包形式无人调函数,滞后一个旧周期)。
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: () => pollInterval.value },
+  options: { refetchInterval: pollInterval },
 })
 const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
 
@@ -46,7 +49,7 @@ const servicesKey = ['cluster', cid, 'services']
 const servicesQuery = useResourceList({
   key: servicesKey,
   fetcher: () => store.fetchServices(),
-  options: { refetchInterval: () => pollInterval.value },
+  options: { refetchInterval: pollInterval },  // 直传 ref:变化即时重排定时器
 })
 const nsServices = computed(() => (servicesQuery.data.value || []).filter(s => s.namespace === route.params.namespace))
 
@@ -54,7 +57,7 @@ const ingressesKey = ['cluster', cid, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
-  options: { refetchInterval: () => pollInterval.value },
+  options: { refetchInterval: pollInterval },  // 直传 ref:变化即时重排定时器
 })
 const nsIngresses = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 
@@ -186,7 +189,8 @@ const HEALTH_META = {
 }
 function healthOf(dep) {
   const raw = dep?.raw || {}
-  const { desired, updated, ready, total } = workloadCounts(raw)
+  // updating 判定已由 isWorkloadTransitioning 承担(generation 维),此处不消费 updated。
+  const { desired, ready, total } = workloadCounts(raw)
   const transitioning = isWorkloadTransitioning(raw)
   let level = 'healthy'
   if (ready === 0 && total > 0) level = 'failed'
