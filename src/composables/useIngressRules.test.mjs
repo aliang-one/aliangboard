@@ -142,3 +142,20 @@ test('buildWizardIngressYaml: 无有效 host → 空串;无注解/无 class 时�
   assert.ok(!y.includes('annotations'))
   assert.ok(!y.includes('tls:'))
 })
+
+test('buildWizardIngressYaml: name 逐字使用 + defaultTlsSecret 参与 tls 回退(向导 -ingress 后缀契约)', () => {
+  // 调用方(DeployApp)传 name=`${f.name}-ingress`、defaultTlsSecret=`${f.name}-tls`;
+  // 函数侧:name 逐字落 metadata.name,secret 回退链 = 显式 > defaultTlsSecret > name+'-tls'
+  const hosts = [{ host: 'a.com', tls: true, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: 'myapp-svc', servicePort: '80' }] }]
+  const y = buildWizardIngressYaml(hosts, { name: 'myapp-ingress', namespace: 'default', defaultTlsSecret: 'myapp-tls' })
+  assert.ok(y.includes('  name: myapp-ingress\n  namespace: default'))   // metadata.name = 收到的 name
+  assert.ok(y.includes('    secretName: myapp-tls'))                     // defaultTlsSecret 回退生效
+  assert.ok(!y.includes('myapp-ingress-tls'))                            // 不再拼 name+'-tls'(旧链路会产出错误名)
+})
+
+test('buildWizardIngressYaml: 显式 tlsSecret 优先于 defaultTlsSecret', () => {
+  const hosts = [{ host: 'a.com', tls: true, tlsSecret: 'explicit-sec', paths: [{ path: '/', pathType: 'Prefix', serviceName: 's', servicePort: '80' }] }]
+  const y = buildWizardIngressYaml(hosts, { name: 'app', namespace: 'd', defaultTlsSecret: 'app-tls' })
+  assert.ok(y.includes('    secretName: explicit-sec'))
+  assert.ok(!y.includes('secretName: app-tls'))
+})

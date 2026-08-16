@@ -263,7 +263,8 @@ const stepBlockReason = computed(() => {
     }
     if (f.createIngress) {
       if (!f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
-      const badBackend = f.ingressRules.filter(r => r.host).some(r => r.paths.some(p => !p.serviceName || !p.servicePort))
+      // 端口门禁:非空且为纯数字(向导 YAML port.number 只收数字;PortSelect 手输的命名端口在此拦截)
+      const badBackend = f.ingressRules.filter(r => r.host).some(r => r.paths.some(p => !p.serviceName || !p.servicePort || !/^\d+$/.test(String(p.servicePort))))
       if (badBackend) return t('deploy.ingressBackendRequired')
     }
   }
@@ -640,7 +641,9 @@ spec:`
   // Ingress
   if (f.createIngress) {
     yaml += buildWizardIngressYaml(f.ingressRules, {
-      name: f.name, namespace: f.namespace, ingressClassName: f.ingressClassName,
+      // 旧向导命名约定:资源名 <name>-ingress、tls secret 默认 <name>-tls(重跑向导幂等,不旁生新 Ingress)
+      name: `${f.name}-ingress`, defaultTlsSecret: `${f.name}-tls`,
+      namespace: f.namespace, ingressClassName: f.ingressClassName,
       annotations: buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations),
     })
   }

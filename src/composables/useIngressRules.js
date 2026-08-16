@@ -96,7 +96,8 @@ export function appendPathToIngress(ingress, rule) {
 // === ① 向导 Ingress YAML(从 DeployApp previewYAML 拆出)===
 // 生成完整 Ingress 文档(以 '\n---\n' 开头,可直接字符串拼进多资源 YAML)。
 // backend 一律取 path 级 serviceName/servicePort;无兜底(向导校验负责拦截)。
-export function buildWizardIngressYaml(hosts, { name, namespace, ingressClassName = '', annotations = {} } = {}) {
+// tls secret 回退链:h.tlsSecret || defaultTlsSecret || name+'-tls'(name 逐字使用,后缀由调用方决定)。
+export function buildWizardIngressYaml(hosts, { name, namespace, ingressClassName = '', annotations = {}, defaultTlsSecret = '' } = {}) {
   const valid = (hosts || []).filter(h => h.host)
   if (!valid.length) return ''
   let yaml = `\n---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ${name}\n  namespace: ${namespace}`
@@ -109,7 +110,7 @@ export function buildWizardIngressYaml(hosts, { name, namespace, ingressClassNam
   const tlsHosts = valid.filter(h => h.tls)
   if (tlsHosts.length) {
     yaml += `\n  tls:`
-    tlsHosts.forEach(h => { yaml += `\n  - hosts:\n    - ${h.host}\n    secretName: ${h.tlsSecret || name + '-tls'}` })
+    tlsHosts.forEach(h => { yaml += `\n  - hosts:\n    - ${h.host}\n    secretName: ${h.tlsSecret || defaultTlsSecret || name + '-tls'}` })
   }
   yaml += `\n  rules:`
   valid.forEach(h => {
