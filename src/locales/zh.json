@@ -167,7 +167,8 @@
       "folderItems": "{count} 项",
       "binaryHint": "二进制文件不提供预览，可下载查看",
       "collapse": "折叠",
-      "expand": "展开"
+      "expand": "展开",
+      "closeTitle": "关闭文件窗口"
     },
     "asyncState": {
       "loadFailed": "加载失败，请稍后重试",
@@ -3333,5 +3334,24 @@
   },
   "envSource": {
     "nsMissing": "当前命名空间未找到该资源(可跨命名空间手输)"
+  },
+  "transfers": {
+    "panelTitle": "传输任务",
+    "empty": "暂无传输任务",
+    "downloadLabel": "下载",
+    "uploadLabel": "上传",
+    "cancelTitle": "取消传输",
+    "removeTitle": "从列表移除",
+    "clearFinished": "清除已结束",
+    "statusActive": "传输中",
+    "statusDone": "已完成",
+    "statusError": "失败",
+    "statusCanceled": "已取消",
+    "indeterminate": "已接收 {received}",
+    "progressLabel": "{received} / {total}",
+    "speedLabel": "{speed}/s",
+    "summaryMulti": "传输 {done}/{count}",
+    "openPanelTitle": "打开传输面板",
+    "closeAllConfirm": "确定关闭 {count} 个会话(终端与文件窗口)?"
   }
 }

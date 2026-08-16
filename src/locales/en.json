@@ -167,7 +167,8 @@
       "folderItems": "{count} items",
       "binaryHint": "Binary file — preview unavailable, download to view",
       "collapse": "Collapse",
-      "expand": "Expand"
+      "expand": "Expand",
+      "closeTitle": "Close file window"
     },
     "asyncState": {
       "loadFailed": "Load failed, please retry later",
@@ -3333,5 +3334,24 @@
   },
   "envSource": {
     "nsMissing": "Resource not found in the current namespace (cross-namespace manual input allowed)"
+  },
+  "transfers": {
+    "panelTitle": "Transfers",
+    "empty": "No transfers",
+    "downloadLabel": "Download",
+    "uploadLabel": "Upload",
+    "cancelTitle": "Cancel transfer",
+    "removeTitle": "Remove from list",
+    "clearFinished": "Clear finished",
+    "statusActive": "Transferring",
+    "statusDone": "Done",
+    "statusError": "Failed",
+    "statusCanceled": "Canceled",
+    "indeterminate": "Received {received}",
+    "progressLabel": "{received} / {total}",
+    "speedLabel": "{speed}/s",
+    "summaryMulti": "Transfers {done}/{count}",
+    "openPanelTitle": "Open transfers panel",
+    "closeAllConfirm": "Close {count} sessions (terminals & file windows)?"
   }
 }

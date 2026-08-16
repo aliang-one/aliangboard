@@ -7,6 +7,7 @@ import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
+import { useTransferStore } from '@/stores/transfers'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { getSession } from '@/api/client'
 
@@ -16,12 +17,15 @@ import { getSession } from '@/api/client'
 const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/TerminalWindow.vue'))
 // 文件浏览窗口同策略懒加载：仅用户开了文件浏览才拉 FileBrowserBody 等体量组件
 const FileBrowserWindow = defineAsyncComponent(() => import('@/components/common/FileBrowserWindow.vue'))
+// 传输面板同策略:仅 panelOpen 时才加载(任务列表轻,但保持一致)
+const TransfersPanel = defineAsyncComponent(() => import('@/components/common/TransfersPanel.vue'))
 // fullHeight 路由判定用:main 的 class 绑在 router-view 外,v-slot 的 route 够不到
 const route = useRoute()
 
 const store = useClusterStore()
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
+const trStore = useTransferStore()
 const { tick: refreshTick } = usePageRefresh()
 
 // footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
@@ -90,5 +94,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <TerminalWindow v-for="t in termStore.allTerminals" :key="t.id" :terminal="t" v-show="t.status === 'open'" />
     <!-- 浮动文件浏览窗口:v-show 保持挂载,最小化状态同步 -->
     <FileBrowserWindow v-for="b in fbStore.browsers" :key="b.id" :browser="b" v-show="b.status === 'open'" />
+    <!-- 传输面板:按需挂载(关闭即销毁,状态在 transfers store) -->
+    <TransfersPanel v-if="trStore.panelOpen" />
   </div>
 </template>

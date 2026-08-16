@@ -16,7 +16,7 @@ const fbStore = useFileBrowserStore()
     :title="browser.name" :subtitle="browser.namespace" icon="folder_open"
     width="860px" height="540px" :z-index="browser.zIndex"
     :cascade-index="fbStore.browsers.indexOf(browser)"
-    :maximize-title="t('terminal.maximizeTitle')" :minimize-title="t('terminal.minimizeTitle')" :close-title="t('terminal.closeTerminalTitle')"
+    :maximize-title="t('terminal.maximizeTitle')" :minimize-title="t('terminal.minimizeTitle')" :close-title="t('component.fileBrowser.closeTitle')"
     @focus="fbStore.focusBrowser(browser.id)"
     @minimize="fbStore.minimizeBrowser(browser.id)"
     @close="fbStore.closeBrowser(browser.id)"
