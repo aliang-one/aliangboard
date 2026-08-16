@@ -96,7 +96,7 @@ test('cancel 事件(X/ESC/背景关闭)重置创建表单', async () => {
 test('proxy-buffer-size 渲染单位下拉,4+k → 注解值 "4k"', async () => {
   const w = mountDlg()
   await flushPromises()
-  w.vm.createForm.name = 'sz'; w.vm.createForm.host = 'a.test'; w.vm.createForm.serviceName = 's'
+  w.vm.createForm.name = 'sz'; w.vm.hosts[0].host = 'a.test'; w.vm.hosts[0].paths[0].serviceName = 's'; w.vm.hosts[0].paths[0].servicePort = '80'
   await w.find('[data-testid="ingress-class-select"]').setValue('nginx')
   await flushPromises()
   await w.find('[data-testid="tab-perf"]').trigger('click')
@@ -114,7 +114,7 @@ test('非法值(自定义注解 proxy-buffer-size=4kb)→ 拦截:addIngress 不�
   addIngress.mockClear()
   const w = mountDlg()
   await flushPromises()
-  w.vm.createForm.name = 'bad'; w.vm.createForm.host = 'a.test'; w.vm.createForm.serviceName = 's'
+  w.vm.createForm.name = 'bad'; w.vm.hosts[0].host = 'a.test'; w.vm.hosts[0].paths[0].serviceName = 's'; w.vm.hosts[0].paths[0].servicePort = '80'
   w.vm.showCreateModal = true   // Modal 被 stub 恒渲染内容,显式打开以断言「拦截后弹窗保留」
   w.vm.customAnnotations.push({ key: 'nginx.ingress.kubernetes.io/proxy-buffer-size', value: '4kb' })
   await flushPromises()   // 等待 :disabled 重渲染;VTU trigger 对 disabled 元素不派发事件
@@ -129,7 +129,7 @@ test('非法性能字段值(proxy-send-timeout=6o)→ 拦截且 toast 指名字�
   addIngress.mockClear()
   const w = mountDlg()
   await flushPromises()
-  w.vm.createForm.name = 'bad2'; w.vm.createForm.host = 'a.test'; w.vm.createForm.serviceName = 's'
+  w.vm.createForm.name = 'bad2'; w.vm.hosts[0].host = 'a.test'; w.vm.hosts[0].paths[0].serviceName = 's'; w.vm.hosts[0].paths[0].servicePort = '80'
   await w.find('[data-testid="ingress-class-select"]').setValue('nginx')   // proxy-send-timeout 属 nginx 方言,校验器按方言分组扫描
   await flushPromises()
   w.vm.adv['proxy-send-timeout'] = '6o'   // 数字框拦不住脚本注入,走校验器兜底(须在切方言后注入,watch 会清 adv)
