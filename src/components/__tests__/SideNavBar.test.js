@@ -73,21 +73,44 @@ test('cluster mode: Header 为静态、无 cluster-home', () => {
   expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
 })
 
-test('ns mode: cluster-home 在底部 + 顶部无集群头', () => {
+test('ns mode: 顶部收缩为锚点条,无大头部', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   const w = mountSideNavBar()
-  // 返回链接迁到底部区
-  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(true)
-  // ns 态顶部不再有集群头品牌块
+  expect(w.find('[data-test="cluster-header"]').exists()).toBe(true)
+  expect(w.find('[data-test="cluster-anchor"]').exists()).toBe(true)
   expect(w.find('[data-test="cluster-brand"]').exists()).toBe(false)
 })
 
-test('cluster mode: 顶部有 cluster-brand + 底部无返回链接', () => {
+test('cluster mode: 顶部为大头部,无锚点条', () => {
   routeRef.meta.scope = 'global'
   routeRef.path = '/cluster'
   const w = mountSideNavBar()
   expect(w.find('[data-test="cluster-brand"]').exists()).toBe(true)
+  expect(w.find('[data-test="cluster-anchor"]').exists()).toBe(false)
+})
+
+test('ns mode: 点锚点条 → push /cluster', async () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  pushMock.mockClear()
+  const w = mountSideNavBar()
+  await w.find('[data-test="cluster-anchor"]').trigger('click')
+  expect(pushMock).toHaveBeenCalledWith('/cluster')
+})
+
+test('ns mode: cluster-home 在底部', () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  const w = mountSideNavBar()
+  // 返回链接迁到底部区(待 Task 5 处理)
+  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(true)
+})
+
+test('cluster mode: 底部无返回链接', () => {
+  routeRef.meta.scope = 'global'
+  routeRef.path = '/cluster'
+  const w = mountSideNavBar()
   expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(false)
 })
 

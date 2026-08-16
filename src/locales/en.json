@@ -300,6 +300,7 @@
     "auditTrail": "Audit",
     "settings": "Settings",
     "deploy": "Deploy",
+    "backToCluster": "Back to cluster",
     "workloads": "Workloads",
     "workloadsList": "Workloads",
     "events": "Events",

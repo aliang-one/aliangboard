@@ -191,15 +191,28 @@ function nsStatusColor(status) {
 
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
-    <!-- Cluster Header:仅集群态展示(ns 态顶部让给 ns,返回走底部链接) -->
-    <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md p-md px-lg shrink-0">
-      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
-        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
+    <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
+    <div data-test="cluster-header" class="shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
+      :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
+      <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full">
+        <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
+          <span class="material-symbols-outlined text-lg filled">kubernetes</span>
+        </div>
+        <div class="min-w-0">
+          <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
+          <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
+        </div>
       </div>
-      <div class="min-w-0">
-        <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
-        <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
-      </div>
+      <button v-else data-test="cluster-anchor" @click="router.push('/cluster')"
+        class="flex items-center gap-sm w-full min-w-0 group cursor-pointer"
+        :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
+        <span class="material-symbols-outlined text-lg text-primary">kubernetes</span>
+        <span class="text-body-md font-semibold text-on-surface truncate">{{ store.cluster.name || 'Cluster' }}</span>
+        <span class="ml-auto flex items-center gap-2xs text-body-sm text-on-surface-variant transition-colors group-hover:text-primary">
+          <span class="material-symbols-outlined text-base">chevron_left</span>
+          <span class="whitespace-nowrap">{{ $t('nav.backToCluster') }}</span>
+        </span>
+      </button>
     </div>
 
     <!-- Divider -->
