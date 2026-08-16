@@ -1,3 +1,5 @@
+import { yamlScalar } from './useYaml.js'
+
 // 构造 Ingress 路由规则的 PATCH body（networking.k8s.io/v1，merge-patch 语义）。
 // 入参：flatRules [{host,path,pathType,serviceName,servicePort}] + defaultBackend {enabled,serviceName,servicePort} | null
 // 出参：{ spec: { rules, defaultBackend } }；defaultBackend===null 表示删除该字段。
@@ -72,4 +74,49 @@ export function hostsToK8sSpec(hosts, { defaultTlsSecret = '' } = {}) {
     if (h.tls && h.host) tls.push({ hosts: [h.host], secretName: h.tlsSecret || defaultTlsSecret })
   }
   return { rules, tls }
+}
+
+// === ② 智能追加决策 ===
+// 同 host(精确、trim 后非空)的已有 Ingress 列表。ingressList 为 store ingress 对象。
+export function sameHostIngresses(ingressList, host) {
+  const h = String(host || '').trim()
+  if (!h) return []
+  return (ingressList || []).filter(i => (i.rules || []).some(r => (r.host || '') === h))
+}
+
+// 往单个 ingress 追加一条 path:拍平现有规则 + 新规则,返回完整 flatRules(供 updateIngressRules)
+// 与冲突标记(同 host 同 path 已存在,忽略 pathType)。defaultBackend 由调用方从 ingress 对象读取并回传。
+export function appendPathToIngress(ingress, rule) {
+  const flat = ingressRulesToFlat(ingress.rules || [])
+  const conflict = flat.some(r => r.host === (rule.host || '') && r.path === (rule.path || '/'))
+  flat.push({ host: rule.host || '', path: rule.path || '/', pathType: rule.pathType || 'Prefix', serviceName: rule.serviceName || '', servicePort: rule.servicePort })
+  return { flatRules: flat, conflict }
+}
+
+// === ① 向导 Ingress YAML(从 DeployApp previewYAML 拆出)===
+// 生成完整 Ingress 文档(以 '\n---\n' 开头,可直接字符串拼进多资源 YAML)。
+// backend 一律取 path 级 serviceName/servicePort;无兜底(向导校验负责拦截)。
+export function buildWizardIngressYaml(hosts, { name, namespace, ingressClassName = '', annotations = {} } = {}) {
+  const valid = (hosts || []).filter(h => h.host)
+  if (!valid.length) return ''
+  let yaml = `\n---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ${name}\n  namespace: ${namespace}`
+  if (Object.keys(annotations).length) {
+    yaml += '\n  annotations:'
+    for (const [k, v] of Object.entries(annotations)) yaml += `\n    ${k}: ${yamlScalar(v)}`
+  }
+  yaml += `\nspec:`
+  if (ingressClassName) yaml += `\n  ingressClassName: ${ingressClassName}`
+  const tlsHosts = valid.filter(h => h.tls)
+  if (tlsHosts.length) {
+    yaml += `\n  tls:`
+    tlsHosts.forEach(h => { yaml += `\n  - hosts:\n    - ${h.host}\n    secretName: ${h.tlsSecret || name + '-tls'}` })
+  }
+  yaml += `\n  rules:`
+  valid.forEach(h => {
+    yaml += `\n  - host: ${h.host}\n    http:\n      paths:`
+    h.paths.filter(p => p.path).forEach(p => {
+      yaml += `\n      - path: ${p.path}\n        pathType: ${p.pathType}\n        backend:\n          service:\n            name: ${p.serviceName}\n            port:\n              number: ${p.servicePort}`
+    })
+  })
+  return yaml
 }
