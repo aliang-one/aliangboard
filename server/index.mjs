@@ -18,6 +18,7 @@ import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
+import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
@@ -138,6 +139,11 @@ db.exec("UPDATE workbench_conversations SET status='failed', error='Server resta
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
+// Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
+function getPodfileLimitBytes() {
+  const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
+  return mb * 1024 * 1024
+}
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
   return {
@@ -884,7 +890,7 @@ async function ensurePvcBrowser(session, ns, pvc) {
 }
 
 const PODFILE_PREVIEW_LIMIT = 256 * 1024   // 预览最多 256KB
-const PODFILE_DOWNLOAD_LIMIT = 16 * 1024 * 1024  // 下载最多 16MB（超出请用终端）
+// (下载 16MB 硬上限已废——download 走 streamDownload 流式,限额统一 getPodfileLimitBytes(),admin 可调)
 
 // 注入 Ephemeral Container（kubectl debug 语义）：向 pods/ephemeralcontainers 子资源
 // 先 GET 已有列表再 PUT 追加，避免覆盖同名临时容器。需集群启用 EphemeralContainers（1.25+ 默认开启）。
@@ -1635,6 +1641,32 @@ async function handle(req, res) {
     if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
     const action = url.pathname.slice('/api/podfile/'.length)
     try {
+      // upload:二进制流式(元信息走查询串,请求体 pipe → exec stdin,不经 base64/不整包缓冲)。
+      // 必须在 readBody 之前——readBody 会把整个请求体缓冲进内存。
+      if (action === 'upload') {
+        const q = url.searchParams
+        const namespace = q.get('namespace'), pod = q.get('pod')
+        const container = q.get('container') || '', path = q.get('path') || ''
+        if (!namespace || !pod || !path) return sendJson(res, 400, { message: '缺少 namespace / pod / path' })
+        const contentLength = parseInt(req.headers['content-length'] || '', 10)
+        const { KubeConfig, Exec } = await k8sClient()
+        const exec = new Exec(buildKubeConfig(KubeConfig, session))
+        try {
+          const r = await streamUpload({
+            contentLength, limitBytes: getPodfileLimitBytes(), req,
+            openConn: (input, stderrSink) => {
+              const stdin = new PassThrough()   // 过早 EOF 会让 kubelet 提前关 exec(见 execCapture 注释),pipe 保持到 req end
+              input.pipe(stdin)
+              return exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"', 'podfile-upload', path], null, stderrSink, stdin, false)
+            },
+          })
+          return sendJson(res, 200, { ...r, path })
+        } catch (error) {
+          console.error('[podfile/upload]', error?.status || '', error?.message || error)
+          if (error.canceled) return sendJson(res, 499, { message: '客户端中断上传' })
+          return sendJson(res, error.status || 502, { message: error?.message || '上传失败' })
+        }
+      }
       const input = await readBody(req)
       const namespace = input.namespace, pod = input.pod, container = input.container || ''
       const path = input.path || '/'
@@ -1671,19 +1703,27 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true, path, bytes: bytes.length })
       }
       if (action === 'download') {
-        const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'cat "$1"', 'cat', path])
-        const errText = result.stderr.trim()
-        if (errText && !result.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
-        if (result.stdout.length > PODFILE_DOWNLOAD_LIMIT) return sendJson(res, 413, { message: `文件过大（>${Math.round(PODFILE_DOWNLOAD_LIMIT / 1024 / 1024)}MB），请在终端中下载` })
-        const base = (path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')
-        res.writeHead(200, {
-          'content-type': 'application/octet-stream',
-          'content-disposition': `attachment; filename="${base}"`,
-          'content-length': result.stdout.length,
-          'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
-          'access-control-expose-headers': 'content-disposition',
-        })
-        return res.end(result.stdout)
+        // 流式:先 stat 大小(404/413 在头部发出前判定),再 exec base64 输出逐行解码转发(见 podfile-stream)
+        const stat = await execCapture(session, namespace, pod, container, ['sh', '-c', 'wc -c < "$1"', 'wc', path], true)
+        const statBytes = parseInt(stat.stdout.toString('utf8').trim(), 10)
+        const base = ((path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')) || 'download'
+        try {
+          // CORS 头沿用原 download 分支(setHeader 与 streamDownload 内的 writeHead 合并下发)
+          res.setHeader('access-control-allow-origin', process.env.CORS_ORIGIN || '*')
+          res.setHeader('access-control-expose-headers', 'content-disposition')
+          await streamDownload({
+            statBytes, limitBytes: getPodfileLimitBytes(), res, filename: base,
+            openConn: async (stdoutSink, stderrSink) => {   // async:streamDownload 内 await openConn,兼容 k8sClient() 异步加载
+              const { KubeConfig, Exec } = await k8sClient()
+              const exec = new Exec(buildKubeConfig(KubeConfig, session))
+              return exec.exec(namespace, pod, container, ['sh', '-c', 'base64 "$1"', 'base64', path], stdoutSink, stderrSink, new PassThrough(), true)
+            },
+          })
+        } catch (error) {
+          console.error('[podfile/download]', error?.status || '', error?.message || error)
+          if (!res.headersSent) return sendJson(res, error.status || 502, { message: error?.message || '下载失败' })
+        }
+        return
       }
       return sendJson(res, 404, { message: `未知 podfile 操作：${action}` })
     } catch (error) {

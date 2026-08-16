@@ -1,6 +1,7 @@
 // 管理 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // LLM/MCP 配置、集群 CRUD、API keys、审计日志、用户管理 逐字搬迁,仅依赖引用改走 deps 注入。
 import { listKeys, mintKey, revokeKey } from '../auth-keys.mjs'
+import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
 import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize.mjs'
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 
@@ -66,6 +67,25 @@ export function createAdminRoutes(deps) {
         const input = await readBody(req)
         setSetting('mcp_enabled', input.enabled === false ? 'false' : 'true')
         sendJson(res, 200, { ok: true, enabled: input.enabled !== false })
+        return true
+      } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+
+    // ====== Pod 文件传输限额(上传/下载共用;默认 1GB,1-10240MB)======
+    if (url.pathname === '/api/admin/podfile-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
+      sendJson(res, 200, { limitMb: mb })
+      return true
+    }
+    if (url.pathname === '/api/admin/podfile-config' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const mb = limitMbFromValue(input.limitMb)
+        if (!mb) { sendJson(res, 400, { message: 'limitMb 须为 1-10240 的整数(MB)' }); return true }
+        setSetting('podfile.limitMb', String(mb))
+        sendJson(res, 200, { ok: true, limitMb: mb })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
     }

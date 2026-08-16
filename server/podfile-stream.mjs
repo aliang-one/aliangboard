@@ -102,6 +102,9 @@ export function streamUpload({ contentLength, limitBytes, openConn, req }) {
     const fail = (e) => { if (settled) return; settled = true; try { conn?.close() } catch { /* noop */ } reject(e) }
     openConn(req, stderrSink)          // 注意:openConn 的第一参即 stdin(=req 原样传给 exec 也可,但为对齐 seam 统一由调用方 pipe)
       .then(c => {
+        // 竞态:fail() 先走(req aborted 时 conn 还是 null,close 不掉任何东西),随后 openConn 才 resolve——
+        // 此时 settled=true,若照常赋值 conn,close handler 会因 settled 早退,这条 exec 连接就永久泄漏
+        if (settled) { try { c.close() } catch { /* 已关 */ } return }
         conn = c
         conn.on('close', () => {
           if (settled) return
