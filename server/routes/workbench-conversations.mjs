@@ -228,6 +228,11 @@ export function createWorkbenchConvRoutes(deps) {
         return true
       }
       if (conv.status === 'done' || conv.status === 'failed' || conv.status === 'cancelled') {
+        // 终态补发完整快照(dev31):此前只发 status+end 不带 content——刷新后恰逢对话刚结束的
+        // 窗口连入的客户端,thinking turn 被置 done 但内容为空("看不到回答"的根因之一)。
+        let finalTrace = []
+        try { finalTrace = JSON.parse(conv.trace || '[]') } catch { finalTrace = [] }
+        send({ type: 'snapshot', content: conv.content || '', trace: finalTrace, steps: conv.steps ?? 0 })
         send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
         send({ type: 'end' })
         res.end()

@@ -43,6 +43,7 @@ const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
 let es = null
 let esErrCount = 0 // onerror 中 CONNECTING 态的自动重连次数(防风暴,>5 降级轮询)
+let watchdogTimer = null // SSE 看门狗(dev31);顶部声明避免 TDZ(immediate watch 在声明前调 stopWatchdog)
 
 // --- @-mention state ---
 const refs = ref([])
@@ -126,7 +127,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopStick() })
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick() })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
@@ -237,6 +238,7 @@ function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); 
 watch(() => props.conversationId, async (convId) => {
   stopPolling()
   stopStreaming()
+  stopWatchdog()
   turns.value = []
   conversationId.value = null
   convStatus.value = null
@@ -260,6 +262,20 @@ function startPolling(id) {
   // 立即首次拉取(不等 2s)
   pollOnce(id)
 }
+
+// ── SSE 看门狗(dev31):SSE 期间并行跑 10s 慢速对齐轮询 ──
+// 动机:SSE 死亡而 onerror 未触发时(事件丢失/中间层静默断连),此前无任何机制兜底——
+// 审批永远不弹、终答永远不落地,用户必须手动刷新(刷新走 pollOnce 才看到)。
+// 看门狗保证:paused/done/failed 状态漂移 ≤10s 被对齐(pollOnce 的 paused 分支弹审批
+// modal、done 分支落地终答)。正常运行时 pollOnce 无副作用(不覆盖 live content)。
+function startWatchdog(id) {
+  stopWatchdog()
+  watchdogTimer = setInterval(() => {
+    if (agentTurnDoneOrFinal()) { stopWatchdog(); return }
+    pollOnce(id)
+  }, 10000)
+}
+function stopWatchdog() { if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null } }
 
 // 解析消息的 refs 字段(后端存 JSON 字符串)为数组,供 ChatTurn ResourceCard 渲染。
 function parseRefs(raw) {
@@ -324,6 +340,7 @@ async function pollOnce(id) {
     if (rebuiltFromMessages) await scrollToBottom()
     if (conv.status === 'paused') {
       stopPolling()
+      stopWatchdog()
       let pa = null
       try { pa = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch { pa = null }
       if (agentTurn) updateTurn(agentTurn._id, { status: 'pending_approval', steps: conv.steps ?? agentTurn.steps })
@@ -333,11 +350,13 @@ async function pollOnce(id) {
       sending.value = false
     } else if (conv.status === 'done') {
       stopPolling()
+      stopWatchdog()
       if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), steps: conv.steps ?? agentTurn.steps })
       sending.value = false
       await followBottom()
     } else if (conv.status === 'failed') {
       stopPolling()
+      stopWatchdog()
       errorBanner.value = conv.error || t('workbench.chat.agentFailed')
       if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: conv.error || t('workbench.chat.agentFailed') })
       sending.value = false
@@ -362,6 +381,7 @@ function agentTurnDoneOrFinal() {
 function startStreaming(id) {
   stopStreaming()
   stopPolling()
+  startWatchdog(id) // SSE 死亡无 onerror 时 ≤10s 对齐兜底(dev31)
   esErrCount = 0 // 每次建连重置重连风暴计数
   const token = getPlatformToken()
   // EventSource 不能加自定义 header;走 ?token= query(服务端 requirePlatform 已支持 query 回退)。
@@ -405,7 +425,7 @@ function startStreaming(id) {
     if (evt.type === 'delta') followBottom()
     // 终态:关流
     if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
-      stopStreaming(); sending.value = false; followBottom()
+      stopStreaming(); stopWatchdog(); sending.value = false; followBottom()
     }
     // end 事件:若已到终态则关流,否则也关(连接终结)
     if (evt.type === 'end') {
@@ -464,7 +484,7 @@ async function stopRun() {
   try { await workbenchApi.conversations.cancel(conversationId.value); cancelled = true }
   catch { cancelled = false }
   if (cancelled) {
-    stopStreaming(); stopPolling()
+    stopStreaming(); stopPolling(); stopWatchdog()
     const at = activeAgentTurn()
     if (at && at.status === 'thinking') updateTurn(at._id, { status: 'error', error: t('workbench.chat.stopped') })
     convStatus.value = 'cancelled'
@@ -573,7 +593,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null; recap.value = '' }
+function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null; recap.value = '' }
 </script>
 
 <template>
