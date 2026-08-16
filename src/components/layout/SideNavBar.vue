@@ -193,9 +193,7 @@ function nsStatusColor(status) {
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
     <!-- Cluster Header:仅集群态展示(ns 态顶部让给 ns,返回走底部链接) -->
     <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md p-md px-lg shrink-0">
-      <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
-        <span class="material-symbols-outlined text-lg filled">kubernetes</span>
-      </div>
+      <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
       <div class="min-w-0">
         <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
         <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>

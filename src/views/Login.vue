@@ -42,9 +42,7 @@ async function handleLogin() {
     <div class="w-full max-w-sm">
       <!-- Logo -->
       <div class="text-center mb-xl">
-        <div class="w-16 h-16 rounded-2xl bg-primary-container/20 flex items-center justify-center mx-auto">
-          <span class="material-symbols-outlined text-primary text-4xl">kubernetes</span>
-        </div>
+        <img src="/aliang-logo.svg" alt="AliangBoard" class="w-16 h-auto mx-auto" width="64" height="58" />
         <h1 class="text-display-md font-bold text-on-surface mt-md">{{ $t('login.title') }}</h1>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('login.subtitle') }}</p>
       </div>
