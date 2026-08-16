@@ -299,6 +299,7 @@
     "auditTrail": "审计",
     "settings": "设置",
     "deploy": "部署",
+    "backToCluster": "返回集群",
     "workloads": "工作负载",
     "workloadsList": "工作负载列表",
     "events": "事件",
