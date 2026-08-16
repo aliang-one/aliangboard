@@ -244,3 +244,34 @@ test('agent resume 路径也调 refreshSystem(每轮 chat 前重置)', async () 
   })
   assert.deepEqual(calls, ['r@1'])
 })
+
+// dev27: tool_start 事件(UI"正在跑哪个工具"的 running 态)
+test('工具执行前发 tool_start(name+args),完成后发 tool(带 result);checkpoint/denied 不发', async () => {
+  const steps = []
+  const execTool = async (name) => {
+    // 执行瞬间断言:start 已发、tool 未发(时序保证)
+    const types = steps.map(s => s.type)
+    assert.ok(types.includes('tool_start'), 'execTool 前应有 tool_start')
+    assert.ok(!types.includes('tool'), 'execTool 前不应有完成事件')
+    return `${name}-result`
+  }
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'list_resources', { kind: 'pods' }), final('done')]),
+    execTool,
+    needsApproval: n => n === 'scale',
+  }).run
+  await run({ history: [{ role: 'user', content: '列 pod' }], onStep: e => steps.push(e) })
+  const toolEvents = steps.filter(s => s.type === 'tool' || s.type === 'tool_start')
+  assert.equal(toolEvents.length, 2, '一进一出配对')
+  assert.equal(toolEvents[0].name, 'list_resources')
+  assert.deepEqual(toolEvents[0].args, { kind: 'pods' })
+  assert.equal(toolEvents[1].result, 'list_resources-result')
+  const run2 = createAgent({
+    chat: mockChat([toolCall('1', 'scale', { replicas: 2 })]),
+    execTool: async () => 'ok',
+    needsApproval: () => true,
+  }).run
+  const steps2 = []
+  await run2({ history: [], onStep: e => steps2.push(e) })
+  assert.ok(steps2.every(s => s.type !== 'tool_start'), 'checkpoint(未批准未执行)不发 tool_start')
+})

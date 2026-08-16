@@ -83,7 +83,8 @@ function buildHistory() {
 // 把一次 chat 响应(初始或 resume)应用到对应 assistant turn
 function applyResponse(agentId, res) {
   const t = turns.value.find(x => x._id === agentId)
-  if (t && Array.isArray(res.trace) && res.trace.length) t.trace.push(...res.trace)
+  // 本控制台一次性收完整 trace(无流式):tool_start 执行前瞬态过滤掉,防"永远在跑"的行
+  if (t && Array.isArray(res.trace) && res.trace.length) t.trace.push(...res.trace.filter(x => x?.type !== 'tool_start'))
   if (res.status === 'pending_approval') {
     updateTurn(agentId, { status: 'pending_approval', steps: res.steps ?? t.steps, denied: res.denied || [], truncated: false })
     pendingApproval.value = {
@@ -235,6 +236,12 @@ function clearChat() { turns.value = []; pendingApproval.value = null; errorBann
                   <span class="material-symbols-outlined text-sm">block</span>
                   <span class="font-mono font-semibold">{{ ev.name }}</span>
                   <span>{{ $t('admin.agent.userDenied') }}</span>
+                </div>
+                <!-- tool_start 瞬态:正在执行的工具(running 行,完成后被 tool 事件替换) -->
+                <div v-else-if="ev.type === 'tool_start'" class="flex items-center gap-xs px-sm py-xs text-status-running">
+                  <span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                  <span class="font-mono font-semibold">{{ ev.name }}</span>
+                  <span v-if="fmtArgs(ev.args)" class="font-mono text-on-surface-variant truncate">{{ fmtArgs(ev.args) }}</span>
                 </div>
               </div>
             </div>

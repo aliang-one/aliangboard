@@ -311,6 +311,7 @@ test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades 
     // ── 自动重连成功:服务端 snapshot 补齐 gap ──
     esInstance.onmessage({ data: JSON.stringify({ type: 'snapshot', content: 'part1part2', trace: [], steps: 1 }) })
     await flushPromises()
+    await new Promise(r => setTimeout(r, 200)) // ChatTurn 流式渲染 150ms 合并窗(P0-3 节流)
     expect(w.html()).toContain('part1part2', '快照替换续流')
 
     // ── CLOSED(服务端关流且未终态)→ 降级轮询 ──
