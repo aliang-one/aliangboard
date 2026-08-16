@@ -6,7 +6,8 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
-import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
+import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
@@ -679,6 +680,10 @@ function validate() {
   f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
   const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
   if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
+  if (f.createIngress) {
+    for (const e of validateIngressAdv(ingressDialect.value, f.ingressAdv)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+    for (const e of validateCustomAnnotations(f.ingressCustomAnnotations)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+  }
   return errs
 }
 async function handleDeploy() {
@@ -1487,12 +1492,7 @@ async function handleDeploy() {
                   </div>
                   <div class="grid grid-cols-2 gap-xs">
                     <div v-for="fld in g.fields" :key="fld.key">
-                      <label class="text-xs text-on-surface-variant block mb-xs">{{ $t(fld.labelKey) }}</label>
-                      <textarea v-if="fld.area" v-model="form.ingressAdv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
-                      <select v-else-if="fld.options" v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
-                        <option v-for="o in fld.options" :key="o" :value="o">{{ o || $t('deploy.default') }}</option>
-                      </select>
-                      <input v-else v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
+                      <IngressPerfField v-model="form.ingressAdv[fld.key]" :fld="fld" />
                     </div>
                   </div>
                 </div>
@@ -1504,7 +1504,10 @@ async function handleDeploy() {
                   </div>
                   <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
                     <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-                    <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
+                    <div class="flex-1 flex flex-col gap-xs">
+                      <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || 'value'" />
+                      <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(a.key)) }}</p>
+                    </div>
                     <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
                   </div>
                   <p v-if="!form.ingressCustomAnnotations.length" class="text-xs text-on-surface-variant">{{ $t('deploy.noCustomAnnotations') }}</p>
