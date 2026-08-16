@@ -37,6 +37,7 @@ const visible = computed(() => visibleConversations(conversations.value, {
 const presence = computed(() => presenceState(visible.value, readAt.value))
 
 async function poll() {
+  if (document.hidden) return // 页面隐藏不轮询;visibilitychange 回前台立即补一次
   try {
     const data = await workbenchApi.conversations.active()
     conversations.value = (data && data.conversations) || []
@@ -76,7 +77,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="presence.show && failCount < MAX_FAILS" class="fixed right-6 bottom-20 z-45 flex flex-col items-end gap-sm">
+  <div v-if="presence.show && failCount < MAX_FAILS" class="fixed right-6 bottom-20 z-[45] flex flex-col items-end gap-sm">
     <!-- 微型列表(≥2 个活跃先选择;缩为 1 个时自动收起) -->
     <div v-if="listOpen && !presence.directOpen" data-testid="presence-list"
       class="w-72 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-dropdown p-xs flex flex-col gap-0.5">
@@ -108,8 +109,11 @@ onUnmounted(() => {
       <span v-else-if="presence.level === 'paused'"
         class="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-error border-2 border-surface-container-lowest"></span>
     </button>
-    <!-- 关闭即卸载(v-if selected)→ WorkbenchChat 的 SSE 随之断流;服务端 detached 继续跑 -->
-    <ChatModal v-if="selected" :model-value="true" :conversation="selected"
-      @update:model-value="v => { if (!v) selected = null }" />
   </div>
+  <!-- 与按钮壳平级(评审修复 Critical-1):①布局——居中大弹层本就不该栖身按钮的 fixed 定位壳;
+      ②行为——点击未读终态(openConv 同步 markRead)或 Modal 开着对话跑完(下一轮 poll markRead)
+      都会使 presence.show=false 收掉按钮壳,打开中的 Modal 不得被连带卸载,仅由 selected 控制。
+      关闭即卸载(v-if selected)→ WorkbenchChat 的 SSE 随之断流;服务端 detached 继续跑 -->
+  <ChatModal v-if="selected" :model-value="true" :conversation="selected"
+    @update:model-value="v => { if (!v) selected = null }" />
 </template>

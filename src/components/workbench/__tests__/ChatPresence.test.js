@@ -72,6 +72,42 @@ test('2 个活跃 → 数字角标;点击先出微型列表,选行再开 Modal',
   expect(w.find('[data-testid="chat-modal"]').text()).toBe('b')
 })
 
+// 评审 Critical-1 回归:Modal 移出显隐容器。单个未读终态点击 FAB → openConv 同步 markRead →
+// visible 归零 → presence.show=false 收掉按钮壳,但打开中的 Modal 必须持续存在
+// (旧代码 Modal 住在 v-if 容器里,会连同尚未挂载完的 Modal 一起消失,用户一点全没了)
+test('单个未读终态:点击 FAB 后 FAB 消失,Modal 挂载且持续存在', async () => {
+  const w = await mountPresence({ conversations: [conv({ status: 'done' })] })
+  expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true)
+  await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+  await flushPromises()
+  expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false)
+  expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
+  expect(w.find('[data-testid="chat-modal"]').text()).toBe('c1')
+})
+
+// 评审 Critical-1 回归:Modal 开着唯一 running 对话跑完,下一轮 poll 对 selected 刷 readAt →
+// 读终态收掉按钮壳,但打开中的 Modal 不得被强卸载(spec:Modal 开着对话终态应正常收尾)。
+// fake timers 推进一个轮询周期(10s);advanceTimersByTimeAsync 每轮走真实 macrotask,
+// 兼作微任务冲刷(fake timers 下 flushPromises 的 setImmediate 可能被 faked,不依赖它)
+test('Modal 开着唯一 running 对话跑完:下一轮 poll 后 FAB 消失但 Modal 不被卸载', async () => {
+  vi.useFakeTimers() // 假时钟从 beforeEach setSystemTime 的 T0+30s 起跳,Date 一并接管
+  try {
+    api.active.mockImplementation(async () => ({ conversations: [conv()] }))
+    const w = mount(ChatPresence, { global: { plugins: [i18n] } })
+    await vi.advanceTimersByTimeAsync(0) // 冲刷首轮 poll(onMounted)+渲染
+    await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0) // 解析 defineAsyncComponent
+    expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
+    // 第二次轮询:跑完(done)且 updatedAt 更新;poll 对 selected 刷 readAt(poll 时钟 T0+40s)
+    // → 读终态、按钮壳消失——Modal 只许由 selected 卸载,不许被按钮壳带走
+    api.active.mockImplementation(async () => ({ conversations: [conv({ status: 'done', updatedAt: T0 + 35_000 })] }))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false)
+    expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
+    expect(w.find('[data-testid="chat-modal"]').text()).toBe('c1')
+  } finally { vi.useRealTimers() }
+})
+
 test('无活跃对话 → 整个组件不渲染按钮', async () => {
   const w = await mountPresence({ conversations: [] })
   expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(false)
@@ -91,4 +127,7 @@ test('正在看的项目被排除(路由 WorkbenchProject)', async () => {
   await flushPromises()
   // p2 的 paused 仍在;p1 的 running 被排除
   expect(w.find('[data-testid="chat-presence-fab"]').text()).toContain('pending_actions')
+  // 钉死排除生效:若 p1 未被排除,badgeCount=2 会显示数字角标
+  // (上面 paused 图标断言在排除失效时照样绿,挡不住回归)
+  expect(w.find('[data-testid="chat-presence-fab"]').text()).not.toContain('2')
 })
