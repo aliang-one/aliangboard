@@ -93,7 +93,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS file_browsers (
   container TEXT,
   status TEXT DEFAULT 'minimized',
   createdAt INTEGER NOT NULL
-`)
+)`)
 const stmtAll = db.prepare('SELECT * FROM sessions')
 
 // === 平台用户管理 + 集群管理 ===
