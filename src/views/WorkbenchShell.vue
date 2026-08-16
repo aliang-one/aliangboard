@@ -20,7 +20,7 @@ const tabs = [
 </script>
 
 <template>
-  <section class="animate-fade-in min-h-screen flex flex-col">
+  <section class="animate-fade-in h-full min-h-0 flex flex-col">
     <!-- Header -->
     <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant bg-surface-container-lowest">
       <div class="flex items-center gap-md">

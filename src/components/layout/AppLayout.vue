@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { useRoute } from 'vue-router'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
@@ -12,6 +13,8 @@ import { getSession } from '@/api/client'
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
 
 const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/TerminalWindow.vue'))
+// fullHeight 路由判定用:main 的 class 绑在 router-view 外,v-slot 的 route 够不到
+const route = useRoute()
 
 const store = useClusterStore()
 const termStore = useTerminalStore()
@@ -49,12 +52,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <span v-if="store.clusterHealth.status === 'Critical'">{{ $t('layout.controlPlaneAbnormal', { ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
         <span v-else>{{ $t('layout.clusterUnreachable', { reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
       </div>
-      <main class="flex-1 overflow-y-auto bg-surface p-margin">
+      <!-- fullHeight 路由(工作台类应用式布局):main 不滚不留白,高度链贯通到页面组件,
+           由页面内部自管滚动;其余路由保持文档式页面滚动 -->
+      <main class="flex-1 min-h-0" :class="route?.meta?.fullHeight ? 'overflow-hidden' : 'overflow-y-auto bg-surface p-margin'">
         <router-view v-slot="{ Component, route }">
           <transition name="fade" mode="out-in">
             <!-- 用单根 div 包裹，避免页面组件为多根节点（fragment）时
                  <transition mode="out-in"> 无法动画化导致新页面不挂载（详情页点击空白） -->
-            <div :key="route.path + '#' + refreshTick">
+            <div :key="route.path + '#' + refreshTick" :class="route?.meta?.fullHeight ? 'h-full' : ''">
               <component :is="Component" />
             </div>
           </transition>

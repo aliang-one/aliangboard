@@ -377,7 +377,12 @@ const treeRows = computed(() => {
           <span class="text-body-sm font-mono text-on-surface-variant truncate">{{ currentPath || t('workbench.detail.noFileSelected') }}</span>
           <span v-if="dirty" class="text-body-xs text-status-warning">{{ t('workbench.detail.unsaved') }}</span>
         </div>
-        <YamlEditor :model-value="currentContent" :readonly="false" height="50vh"
+        <!-- 未选文件:标准编辑器的空态占位(此前渲染空 YamlEditor → 下方大片空白) -->
+        <div v-if="!currentPath" class="flex-1 min-h-[300px] flex flex-col items-center justify-center gap-sm border border-dashed border-outline-variant/60 rounded-lg text-on-surface-variant/70">
+          <span class="material-symbols-outlined text-3xl">description</span>
+          <p class="text-body-sm">{{ t('workbench.detail.editorEmptyHint') }}</p>
+        </div>
+        <YamlEditor v-else :model-value="currentContent" :readonly="false" height="50vh"
           @update:model-value="v => currentContent = v" @save="save" @discard="discard" />
         <div class="flex items-center gap-xs">
           <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
