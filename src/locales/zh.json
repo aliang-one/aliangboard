@@ -2818,6 +2818,9 @@
       "expandFiles": "展开文件树",
       "expandChat": "展开 AI 助手"
     },
+    "presence": {
+      "title": "AI 对话"
+    },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",
       "hintWriteConfig": "帮我写一份 nginx deployment 的 manifests",

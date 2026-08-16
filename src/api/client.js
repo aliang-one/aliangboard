@@ -243,6 +243,8 @@ export const workbenchApi = {
     regenerate: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/regenerate`, { method: 'POST' }),
     delete: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     rename: (id, title) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) }),
+    // 悬浮入口:跨项目活跃对话原料(running/paused + 24h 内终态;未读判定在前端)
+    active: () => platformHttp.request('/api/workbench/conversations/active'),
   },
 }
 

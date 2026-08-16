@@ -2818,6 +2818,9 @@
       "expandFiles": "Expand file tree",
       "expandChat": "Expand AI chat"
     },
+    "presence": {
+      "title": "AI Chat"
+    },
     "chat": {
       "hintReadLedger": "Show me what files are in the current cluster ledger",
       "hintWriteConfig": "Help me write nginx deployment manifests",
