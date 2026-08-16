@@ -355,7 +355,8 @@ function nsStatusColor(status) {
     </nav>
 
     <!-- Bottom Actions -->
-    <div data-test="bottom-actions" class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
+    <div data-test="bottom-actions" class="shrink-0 px-md pb-md pt-sm">
+      <!-- 部署大卡(Task 4 已就位,不动) -->
       <button
         v-if="isNsMode"
         data-test="deploy-card"
@@ -371,22 +372,45 @@ function nsStatusColor(status) {
         </span>
         <span class="deploy-card__go absolute right-md top-1/2 text-lg opacity-55">›</span>
       </button>
-      <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
-      <div class="flex items-stretch gap-xs">
-        <button v-if="isNsMode" data-test="cluster-home"
-          @click="router.push('/cluster')"
-          :title="$t('nav.clusterOverview')" :aria-label="$t('nav.clusterOverview')"
-          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"
-          :class="isGlobalActive('/cluster') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-          <span class="material-symbols-outlined text-lg">dashboard</span>
+      <!-- ns 态:角板停靠坞 -->
+      <div v-if="isNsMode" class="dock-band relative mt-sm mb-xs h-[100px]">
+        <span class="slab-ring sr1" aria-hidden="true"></span>
+        <span class="slab-ring sr2" aria-hidden="true"></span>
+        <button data-test="cluster-slab" @click="router.push('/cluster')"
+          class="cluster-slab absolute left-0 bottom-0 flex items-center gap-sm pl-md pr-lg text-left cursor-pointer"
+          :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
+          <span class="slab-chip flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-base filled">kubernetes</span>
+          </span>
+          <span class="min-w-0">
+            <span class="flex items-center gap-2xs">
+              <span class="text-[12px] font-bold text-on-primary truncate">{{ store.cluster.name || 'Cluster' }}</span>
+              <i class="slab-led" aria-hidden="true"></i>
+            </span>
+            <span class="block text-[9px] text-on-primary/80 whitespace-nowrap">↩ {{ $t('nav.backToCluster') }}</span>
+          </span>
         </button>
-        <button v-if="isNsMode" data-test="bottom-events"
-          @click="goNsRoute('events')"
-          :title="$t('nav.events')" :aria-label="$t('nav.events')"
-          class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors"
-          :class="isNsRouteActive('events') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
-          <span class="material-symbols-outlined text-lg">notifications_active</span>
-        </button>
+        <!-- 3 图标:沿角板斜肩阶梯 -->
+        <div class="absolute right-0 bottom-0 flex items-end gap-sm">
+          <button data-test="bottom-events" @click="goNsRoute('events')" class="dock-ig dock-ig--high cursor-pointer"
+            :class="isNsRouteActive('events') ? 'dock-ig--hot' : ''">
+            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">notifications_active</span></span>
+            <span class="dock-ig__lb">{{ $t('nav.events') }}</span>
+          </button>
+          <button data-test="bottom-activity" @click="router.push('/audit-logs')" class="dock-ig cursor-pointer"
+            :class="isGlobalActive('/audit-logs') ? 'dock-ig--hot' : ''">
+            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">history</span></span>
+            <span class="dock-ig__lb">{{ $t('nav.activityLog') }}</span>
+          </button>
+          <button data-test="bottom-settings" @click="router.push('/settings')" class="dock-ig dock-ig--low cursor-pointer"
+            :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
+            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">settings</span></span>
+            <span class="dock-ig__lb">{{ $t('nav.settings') }}</span>
+          </button>
+        </div>
+      </div>
+      <!-- 集群态:活动+设置(维持现状布局) -->
+      <div v-else class="flex items-stretch gap-xs">
         <a data-test="bottom-activity" @click="router.push('/audit-logs')"
           :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
@@ -446,4 +470,44 @@ function nsStatusColor(status) {
 /* __go 的 transform 统一由 CSS 管(模板不带 -translate-y-1/2,避免与 hover transform 冲突) */
 .deploy-card__go { transform: translateY(-50%); transition: transform .18s, opacity .18s; }
 .deploy-card:hover .deploy-card__go { transform: translateY(-50%) translateX(3px); opacity: .9; }
+
+/* ===== 角板停靠坞(v6-B 定稿) ===== */
+.dock-band { overflow: visible; }
+.slab-ring {
+  position: absolute; left: 0; bottom: 0; pointer-events: none;
+  border-radius: 0 42px 16px 0; border: 1.5px solid rgba(0, 134, 90, .24);
+}
+.slab-ring.sr1 { width: 200px; height: 88px; }
+.slab-ring.sr2 { width: 236px; height: 104px; border-color: rgba(0, 134, 90, .11); }
+.cluster-slab {
+  width: 170px; height: 76px; border-radius: 0 42px 16px 0;
+  background: linear-gradient(120deg, #0ba874 0%, #00835b 55%, #006747 100%);
+  box-shadow: 3px -5px 18px rgba(0, 108, 73, .34), inset 0 1px 0 rgba(255, 255, 255, .26), inset 0 -6px 14px rgba(0, 40, 27, .18);
+  color: #fff; transition: filter .18s, box-shadow .18s;
+}
+.cluster-slab:hover { filter: brightness(1.07); box-shadow: 3px -7px 22px rgba(0, 108, 73, .44), inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -6px 14px rgba(0, 40, 27, .18); }
+.slab-chip {
+  width: 30px; height: 30px; border-radius: 10px;
+  background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .25); color: #fff;
+}
+.slab-led {
+  width: 5px; height: 5px; border-radius: 50%; background: #8bf5be;
+  box-shadow: 0 0 5px #8bf5be; flex: none; animation: slab-led-pulse 2.4s ease-in-out infinite;
+}
+@keyframes slab-led-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* ===== 3 图标:阶梯 + 微标签 ===== */
+.dock-ig { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dock-ig--high { transform: translateY(-8px); }
+.dock-ig--low { transform: translateY(5px); }
+.dock-ig__sq {
+  width: 38px; height: 38px; border-radius: 12px;
+  background: #ffffff; border: 1px solid #bbcabf; color: #3c4a42;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 60, 35, .13), inset 0 1px 0 #fff;
+  transition: transform .16s cubic-bezier(.2, .7, .3, 1), box-shadow .16s, color .16s, background .16s;
+}
+.dock-ig:hover .dock-ig__sq { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0, 60, 35, .20); color: #006c49; }
+.dock-ig--hot .dock-ig__sq { background: #d7e8df; color: #006c49; border-color: #a9cfbd; }
+.dock-ig__lb { font-size: 8.5px; color: #3c4a42; letter-spacing: .04em; line-height: 1; }
 </style>

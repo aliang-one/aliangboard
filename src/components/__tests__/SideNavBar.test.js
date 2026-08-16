@@ -55,24 +55,6 @@ test('cluster mode: 集群导航组显示、ns 资源组隐藏', () => {
   expect(w.find('[data-test="ns-nav-section"]').exists()).toBe(false)
 })
 
-test('ns mode: 点 Cluster Header → push /cluster', async () => {
-  routeRef.meta.scope = 'namespace'
-  routeRef.path = '/ns/default'
-  pushMock.mockClear()
-  const w = mountSideNavBar()
-  const home = w.find('[data-test="cluster-home"]')
-  expect(home.exists()).toBe(true)
-  await home.trigger('click')
-  expect(pushMock).toHaveBeenCalledWith('/cluster')
-})
-
-test('cluster mode: Header 为静态、无 cluster-home', () => {
-  routeRef.meta.scope = 'global'
-  routeRef.path = '/cluster'
-  const w = mountSideNavBar()
-  expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
-})
-
 test('ns mode: 顶部收缩为锚点条,无大头部', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
@@ -99,29 +81,36 @@ test('ns mode: 点锚点条 → push /cluster', async () => {
   expect(pushMock).toHaveBeenCalledWith('/cluster')
 })
 
-test('ns mode: cluster-home 在底部', () => {
+test('ns mode: 角板存在、cluster-home 已移除,点角板 → push /cluster', async () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
+  pushMock.mockClear()
   const w = mountSideNavBar()
-  // 返回链接迁到底部区(待 Task 5 处理)
-  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(true)
+  const slab = w.find('[data-test="bottom-actions"] [data-test="cluster-slab"]')
+  expect(slab.exists()).toBe(true)
+  expect(slab.text()).toContain('prod-cluster')
+  expect(slab.text()).toContain('返回集群')
+  expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
+  await slab.trigger('click')
+  expect(pushMock).toHaveBeenCalledWith('/cluster')
 })
 
-test('cluster mode: 底部无返回链接', () => {
+test('cluster mode: 无角板、底部仅活动+设置', () => {
   routeRef.meta.scope = 'global'
   routeRef.path = '/cluster'
   const w = mountSideNavBar()
-  expect(w.find('[data-test="bottom-actions"] [data-test="cluster-home"]').exists()).toBe(false)
+  expect(w.find('[data-test="cluster-slab"]').exists()).toBe(false)
+  expect(w.find('[data-test="bottom-events"]').exists()).toBe(false)
+  expect(w.find('[data-test="bottom-activity"]').exists()).toBe(true)
+  expect(w.find('[data-test="bottom-settings"]').exists()).toBe(true)
 })
 
-test('ns mode: cluster-home 是 dashboard 图标、icon-only(无可见「集群概览」文本)', () => {
+test('ns mode: 3 图标各带微标签', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   const w = mountSideNavBar()
-  const home = w.find('[data-test="bottom-actions"] [data-test="cluster-home"]')
-  expect(home.exists()).toBe(true)
-  expect(home.find('.material-symbols-outlined').text()).toBe('dashboard')
-  expect(home.text()).not.toContain('集群概览')
+  const labels = w.findAll('[data-test="bottom-actions"] .dock-ig .dock-ig__lb')
+  expect(labels.map(l => l.text())).toEqual(['事件', '活动记录', '设置'])
 })
 
 test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {
