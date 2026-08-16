@@ -38,6 +38,16 @@ describe('validateAdvValue 真相表', () => {
     expect(validateAdvValue(size, '4 k')).toBe('ingressPerf.errSize')
     expect(validateAdvValue(size, 'x')).toBe('ingressPerf.errSize')
   })
+  it('size + min(buffer-size): 0/0k 拒——nginx [emerg] 拒 0 尺寸 buffer(2026-08-16 集群 dry-run 实测)', () => {
+    const buf = { key: 'proxy-buffer-size', vt: 'size', min: 1 }
+    expect(validateAdvValue(buf, '0')).toBe('ingressPerf.errRange')
+    expect(validateAdvValue(buf, '0k')).toBe('ingressPerf.errRange')
+    expect(validateAdvValue(buf, '4k')).toBe(null)
+    expect(validateAdvValue(buf, '100')).toBe(null)
+  })
+  it('size 无 min(body-size): 0 合法=不限制(client_max_body_size 0)', () => {
+    expect(validateAdvValue({ key: 'proxy-body-size', vt: 'size' }, '0')).toBe(null)
+  })
   it('hpxTime: 数字+单位 过,裸数字拒', () => {
     expect(validateAdvValue(hpx, '50s')).toBe(null)
     expect(validateAdvValue(hpx, '5ms')).toBe(null)
@@ -81,6 +91,10 @@ describe('vfmtOfKey / hintKeyOfKey / placeholderOfKey: 注解 key → 元信息'
     expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-send-timeout').vt).toBe('int')
     expect(vfmtOfKey('nginx.ingress.kubernetes.io/custom-http-errors').vt).toBe('csvInt')
     expect(vfmtOfKey('haproxy-ingress.github.io/timeout-server').vt).toBe('hpxTime')
+  })
+  it('字段元信息: buffer-size 带 min 1(nginx 拒 0);body-size 无 min(0=不限制)', () => {
+    expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-buffer-size').min).toBe(1)
+    expect(vfmtOfKey('nginx.ingress.kubernetes.io/proxy-body-size').min).toBeUndefined()
   })
   it('未知 key → undefined,不限制', () => {
     expect(vfmtOfKey('custom.example/x')).toBeUndefined()

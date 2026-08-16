@@ -52,7 +52,7 @@ const unitCls = 'bg-surface-container-low border border-l-0 border-outline-varia
       <option v-for="o in fld.options" :key="o" :value="o">{{ o || t('ns.ingress.defaultOpt') }}</option>
     </select>
     <div v-else-if="isUnit" class="flex items-stretch">
-      <input type="number" min="0" v-model="num" @input="emitVal" :class="inputCls + ' rounded-r-none'" :placeholder="fld.ph" />
+      <input type="number" :min="fld.min ?? 0" v-model="num" @input="emitVal" :class="inputCls + ' rounded-r-none'" :placeholder="fld.ph" />
       <select v-model="unit" @change="emitVal" :data-testid="'unit-' + fld.key" :class="unitCls + ' font-mono'">
         <option v-for="u in vt.units" :key="u" :value="u">{{ u }}</option>
       </select>
