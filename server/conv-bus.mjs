@@ -29,10 +29,11 @@ export function emit(convId, event) {
   const e = event
   if (e && typeof e === 'object') {
     if (e.type === 'status' && e.status === 'running') {
-      setSnapshot(convId, { content: '', trace: [], steps: 0, status: 'running', error: '', pending: null })
+      setSnapshot(convId, { content: '', reasoning: '', trace: [], steps: 0, status: 'running', error: '', pending: null })
     } else {
-      const s = snapshots.get(convId) || { content: '', trace: [], steps: 0, status: '', error: '', pending: null }
+      const s = snapshots.get(convId) || { content: '', reasoning: '', trace: [], steps: 0, status: '', error: '', pending: null }
       if (e.type === 'delta') s.content = (s.content || '') + (e.text || '')
+      else if (e.type === 'reasoning') s.reasoning = (s.reasoning || '') + (e.text || '')
       else if (e.type === 'step') { s.trace = [...(s.trace || []), e.step]; s.steps = (s.steps || 0) + 1 }
       else if (e.type === 'status') { s.status = e.status; if (e.error) s.error = e.error }
       else if (e.type === 'approval' && e.pending) s.pending = e.pending

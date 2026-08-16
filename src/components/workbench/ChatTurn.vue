@@ -191,6 +191,16 @@ function onRootClick(e) {
     <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
+      <!-- 思考过程(reasoning_content,深思考模型):流式时展开实时滚动,终答后自动收起可回看 -->
+      <details v-if="turn.reasoning" :open="isStreaming" class="group/reasoning bg-surface-container-low/60 border border-outline-variant/50 rounded-lg">
+        <summary class="cursor-pointer select-none px-sm py-xs text-body-xs text-on-surface-variant flex items-center gap-xs hover:text-on-surface">
+          <span class="material-symbols-outlined text-sm" :class="isStreaming ? 'animate-spin text-primary/70' : ''">{{ isStreaming ? 'progress_activity' : 'psychology' }}</span>
+          {{ t('workbench.chat.reasoningTitle') }}
+          <span class="ml-auto text-on-surface-variant/50 font-mono">{{ turn.reasoning.length }}</span>
+        </summary>
+        <div class="px-sm pb-sm max-h-64 overflow-y-auto text-body-xs text-on-surface-variant whitespace-pre-wrap break-words leading-relaxed border-t border-outline-variant/40 pt-xs">{{ turn.reasoning }}</div>
+      </details>
+
       <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标,节流);②尚无文本也无工具 → 跳动 thinking 提示 -->
       <div v-if="turn.status === 'thinking' && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">
         <span v-html="rendered"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>

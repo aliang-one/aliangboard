@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ChatTurn from '../ChatTurn.vue'
 
-const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成' } } } } })
+const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成', reasoningTitle: '思考过程' } } } } })
 
 test('ChatTurn: agent done 渲染 markdown(v-html)', () => {
   const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '**hi**' } }, global: { plugins: [i18n] } })
@@ -42,4 +42,14 @@ test('ChatTurn: done turn 围栏代码块被装饰出复制按钮(.code-copy)', 
   await flushPromises()
   expect(w.findAll('.code-copy').length).toBe(1)
   expect(w.find('.code-bar').text()).toContain('yaml')
+})
+
+// dev32: 思考过程折叠区——有 reasoning 渲染 details;thinking 态 open,done 收起
+test('ChatTurn: reasoning 折叠区渲染,thinking 时展开/done 后收起', async () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'thinking', content: '', reasoning: '正在分析集群状态…', trace: [], steps: 0 } }, global: { plugins: [i18n] } })
+  expect(w.html()).toContain('思考过程')
+  expect(w.find('details').attributes('open')).toBeDefined()
+  expect(w.text()).toContain('正在分析集群状态…')
+  const w2 = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '答案', reasoning: '推理过程', trace: [], steps: 1 } }, global: { plugins: [i18n] } })
+  expect(w2.find('details').attributes('open')).toBeUndefined()
 })

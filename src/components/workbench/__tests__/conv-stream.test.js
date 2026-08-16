@@ -132,3 +132,15 @@ test('终态/审批事件清 tool_start 残留(execTool 抛错直 failed 等)', 
   expect(s.trace).toHaveLength(0)
   expect(s.status).toBe('pending_approval')
 })
+
+// dev32: reasoning(深思考推理流)——增量拼接/快照恢复/终态保留(供折叠回看)
+test('reasoning 事件拼接到 reasoning;snapshot 恢复;终态保留', () => {
+  let s = fresh()
+  s = applyStreamEvent(s, { type: 'reasoning', text: '先想 ' })
+  s = applyStreamEvent(s, { type: 'reasoning', text: '再想' })
+  expect(s.reasoning).toBe('先想 再想')
+  s = applyStreamEvent(s, { type: 'snapshot', content: '答', reasoning: '服务端快照推理', trace: [], steps: 1 })
+  expect(s.reasoning).toBe('服务端快照推理')
+  s = applyStreamEvent(s, { type: 'status', status: 'done' })
+  expect(s.reasoning).toBe('服务端快照推理', '终态不清 reasoning(折叠区可回看)')
+})

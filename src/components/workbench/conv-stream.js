@@ -10,6 +10,9 @@ export function applyStreamEvent(state, evt) {
     case 'delta':
       // LLM 输出增量文本:拼接到 content
       return { ...state, content: (state.content || '') + (evt.text || '') }
+    case 'reasoning':
+      // 深思考模型的推理增量(reasoning_content):拼接到 reasoning,UI 折叠区实时展示
+      return { ...state, reasoning: (state.reasoning || '') + (evt.text || '') }
     case 'step': {
       // 工具调用 step。tool_start(执行前瞬态)入 trace 作 running 态;
       // 对应 tool(完成)事件到达时按 name 配对移除再追加,防 running 残留 + 计数虚高。
@@ -29,6 +32,7 @@ export function applyStreamEvent(state, evt) {
       return {
         ...state,
         content: evt.content ?? state.content,
+        reasoning: evt.reasoning ?? state.reasoning,
         trace: evt.trace ?? state.trace,
         steps: evt.steps ?? state.steps,
       }

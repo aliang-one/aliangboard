@@ -243,7 +243,7 @@ export function createWorkbenchConvRoutes(deps) {
       busSubscribe(id, send)
       const snap = busSnapshot(id)
       if (snap && (snap.content || (snap.trace && snap.trace.length))) {
-        send({ type: 'snapshot', content: snap.content || '', trace: snap.trace || [], steps: snap.steps || 0 })
+        send({ type: 'snapshot', content: snap.content || '', reasoning: snap.reasoning || '', trace: snap.trace || [], steps: snap.steps || 0 })
       }
       const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
       req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })

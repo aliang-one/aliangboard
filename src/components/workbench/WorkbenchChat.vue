@@ -313,12 +313,12 @@ async function pollOnce(id) {
         // running 且末条非 assistant-thinking:补 thinking turn(如页面刷新续接运行中对话)。
         const last = turns.value[turns.value.length - 1]
         if (conv.status === 'running' && !(last && last.role === 'assistant' && last.status === 'thinking')) {
-          turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+          turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
         }
       } else {
         // 旧单轮数据 fallback(无 messages 数组):user from conv.userMessage + agent thinking。
         if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })
-        turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+        turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
       }
     }
     // 从 messages 重建时,turns 已是终态(done/failed 不需再改,各 turn 自带 per-message content);
@@ -410,6 +410,7 @@ function startStreaming(id) {
     const next = applyStreamEvent({
       status: agentTurn.status,
       content: agentTurn.content,
+      reasoning: agentTurn.reasoning || '',
       trace: agentTurn.trace || [],
       steps: agentTurn.steps,
       denied: agentTurn.denied || [],
@@ -471,7 +472,7 @@ async function regenerate() {
   try {
     await workbenchApi.conversations.regenerate(id)
     if (lastAssistantIndex.value >= 0) turns.value.splice(lastAssistantIndex.value, 1)
-    turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+    turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
     conversationId.value = id
     convStatus.value = 'running'
     sending.value = true
@@ -511,7 +512,7 @@ async function send() {
   const userId = ++turnSeq
   const agentId = ++turnSeq
   turns.value.push({ _id: userId, role: 'user', content: msg, refs: refs.value.length ? [...refs.value] : undefined })
-  turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+  turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
   resetInput()
   sending.value = true
   await scrollToBottom()

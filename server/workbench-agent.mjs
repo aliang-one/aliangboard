@@ -81,6 +81,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         history,
         refreshSystem,
         onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
       // 用户已取消(cancelConversation 置 cancelled):丢弃 agent 结果——不覆盖状态、不追加历史
@@ -129,6 +130,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         },
         refreshSystem,
         onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
       // 同 runConversation:取消后丢弃结果

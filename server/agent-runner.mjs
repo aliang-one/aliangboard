@@ -61,7 +61,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     }
   }
   const chat = (messages, tools, opts) =>
-    opts?.onDelta ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta })
+    (opts?.onDelta || opts?.onReasoning) ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta, onReasoning: opts.onReasoning })
                   : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调
   const agent = createAgent({ chat, toolDefs, execTool, needsApproval: n => requiringApproval.has(n) && offered.has(n), ...(maxSteps ? { maxSteps } : {}) })
