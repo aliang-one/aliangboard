@@ -67,26 +67,34 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...authHeaders(),
     }
-    const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined, signal })
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      if (response.status === 401) onUnauthorized?.(path, response)
-      const b = parseBody(text)
-      throw Object.assign(new Error(b?.message || i18n.global.t('api.downloadFailed', { status: response.status })), { status: response.status, details: b })
+    // fetch 中止原生抛 AbortError(DOMException,无 .aborted 属性),统一改写为 {aborted:true}
+    // 契约形状(与 uploadBinary 的 xhr.onabort 一致),供 transfers store 的 catch 判 canceled。
+    // 覆盖 fetch 发起与 reader.read() 两个阶段的中止。
+    try {
+      const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined, signal })
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        if (response.status === 401) onUnauthorized?.(path, response)
+        const b = parseBody(text)
+        throw Object.assign(new Error(b?.message || i18n.global.t('api.downloadFailed', { status: response.status })), { status: response.status, details: b })
+      }
+      const total = parseInt(response.headers.get('content-length') || '0', 10) || 0
+      const reader = response.body?.getReader?.()
+      if (!reader) return response.blob()
+      const chunks = []
+      let received = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        received += value.length
+        onProgress?.({ received, total })
+      }
+      return new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' })
+    } catch (e) {
+      if (signal?.aborted) throw Object.assign(new Error('aborted'), { aborted: true })
+      throw e
     }
-    const total = parseInt(response.headers.get('content-length') || '0', 10) || 0
-    const reader = response.body?.getReader?.()
-    if (!reader) return response.blob()
-    const chunks = []
-    let received = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      received += value.length
-      onProgress?.({ received, total })
-    }
-    return new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' })
   }
 
   // 二进制流式上传:XHR(fetch 拿不到上传进度)。createXhr 可注入(测试)。

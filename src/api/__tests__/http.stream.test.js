@@ -32,6 +32,19 @@ describe('downloadStream', () => {
     })))
     await expect(http.downloadStream('/d', {})).rejects.toMatchObject({ status: 413, message: '文件过大' })
   })
+  it('abort → 统一 {aborted:true}(读取阶段 reject AbortError,无 .aborted 属性)', async () => {
+    const http = createHttp({})
+    // 生产形状:fetch 已返回 response,reader.read() 因 signal 中止 reject 原生 AbortError
+    // (DOMException,无 .aborted 属性)——修复前会被 transfers store 误判为 error。
+    const ctl = new AbortController()
+    ctl.abort()
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      body: { getReader: () => ({ read: () => Promise.reject(new DOMException('The operation was aborted.', 'AbortError')) }) },
+    })))
+    await expect(http.downloadStream('/d', { signal: ctl.signal })).rejects.toMatchObject({ aborted: true, message: 'aborted' })
+  })
 })
 
 describe('uploadBinary', () => {
