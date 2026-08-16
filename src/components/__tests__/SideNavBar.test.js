@@ -105,12 +105,21 @@ test('cluster mode: 无角板、底部仅活动+设置', () => {
   expect(w.find('[data-test="bottom-settings"]').exists()).toBe(true)
 })
 
-test('ns mode: 3 图标各带微标签', () => {
+test('ns mode: 集群与 3 图标同块成组,dock 内 icon-only(title 提示)', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   const w = mountSideNavBar()
-  const labels = w.findAll('[data-test="bottom-actions"] .dock-ig .dock-ig__lb')
-  expect(labels.map(l => l.text())).toEqual(['事件', '活动记录', '设置'])
+  // 集群 hero 与 3 图标同在 .dock 块内,不单独漂浮
+  const dock = w.find('[data-test="bottom-actions"] .dock')
+  expect(dock.exists()).toBe(true)
+  expect(dock.find('[data-test="cluster-slab"]').exists()).toBe(true)
+  const igs = dock.findAll('.dock-ig')
+  expect(igs.length).toBe(3)
+  igs.forEach(ig => {
+    expect(ig.find('.material-symbols-outlined').exists()).toBe(true)
+    expect(ig.attributes('title')).toBeTruthy()
+    expect(ig.find('.dock-ig__lb').exists()).toBe(false)
+  })
 })
 
 test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {

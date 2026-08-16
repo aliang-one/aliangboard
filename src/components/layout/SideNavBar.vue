@@ -370,41 +370,41 @@ function nsStatusColor(status) {
         </span>
         <span class="deploy-card__go absolute right-md top-1/2 text-lg opacity-55">›</span>
       </button>
-      <!-- ns 态:角板停靠坞 -->
-      <div v-if="isNsMode" class="dock-band relative mt-sm mb-xs h-[100px]">
-        <span class="slab-ring sr1" aria-hidden="true"></span>
-        <span class="slab-ring sr2" aria-hidden="true"></span>
-        <button data-test="cluster-slab" @click="router.push('/cluster')"
-          class="cluster-slab absolute left-0 bottom-0 flex items-center gap-sm pl-md pr-lg text-left cursor-pointer"
-          :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
-          <span class="slab-chip flex items-center justify-center shrink-0">
-            <img src="/aliang-logo.svg" alt="" class="h-[18px] w-auto" width="20" height="18" />
-          </span>
-          <span class="min-w-0">
-            <span class="flex items-center gap-2xs">
-              <span class="text-[12px] font-bold text-on-primary truncate">{{ store.cluster.name || 'Cluster' }}</span>
-              <i class="slab-led" aria-hidden="true"></i>
+      <!-- ns 态:停靠坞——集群 hero + 3 图标收进同一个块,一个组 -->
+      <div v-if="isNsMode" class="dock-band relative mt-sm mb-xs h-[80px]">
+        <div class="dock flex items-stretch gap-1.5 p-1.5">
+          <button data-test="cluster-slab" @click="router.push('/cluster')"
+            class="cluster-slab flex-1 min-w-0 flex items-center gap-sm px-sm text-left cursor-pointer"
+            :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
+            <span class="slab-chip flex items-center justify-center shrink-0">
+              <img src="/aliang-logo.svg" alt="" class="h-4 w-auto" width="18" height="16" />
             </span>
-            <span class="block text-[9px] text-on-primary/80 whitespace-nowrap">↩ {{ $t('nav.backToCluster') }}</span>
-          </span>
-        </button>
-        <!-- 3 图标:沿角板斜肩阶梯 -->
-        <div class="absolute right-0 bottom-0 flex items-end gap-sm">
-          <button data-test="bottom-events" @click="goNsRoute('events')" class="dock-ig dock-ig--high cursor-pointer"
-            :class="isNsRouteActive('events') ? 'dock-ig--hot' : ''">
-            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">notifications_active</span></span>
-            <span class="dock-ig__lb">{{ $t('nav.events') }}</span>
+            <span class="min-w-0">
+              <span class="flex items-center gap-2xs">
+                <span class="text-[11px] font-bold text-on-primary truncate">{{ store.cluster.name || 'Cluster' }}</span>
+                <i class="slab-led" aria-hidden="true"></i>
+              </span>
+              <span class="block text-[8px] text-on-primary/80 whitespace-nowrap">↩ {{ $t('nav.backToCluster') }}</span>
+            </span>
           </button>
-          <button data-test="bottom-activity" @click="router.push('/audit-logs')" class="dock-ig cursor-pointer"
-            :class="isGlobalActive('/audit-logs') ? 'dock-ig--hot' : ''">
-            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">history</span></span>
-            <span class="dock-ig__lb">{{ $t('nav.activityLog') }}</span>
-          </button>
-          <button data-test="bottom-settings" @click="router.push('/settings')" class="dock-ig dock-ig--low cursor-pointer"
-            :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
-            <span class="dock-ig__sq"><span class="material-symbols-outlined text-lg">settings</span></span>
-            <span class="dock-ig__lb">{{ $t('nav.settings') }}</span>
-          </button>
+          <!-- 3 图标:块内 2+1 砖块式紧排,尺寸不一(32/28/28)+错位起步,不单独漂浮 -->
+          <div class="grid grid-cols-2 gap-1 content-center shrink-0">
+            <button data-test="bottom-events" @click="goNsRoute('events')"
+              :title="$t('nav.events')" :aria-label="$t('nav.events')"
+              class="dock-ig dock-ig--lg cursor-pointer" :class="isNsRouteActive('events') ? 'dock-ig--hot' : ''">
+              <span class="dock-ig__sq"><span class="material-symbols-outlined text-base">notifications_active</span></span>
+            </button>
+            <button data-test="bottom-activity" @click="router.push('/audit-logs')"
+              :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
+              class="dock-ig cursor-pointer" :class="isGlobalActive('/audit-logs') ? 'dock-ig--hot' : ''">
+              <span class="dock-ig__sq"><span class="material-symbols-outlined text-sm">history</span></span>
+            </button>
+            <button data-test="bottom-settings" @click="router.push('/settings')"
+              :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
+              class="dock-ig dock-ig--wide col-span-2 cursor-pointer" :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
+              <span class="dock-ig__sq"><span class="material-symbols-outlined text-sm">settings</span></span>
+            </button>
+          </div>
         </div>
       </div>
       <!-- 集群态:活动+设置(维持现状布局) -->
@@ -469,69 +469,65 @@ function nsStatusColor(status) {
 .deploy-card__go { transform: translateY(-50%); transition: transform .18s, opacity .18s; }
 .deploy-card:hover .deploy-card__go { transform: translateY(-50%) translateX(3px); opacity: .9; }
 
-/* ===== 角板停靠坞(v6-B 定稿) ===== */
-.dock-band { overflow: visible; }
-.slab-ring {
-  position: absolute; left: 0; bottom: 0; pointer-events: none;
-  border-radius: 0 42px 16px 0; border: 1.5px solid rgba(0, 134, 90, .24);
+/* ===== 停靠坞:集群 hero + 3 图标同块成组 ===== */
+.dock {
+  height: 100%;
+  border-radius: 18px 9px 9px 14px; /* 不规则圆角:左上大,其余小,右下中 */
+  background: linear-gradient(160deg, #f4f8f5, #e9efeb);
+  border: 1px solid #d9e3dc;
+  box-shadow: 0 6px 16px rgba(0, 60, 35, .10);
 }
-.slab-ring.sr1 { width: 200px; height: 88px; }
-.slab-ring.sr2 { width: 236px; height: 104px; border-color: rgba(0, 134, 90, .11); }
 .cluster-slab {
-  width: 170px; height: 76px; border-radius: 0 42px 16px 0;
+  border-radius: 12px 20px 8px 16px; /* hero 级不规则圆角 */
   background: linear-gradient(120deg, #0ba874 0%, #00835b 55%, #006747 100%);
-  box-shadow: 3px -5px 18px rgba(0, 108, 73, .34), inset 0 1px 0 rgba(255, 255, 255, .26), inset 0 -6px 14px rgba(0, 40, 27, .18);
+  box-shadow: 0 3px 10px rgba(0, 108, 73, .30), inset 0 1px 0 rgba(255, 255, 255, .26), inset 0 -5px 12px rgba(0, 40, 27, .18);
   color: #fff; transition: filter .18s, box-shadow .18s;
 }
-.cluster-slab:hover { filter: brightness(1.07); box-shadow: 3px -7px 22px rgba(0, 108, 73, .44), inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -6px 14px rgba(0, 40, 27, .18); }
+.cluster-slab:hover { filter: brightness(1.07); box-shadow: 0 4px 14px rgba(0, 108, 73, .40), inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -5px 12px rgba(0, 40, 27, .18); }
 .slab-chip {
-  width: 30px; height: 30px; border-radius: 10px;
+  width: 26px; height: 26px; border-radius: 9px;
   background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .25); color: #fff;
 }
 .slab-led {
-  width: 5px; height: 5px; border-radius: 50%; background: #8bf5be;
+  width: 4px; height: 4px; border-radius: 50%; background: #8bf5be;
   box-shadow: 0 0 5px #8bf5be; flex: none; animation: slab-led-pulse 2.4s ease-in-out infinite;
 }
 @keyframes slab-led-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
-/* ===== 3 图标:阶梯 + 微标签 ===== */
-.dock-ig { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-/* 阶梯偏移用 margin 而非 transform:dock-pop 播放期间 keyframes 接管 transform,
-   translateY 偏移会被动画帧吃掉;margin 不受影响(容器 items-end 下等效 translateY) */
-.dock-ig--high { margin-bottom: 8px; }
-.dock-ig--low { margin-bottom: -5px; }
+/* ===== 3 图标:砖块式 2+1,尺寸不一 ===== */
+.dock-ig { display: flex; align-items: center; justify-content: center; }
 .dock-ig__sq {
-  width: 38px; height: 38px; border-radius: 12px;
+  width: 28px; height: 28px; border-radius: 10px;
   background: #ffffff; border: 1px solid #bbcabf; color: #3c4a42;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 60, 35, .13), inset 0 1px 0 #fff;
+  box-shadow: 0 3px 8px rgba(0, 60, 35, .12), inset 0 1px 0 #fff;
   transition: transform .16s cubic-bezier(.2, .7, .3, 1), box-shadow .16s, color .16s, background .16s;
 }
-.dock-ig:hover .dock-ig__sq { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0, 60, 35, .20); color: #006c49; }
+.dock-ig--lg .dock-ig__sq { width: 32px; height: 32px; border-radius: 12px 8px 10px 8px; }
+/* 设置:独占一行横跨两列,宽条形 */
+.dock-ig--wide { width: 100%; }
+.dock-ig--wide .dock-ig__sq { width: 100%; border-radius: 8px 12px 8px 12px; }
+.dock-ig:hover .dock-ig__sq { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 60, 35, .18); color: #006c49; }
 .dock-ig--hot .dock-ig__sq { background: #d7e8df; color: #006c49; border-color: #a9cfbd; }
-.dock-ig__lb { font-size: 8.5px; color: #3c4a42; letter-spacing: .04em; line-height: 1; }
 
 /* ===== 钻入 ns 入场编排(spec §6;返回集群走 drill-up 菜单体感) ===== */
 /* 元素因 v-if 随 ns 态新插入,animation 自动播一次;返回集群 v-if 直接卸载无出场 */
 /* fill 用 backwards:delay 期间 from 帧隐藏元素;结束后回归自然样式——四个动画的 to 帧
    与自然态完全相同,forwards 填充零收益却持续占用 transform,会压死 hover/:active 交互反馈 */
 .deploy-card { animation: dock-rise .5s cubic-bezier(.2, .7, .3, 1) .06s backwards; }
-.cluster-slab { animation: dock-swell .55s cubic-bezier(.3, 1.25, .45, 1) .14s backwards; transform-origin: 0% 100%; }
-.slab-ring.sr1 { animation: ring-grow .5s ease-out .26s backwards; transform-origin: 0% 100%; }
-.slab-ring.sr2 { animation: ring-grow .5s ease-out .34s backwards; transform-origin: 0% 100%; }
+.dock { animation: dock-swell .55s cubic-bezier(.3, 1.25, .45, 1) .14s backwards; transform-origin: 0% 100%; }
 .dock-ig:nth-child(1) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .32s backwards; }
 .dock-ig:nth-child(2) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .41s backwards; }
 .dock-ig:nth-child(3) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .50s backwards; }
 
 @keyframes dock-rise { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes dock-swell { 0% { opacity: 0; transform: scale(.55); } 70% { opacity: 1; transform: scale(1.05); } 100% { transform: scale(1); } }
-@keyframes ring-grow { from { opacity: 0; transform: scale(.78); } to { opacity: 1; transform: scale(1); } }
+@keyframes dock-swell { 0% { opacity: 0; transform: scale(.9); } 70% { opacity: 1; transform: scale(1.02); } 100% { transform: scale(1); } }
 @keyframes dock-pop { 0% { opacity: 0; transform: scale(.3); } 75% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
 
 /* reduce:编排动画全禁(含 slab-led 呼吸);同时兑现 Task 4/5 遗留——hover transition 一并禁用;
    集群头两态容器(Task 2 的 transition-all)也纳入禁用,满足「所有动效须带禁用分支」 */
 @media (prefers-reduced-motion: reduce) {
-  .deploy-card, .cluster-slab, .slab-ring, .dock-ig, .slab-led { animation: none !important; }
+  .deploy-card, .dock, .dock-ig, .slab-led { animation: none !important; }
   .deploy-card, .deploy-card__go, .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
 }
 </style>
