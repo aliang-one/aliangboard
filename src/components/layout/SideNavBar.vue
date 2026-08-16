@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
-import { useNavMode } from '@/composables/useNavMode'
+import { useNavMode, drillDirection } from '@/composables/useNavMode'
 import { getSession } from '@/api/client'
 
 const route = useRoute()
@@ -12,6 +12,11 @@ const router = useRouter()
 const store = useClusterStore()
 const authStore = useAuthStore()
 const { navMode, isNsMode, isClusterMode } = useNavMode()
+// 钻入方向:进入 ns = 'down'(菜单从下滑入),返回集群 = 'up'(从上滑入)
+const drillDir = ref('down')
+watch(navMode, (m, prev) => {
+  drillDir.value = drillDirection(prev, m) ?? drillDir.value
+})
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 // 无 K8s session（首装 admin 在平台管理页）时不轮询 namespaces——拉了必 401
 const _nsEnabled = computed(() => !!getSession())
@@ -279,7 +284,7 @@ function nsStatusColor(status) {
 
     <!-- Scrollable Navigation -->
     <nav class="relative flex-1 overflow-y-auto px-md pb-md">
-      <Transition name="nav-drill">
+      <Transition :name="drillDir === 'down' ? 'drill-down' : 'drill-up'">
         <div :key="navMode">
           <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
           <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
@@ -395,15 +400,21 @@ function nsStatusColor(status) {
 </template>
 
 <style scoped>
-.nav-drill-enter-from,
-.nav-drill-leave-to { opacity: 0; transform: translateY(8px); }
-.nav-drill-enter-active,
-.nav-drill-leave-active {
-  transition: opacity .24s cubic-bezier(.2,.7,.3,1), transform .24s cubic-bezier(.2,.7,.3,1);
+/* 方向感知钻入:进 ns = 新菜单自下方 24px 滑入、旧菜单向上滑出;返回集群反向 */
+.drill-down-enter-from { opacity: 0; transform: translateY(24px); }
+.drill-down-leave-to { opacity: 0; transform: translateY(-24px); }
+.drill-up-enter-from { opacity: 0; transform: translateY(-24px); }
+.drill-up-leave-to { opacity: 0; transform: translateY(24px); }
+.drill-down-enter-active,
+.drill-down-leave-active,
+.drill-up-enter-active,
+.drill-up-leave-active {
+  transition: opacity .3s cubic-bezier(.2,.7,.3,1), transform .3s cubic-bezier(.2,.7,.3,1);
 }
-.nav-drill-leave-active { position: absolute; left: 0; right: 0; top: 0; }
+.drill-down-leave-active,
+.drill-up-leave-active { position: absolute; left: 0; right: 0; top: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .nav-drill-enter-active,
-  .nav-drill-leave-active { transition: none; }
+  .drill-down-enter-active, .drill-down-leave-active,
+  .drill-up-enter-active, .drill-up-leave-active { transition: none; }
 }
 </style>
