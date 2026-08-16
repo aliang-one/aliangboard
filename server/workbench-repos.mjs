@@ -117,10 +117,13 @@ export async function deleteFile(repoPath, relPath) {
   })
 }
 
-// 已跟踪文件(git ls-files)。未 commit 的工作树改动不在此列 —— UI 在 commit 后刷新。
+// 工作树真实文件:已跟踪 + 未跟踪未 ignore(--cached --others --exclude-standard)。
+// 必须含未 commit 的新文件:write_project_file 只写盘不 commit,agent 会话内又无 commit 路径,
+// 若只列 tracked(git ls-files)则 apply_project_manifests/reconcile 永远看不到刚写的
+// manifests/*.yaml(write→apply 断链,2026-08-16)。
 export async function listFiles(repoPath) {
   return withRepoLock(repoPath, async () => {
-    const r = await execGit(['ls-files'], { cwd: repoPath })
+    const r = await execGit(['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: repoPath })
     return r.stdout.split('\n').filter(Boolean)
   })
 }

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   ensureGitAvailable, initRepo, writeFile, readFile, listFiles, commit, recentCommits,
-  hasRepo, withRepoLock, safeRelativePath, deleteFile,
+  hasRepo, withRepoLock, safeRelativePath, deleteFile, readManifests,
 } from './workbench-repos.mjs'
 
 const delay = ms => new Promise(r => setTimeout(r, ms))
@@ -112,6 +112,21 @@ test('hasRepo / ensureGitAvailable', async () => {
   try {
     assert.equal(await hasRepo(repo), true)
     assert.equal(await hasRepo(join(tmpdir(), `wb-no-${Date.now()}`)), false)
+  } finally { await rm(repo, { recursive: true, force: true }) }
+})
+
+// 回归(2026-08-16 write→apply 断链):write_project_file 只写盘不 commit,而 listFiles 旧实现
+// git ls-files 只列已跟踪文件 → 刚写的 manifests/*.yaml 对 readManifests(apply_project_manifests
+// 与 reconcile 的数据源)不可见。agent 会话内无任何 commit 路径(无 commit 工具、不自动 commit),
+// 症状=「写成功能读回,apply 始终报 manifests/ 为空」。listFiles 须含未跟踪文件。
+test('readManifests:刚写盘未 commit 的 yaml 即可见(apply 不依赖中间 commit)', async () => {
+  const repo = await freshRepo()
+  try {
+    await writeFile(repo, 'manifests/deploy.yaml', 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n')
+    const files = await listFiles(repo)
+    assert.ok(files.includes('manifests/deploy.yaml'), 'listFiles 应含未 commit 的新文件')
+    const yaml = await readManifests(repo)
+    assert.ok(yaml.includes('kind: ConfigMap'), '未 commit 的 manifests yaml 应被 readManifests 读到')
   } finally { await rm(repo, { recursive: true, force: true }) }
 })
 
