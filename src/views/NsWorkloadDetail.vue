@@ -20,18 +20,19 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import AreaLineChart from '@/components/common/AreaLineChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
-import FileBrowser from '@/components/common/FileBrowser.vue'
 import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
 import { useTerminalStore } from '@/stores/terminals'
+import { useFileBrowserStore } from '@/stores/fileBrowsers'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const store = useClusterStore()
 const termStore = useTerminalStore()
+const fbStore = useFileBrowserStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
@@ -544,10 +545,9 @@ function openExec(p) {
 }
 function viewFiles() {
   if (!selectedPod.value) return
-  showFileBrowser.value = true
+  fbStore.openBrowser({ namespace: route.params.namespace, podName: selectedPod.value?.name, container: fileBrowserContainer.value })
 }
-// 文件浏览器（Modal，复用 FileBrowser 组件）
-const showFileBrowser = ref(false)
+// 文件浏览器（浮动窗口，全局窗口系统管理）
 const fileBrowserContainer = computed(() => selectedPod.value?.containers?.[0] || selectedPod.value?.raw?.spec?.containers?.[0]?.name || '')
 
 // === 运行指标 ===
@@ -2238,9 +2238,6 @@ function podStatusBorder(s) {
 
   <!-- 端口转发（选中 Pod） -->
   <PortForwardPanel v-model="showPortForward" kind="Pod" :name="selectedPod?.name || ''" :namespace="route.params.namespace" :suggested-ports="pfSuggestedPorts" />
-
-  <!-- 文件浏览器（选中 Pod） -->
-  <FileBrowser v-model="showFileBrowser" :namespace="route.params.namespace" :pod="selectedPod?.name || ''" :container="fileBrowserContainer" />
 
   <!-- YAML 变更 diff 预览 -->
   <Modal v-model="showDiffModal" :title="$t('workload.modals.diffTitle')" width="max-w-3xl">
