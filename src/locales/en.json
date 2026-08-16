@@ -658,7 +658,10 @@
       "enableTlsSpec": "Enable TLS (spec.tls)",
       "tlsSecretNameLabel": "TLS Secret name (TLS Secret containing certificate)",
       "tlsSecretPlaceholder": "my-tls-secret",
-      "tlsHint": "TLS hosts are taken from current rules' hosts; Secret must be of type kubernetes.io/tls."
+      "tlsHint": "TLS hosts are taken from current rules' hosts; Secret must be of type kubernetes.io/tls.",
+      "tlsRowLabel": "TLS",
+      "tlsRowSecretPlaceholder": "secret name (empty = <name>-tls)",
+      "virtualSvcBadge": " (this wizard)"
     },
     "netpolDetail": {
       "networkPolicies": "NetworkPolicies",

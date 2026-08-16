@@ -658,7 +658,10 @@
       "enableTlsSpec": "启用 TLS（spec.tls）",
       "tlsSecretNameLabel": "TLS Secret 名称（含证书的 TLS Secret）",
       "tlsSecretPlaceholder": "my-tls-secret",
-      "tlsHint": "TLS hosts 取自当前 rules 的 host；Secret 需为 kubernetes.io/tls 类型。"
+      "tlsHint": "TLS hosts 取自当前 rules 的 host；Secret 需为 kubernetes.io/tls 类型。",
+      "tlsRowLabel": "TLS",
+      "tlsRowSecretPlaceholder": "secret 名称（留空默认 <ingress名>-tls）",
+      "virtualSvcBadge": " (本向导创建)"
     },
     "netpolDetail": {
       "networkPolicies": "NetworkPolicies",
