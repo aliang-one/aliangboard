@@ -92,6 +92,8 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
   // 二进制流式上传:XHR(fetch 拿不到上传进度)。createXhr 可注入(测试)。
   function uploadBinary(path, file, { onProgress, signal } = {}, createXhr = () => new XMLHttpRequest()) {
     return new Promise((resolve, reject) => {
+      // 已中止守卫：signal 先于调用被 abort 时，不再创建/发送 XHR（Task 3 审查承接）
+      if (signal?.aborted) { reject(Object.assign(new Error('aborted'), { aborted: true })); return }
       const xhr = createXhr()
       const onAbort = () => xhr.abort()
       signal?.addEventListener('abort', onAbort)
