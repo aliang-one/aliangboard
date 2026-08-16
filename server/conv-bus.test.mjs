@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { emit, subscribe, unsubscribe, dispose } from './conv-bus.mjs'
+import { emit, snapshot, snapshotsSize, subscribe, unsubscribe, dispose } from './conv-bus.mjs'
 
 test('subscribe 收到 emit 的事件', () => {
   const got = []
@@ -71,4 +71,13 @@ test('snapshot: delta/step 累积;status running 重置新一轮;dispose 后保�
 
 test('snapshot: 未 start 的 conv 返回 null', () => {
   assert.equal(_snapshot('never-started'), null)
+})
+
+// dev31 复查:快照 Map 容量上限——超限按插入序淘汰最旧,防长跑内存泄漏
+test('snapshots 超上限淘汰最旧(≤256 条),活跃对话不被淘汰', () => {
+  for (let i = 0; i < 300; i++) emit('conv-' + i, { type: 'status', status: 'done' })
+  const s = snapshot('conv-0')
+  assert.equal(s, null, '最旧的 conv-0 被淘汰')
+  assert.notEqual(snapshot('conv-299'), null, '最新仍在')
+  assert.ok(snapshotsSize() <= 256, '容量受控')
 })

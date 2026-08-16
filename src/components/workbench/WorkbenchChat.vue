@@ -332,7 +332,15 @@ async function pollOnce(id) {
     if (agentTurn) {
       let trace = []
       if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
-      agentTurn.trace = trace
+      // 保留尾部未配对的 tool_start(运行中工具的转圈 chip):它不落库(dev27 瞬态设计),
+      // 看门狗 10s 对齐轮询用 DB trace 整体覆盖时会把运行指示器抹掉——恰好在长工具
+      // (wb_exec 30s)执行期间最需要它的时候。工具完成事件到达时按 name 配对移除。
+      const trailing = []
+      for (let i = (agentTurn.trace || []).length - 1; i >= 0; i--) {
+        if (agentTurn.trace[i]?.type === 'tool_start') trailing.unshift(agentTurn.trace[i])
+        else break
+      }
+      agentTurn.trace = [...trace, ...trailing]
       agentTurn.steps = conv.steps ?? agentTurn.steps
     }
     // 首次重建(打开/切换/刷新对话)后滚到底部:聊天约定落在最新消息,
