@@ -1898,7 +1898,8 @@
       "components": "Components",
       "api": "API Server",
       "customcols": "Custom Columns",
-      "mcp": "MCP Service"
+      "mcp": "MCP Service",
+      "transfers": "File Transfers"
     },
     "clusterInfo": "Cluster Information",
     "clusterName": "Cluster Name",
@@ -1946,7 +1947,13 @@
     "mcpInstallCliLabel": "③ Install claude CLI (optional)",
     "mcpUsageNote": "Mint a key at API Keys management; the key's tier + namespace + tool_overrides determine available tools/scope.",
     "mcpDisabledHint": "MCP service is disabled; external AI clients cannot connect.",
-    "mcpRunningHint": "External AI clients can connect via /mcp"
+    "mcpRunningHint": "External AI clients can connect via /mcp",
+    "transfersTitle": "File Transfer Limit",
+    "transfersLimitLabel": "Per-file size limit (MB)",
+    "transfersLimitHint": "Shared limit for container file upload/download; default 1024 (1GB), range 1-10240. Oversized transfers fail with the current limit shown.",
+    "transfersSaved": "Saved",
+    "transfersInvalid": "Enter an integer between 1 and 10240",
+    "transfersLoadFailed": "Failed to load config"
   },
   "storage": {
     "title": "Storage",

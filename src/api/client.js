@@ -294,6 +294,11 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/mcp-config'),
     update: enabled => platformHttp.request('/api/admin/mcp-config', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   },
+  // Pod 文件传输限额(单文件 MB,上传下载共用):GET → {limitMb};PUT ← {limitMb} → {ok, limitMb}
+  podfileConfig: {
+    get: () => platformHttp.request('/api/admin/podfile-config'),
+    update: limitMb => platformHttp.request('/api/admin/podfile-config', { method: 'PUT', body: JSON.stringify({ limitMb }) }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。

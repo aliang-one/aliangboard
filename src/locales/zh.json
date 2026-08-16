@@ -1898,7 +1898,8 @@
       "components": "Components",
       "api": "API Server",
       "customcols": "Custom Columns",
-      "mcp": "MCP 服务"
+      "mcp": "MCP 服务",
+      "transfers": "文件传输"
     },
     "clusterInfo": "集群信息",
     "clusterName": "集群名称",
@@ -1946,7 +1947,13 @@
     "mcpInstallCliLabel": "③ 安装 claude CLI(可选)",
     "mcpUsageNote": "在「平台管理 → API Keys」签发 key；key 的权限档（tier）+ namespace + 工具覆盖决定可用工具/范围。",
     "mcpDisabledHint": "MCP 服务已关闭，外部 AI 客户端无法连接。",
-    "mcpRunningHint": "外部 AI 客户端可通过 /mcp 连接"
+    "mcpRunningHint": "外部 AI 客户端可通过 /mcp 连接",
+    "transfersTitle": "文件传输限额",
+    "transfersLimitLabel": "单文件大小上限(MB)",
+    "transfersLimitHint": "容器文件上传/下载共用的单文件上限;默认 1024(1GB),可调 1-10240。超限时传输任务会提示当前限额。",
+    "transfersSaved": "已保存",
+    "transfersInvalid": "请输入 1-10240 的整数",
+    "transfersLoadFailed": "读取配置失败"
   },
   "storage": {
     "title": "存储",
