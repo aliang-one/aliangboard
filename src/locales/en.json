@@ -2819,6 +2819,7 @@
       "agentFailed": "Agent call failed",
 "stop": "Stop",
 "stopped": "Stopped",
+      "jumpBottom": "Jump to bottom",
 "stopFailed": "Failed to stop",
       "defaultProjectName": "Project",
       "loadProjectFailed": "Failed to load project",

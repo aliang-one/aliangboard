@@ -12,6 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import { applyStreamEvent } from './conv-stream'
+import { isNearBottomCalc } from '@/logic/chatScroll'
 
 const props = defineProps({
   projectId: String,
@@ -197,7 +198,22 @@ function scrollableOf(el) {
   }
   return el
 }
-async function scrollToBottom() { await nextTick(); const el = scrollEl.value; if (!el) return; const target = scrollableOf(el); target.scrollTop = target.scrollHeight }
+function chatScroller() { const el = scrollEl.value; return el ? scrollableOf(el) : null }
+function isNearBottom() { const t = chatScroller(); if (!t) return true; return isNearBottomCalc(t.scrollHeight, t.scrollTop, t.clientHeight) }
+// 强落底(打开/切换对话/发送/用户点「回到底部」):nextTick + rAF + 250ms 三段补偿——
+// markdown/Prism 高亮/字体在首渲后仍会撑高,单次 nextTick 会落在半途。
+async function scrollToBottom() {
+  await nextTick()
+  let t = chatScroller(); if (!t) return
+  t.scrollTop = t.scrollHeight
+  requestAnimationFrame(() => { const t2 = chatScroller(); if (t2) t2.scrollTop = t2.scrollHeight })
+  setTimeout(() => { const t2 = chatScroller(); if (t2) t2.scrollTop = t2.scrollHeight }, 250)
+}
+// 跟随落底(流式 delta/done):仅当用户本来贴底才跟——上翻读历史不被拽到底(标准聊天交互)。
+function followBottom() { if (isNearBottom()) { const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight } }
+// 「回到底部」按钮:非贴底时露出(流式中上翻读历史的回程入口)
+const showJumpBtn = ref(false)
+function onChatScroll() { showJumpBtn.value = !isNearBottom() }
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
@@ -366,11 +382,11 @@ function startStreaming(id) {
     if (evt.type === 'approval' && evt.pending) {
       pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
     }
-    // delta 事件:自动滚到底
-    if (evt.type === 'delta') scrollToBottom()
+    // delta 事件:贴底跟随(上翻读历史不拽)
+    if (evt.type === 'delta') followBottom()
     // 终态:关流
     if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
-      stopStreaming(); sending.value = false; scrollToBottom()
+      stopStreaming(); sending.value = false; followBottom()
     }
     // end 事件:若已到终态则关流,否则也关(连接终结)
     if (evt.type === 'end') {
@@ -527,7 +543,7 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
     <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
 
     <!-- Messages -->
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onChatScroll">
       <!-- Empty state:轻量建议式(去大图标孤岛/全宽边框按钮),附 @-mention 可发现性提示 -->
       <div v-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
         <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-sm">
@@ -559,6 +575,14 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
         <!-- Conversation -->
         <div v-for="turn in turns" :key="turn._id">
           <ChatTurn :turn="turn" />
+        </div>
+
+        <!-- 回到底部:非贴底时悬浮露出(流式中上翻读历史的回程入口;sticky 随内容驻留视口底) -->
+        <div v-if="showJumpBtn" class="sticky bottom-2 flex justify-end pr-sm pointer-events-none">
+          <button @click="scrollToBottom()" :title="t('workbench.chat.jumpBottom')"
+            class="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant border border-outline-variant shadow-card hover:bg-surface-container-highest hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-base">arrow_downward</span>
+          </button>
         </div>
       </div>
     </div>

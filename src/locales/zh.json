@@ -2819,6 +2819,7 @@
       "agentFailed": "Agent 调用失败",
 "stop": "停止",
 "stopped": "已停止",
+      "jumpBottom": "回到底部",
 "stopFailed": "停止失败",
       "defaultProjectName": "项目",
       "loadProjectFailed": "加载项目失败",
