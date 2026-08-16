@@ -37,3 +37,6 @@ dist-ssr
 # 内部开发工作产物(survey/计划/spec),勿入库
 .aliang/
 docs/superpowers/
+
+# Git worktrees(本地隔离工作区,勿入库)
+.worktrees/
