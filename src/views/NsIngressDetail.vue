@@ -6,6 +6,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { notify } from '@/composables/useToast'
+import { validateAdvValue, vfmtOfKey, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -217,6 +218,9 @@ const editAnnValue = ref('')
 
 function addAnnotation() {
   if (!newAnnKey.value) return
+  const fld = vfmtOfKey(newAnnKey.value)
+  const msgKey = fld ? validateAdvValue(fld, newAnnValue.value) : null
+  if (msgKey) { notify('error', t('ingressPerf.invalidField', { field: t(fld.labelKey), msg: t(msgKey) })); return }
   const annotations = { ...(ing.value.annotations || {}) }
   annotations[newAnnKey.value] = newAnnValue.value
   store.updateIngress(route.params.name, route.params.namespace, { annotations })
@@ -232,6 +236,9 @@ function deleteAnnotation(key) {
 function startEditAnn(key) { editingAnn.value = key; editAnnValue.value = ing.value.annotations[key] }
 function saveEditAnn() {
   if (editingAnn.value === null) return
+  const fld = vfmtOfKey(editingAnn.value)
+  const msgKey = fld ? validateAdvValue(fld, editAnnValue.value) : null
+  if (msgKey) { notify('error', t('ingressPerf.invalidField', { field: t(fld.labelKey), msg: t(msgKey) })); return }
   const annotations = { ...ing.value.annotations }
   annotations[editingAnn.value] = editAnnValue.value
   store.updateIngress(route.params.name, route.params.namespace, { annotations })
@@ -439,12 +446,15 @@ function saveEditLabel() {
                   <button @click="deleteAnnotation(key)" class="p-0.5 text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-sm">delete</span></button>
                 </div>
               </div>
-              <div v-if="editingAnn === key" class="flex gap-xs mt-1">
-                <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-xs font-mono min-h-[48px] resize-y focus:ring-1 focus:ring-primary"></textarea>
-                <div class="flex flex-col gap-0.5">
-                  <button @click="saveEditAnn" class="px-2 py-0.5 bg-primary text-on-primary rounded text-xs font-semibold">{{ $t('ns.ingressDetail.save') }}</button>
-                  <button @click="editingAnn = null" class="px-2 py-0.5 border border-outline-variant rounded text-xs">{{ $t('ns.ingressDetail.cancel') }}</button>
+              <div v-if="editingAnn === key" class="flex flex-col gap-xs mt-1">
+                <div class="flex gap-xs">
+                  <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-xs font-mono min-h-[48px] resize-y focus:ring-1 focus:ring-primary" :placeholder="placeholderOfKey(editingAnn) || ''"></textarea>
+                  <div class="flex flex-col gap-0.5">
+                    <button @click="saveEditAnn" class="px-2 py-0.5 bg-primary text-on-primary rounded text-xs font-semibold">{{ $t('ns.ingressDetail.save') }}</button>
+                    <button @click="editingAnn = null" class="px-2 py-0.5 border border-outline-variant rounded text-xs">{{ $t('ns.ingressDetail.cancel') }}</button>
+                  </div>
                 </div>
+                <p v-if="hintKeyOfKey(editingAnn)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(editingAnn)) }}</p>
               </div>
               <p v-else class="font-mono text-[11px] text-on-surface-variant mt-0.5 break-all line-clamp-2" :title="val">{{ val }}</p>
             </div>
@@ -469,7 +479,10 @@ function saveEditLabel() {
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.ingressDetail.value') }}</label>
-        <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" :placeholder="$t('ns.ingressDetail.valuePlaceholder')"></textarea>
+        <div class="flex-1 flex flex-col gap-xs">
+          <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(newAnnKey) || t('ns.ingressDetail.valuePlaceholder')"></textarea>
+          <p v-if="hintKeyOfKey(newAnnKey)" class="text-xs text-on-surface-variant">{{ t(hintKeyOfKey(newAnnKey)) }}</p>
+        </div>
       </div>
     </div>
     <template #actions>
