@@ -132,3 +132,23 @@ test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {
   routeRef.path = '/ns/default'
   expect(mountSideNavBar().find('[data-test="ns-enter"]').exists()).toBe(false)
 })
+
+test('ns mode: 部署大卡存在且点击 → NsDeploy', async () => {
+  routeRef.meta.scope = 'namespace'
+  routeRef.path = '/ns/default'
+  pushMock.mockClear()
+  const w = mountSideNavBar()
+  const card = w.find('[data-test="deploy-card"]')
+  expect(card.exists()).toBe(true)
+  expect(card.text()).toContain('部署')
+  expect(card.text()).toContain('DEPLOY')
+  await card.trigger('click')
+  expect(pushMock).toHaveBeenCalledWith({ name: 'NsDeploy', params: { namespace: 'default' } })
+})
+
+test('cluster mode: 无部署大卡', () => {
+  routeRef.meta.scope = 'global'
+  routeRef.path = '/cluster'
+  const w = mountSideNavBar()
+  expect(w.find('[data-test="deploy-card"]').exists()).toBe(false)
+})

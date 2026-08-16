@@ -358,11 +358,18 @@ function nsStatusColor(status) {
     <div data-test="bottom-actions" class="shrink-0 px-md pb-md pt-sm border-t border-outline-variant/50">
       <button
         v-if="isNsMode"
+        data-test="deploy-card"
         @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
-        class="w-full py-sm px-md bg-primary text-on-primary rounded-lg font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-sm mb-sm"
+        class="deploy-card relative w-full flex items-center gap-md px-md py-sm mb-2 rounded-[18px] text-on-primary overflow-hidden cursor-pointer"
       >
-        <span class="material-symbols-outlined text-lg">rocket_launch</span>
-        {{ $t('nav.deploy') }}
+        <span class="deploy-card__chip flex items-center justify-center w-9 h-9 rounded-xl shrink-0">
+          <span class="material-symbols-outlined text-lg">rocket_launch</span>
+        </span>
+        <span class="relative z-10 min-w-0 text-left">
+          <span class="block text-[15px] font-bold tracking-[0.25em]">{{ $t('nav.deploy') }}</span>
+          <span class="block text-[9.5px] tracking-[0.14em] opacity-85">DEPLOY · {{ currentNs }}</span>
+        </span>
+        <span class="deploy-card__go absolute right-md top-1/2 text-lg opacity-55">›</span>
       </button>
       <!-- 事件 / 活动记录 / 设置:横向 icon-only 行(icon-only,label 走 title/aria-label) -->
       <div class="flex items-stretch gap-xs">
@@ -417,4 +424,26 @@ function nsStatusColor(status) {
   .drill-down-enter-active, .drill-down-leave-active,
   .drill-up-enter-active, .drill-up-leave-active { transition: none; }
 }
+
+/* 部署大卡:三段渐变 + 高光圈 + 内嵌光泽(v6 定稿) */
+.deploy-card {
+  background: linear-gradient(133deg, #00a173 0%, #00835b 52%, #005c3f 100%);
+  box-shadow: 0 8px 22px rgba(0, 92, 63, .34), inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -8px 18px rgba(0, 40, 27, .18);
+  transition: transform .18s cubic-bezier(.2, .7, .3, 1), box-shadow .18s;
+}
+.deploy-card::after {
+  content: ''; position: absolute; right: -24px; top: -28px;
+  width: 88px; height: 88px; border-radius: 50%; background: rgba(255, 255, 255, .10);
+}
+.deploy-card__chip {
+  background: rgba(255, 255, 255, .17); border: 1px solid rgba(255, 255, 255, .22);
+}
+.deploy-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px rgba(0, 92, 63, .40), inset 0 1px 0 rgba(255, 255, 255, .30), inset 0 -8px 18px rgba(0, 40, 27, .18);
+}
+.deploy-card:active { transform: translateY(0) scale(.985); }
+/* __go 的 transform 统一由 CSS 管(模板不带 -translate-y-1/2,避免与 hover transform 冲突) */
+.deploy-card__go { transform: translateY(-50%); transition: transform .18s, opacity .18s; }
+.deploy-card:hover .deploy-card__go { transform: translateY(-50%) translateX(3px); opacity: .9; }
 </style>
