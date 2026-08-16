@@ -117,3 +117,26 @@ test('conversation 不存在返回 false', async () => {
   const fired = await maybeSummarize(db, 'nope', llm)
   assert.equal(fired, false)
 })
+
+// dev29 防御钳制:await LLM 期间消息被 regenerate 截掉 → upTo 钳到当前 maxSeq;
+// 水位已越过现存最大(全被删) → 放弃写入,不产生吞新回复的错位水位
+test('摘要写入前钳制:LLM 期间消息被截 → upTo 不越过现存最大 seq', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q1' })
+  const convId = db.prepare("SELECT id FROM workbench_conversations LIMIT 1").get().id
+  for (let i = 0; i < 12; i++) {
+    appendMessage(db, { conversationId: convId, role: i % 2 ? 'assistant' : 'user', content: `m${i}` })
+  }
+  // 慢 LLM:第一次调用期间把尾部消息删掉(模拟 regenerate 竞态)
+  const llm = {
+    chat: async () => {
+      db.prepare('DELETE FROM workbench_messages WHERE seq > 6').run(convId)
+      return { role: 'assistant', content: '摘要内容' }
+    },
+  }
+  const wrote = await maybeSummarize(db, convId, llm)
+  const conv = getConversation(db, convId)
+  const maxSeq = db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(convId).m
+  assert.ok((conv.summarizedUpTo ?? 0) <= maxSeq, '水位不越过现存最大 seq(复用 seq 的新回复不被吞)')
+  if (wrote) assert.ok(conv.recap, '写入了 recap')
+})

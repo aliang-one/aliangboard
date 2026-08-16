@@ -16,7 +16,7 @@ import {
   buildHistory,
   setActiveConversation,
   getActiveConversationId,
-  listMessages, truncateAfterLastUser,
+  listMessages, truncateAfterLastUser, regenWatermark,
 } from './workbench-projects.mjs'
 
 function freshDb() {
@@ -225,16 +225,43 @@ test('truncateAfterLastUser:多轮只截末轮回复,前几轮完整保留;无 u
   appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' }) // seq2
   appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2' })                    // seq3
   appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a2-bad', trace: '[]' }) // seq4
-  const removed = truncateAfterLastUser(db, conv.id)
+  const { removed, lastUserSeq } = truncateAfterLastUser(db, conv.id)
   assert.equal(removed, 1, '只删末轮回复')
+  assert.equal(lastUserSeq, 3, '返回末轮 user 的 seq(水位钳制用)')
   const msgs = listMessages(db, conv.id)
   assert.equal(msgs.length, 3)
   assert.equal(msgs[2].content, 'q2', '末轮 user 保留(buildHistory 重跑即重答此轮)')
   assert.equal(msgs[1].content, 'a1', '第一轮完整保留')
   // 再跑一次:末轮已无回复 → 删 0(幂等;调用方据此 400)
-  assert.equal(truncateAfterLastUser(db, conv.id), 0)
+  assert.equal(truncateAfterLastUser(db, conv.id).removed, 0)
   // 无 user 消息的对话 → 0
   const conv2 = createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
   db.prepare("DELETE FROM workbench_messages WHERE conversationId=?").run(conv2.id)
-  assert.equal(truncateAfterLastUser(db, conv2.id), 0)
+  assert.equal(truncateAfterLastUser(db, conv2.id).removed, 0)
+})
+
+// dev29 风险修复:水位钳制——seq 复用 × summarizedUpTo 互踩
+// 场景:水位已盖住末轮 user(regenerate 前),不钳制的话重答丢原问题全文、只靠 recap。
+test('regenWatermark:水位盖住末轮 user 时钳到 lastUserSeq-1,buildHistory 保留原问题全文', () => {
+  // 纯函数:各边界
+  assert.equal(regenWatermark(undefined, 3), 0)
+  assert.equal(regenWatermark(2, 3), 2, '未盖住则不动')
+  assert.equal(regenWatermark(3, 3), 2, '恰好盖住 → 钳到 lastUserSeq-1')
+  assert.equal(regenWatermark(5, 1), 0, '极端情况钳到 0 不为负')
+  // 行为级:水位=4(盖住 q2=3),钳制后 buildHistory 里 q2 走全文
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q1' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })                     // 1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' })  // 2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2-原问题' })              // 3
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a2-bad', trace: '[]' }) // 4
+  updateConversation(db, conv.id, { recap: '早期摘要', summarizedUpTo: 4 })
+  const { lastUserSeq } = truncateAfterLastUser(db, conv.id)
+  const clamped = regenWatermark(4, lastUserSeq)
+  const convFresh = getConversation(db, conv.id) // 重取(recap/waterfield 已落库,旧对象是过期快照)
+  const history = buildHistory(db, { ...convFresh, summarizedUpTo: clamped })
+  const q2 = history.find(m => m.content === 'q2-原问题')
+  assert.ok(q2, '钳制后原问题进全文(不被"已进 recap"跳过)')
+  assert.equal(history[0].role, 'system', 'recap 段仍在最前')
 })

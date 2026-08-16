@@ -240,3 +240,14 @@ test('registry:wb_top 免审 + dispatch 透传 scope/namespace/pod', async () =>
   assert.equal(out.content, '内存快到上限')
   assert.deepEqual(got, [{ scope: 'pods', namespace: 'default', pod: 'nginx-1' }])
 })
+
+// dev29: maxSteps 透传——工作台侧深调查放宽(API-key 路径不传仍用默认 8)
+test('createAgentRunner 透传 maxSteps:循环不终答按给定上限截断', async () => {
+  // chat 永远返回 tool_calls(不终答)→ 到 maxSteps 停
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, listResources: async () => ({ kind: 'pods', count: 0, items: [] }) }
+  const llmClient = { chat: async () => tc('c', 'wb_list_resources', { kind: 'pods' }) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, maxSteps: 3 })
+  const out = await run({ history: [] })
+  assert.equal(out.truncated, true)
+  assert.equal(out.steps, 3, '按透传的 maxSteps=3 截断(默认是 8)')
+})
