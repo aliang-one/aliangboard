@@ -84,7 +84,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   status TEXT DEFAULT 'minimized',
   createdAt INTEGER NOT NULL
 )`)
-const stmtDelete = db.prepare('DELETE FROM sessions WHERE token = ?')
+db.exec(`CREATE TABLE IF NOT EXISTS file_browsers (
+  id TEXT PRIMARY KEY,
+  sessionToken TEXT NOT NULL,
+  name TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  podName TEXT NOT NULL,
+  container TEXT,
+  status TEXT DEFAULT 'minimized',
+  createdAt INTEGER NOT NULL
+`)
 const stmtAll = db.prepare('SELECT * FROM sessions')
 
 // === 平台用户管理 + 集群管理 ===
@@ -1796,6 +1805,54 @@ async function handle(req, res) {
       return sendJson(res, 405, { message: 'Method not allowed' })
     } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
   }
+  // === 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminals 同构;无 WS 会话,DELETE 仅删行) ===
+  if (url.pathname === '/api/file-browsers') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    try {
+      if (req.method === 'GET') {
+        const rows = db.prepare('SELECT * FROM file_browsers WHERE sessionToken = ? ORDER BY createdAt').all(token)
+        return sendJson(res, 200, { browsers: rows.map(r => ({ ...r, status: 'minimized' })) })  // 刷新后全部最小化
+      }
+      if (req.method === 'POST') {
+        const input = await readBody(req)
+        const b = {
+          id: input.id || `fb-${randomUUID().slice(0, 8)}`, sessionToken: token,
+          name: input.name || `${input.podName}/${input.container || 'main'}`,
+          namespace: input.namespace, podName: input.podName, container: input.container || '',
+          status: 'open', createdAt: Date.now(),
+        }
+        db.prepare('INSERT INTO file_browsers (id, sessionToken, name, namespace, podName, container, status, createdAt) VALUES (?,?,?,?,?,?,?,?)')
+          .run(b.id, b.sessionToken, b.name, b.namespace, b.podName, b.container, b.status, b.createdAt)
+        return sendJson(res, 200, b)
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+  }
+  if (url.pathname.startsWith('/api/file-browsers/')) {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    const id = decodeURIComponent(url.pathname.slice('/api/file-browsers/'.length))
+    try {
+      if (req.method === 'PATCH') {
+        const input = await readBody(req)
+        const fields = [], vals = []
+        for (const k of ['name', 'status']) { if (input[k] != null) { fields.push(`${k} = ?`); vals.push(input[k]) } }
+        if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+        vals.push(id, token)
+        db.prepare(`UPDATE file_browsers SET ${fields.join(', ')} WHERE id = ? AND sessionToken = ?`).run(...vals)
+        return sendJson(res, 200, { ok: true })
+      }
+      if (req.method === 'DELETE') {
+        db.prepare('DELETE FROM file_browsers WHERE id = ? AND sessionToken = ?').run(id, token)
+        return sendJson(res, 200, { ok: true })
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+  }
+
 
   // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
   if (req.method === 'POST' && url.pathname === '/api/pod/debug') {

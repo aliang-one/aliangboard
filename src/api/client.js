@@ -160,6 +160,14 @@ export const terminalApi = {
   update: (id, patch) => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   remove: id => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
+// 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminalApi 同构)
+export const fileBrowserApi = {
+  list: () => k8sHttp.request('/api/file-browsers'),
+  create: b => k8sHttp.request('/api/file-browsers', { method: 'POST', body: JSON.stringify(b) }),
+  update: (id, patch) => k8sHttp.request(`/api/file-browsers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: id => k8sHttp.request(`/api/file-browsers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
 
 // Pod 文件浏览（基于一次性 exec：ls / cat / 写入），仅远端模式可用。
 export const podFileApi = {
