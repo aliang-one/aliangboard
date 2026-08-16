@@ -86,6 +86,21 @@ const runningTool = computed(() => {
   return null
 })
 
+// 等待计时(dev30):长推理模型出首 token 前可能静默 30s+(用户感知为"前端不更新"),
+// "思考中… 12s" 让等待可量化。起点 turn._startedAt(thinking turn 创建时打;刷新后
+// 从重建时刻起算,不追求精确);≥5s 才显示。
+const nowTick = ref(Date.now())
+const startedAt = ref(Date.now())
+let tickTimer = null
+watch(() => props.turn._startedAt, v => { if (v) startedAt.value = v }, { immediate: true })
+onMounted(() => { tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000) })
+onUnmounted(() => { if (tickTimer) clearInterval(tickTimer) })
+const waitLabel = computed(() => {
+  if (!isStreaming.value) return ''
+  const s = Math.max(0, Math.floor((nowTick.value - startedAt.value) / 1000))
+  return s >= 5 ? `${s}s` : ''
+})
+
 // ── P1 消息操作:复制 / 重新生成 ──
 const copied = ref(false)
 async function copyContent() {
@@ -187,6 +202,7 @@ function onRootClick(e) {
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
         </span>
         <span class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.thinking') }}</span>
+        <span v-if="waitLabel" class="text-body-xs text-on-surface-variant/50 font-mono">{{ waitLabel }}</span>
         <!-- 正在执行的工具(如 wb_exec 30s):spinner+工具名,不再是黑盒"思考中" -->
         <span v-if="runningTool" class="flex items-center gap-xs text-body-xs text-status-running font-mono bg-status-running/5 border border-status-running/30 rounded-full px-sm py-0.5">
           <span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>{{ runningTool }}

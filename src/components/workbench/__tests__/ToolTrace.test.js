@@ -64,3 +64,20 @@ test('ToolTrace: tool_start 渲染 running chip(转动图标),summary 不计入'
   // summary(>5 才显示,这里构造 6 条验证不计入):直接验证 chip 数 = trace 数
   expect(w.findAll('button').filter(b => b.text().includes('wb_exec'))).toHaveLength(1)
 })
+
+// dev30: assistant 轮(LLM 思考回合,无 name)不渲染 chip、不进摘要(曾显示无名 chip + "N× unknown")
+test('ToolTrace: assistant 轮不渲染 chip 也不计入 summary', () => {
+  const trace = [
+    { type: 'assistant', message: { role: 'assistant' } },
+    { type: 'tool', name: 'read_ledger', result: 'ok' },
+    { type: 'assistant', message: { role: 'assistant', tool_calls: [] } },
+    { type: 'tool', name: 'wb_list_resources', result: 'ok' },
+  ]
+  const w = mount(ToolTrace, { props: { trace }, global: { plugins: [i18n] } })
+  const chips = w.findAll('button').filter(b => /play_arrow/.test(b.html()) || /block/.test(b.html()))
+  expect(chips).toHaveLength(2, '只渲染 2 个工具 chip')
+  expect(w.text()).not.toContain('unknown')
+  // 纯 assistant trace → 整个 ToolTrace 不渲染
+  const w2 = mount(ToolTrace, { props: { trace: [{ type: 'assistant', message: {} }] }, global: { plugins: [i18n] } })
+  expect(w2.find('button').exists()).toBe(false)
+})
