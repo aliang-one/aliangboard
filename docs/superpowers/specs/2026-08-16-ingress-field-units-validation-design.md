@@ -32,7 +32,7 @@
 - 校验器导出 `validateAdvValue(vt, raw)` → 错误 i18n key 或 null;`validateIngressAdv(dialect, adv)` → `[{key, labelKey, msgKey}][]`
 - **`adv` 值仍为规范串**(`'4k'`/`'60'`/`'5s'`),`buildIngressAnnotations` 契约零改动
 - `options`(布尔/枚举)与 `area` 现有分支语义保留;`area` 字段视为 `free`
-- `vt` 表按方言全量覆盖:nginx 33 字段、haproxy 8、traefik 3、kong 3,一个不漏
+- `vt` 表按方言全量覆盖:nginx 34 字段、haproxy 8、traefik 3、kong 3,一个不漏(共 48 字段)
 
 ## ② 组件:`IngressPerfField.vue`(`src/components/common/`)
 

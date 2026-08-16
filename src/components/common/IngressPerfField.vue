@@ -32,13 +32,14 @@ function sync(v) {
     num.value = s
   } else {
     num.value = ''
+    if (isUnit.value) unit.value = vt.value.defUnit
   }
 }
 sync(props.modelValue)
 // 外部重填(编辑回显)时同步数字框/单位
 watch(() => props.modelValue, v => sync(v))
 
-function emitVal() { emit('update:modelValue', num.value ? num.value + (isUnit.value ? unit.value : '') : '') }
+function emitVal() { emit('update:modelValue', num.value ? num.value + (isUnit.value ? (unit.value || vt.value.defUnit) : '') : '') }
 
 const inputCls = 'w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary'
 const unitCls = 'bg-surface-container-low border border-l-0 border-outline-variant rounded-r-lg px-sm text-xs text-on-surface-variant'
@@ -57,7 +58,7 @@ const unitCls = 'bg-surface-container-low border border-l-0 border-outline-varia
       </select>
     </div>
     <div v-else-if="vt.input === 'number'" class="flex items-stretch">
-      <input type="number" :min="fld.min" :max="fld.max" v-model="num" @input="emitVal" :class="inputCls + (fld.unitKey ? ' rounded-r-none' : '')" :placeholder="fld.ph" />
+      <input type="number" :min="fld.min" :max="fld.max" v-model="num" @input="emitVal" :class="inputCls + (fld.unitKey && t(fld.unitKey) ? ' rounded-r-none' : '')" :placeholder="fld.ph" />
       <span v-if="fld.unitKey && t(fld.unitKey)" :class="unitCls + ' flex items-center'">{{ t(fld.unitKey) }}</span>
     </div>
     <input v-else v-model="raw" :class="inputCls" :placeholder="fld.ph" />

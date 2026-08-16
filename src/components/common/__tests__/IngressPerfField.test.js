@@ -36,6 +36,12 @@ describe('IngressPerfField: size(数字+单位下拉)', () => {
     expect(w.find('input[type="number"]').element.value).toBe('100')
     expect(w.find('select').element.value).toBe('m')
   })
+  it('空值 mount + 输入 4 → emit "4m"(默认单位兜底),单位下拉显示 m', async () => {
+    const w = mountFld(fld)
+    await w.find('input[type="number"]').setValue('4')
+    expect(w.emitted('update:modelValue').at(-1)[0]).toBe('4m')
+    expect(w.find('select').element.value).toBe('m')
+  })
 })
 
 describe('IngressPerfField: int(数字框+只读单位后缀)', () => {
@@ -52,6 +58,16 @@ describe('IngressPerfField: int(数字框+只读单位后缀)', () => {
     const w = mountFld(fld)
     expect(w.find('input[type="number"]').attributes('min')).toBe('1')
     expect(w.find('input[type="number"]').attributes('max')).toBe('9')
+  })
+  it('unitKey 但译文为空时不渲染 span(直角输入框)', () => {
+    const { locale } = i18n.global
+    const oldLocale = locale.value
+    locale.value = 'en'
+    const fld = { key: 'worker-count', labelKey: 'ingressPerf.workerCount', ph: '4', vt: 'int', unitKey: 'ingressPerf.unitCount' }
+    const w = mountFld(fld)
+    expect(w.find('span').exists()).toBe(false)
+    expect(w.find('input').classes()).not.toContain('rounded-r-none')
+    locale.value = oldLocale
   })
 })
 

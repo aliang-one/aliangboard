@@ -23,8 +23,8 @@
 
 | 视图/组件 | 字段 | 分类 | 现状(实测) | 建议 | 风险 |
 |---|---|---|---|---|---|
-| NsIngress 性能面板+自定义注解(4 方言) | 47 字段 | 数值+单位/格式受限 | ✅ 已修:`IngressPerfField`(vt 元信息:数字框+单位下拉 k/m/g、ms/s/m;只读单位后缀;hint 常显)+ 提交前 `validateIngressAdv`/`validateCustomAnnotations` 拦截(spec §①②③⑤) | — | — |
-| DeployApp 第 5 步网关性能调优+自定义注解 | 同上 47 字段 | 同上 | ✅ 已修:`IngressPerfField` + `AnnotationKeySelect` 已知 key 提示 + validate() 拦截(spec §③④) | — | — |
+| NsIngress 性能面板+自定义注解(4 方言) | 48 字段 | 数值+单位/格式受限 | ✅ 已修:`IngressPerfField`(vt 元信息:数字框+单位下拉 k/m/g、ms/s/m;只读单位后缀;hint 常显)+ 提交前 `validateIngressAdv`/`validateCustomAnnotations` 拦截(spec §①②③⑤) | — | — |
+| DeployApp 第 5 步网关性能调优+自定义注解 | 同上 48 字段 | 同上 | ✅ 已修:`IngressPerfField` + `AnnotationKeySelect` 已知 key 提示 + validate() 拦截(spec §③④) | — | — |
 | NsIngressDetail 添加/编辑注解弹窗 | 注解 value | 格式受限 | ✅ 已修:已知 key 按 `vfmt` 显示格式 hint + 保存前校验(spec §④⑤) | — | — |
 | NsLimitRanges 创建弹窗 | default/defaultRequest/max/min × CPU/Memory 共 8 字段 | 数值+单位 | 裸文本框(无 type=number),placeholder 带单位示例(`500m`/`512Mi`/`2`/`4Gi`/`50m`/`64Mi`),无校验,原样直传 `addLimitRange` | 数字框+单位下拉(ResourceInput,cpu/mem 两 kind) | **高**:填 `512` 被 apiserver 接受为 512 **字节**,静默注入 namespace 全体 Pod 默认 limits→Pod 起不来或配额浪费,无报错兜底 |
 | NsLimitRangeDetail 编辑弹窗 | 同上 8 字段 | 数值+单位 | 裸文本框,且**无任何 placeholder**(比创建弹窗更差) | 同上 | **高**:同上,静默错值无兜底 |
