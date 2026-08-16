@@ -146,11 +146,9 @@
       "close": "关闭"
     },
     "fileBrowser": {
-      "title": "文件管理 · {pod}{separator}{container}",
       "readDirFailed": "读取目录失败",
       "readFailed": "读取失败",
-      "downloadFailed": "下载失败",
-      "uploaded": "已上传 {name}（{size} 字节）",
+      "uploaded": "已上传 {name}（{size}）",
       "uploadFailed": "上传失败",
       "saved": "已保存",
       "saveFailed": "保存失败",
@@ -167,7 +165,8 @@
       "folderItems": "{count} 项",
       "binaryHint": "二进制文件不提供预览，可下载查看",
       "collapse": "折叠",
-      "expand": "展开"
+      "expand": "展开",
+      "closeTitle": "关闭文件窗口"
     },
     "asyncState": {
       "loadFailed": "加载失败，请稍后重试",
@@ -1897,7 +1896,8 @@
       "components": "Components",
       "api": "API Server",
       "customcols": "Custom Columns",
-      "mcp": "MCP 服务"
+      "mcp": "MCP 服务",
+      "transfers": "文件传输"
     },
     "clusterInfo": "集群信息",
     "clusterName": "集群名称",
@@ -1945,7 +1945,13 @@
     "mcpInstallCliLabel": "③ 安装 claude CLI(可选)",
     "mcpUsageNote": "在「平台管理 → API Keys」签发 key；key 的权限档（tier）+ namespace + 工具覆盖决定可用工具/范围。",
     "mcpDisabledHint": "MCP 服务已关闭，外部 AI 客户端无法连接。",
-    "mcpRunningHint": "外部 AI 客户端可通过 /mcp 连接"
+    "mcpRunningHint": "外部 AI 客户端可通过 /mcp 连接",
+    "transfersTitle": "文件传输限额",
+    "transfersLimitLabel": "单文件大小上限(MB)",
+    "transfersLimitHint": "容器文件上传/下载共用的单文件上限;默认 1024(1GB),可调 1-10240。超限时传输任务会提示当前限额。",
+    "transfersSaved": "已保存",
+    "transfersInvalid": "请输入 1-10240 的整数",
+    "transfersLoadFailed": "读取配置失败"
   },
   "storage": {
     "title": "存储",
@@ -3041,14 +3047,12 @@
     "title": "{name} · 终端",
     "expired": "会话已过期，请关闭此窗口并在原页面重新打开终端。",
     "closeWindow": "关闭窗口",
-    "closeAllConfirm": "确定关闭全部 {count} 个终端会话？",
     "closeAllTitle": "关闭所有终端",
     "closeAll": "全部关闭",
     "statusFloating": "浮动窗口",
     "statusExternal": "在新标签页中打开",
     "statusMinimized": "已最小化",
     "closeThisTitle": "关闭此终端",
-    "countLabel": "{count} 个终端",
     "dblClickRename": "{name}（双击重命名）",
     "openInNewTabTitle": "在新标签页打开",
     "restoreTitle": "还原",
@@ -3406,5 +3410,25 @@
   },
   "envSource": {
     "nsMissing": "当前命名空间未找到该资源(可跨命名空间手输)"
+  },
+  "transfers": {
+    "panelTitle": "传输任务",
+    "empty": "暂无传输任务",
+    "downloadLabel": "下载",
+    "uploadLabel": "上传",
+    "cancelTitle": "取消传输",
+    "removeTitle": "从列表移除",
+    "clearFinished": "清除已结束",
+    "statusActive": "传输中",
+    "statusDone": "已完成",
+    "statusError": "失败",
+    "statusCanceled": "已取消",
+    "indeterminate": "已接收 {received}",
+    "progressLabel": "{received} / {total}",
+    "speedLabel": "{speed}/s",
+    "summaryMulti": "传输 {done}/{count}",
+    "openPanelTitle": "打开传输面板",
+    "closeAllConfirm": "确定关闭 {count} 个会话(终端与文件窗口)?",
+    "sessionsCount": "{count} 个会话"
   }
 }

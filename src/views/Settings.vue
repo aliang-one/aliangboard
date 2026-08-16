@@ -21,6 +21,7 @@ const tabs = computed(() => [
   { key: 'api', label: t('settings.tabs.api'), icon: 'api' },
   { key: 'customcols', label: t('settings.tabs.customcols'), icon: 'view_column' },
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
+  ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
 ])
 
 // === Components: real cluster component health ===
@@ -55,7 +56,7 @@ async function loadComponents() {
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
 onMounted(() => {
   if (activeTab.value === 'components') loadComponents()
-  if (auth.isAdmin) loadMcpConfig()
+  if (auth.isAdmin) { loadMcpConfig(); loadTransfersConfig() }
 })
 
 // === MCP Service toggle (admin only) ===
@@ -76,6 +77,25 @@ async function loadMcpConfig() {
 async function toggleMcp() {
   mcpLoading.value = true
   try { const r = await adminApi.mcpConfig.update(!mcpEnabled.value); mcpEnabled.value = r.enabled } catch { /* notify or silent */ } finally { mcpLoading.value = false }
+}
+
+// === 文件传输限额 (admin only) ===
+const tfLimit = ref(1024)
+const tfSaving = ref(false)
+const tfLoaded = ref(false)
+async function loadTransfersConfig() {
+  try { const r = await adminApi.podfileConfig.get(); tfLimit.value = r.limitMb; tfLoaded.value = true }
+  catch { /* 非 admin/无权限静默 */ }
+}
+async function saveTransfersConfig() {
+  const v = parseInt(tfLimit.value, 10)
+  if (!(v >= 1 && v <= 10240)) { notify('error', t('settings.transfersInvalid')); return }
+  tfSaving.value = true
+  try {
+    const r = await adminApi.podfileConfig.update(v)
+    tfLimit.value = r.limitMb; notify('success', t('settings.transfersSaved'))
+  } catch (e) { notify('error', e.message || t('settings.transfersLoadFailed')) }
+  finally { tfSaving.value = false }
 }
 
 // === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
@@ -332,6 +352,24 @@ const { catalog, resetAll } = useTableColumns()
 
               <p class="text-body-xs text-on-surface-variant">{{ t('settings.mcpUsageNote') }}</p>
             </div>
+          </div>
+        </div>
+
+        <!-- File Transfer limit tab (admin only) -->
+        <div v-if="activeTab === 'transfers'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">swap_vert</span>
+            <span class="text-body-sm font-semibold">{{ t('settings.transfersTitle') }}</span>
+          </div>
+          <div class="p-md space-y-md">
+            <div class="flex items-center gap-sm">
+              <label class="text-body-sm text-on-surface-variant shrink-0">{{ t('settings.transfersLimitLabel') }}</label>
+              <input v-model="tfLimit" type="number" min="1" max="10240" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              <button @click="saveTransfersConfig" :disabled="tfSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+                {{ t('common.save') }}
+              </button>
+            </div>
+            <p class="text-body-xs text-on-surface-variant">{{ t('settings.transfersLimitHint') }}</p>
           </div>
         </div>
       </div>

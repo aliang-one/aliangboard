@@ -3,10 +3,10 @@
 // 富信息：健康度 + 名称(应用名/实例哈希) + 状态 + 容器数 + IP/节点/镜像/重启 + CPU/MEM 进度条 + 生命周期 conditions。
 // 通过 props 控制差异：选中态、删除键、生命周期、端点 ready 标记。
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import StatusChip from './StatusChip.vue'
 import { useTerminalStore } from '@/stores/terminals'
+import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers, podReason } from '@/composables/usePod'
 
 const { t } = useI18n()
@@ -29,8 +29,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['click', 'delete'])
 
-const router = useRouter()
 const termStore = useTerminalStore()
+const fbStore = useFileBrowserStore()
 const pod = computed(() => props.pod || {})
 const health = computed(() => podHealth(pod.value))
 const nameDisp = computed(() => podNameDisplay(pod.value, props.nameBase))
@@ -45,10 +45,11 @@ const reason = computed(() => podReason(pod.value))
 const canExec = computed(() => pod.value.status === 'Running')
 
 function onClick() { if (props.clickable) emit('click', pod.value) }
-// 文件浏览：跳 PodDetail 文件 tab（内嵌）
-function goPodTab(hash) {
+// 文件浏览:弹浮动窗口(复用全局窗口系统:可最小化到任务栏、刷新恢复、状态同步)
+function openFiles() {
   if (!canExec.value) return
-  router.push({ name: 'NsPodDetail', params: { namespace: pod.value.namespace, name: pod.value.name }, hash })
+  const c = containers.value?.[0]
+  fbStore.openBrowser({ namespace: pod.value.namespace, podName: pod.value.name, container: (c && (c.name || c)) || 'main' })
 }
 // 终端：弹浮动窗口（复用全局终端系统：可最小化到任务栏、状态保持、新标签页打开）
 function openTerm() {
@@ -77,7 +78,7 @@ function openTerm() {
       <span class="text-[11px] text-on-surface-variant ml-auto shrink-0">{{ pod.age }}</span>
       <slot name="actions" />
       <button v-if="showTerminal" @click.stop="openTerm" :disabled="!canExec" :title="canExec ? t('component.podCard.terminalTitle') : t('component.podCard.terminalDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">terminal</span></button>
-      <button v-if="showFiles" @click.stop="goPodTab('#files')" :disabled="!canExec" :title="canExec ? t('component.podCard.filesTitle') : t('component.podCard.filesDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
+      <button v-if="showFiles" @click.stop="openFiles" :disabled="!canExec" :title="canExec ? t('component.podCard.filesTitle') : t('component.podCard.filesDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
       <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" :title="t('component.podCard.deleteTitle')"><span class="material-symbols-outlined text-sm">delete</span></button>
     </div>
 

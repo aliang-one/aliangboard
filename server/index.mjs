@@ -18,6 +18,7 @@ import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient } from './llm.mjs'
+import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages } from './workbench-projects.mjs'
@@ -83,7 +84,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   status TEXT DEFAULT 'minimized',
   createdAt INTEGER NOT NULL
 )`)
-const stmtDelete = db.prepare('DELETE FROM sessions WHERE token = ?')
+db.exec(`CREATE TABLE IF NOT EXISTS file_browsers (
+  id TEXT PRIMARY KEY,
+  sessionToken TEXT NOT NULL,
+  name TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  podName TEXT NOT NULL,
+  container TEXT,
+  status TEXT DEFAULT 'minimized',
+  createdAt INTEGER NOT NULL
+)`)
 const stmtAll = db.prepare('SELECT * FROM sessions')
 
 // === 平台用户管理 + 集群管理 ===
@@ -138,6 +148,11 @@ db.exec("UPDATE workbench_conversations SET status='failed', error='Server resta
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
+// Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
+function getPodfileLimitBytes() {
+  const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
+  return mb * 1024 * 1024
+}
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
   return {
@@ -884,7 +899,7 @@ async function ensurePvcBrowser(session, ns, pvc) {
 }
 
 const PODFILE_PREVIEW_LIMIT = 256 * 1024   // 预览最多 256KB
-const PODFILE_DOWNLOAD_LIMIT = 16 * 1024 * 1024  // 下载最多 16MB（超出请用终端）
+// (下载 16MB 硬上限已废——download 走 streamDownload 流式,限额统一 getPodfileLimitBytes(),admin 可调)
 
 // 注入 Ephemeral Container（kubectl debug 语义）：向 pods/ephemeralcontainers 子资源
 // 先 GET 已有列表再 PUT 追加，避免覆盖同名临时容器。需集群启用 EphemeralContainers（1.25+ 默认开启）。
@@ -1636,6 +1651,32 @@ async function handle(req, res) {
     if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
     const action = url.pathname.slice('/api/podfile/'.length)
     try {
+      // upload:二进制流式(元信息走查询串,请求体 pipe → exec stdin,不经 base64/不整包缓冲)。
+      // 必须在 readBody 之前——readBody 会把整个请求体缓冲进内存。
+      if (action === 'upload') {
+        const q = url.searchParams
+        const namespace = q.get('namespace'), pod = q.get('pod')
+        const container = q.get('container') || '', path = q.get('path') || ''
+        if (!namespace || !pod || !path) return sendJson(res, 400, { message: '缺少 namespace / pod / path' })
+        const contentLength = parseInt(req.headers['content-length'] || '', 10)
+        const { KubeConfig, Exec } = await k8sClient()
+        const exec = new Exec(buildKubeConfig(KubeConfig, session))
+        try {
+          const r = await streamUpload({
+            contentLength, limitBytes: getPodfileLimitBytes(), req,
+            openConn: (input, stderrSink) => {
+              const stdin = new PassThrough()   // 过早 EOF 会让 kubelet 提前关 exec(见 execCapture 注释),pipe 保持到 req end
+              input.pipe(stdin)
+              return exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"', 'podfile-upload', path], null, stderrSink, stdin, false)
+            },
+          })
+          return sendJson(res, 200, { ...r, path })
+        } catch (error) {
+          console.error('[podfile/upload]', error?.status || '', error?.message || error)
+          if (error.canceled) return sendJson(res, 499, { message: '客户端中断上传' })
+          return sendJson(res, error.status || 502, { message: error?.message || '上传失败' })
+        }
+      }
       const input = await readBody(req)
       const namespace = input.namespace, pod = input.pod, container = input.container || ''
       const path = input.path || '/'
@@ -1672,19 +1713,27 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true, path, bytes: bytes.length })
       }
       if (action === 'download') {
-        const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'cat "$1"', 'cat', path])
-        const errText = result.stderr.trim()
-        if (errText && !result.stdout.length) throw Object.assign(new Error(errText), { status: 404 })
-        if (result.stdout.length > PODFILE_DOWNLOAD_LIMIT) return sendJson(res, 413, { message: `文件过大（>${Math.round(PODFILE_DOWNLOAD_LIMIT / 1024 / 1024)}MB），请在终端中下载` })
-        const base = (path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')
-        res.writeHead(200, {
-          'content-type': 'application/octet-stream',
-          'content-disposition': `attachment; filename="${base}"`,
-          'content-length': result.stdout.length,
-          'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
-          'access-control-expose-headers': 'content-disposition',
-        })
-        return res.end(result.stdout)
+        // 流式:先 stat 大小(404/413 在头部发出前判定),再 exec base64 输出逐行解码转发(见 podfile-stream)
+        const stat = await execCapture(session, namespace, pod, container, ['sh', '-c', 'wc -c < "$1"', 'wc', path], true)
+        const statBytes = parseInt(stat.stdout.toString('utf8').trim(), 10)
+        const base = ((path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')) || 'download'
+        try {
+          // CORS 头沿用原 download 分支(setHeader 与 streamDownload 内的 writeHead 合并下发)
+          res.setHeader('access-control-allow-origin', process.env.CORS_ORIGIN || '*')
+          res.setHeader('access-control-expose-headers', 'content-disposition')
+          await streamDownload({
+            statBytes, limitBytes: getPodfileLimitBytes(), res, filename: base,
+            openConn: async (stdoutSink, stderrSink) => {   // async:streamDownload 内 await openConn,兼容 k8sClient() 异步加载
+              const { KubeConfig, Exec } = await k8sClient()
+              const exec = new Exec(buildKubeConfig(KubeConfig, session))
+              return exec.exec(namespace, pod, container, ['sh', '-c', 'base64 "$1"', 'base64', path], stdoutSink, stderrSink, new PassThrough(), true)
+            },
+          })
+        } catch (error) {
+          console.error('[podfile/download]', error?.status || '', error?.message || error)
+          if (!res.headersSent) return sendJson(res, error.status || 502, { message: error?.message || '下载失败' })
+        }
+        return
       }
       return sendJson(res, 404, { message: `未知 podfile 操作：${action}` })
     } catch (error) {
@@ -1757,6 +1806,54 @@ async function handle(req, res) {
       return sendJson(res, 405, { message: 'Method not allowed' })
     } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
   }
+  // === 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminals 同构;无 WS 会话,DELETE 仅删行) ===
+  if (url.pathname === '/api/file-browsers') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    try {
+      if (req.method === 'GET') {
+        const rows = db.prepare('SELECT * FROM file_browsers WHERE sessionToken = ? ORDER BY createdAt').all(token)
+        return sendJson(res, 200, { browsers: rows.map(r => ({ ...r, status: 'minimized' })) })  // 刷新后全部最小化
+      }
+      if (req.method === 'POST') {
+        const input = await readBody(req)
+        const b = {
+          id: input.id || `fb-${randomUUID().slice(0, 8)}`, sessionToken: token,
+          name: input.name || `${input.podName}/${input.container || 'main'}`,
+          namespace: input.namespace, podName: input.podName, container: input.container || '',
+          status: 'open', createdAt: Date.now(),
+        }
+        db.prepare('INSERT INTO file_browsers (id, sessionToken, name, namespace, podName, container, status, createdAt) VALUES (?,?,?,?,?,?,?,?)')
+          .run(b.id, b.sessionToken, b.name, b.namespace, b.podName, b.container, b.status, b.createdAt)
+        return sendJson(res, 200, b)
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+  }
+  if (url.pathname.startsWith('/api/file-browsers/')) {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    const id = decodeURIComponent(url.pathname.slice('/api/file-browsers/'.length))
+    try {
+      if (req.method === 'PATCH') {
+        const input = await readBody(req)
+        const fields = [], vals = []
+        for (const k of ['name', 'status']) { if (input[k] != null) { fields.push(`${k} = ?`); vals.push(input[k]) } }
+        if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+        vals.push(id, token)
+        db.prepare(`UPDATE file_browsers SET ${fields.join(', ')} WHERE id = ? AND sessionToken = ?`).run(...vals)
+        return sendJson(res, 200, { ok: true })
+      }
+      if (req.method === 'DELETE') {
+        db.prepare('DELETE FROM file_browsers WHERE id = ? AND sessionToken = ?').run(id, token)
+        return sendJson(res, 200, { ok: true })
+      }
+      return sendJson(res, 405, { message: 'Method not allowed' })
+    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+  }
+
 
   // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
   if (req.method === 'POST' && url.pathname === '/api/pod/debug') {

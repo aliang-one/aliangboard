@@ -160,6 +160,14 @@ export const terminalApi = {
   update: (id, patch) => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   remove: id => k8sHttp.request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
+// 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminalApi 同构)
+export const fileBrowserApi = {
+  list: () => k8sHttp.request('/api/file-browsers'),
+  create: b => k8sHttp.request('/api/file-browsers', { method: 'POST', body: JSON.stringify(b) }),
+  update: (id, patch) => k8sHttp.request(`/api/file-browsers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: id => k8sHttp.request(`/api/file-browsers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
 
 // Pod 文件浏览（基于一次性 exec：ls / cat / 写入），仅远端模式可用。
 export const podFileApi = {
@@ -167,6 +175,14 @@ export const podFileApi = {
   read: payload => k8sHttp.request('/api/podfile/read', { method: 'POST', body: JSON.stringify(payload) }),
   write: payload => k8sHttp.request('/api/podfile/write', { method: 'POST', body: JSON.stringify(payload) }),
   download: payload => k8sHttp.blob('/api/podfile/download', { method: 'POST', body: JSON.stringify(payload) }),
+  // 流式下载(进度):POST JSON → Blob,onProgress({received,total})
+  downloadStream: (payload, { onProgress, signal } = {}) =>
+    k8sHttp.downloadStream('/api/podfile/download', { body: payload, onProgress, signal }),
+  // 流式上传(进度):元信息查询串 + 原始文件体
+  uploadStream: ({ namespace, pod, container, path }, file, { onProgress, signal } = {}) => {
+    const q = new URLSearchParams({ namespace, pod, container: container || '', path })
+    return k8sHttp.uploadBinary(`/api/podfile/upload?${q}`, file, { onProgress, signal })
+  },
 }
 
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
@@ -280,6 +296,11 @@ export const adminApi = {
   mcpConfig: {
     get: () => platformHttp.request('/api/admin/mcp-config'),
     update: enabled => platformHttp.request('/api/admin/mcp-config', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  },
+  // Pod 文件传输限额(单文件 MB,上传下载共用):GET → {limitMb};PUT ← {limitMb} → {ok, limitMb}
+  podfileConfig: {
+    get: () => platformHttp.request('/api/admin/podfile-config'),
+    update: limitMb => platformHttp.request('/api/admin/podfile-config', { method: 'PUT', body: JSON.stringify({ limitMb }) }),
   },
 }
 

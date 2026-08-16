@@ -5,11 +5,13 @@ import { ref, computed, watch, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { langFor } from '@/logic/fileLang'
 import { notify } from '@/composables/useToast'
+import { useTransferStore } from '@/stores/transfers'
 import CodeViewer from './CodeViewer.vue'
 
 const { t } = useI18n()
 const props = defineProps({ path: { type: String, required: true } })
 const x = inject('fileExplorer')
+const transferStore = useTransferStore()
 
 const file = ref(null)        // { name, path, content, truncated, binary }
 const loading = ref(false)
@@ -42,12 +44,8 @@ async function saveEdit() {
   } catch (e) { notify('error', e.message || t('component.fileBrowser.saveFailed')) }
   finally { saving.value = false }
 }
-async function download() {
-  try {
-    const blob = await x.download(file.value.path)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = file.value.name; a.click(); URL.revokeObjectURL(url)
-  } catch (e) { notify('error', e.message || t('component.fileBrowser.downloadFailed')) }
+function download() {
+  transferStore.startDownload(x.ctx.value, file.value.path)   // 进度走任务栏+面板;完成自动落盘
 }
 </script>
 
