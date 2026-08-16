@@ -13,24 +13,37 @@ bus.setMaxListeners(100) // 同一 conv 可能多个 SSE 客户端(断线重连�
 // (终态后重连仍可补齐全量输出)。
 const snapshots = new Map()
 
+// 快照容量上限(复查发现):dispose 保留快照供终态后重连补齐,但 Map 只增不减——
+// 网关长跑数周、对话数千条后全文+trace 常驻内存(泄漏)。超限按插入序淘汰最旧
+// (Map 保序;被淘汰对话已终态良久,客户端早拿到完整输出,重连时退回终态快照分支)。
+const SNAPSHOTS_MAX = 256
+function setSnapshot(convId, s) {
+  snapshots.set(convId, s)
+  if (snapshots.size > SNAPSHOTS_MAX) {
+    const oldest = snapshots.keys().next().value
+    if (oldest !== convId) snapshots.delete(oldest)
+  }
+}
+
 export function emit(convId, event) {
   const e = event
   if (e && typeof e === 'object') {
     if (e.type === 'status' && e.status === 'running') {
-      snapshots.set(convId, { content: '', trace: [], steps: 0, status: 'running', error: '', pending: null })
+      setSnapshot(convId, { content: '', trace: [], steps: 0, status: 'running', error: '', pending: null })
     } else {
       const s = snapshots.get(convId) || { content: '', trace: [], steps: 0, status: '', error: '', pending: null }
       if (e.type === 'delta') s.content = (s.content || '') + (e.text || '')
       else if (e.type === 'step') { s.trace = [...(s.trace || []), e.step]; s.steps = (s.steps || 0) + 1 }
       else if (e.type === 'status') { s.status = e.status; if (e.error) s.error = e.error }
       else if (e.type === 'approval' && e.pending) s.pending = e.pending
-      snapshots.set(convId, s)
+      setSnapshot(convId, s)
     }
   }
   bus.emit(convId, event)
 }
 
 // 当前快照(只读副本;无则 null)。供 SSE 端点连上时补齐。
+export function snapshotsSize() { return snapshots.size }
 export function snapshot(convId) {
   const s = snapshots.get(convId)
   return s ? { ...s, trace: [...(s.trace || [])] } : null
