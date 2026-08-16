@@ -64,7 +64,7 @@ hosts: [{
 - `hostsToFlat(hosts)` / `flatToHosts(flatRules)` — 编辑模型 ↔ 扁平 rules 互转(④ 视图内转换逻辑下沉)
 - `hostsToK8sSpec(hosts)` — 生成 `{rules, tls}` spec 片段(per-host TLS 聚合为 spec.tls),供 ③ `addIngress` 与 ① YAML 共用
 - `appendPathDecision(ingressList, {host, path, pathType, serviceName, servicePort})` — ② 智能追加决策:返回 `{mode:'patch', ingress, flatRules}`(host **精确**匹配已有 Ingress,flatten 后追加新 path)或 `{mode:'create'}`;空 host(`*`)不参与匹配
-- `buildWizardIngressYaml(hosts, {name, namespace, ingressClassName, annotations})` — 向导 Ingress YAML 段从 `previewYAML` 拆出
+- `buildWizardIngressYaml(hosts, {name, namespace, ingressClassName, annotations})` — 向导 Ingress YAML 段从 `previewYAML` 拆出,生成**完整 Ingress 文档**(含 per-host TLS 聚合),`previewYAML` 直接拼接其返回值
 
 **根因修正不变式**:backend 一律取 path 级 `serviceName/servicePort`;生成层禁止 `\|\| 80` 兜底、禁止硬编码 `{name}-svc`;未填写由校验拦截。
 
@@ -73,16 +73,16 @@ hosts: [{
 ### ① 部署向导 Step5(`DeployApp.vue`)
 
 - `1439-1470` 行 ingressRules 编辑区换 `IngressRulesEditor`(`withTls=true`)。
-- services 源 = Vue Query ns Service + 虚拟项(`createService` 勾选时注入,新增 path 默认指向)。
-- Ingress YAML 段改走 `buildWizardIngressYaml`;TLS 段从 hosts 读取(语义不变)。
+- services 源 = Vue Query Service 列表按 `form.namespace` 过滤 + 虚拟项(`createService` 勾选时注入,新增 path 默认指向;虚拟项 ports = 表单 servicePorts 已填的 port 值)。
+- Ingress YAML 段改走 `buildWizardIngressYaml`(含 TLS 聚合,`previewYAML` 直接拼接)。
 - 校验强化(`stepBlockReason` `231-249` 行):勾 createIngress 时每条有效 host 的每条 path 必须已选 service+端口;`createService` 关闭 + `createIngress` 开启为合法组合(后端选已有 Service)——悬空引用根除。
 
 ### ② Workload 详情「暴露」弹窗(`NsWorkloadDetail.vue:2175`)
 
 保持轻量单条映射定位(不塞完整编辑器;多 path 场景引导去 ③/④),升级四点:
 
-- serviceName 下拉:关联 Service 置顶标记 + ns 全量(PortSelect 平铺)
-- servicePort:文本框 → PortSelect(选项 = 选中 Service 的 portList)
+- serviceName 下拉:关联 Service 置顶标记 + ns 全量(PortSelect 平铺;默认选中置顶的关联 Service)
+- servicePort:文本框 → PortSelect(选项 = 选中 Service 的 portList;默认其第一个端口)
 - 补 pathType 下拉(默认 Prefix)
 - 智能追加:弹窗内实时计算同 host 已有 Ingress;存在则默认「追加 path 到 `<ingress名>`」并明示,可切「新建」;保存 patch 走 `appendPathDecision` → `updateIngressRules`,create 走 `addIngress`
 
