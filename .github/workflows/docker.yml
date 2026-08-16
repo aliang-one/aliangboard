@@ -3,6 +3,7 @@ name: build-and-publish-image
 on:
   push:
     branches: [main]
+    tags: ['v*']   # v1.2.3 这类版本 tag 触发发布构建(产出 semver 镜像标签)
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: docker-main
+  group: docker-${{ github.ref }}   # 按引用分组:tag 构建不被 main 构建互相 cancel
   cancel-in-progress: true
 
 jobs:
@@ -42,9 +43,11 @@ jobs:
         with:
           images: ghcr.io/${{ steps.owner.outputs.lc }}/aliangboard
           tags: |
-            type=raw,value=latest
-            type=raw,value=main
+            type=raw,value=latest,enable={{is_default_branch}}   # latest 只跟 main
+            type=raw,value=main,enable={{is_default_branch}}
             type=sha,format=short,prefix=sha-
+            type=semver,pattern={{version}}          # v1.2.3 → 1.2.3(不可变,锁版本用)
+            type=semver,pattern={{major}}.{{minor}}  # 同时产 1.2 滚动标签
 
       - name: Build and push（amd64+arm64）
         uses: docker/build-push-action@v6
