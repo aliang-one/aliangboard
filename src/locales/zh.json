@@ -285,7 +285,7 @@
   },
   "nav": {
     "clusterManagement": "集群管理",
-    "clusterOverview": "Cluster Overview",
+    "clusterOverview": "集群概览",
     "nodes": "Nodes",
     "namespaces": "Namespaces",
     "storage": "存储",

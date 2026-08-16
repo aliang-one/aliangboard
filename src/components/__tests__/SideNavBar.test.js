@@ -89,7 +89,7 @@ test('ns mode: 角板存在、cluster-home 已移除,点角板 → push /cluster
   const slab = w.find('[data-test="bottom-actions"] [data-test="cluster-slab"]')
   expect(slab.exists()).toBe(true)
   expect(slab.text()).toContain('prod-cluster')
-  expect(slab.text()).toContain('返回集群')
+  expect(slab.text()).toContain('集群概览')
   expect(w.find('[data-test="cluster-home"]').exists()).toBe(false)
   await slab.trigger('click')
   expect(pushMock).toHaveBeenCalledWith('/cluster')

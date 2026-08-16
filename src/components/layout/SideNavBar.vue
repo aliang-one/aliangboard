@@ -375,7 +375,7 @@ function nsStatusColor(status) {
         <div class="dock flex items-stretch gap-1.5 p-1.5">
           <button data-test="cluster-slab" @click="router.push('/cluster')"
             class="cluster-slab flex-1 min-w-0 flex items-center gap-sm px-sm text-left cursor-pointer"
-            :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
+            :title="$t('nav.clusterOverview')" :aria-label="$t('nav.clusterOverview')">
             <span class="slab-chip flex items-center justify-center shrink-0">
               <img src="/aliang-logo.svg" alt="" class="h-4 w-auto" width="18" height="16" />
             </span>
@@ -384,7 +384,7 @@ function nsStatusColor(status) {
                 <span class="text-[11px] font-bold text-on-primary truncate">{{ store.cluster.name || 'Cluster' }}</span>
                 <i class="slab-led" aria-hidden="true"></i>
               </span>
-              <span class="block text-[8px] text-on-primary/80 whitespace-nowrap">↩ {{ $t('nav.backToCluster') }}</span>
+              <span class="block text-[8px] text-on-primary/80 whitespace-nowrap">{{ $t('nav.clusterOverview') }}</span>
             </span>
           </button>
           <!-- 3 图标:块内 2+1 砖块式紧排,尺寸不一(32/28/28)+错位起步,不单独漂浮 -->
