@@ -17,10 +17,11 @@ function toggle(i) { expanded.value = expanded.value === i ? null : i }
 const needsCollapse = computed(() => props.trace.length > COLLAPSE_THRESHOLD)
 const visibleTrace = computed(() => needsCollapse.value && !showAll.value ? props.trace.slice(0, 3) : props.trace)
 
-// 摘要:统计每个工具的调用次数
+// 摘要:统计每个工具的调用次数(tool_start 是执行前瞬态,不计入防虚高)
 const summary = computed(() => {
   const counts = {}
   for (const ev of props.trace) {
+    if (ev.type === 'tool_start') continue
     if (ev.type === 'denied') { counts['denied'] = (counts['denied'] || 0) + 1; continue }
     const n = ev.name || 'unknown'
     counts[n] = (counts[n] || 0) + 1
@@ -152,12 +153,15 @@ function fmtTop(r) {
         class="flex items-center gap-xs text-body-xs font-mono px-sm py-0.5 rounded-full border transition-colors"
         :class="ev.type === 'denied'
           ? 'border-status-warning/30 text-status-warning bg-status-warning/5'
-          : expanded === i
-            ? 'border-primary/40 text-primary bg-primary/5'
-            : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
-        <span class="material-symbols-outlined text-sm">{{ ev.type === 'denied' ? 'block' : 'play_arrow' }}</span>
+          : ev.type === 'tool_start'
+            ? 'border-status-running/40 text-status-running bg-status-running/5'
+            : expanded === i
+              ? 'border-primary/40 text-primary bg-primary/5'
+              : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
+        <span class="material-symbols-outlined text-sm" :class="ev.type === 'tool_start' ? 'animate-spin' : ''">{{ ev.type === 'denied' ? 'block' : ev.type === 'tool_start' ? 'progress_activity' : 'play_arrow' }}</span>
         <span class="font-semibold">{{ ev.name }}</span>
         <span v-if="ev.type === 'denied'">{{ t('workbench.chat.toolDenied') }}</span>
+        <span v-else-if="ev.type === 'tool_start'" class="text-status-running/70">…</span>
         <span v-else class="text-status-success">✓</span>
       </button>
       <button v-if="needsCollapse" @click="showAll = !showAll" type="button"

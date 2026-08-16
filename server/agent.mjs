@@ -105,6 +105,9 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
           continue
         }
 
+        // 执行前发 tool_start(UI 出"正在跑哪个工具"的 running 态;工具执行是串行 await,
+        // 同一时刻至多一个 start 未配对。消费方(workbench-agent)不持久化此瞬态事件)
+        onStep?.({ type: 'tool_start', name, args })
         let result
         try { result = await execTool(name, args) }
         catch (e) { result = formatToolError(e) }

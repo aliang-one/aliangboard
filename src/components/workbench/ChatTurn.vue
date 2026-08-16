@@ -1,6 +1,9 @@
 <script setup>
 // 一轮对话行（Cursor 风格）：marker + label + meta + 内容。用户轮底色带；agent 终答 markdown(Prism 高亮)。
-import { ref, onMounted, onUpdated, nextTick } from 'vue'
+// 流式渲染节流(P0-3):delta 高频到达时 marked+DOMPurify 全量重解析 + Prism 整树重高亮是
+// 卡顿根因——rendered 本地缓存,thinking 期 ≥150ms 才重渲染,终态(done/error)立即终渲染;
+// 高亮同样 ≥600ms 节流,首帧与终帧必高亮。
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { renderMarkdown } from '@/logic/markdown'
 import ToolTrace from './ToolTrace.vue'
@@ -32,8 +35,53 @@ async function highlight() {
   if (!root.value) return
   try { const Prism = await loadPrism(); Prism.highlightAllUnder(root.value) } catch { /* 降级:不高亮 */ }
 }
+
+// ── 节流的 markdown 渲染(P0-3) ──
+const RENDER_INTERVAL = 150   // thinking 期重渲染间隔
+const HIGHLIGHT_INTERVAL = 600 // thinking 期重高亮间隔
+const rendered = ref('')
+let lastRender = 0, lastHighlight = 0, renderTimer = null, highlightTimer = null
+const isStreaming = computed(() => props.turn.status === 'thinking')
+
+function doRender(final) {
+  lastRender = Date.now()
+  rendered.value = renderMarkdown(props.turn.content)
+  // 高亮节流:终帧/首帧必跑;流式中 ≥HIGHLIGHT_INTERVAL 跑一次
+  const now = Date.now()
+  if (final || lastHighlight === 0) { scheduleHighlight(0); return }
+  if (now - lastHighlight >= HIGHLIGHT_INTERVAL) scheduleHighlight(0)
+  else if (!highlightTimer) scheduleHighlight(HIGHLIGHT_INTERVAL - (now - lastHighlight))
+}
+function scheduleHighlight(delay) {
+  if (highlightTimer) { clearTimeout(highlightTimer) }
+  highlightTimer = setTimeout(() => {
+    highlightTimer = null
+    lastHighlight = Date.now()
+    nextTick(highlight)
+  }, delay)
+}
+function scheduleRender() {
+  // 首帧(空→有)与终态立即渲染;流式期间 ≥RENDER_INTERVAL 合并重渲染
+  const final = !isStreaming.value
+  if (final || rendered.value === '' || Date.now() - lastRender >= RENDER_INTERVAL) { doRender(final); return }
+  if (!renderTimer) {
+    renderTimer = setTimeout(() => { renderTimer = null; doRender(false) }, RENDER_INTERVAL - (Date.now() - lastRender))
+  }
+}
+watch(() => [props.turn.content, props.turn.status], scheduleRender, { immediate: true })
+onUnmounted(() => { if (renderTimer) clearTimeout(renderTimer); if (highlightTimer) clearTimeout(highlightTimer) })
 onMounted(highlight)
-onUpdated(() => nextTick(highlight))
+
+// thinking 行:正在执行的工具名(尾随未配对的 tool_start)——"卡在哪"一眼可见
+const runningTool = computed(() => {
+  const trace = props.turn.trace || []
+  for (let i = trace.length - 1; i >= 0; i--) {
+    const x = trace[i]
+    if (x?.type === 'tool_start') return x.name
+    if (x?.type === 'tool' || x?.type === 'denied') return null
+  }
+  return null
+})
 </script>
 
 <template>
@@ -62,10 +110,9 @@ onUpdated(() => nextTick(highlight))
     <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
-      <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标);②尚无文本也无工具 → 跳动 thinking 提示 -->
-      <!-- 2026-08-14 前内容只在 done 渲染 → delta 全到但看不见("不实时"的真正根因) -->
-      <div v-if="turn.status === 'thinking' && turn.content" class="text-body-sm text-on-surface leading-relaxed prose-chat">
-        <span v-html="renderMarkdown(turn.content)"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>
+      <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标,节流);②尚无文本也无工具 → 跳动 thinking 提示 -->
+      <div v-if="turn.status === 'thinking' && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">
+        <span v-html="rendered"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>
       </div>
       <div v-else-if="turn.status === 'thinking'" class="flex items-center gap-sm">
         <span class="flex gap-0.5">
@@ -74,7 +121,11 @@ onUpdated(() => nextTick(highlight))
           <span class="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style="animation-delay: 300ms"></span>
         </span>
         <span class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.thinking') }}</span>
-        <span v-if="turn.trace && turn.trace.length" class="text-body-xs text-on-surface-variant/60 font-mono">{{ turn.trace.length }}↻</span>
+        <!-- 正在执行的工具(如 wb_exec 30s):spinner+工具名,不再是黑盒"思考中" -->
+        <span v-if="runningTool" class="flex items-center gap-xs text-body-xs text-status-running font-mono bg-status-running/5 border border-status-running/30 rounded-full px-sm py-0.5">
+          <span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>{{ runningTool }}
+        </span>
+        <span v-else-if="turn.trace && turn.trace.length" class="text-body-xs text-on-surface-variant/60 font-mono">{{ turn.trace.length }}↻</span>
       </div>
 
       <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
@@ -87,8 +138,8 @@ onUpdated(() => nextTick(highlight))
         <span class="text-body-sm text-error whitespace-pre-wrap break-words">{{ turn.error }}</span>
       </div>
 
-      <!-- done: markdown -->
-      <div v-else-if="turn.status === 'done'" class="text-body-sm text-on-surface leading-relaxed prose-chat" v-html="renderMarkdown(turn.content)"></div>
+      <!-- done: markdown(终帧,已含节流管线) -->
+      <div v-else-if="turn.status === 'done'" class="text-body-sm text-on-surface leading-relaxed prose-chat" v-html="rendered"></div>
     </div>
   </div>
 </template>
