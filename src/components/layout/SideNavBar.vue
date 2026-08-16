@@ -197,7 +197,7 @@ function nsStatusColor(status) {
 <template>
   <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
-    <div data-test="cluster-header" class="shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
+    <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
       <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full">
         <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
@@ -498,8 +498,8 @@ function nsStatusColor(status) {
 
 /* ===== 3 图标:阶梯 + 微标签 ===== */
 .dock-ig { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-/* 阶梯偏移用 margin 而非 transform:dock-pop 动画 both 填充会持续接管 transform,
-   translateY 偏移会被终帧 scale(1) 吃掉(容器 items-end 下 margin-bottom 等效) */
+/* 阶梯偏移用 margin 而非 transform:dock-pop 播放期间 keyframes 接管 transform,
+   translateY 偏移会被动画帧吃掉;margin 不受影响(容器 items-end 下等效 translateY) */
 .dock-ig--high { margin-bottom: 8px; }
 .dock-ig--low { margin-bottom: -5px; }
 .dock-ig__sq {
@@ -515,22 +515,25 @@ function nsStatusColor(status) {
 
 /* ===== 钻入 ns 入场编排(spec §6;返回集群走 drill-up 菜单体感) ===== */
 /* 元素因 v-if 随 ns 态新插入,animation 自动播一次;返回集群 v-if 直接卸载无出场 */
-.deploy-card { animation: dock-rise .5s cubic-bezier(.2, .7, .3, 1) .06s both; }
-.cluster-slab { animation: dock-swell .55s cubic-bezier(.3, 1.25, .45, 1) .14s both; transform-origin: 0% 100%; }
-.slab-ring.sr1 { animation: ring-grow .5s ease-out .26s both; transform-origin: 0% 100%; }
-.slab-ring.sr2 { animation: ring-grow .5s ease-out .34s both; transform-origin: 0% 100%; }
-.dock-ig:nth-child(1) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .32s both; }
-.dock-ig:nth-child(2) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .41s both; }
-.dock-ig:nth-child(3) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .50s both; }
+/* fill 用 backwards:delay 期间 from 帧隐藏元素;结束后回归自然样式——四个动画的 to 帧
+   与自然态完全相同,forwards 填充零收益却持续占用 transform,会压死 hover/:active 交互反馈 */
+.deploy-card { animation: dock-rise .5s cubic-bezier(.2, .7, .3, 1) .06s backwards; }
+.cluster-slab { animation: dock-swell .55s cubic-bezier(.3, 1.25, .45, 1) .14s backwards; transform-origin: 0% 100%; }
+.slab-ring.sr1 { animation: ring-grow .5s ease-out .26s backwards; transform-origin: 0% 100%; }
+.slab-ring.sr2 { animation: ring-grow .5s ease-out .34s backwards; transform-origin: 0% 100%; }
+.dock-ig:nth-child(1) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .32s backwards; }
+.dock-ig:nth-child(2) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .41s backwards; }
+.dock-ig:nth-child(3) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .50s backwards; }
 
 @keyframes dock-rise { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes dock-swell { 0% { opacity: 0; transform: scale(.55); } 70% { opacity: 1; transform: scale(1.05); } 100% { transform: scale(1); } }
 @keyframes ring-grow { from { opacity: 0; transform: scale(.78); } to { opacity: 1; transform: scale(1); } }
 @keyframes dock-pop { 0% { opacity: 0; transform: scale(.3); } 75% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
 
-/* reduce:编排动画全禁(含 slab-led 呼吸);同时兑现 Task 4/5 遗留——hover transition 一并禁用 */
+/* reduce:编排动画全禁(含 slab-led 呼吸);同时兑现 Task 4/5 遗留——hover transition 一并禁用;
+   集群头两态容器(Task 2 的 transition-all)也纳入禁用,满足「所有动效须带禁用分支」 */
 @media (prefers-reduced-motion: reduce) {
   .deploy-card, .cluster-slab, .slab-ring, .dock-ig, .slab-led { animation: none !important; }
-  .deploy-card, .deploy-card__go, .cluster-slab, .dock-ig__sq { transition: none !important; }
+  .deploy-card, .deploy-card__go, .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
 }
 </style>
