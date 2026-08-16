@@ -1,7 +1,6 @@
 // 工作台项目 CRUD + 搜索 + 台账 + 蒸馏 + reconcile HTTP 端点从 server/index.mjs 抽出。
 // handler/dispatcher 模式。零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
 import { join } from 'node:path'
-import { statSync, readdirSync } from 'node:fs'
 import {
   listProjects, createProject, getProject,
   getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
@@ -14,6 +13,7 @@ import {
   deleteFile as wbDeleteFile,
 } from '../workbench-repos.mjs'
 import { verifiedAt } from '../workbench-ledger.mjs'
+import { computeStorageInfo } from '../storage-info.mjs'
 import { runDistill } from '../distill.mjs'
 import { reconcileProject } from '../reconcile.mjs'
 
@@ -46,18 +46,8 @@ export function createWorkbenchProjectRoutes(deps) {
           messages: db.prepare('SELECT count(*) c FROM workbench_messages').get().c,
           aiToolCalls: db.prepare("SELECT count(*) c FROM audit_log WHERE source='workbench'").get().c,
         }
-        let dbSize = 0
-        try { dbSize = statSync(dbPath).size } catch { /* 库文件不可读,显示 0 */ }
-        let workbenchSize = 0, fileCount = 0
-        try {
-          for (const f of readdirSync(WORKBENCH_DIR, { recursive: true })) {
-            try { const st = statSync(join(WORKBENCH_DIR, f)); if (st.isFile()) { workbenchSize += st.size; fileCount++ } } catch { /* 并发变更,跳过 */ }
-          }
-        } catch { /* 目录不可读 */ }
-        sendJson(res, 200, {
-          conversations, counts,
-          storage: { dbPath, dbSize, workbenchDir: WORKBENCH_DIR, workbenchSize, fileCount },
-        })
+        const storage = await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db })
+        sendJson(res, 200, { conversations, counts, storage })
       } catch (e) { sendJson(res, 500, { message: e?.message || '读取记录失败' }); return true }
       return true
     }

@@ -36,6 +36,13 @@ const statusStyle = {
   cancelled: 'bg-error/10 text-error',
 }
 const resultStyle = { ok: 'text-status-running', denied: 'text-status-warning', error: 'text-error' }
+const pct = (n, total) => total > 0 ? Math.max(1, Math.round((n / total) * 100)) : 0
+const clusterTotal = c => c.ledgerSize + (c.projects || []).reduce((s, p) => s + p.size, 0)
+const diskUsedPct = computed(() => {
+  const st = data.value?.storage
+  if (!st?.diskTotal) return 0
+  return Math.round(((st.diskTotal - st.diskFree) / st.diskTotal) * 100)
+})
 const preview = c => (c.title || c.userMessage || '').slice(0, 60) || t('workbench.records.emptyTitle')
 
 async function load() {
@@ -80,14 +87,65 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 存储位置说明 -->
-    <div v-if="data?.storage" class="bg-surface-container-low border border-outline-variant rounded-xl p-md flex flex-col gap-xs">
-      <p class="text-body-sm font-semibold text-on-surface flex items-center gap-xs">
-        <span class="material-symbols-outlined text-base text-primary">database</span>{{ t('workbench.records.storageTitle') }}
-      </p>
-      <div class="text-body-xs text-on-surface-variant font-mono flex flex-col gap-0.5">
-        <span>{{ t('workbench.records.storageDb') }}: {{ data.storage.dbPath }} ({{ fmtBytes(data.storage.dbSize) }})</span>
-        <span>{{ t('workbench.records.storageWb') }}: {{ data.storage.workbenchDir }} ({{ fmtBytes(data.storage.workbenchSize) }} / {{ data.storage.fileCount }} {{ t('workbench.records.files') }})</span>
+    <!-- 空间使用量(总占用 + 库/仓库占比条 + 每集群·项目明细 + 主机磁盘) -->
+    <div v-if="data?.storage" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md flex flex-col gap-sm">
+      <div class="flex items-center justify-between">
+        <p class="text-body-sm font-semibold text-on-surface flex items-center gap-xs">
+          <span class="material-symbols-outlined text-base text-primary">database</span>{{ t('workbench.records.spaceTitle') }}
+        </p>
+        <span class="text-body-sm font-mono font-semibold text-primary">{{ fmtBytes(data.storage.dataTotalSize) }}</span>
+      </div>
+
+      <!-- 占比条:数据库 vs 工作台仓库(相对 data 目录总量) -->
+      <div class="flex flex-col gap-xs">
+        <div class="flex items-center gap-sm">
+          <span class="text-body-xs text-on-surface-variant w-20 shrink-0">{{ t('workbench.records.storageDb') }}</span>
+          <div class="flex-1 h-2.5 rounded-full bg-surface-container-high overflow-hidden flex">
+            <div class="bg-primary h-full" :style="{ width: pct(data.storage.dbSize, data.storage.dataTotalSize) + '%' }"></div>
+          </div>
+          <span class="text-body-xs font-mono text-on-surface-variant w-20 text-right shrink-0">{{ fmtBytes(data.storage.dbSize) }}</span>
+        </div>
+        <div class="flex items-center gap-sm">
+          <span class="text-body-xs text-on-surface-variant w-20 shrink-0">{{ t('workbench.records.storageWb') }}</span>
+          <div class="flex-1 h-2.5 rounded-full bg-surface-container-high overflow-hidden flex">
+            <div class="bg-tertiary h-full" :style="{ width: pct(data.storage.workbenchSize, data.storage.dataTotalSize) + '%' }"></div>
+          </div>
+          <span class="text-body-xs font-mono text-on-surface-variant w-20 text-right shrink-0">{{ fmtBytes(data.storage.workbenchSize) }} · {{ data.storage.workbenchFiles }} {{ t('workbench.records.files') }}</span>
+        </div>
+      </div>
+
+      <!-- 每集群(台账 + 各项目 repo)占用,条相对该集群总量 -->
+      <div v-if="data.storage.clusters?.length" class="flex flex-col gap-xs">
+        <div v-for="c in data.storage.clusters" :key="c.clusterId" class="flex flex-col gap-0.5">
+          <div class="flex items-center gap-xs text-body-xs">
+            <span class="material-symbols-outlined text-sm text-on-surface-variant">hub</span>
+            <span class="font-semibold text-on-surface">{{ c.clusterName }}</span>
+            <span class="text-on-surface-variant font-mono">{{ t('workbench.records.ledger') }} {{ fmtBytes(c.ledgerSize) }}</span>
+            <span class="text-on-surface-variant/60 font-mono ml-auto">{{ fmtBytes(clusterTotal(c)) }}</span>
+          </div>
+          <div v-for="p in c.projects" :key="p.projectId" class="flex items-center gap-sm pl-lg">
+            <span class="text-body-xs text-on-surface-variant truncate flex-1">{{ p.projectName }}</span>
+            <div class="w-32 h-1.5 rounded-full bg-surface-container-high overflow-hidden shrink-0">
+              <div class="bg-tertiary/70 h-full" :style="{ width: pct(p.size, clusterTotal(c) || 1) + '%' }"></div>
+            </div>
+            <span class="text-body-xs font-mono text-on-surface-variant w-20 text-right shrink-0">{{ fmtBytes(p.size) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主机磁盘余量(statfs 不支持则隐藏) -->
+      <div v-if="data.storage.diskTotal" class="flex items-center gap-sm pt-xs border-t border-outline-variant/40">
+        <span class="material-symbols-outlined text-sm text-on-surface-variant">hard_drive</span>
+        <span class="text-body-xs text-on-surface-variant">{{ t('workbench.records.disk') }}</span>
+        <div class="flex-1 h-2 rounded-full bg-surface-container-high overflow-hidden">
+          <div class="h-full" :class="diskUsedPct > 85 ? 'bg-error' : diskUsedPct > 70 ? 'bg-status-warning' : 'bg-status-running'" :style="{ width: diskUsedPct + '%' }"></div>
+        </div>
+        <span class="text-body-xs font-mono text-on-surface-variant shrink-0">{{ fmtBytes(data.storage.diskTotal - data.storage.diskFree) }} / {{ fmtBytes(data.storage.diskTotal) }} · {{ t('workbench.records.diskFree') }} {{ fmtBytes(data.storage.diskFree) }}</span>
+      </div>
+
+      <div class="text-body-xs text-on-surface-variant/70 font-mono flex flex-col gap-0.5">
+        <span>{{ data.storage.dbPath }}</span>
+        <span>{{ data.storage.workbenchDir }}</span>
       </div>
       <p class="text-body-xs text-on-surface-variant/80">{{ t('workbench.records.storageHint') }}</p>
     </div>

@@ -2911,7 +2911,11 @@
       "loadFailed": "读取记录失败",
       "timeMinAgo": "{n} 分钟前",
       "timeHourAgo": "{n} 小时前",
-      "timeDayAgo": "{n} 天前"
+      "timeDayAgo": "{n} 天前",
+      "spaceTitle": "空间使用量",
+      "ledger": "台账",
+      "disk": "主机磁盘",
+      "diskFree": "可用"
     }
   },
   "workloadDetail": {

@@ -2911,7 +2911,11 @@
       "loadFailed": "Failed to load records",
       "timeMinAgo": "{n}m ago",
       "timeHourAgo": "{n}h ago",
-      "timeDayAgo": "{n}d ago"
+      "timeDayAgo": "{n}d ago",
+      "spaceTitle": "Space Usage",
+      "ledger": "Ledger",
+      "disk": "Host disk",
+      "diskFree": "free"
     }
   },
   "workloadDetail": {
