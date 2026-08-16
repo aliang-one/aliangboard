@@ -498,8 +498,10 @@ function nsStatusColor(status) {
 
 /* ===== 3 图标:阶梯 + 微标签 ===== */
 .dock-ig { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.dock-ig--high { transform: translateY(-8px); }
-.dock-ig--low { transform: translateY(5px); }
+/* 阶梯偏移用 margin 而非 transform:dock-pop 动画 both 填充会持续接管 transform,
+   translateY 偏移会被终帧 scale(1) 吃掉(容器 items-end 下 margin-bottom 等效) */
+.dock-ig--high { margin-bottom: 8px; }
+.dock-ig--low { margin-bottom: -5px; }
 .dock-ig__sq {
   width: 38px; height: 38px; border-radius: 12px;
   background: #ffffff; border: 1px solid #bbcabf; color: #3c4a42;
@@ -510,4 +512,25 @@ function nsStatusColor(status) {
 .dock-ig:hover .dock-ig__sq { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0, 60, 35, .20); color: #006c49; }
 .dock-ig--hot .dock-ig__sq { background: #d7e8df; color: #006c49; border-color: #a9cfbd; }
 .dock-ig__lb { font-size: 8.5px; color: #3c4a42; letter-spacing: .04em; line-height: 1; }
+
+/* ===== 钻入 ns 入场编排(spec §6;返回集群走 drill-up 菜单体感) ===== */
+/* 元素因 v-if 随 ns 态新插入,animation 自动播一次;返回集群 v-if 直接卸载无出场 */
+.deploy-card { animation: dock-rise .5s cubic-bezier(.2, .7, .3, 1) .06s both; }
+.cluster-slab { animation: dock-swell .55s cubic-bezier(.3, 1.25, .45, 1) .14s both; transform-origin: 0% 100%; }
+.slab-ring.sr1 { animation: ring-grow .5s ease-out .26s both; transform-origin: 0% 100%; }
+.slab-ring.sr2 { animation: ring-grow .5s ease-out .34s both; transform-origin: 0% 100%; }
+.dock-ig:nth-child(1) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .32s both; }
+.dock-ig:nth-child(2) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .41s both; }
+.dock-ig:nth-child(3) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .50s both; }
+
+@keyframes dock-rise { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes dock-swell { 0% { opacity: 0; transform: scale(.55); } 70% { opacity: 1; transform: scale(1.05); } 100% { transform: scale(1); } }
+@keyframes ring-grow { from { opacity: 0; transform: scale(.78); } to { opacity: 1; transform: scale(1); } }
+@keyframes dock-pop { 0% { opacity: 0; transform: scale(.3); } 75% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
+
+/* reduce:编排动画全禁(含 slab-led 呼吸);同时兑现 Task 4/5 遗留——hover transition 一并禁用 */
+@media (prefers-reduced-motion: reduce) {
+  .deploy-card, .cluster-slab, .slab-ring, .dock-ig, .slab-led { animation: none !important; }
+  .deploy-card, .deploy-card__go, .cluster-slab, .dock-ig__sq { transition: none !important; }
+}
 </style>
