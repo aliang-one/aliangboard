@@ -17,7 +17,7 @@ export function createWorkbenchConvRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe,
+    busSubscribe, busUnsubscribe, busSnapshot,
   } = deps
 
   async function buildRefsContext(project, references) {
