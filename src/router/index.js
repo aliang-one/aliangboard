@@ -443,19 +443,19 @@ const routes = [
         component: () => import('@/views/WorkbenchShell.vue'),
         // fullHeight:AppLayout main 切 overflow-hidden + 包裹层 h-full——工作台是
         // 应用式布局(内部自管滚动),不是文档式页面;否则 h-full 链断、输入框悬空下方留白
-        meta: { titleKey: 'nav.workbench', icon: 'workspaces', scope: 'global', fullHeight: true }
+        meta: { titleKey: 'nav.workbench', icon: 'workspaces', scope: 'global', fullHeight: true, requiresCluster: false }
       },
       {
         path: 'workbench/ledger',
         name: 'WorkbenchLedger',
         component: () => import('@/views/WorkbenchLedger.vue'),
-        meta: { titleKey: 'route.clusterLedger', scope: 'global' }
+        meta: { titleKey: 'route.clusterLedger', scope: 'global', requiresCluster: false }
       },
       {
         path: 'workbench/:id',
         name: 'WorkbenchProject',
         component: () => import('@/views/WorkbenchDetail.vue'),
-        meta: { titleKey: 'route.project', scope: 'global', fullHeight: true }
+        meta: { titleKey: 'route.project', scope: 'global', fullHeight: true, requiresCluster: false }
       },
       {
         path: 'workbench/:id/chat',
