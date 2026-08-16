@@ -1,9 +1,9 @@
 import { test, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ChatTurn from '../ChatTurn.vue'
 
-const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { workbench: { chat: { roleYou: '你', roleAgent: 'Agent' } } } } })
+const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成' } } } } })
 
 test('ChatTurn: agent done 渲染 markdown(v-html)', () => {
   const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '**hi**' } }, global: { plugins: [i18n] } })
@@ -24,4 +24,22 @@ test('ChatTurn: agent done 暴露 language class(供 Prism)', () => {
 test('ChatTurn: error 状态显示 error 文案', () => {
   const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'error', error: 'boom' } }, global: { plugins: [i18n] } })
   expect(w.text()).toContain('boom')
+})
+
+// dev28: P1 消息操作——复制按钮(hover)/重新生成 emit/代码块复制装饰
+test('ChatTurn: done turn 渲染复制按钮;showRegenerate 时渲染重新生成并 emit', async () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '答案', trace: [], steps: 2 } }, global: { plugins: [i18n] } })
+  expect(w.html()).toContain('content_copy')
+  expect(w.find('[title="重新生成"]').exists()).toBe(false)
+  const w2 = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '答案', trace: [], steps: 2 }, showRegenerate: true }, global: { plugins: [i18n] } })
+  expect(w2.find('[title="重新生成"]').exists()).toBe(true)
+  await w2.find('[title="重新生成"]').trigger('click')
+  expect(w2.emitted('regenerate')).toHaveLength(1)
+})
+
+test('ChatTurn: done turn 围栏代码块被装饰出复制按钮(.code-copy)', async () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '示例:\n```yaml\napiVersion: v1\nkind: Pod\n```\n', trace: [], steps: 0 } }, global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w.findAll('.code-copy').length).toBe(1)
+  expect(w.find('.code-bar').text()).toContain('yaml')
 })

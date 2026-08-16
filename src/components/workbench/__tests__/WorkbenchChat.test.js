@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
     approve: vi.fn(),
     deny: vi.fn(),
     cancel: vi.fn(),
+    regenerate: vi.fn(),
   },
   search: vi.fn(),
 }))
@@ -344,4 +345,21 @@ test('draft preserved across conversation switch, cleared on send', async () => 
   await w.find('button.bg-primary').trigger('click')
   await flushPromises()
   expect(w.find('textarea').element.value).toBe('', '发送后清空')
+})
+
+// dev28: 重新生成——调 regenerate 端点,本地移除最后 assistant turn 补 thinking
+test('regenerate: 移除最后 assistant turn → 调端点 → 补 thinking turn 续流', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-r' })
+  // 预置 turns:1 user + 1 done assistant(模拟已加载对话)
+  w.vm.turns.push({ _id: 1, role: 'user', content: 'q1' })
+  w.vm.turns.push({ _id: 2, role: 'assistant', status: 'done', content: '旧答案', trace: [], steps: 3 })
+  await flushPromises()
+  api.conversations.regenerate.mockResolvedValue({ status: 'running' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-r', status: 'running', messages: [{ role: 'user', content: 'q1' }], trace: '[]', steps: 0, recap: '' })
+  await w.vm.regenerate()
+  await flushPromises()
+  expect(api.conversations.regenerate).toHaveBeenCalledWith('conv-r')
+  const roles = w.vm.turns.map(x => [x.role, x.status])
+  expect(roles).toEqual([['user', undefined], ['assistant', 'thinking']], '旧 done 回复被移除,补 thinking')
+  expect(w.vm.sending).toBe(true)
 })

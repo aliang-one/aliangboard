@@ -5,6 +5,7 @@ import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
+  truncateAfterLastUser,
 } from '../workbench-projects.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
 
@@ -108,6 +109,32 @@ export function createWorkbenchConvRoutes(deps) {
         sendJson(res, 200, { status: 'running', references: fetchedResources })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '续接失败' }); return true }
+    }
+
+    // POST /api/workbench/conversations/:id/regenerate — 重新生成最后一条回复(P1 消息操作)。
+    // 截掉最后 user 消息之后的 assistant 回复 → 复位 conv 运行态字段 → runConversation
+    // 以剩余消息(buildHistory)重跑,即"原问题重答",不重复计 user 轮。
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/regenerate$/) && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const id = url.pathname.split('/')[4]
+        const conv = getConversation(db, id)
+        if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+        if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: '对话运行中,不能重新生成' }); return true }
+        const project = getProject(db, conv.projectId)
+        if (!project) { sendJson(res, 404, { message: '项目不存在' }); return true }
+        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问' }); return true }
+        const cfg = getLlmConfig()
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+        const removed = truncateAfterLastUser(db, id)
+        if (removed === 0) { sendJson(res, 400, { message: '没有可重新生成的回复' }); return true }
+        setActiveConversation(db, conv.projectId, id)
+        updateConversation(db, id, { status: 'running', content: '', error: '', trace: '[]', steps: 0, pendingApproval: null })
+        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
+        sendJson(res, 200, { status: 'running' })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '重新生成失败' }); return true }
     }
 
     // GET /api/workbench/conversations/:id — 单条对话状态(轮询用)

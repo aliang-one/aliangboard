@@ -9,7 +9,8 @@ import { renderMarkdown } from '@/logic/markdown'
 import ToolTrace from './ToolTrace.vue'
 import ResourceCard from '@/components/common/ResourceCard.vue'
 
-const props = defineProps({ turn: { type: Object, required: true } })
+const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false } })
+const emit = defineEmits(['regenerate'])
 const { t } = useI18n()
 
 const root = ref(null)
@@ -46,6 +47,8 @@ const isStreaming = computed(() => props.turn.status === 'thinking')
 function doRender(final) {
   lastRender = Date.now()
   rendered.value = renderMarkdown(props.turn.content)
+  // v-html 重渲染会重建 DOM → 代码块装饰也随帧重挂(nextTick 后)
+  nextTick(decorateCodeBlocks)
   // 高亮节流:终帧/首帧必跑;流式中 ≥HIGHLIGHT_INTERVAL 跑一次
   const now = Date.now()
   if (final || lastHighlight === 0) { scheduleHighlight(0); return }
@@ -82,17 +85,80 @@ const runningTool = computed(() => {
   }
   return null
 })
+
+// ── P1 消息操作:复制 / 重新生成 ──
+const copied = ref(false)
+async function copyContent() {
+  try {
+    await navigator.clipboard.writeText(props.turn.content || '')
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch { /* 剪贴板不可用(非安全上下文)静默 */ }
+}
+
+// ── 代码块复制按钮(P1):v-html 后纯 DOM 装饰 + 事件委托(v-html 内容不受 Vue 管理) ──
+// 每个 <pre> 包一层 header(language 标签 + copy 按钮);点击委托到 root。
+function decorateCodeBlocks() {
+  if (!root.value) return
+  for (const pre of root.value.querySelectorAll('.prose-chat pre')) {
+    if (pre.parentElement?.classList.contains('code-block')) continue // 已装饰
+    const wrap = document.createElement('div')
+    wrap.className = 'code-block my-sm rounded-lg overflow-hidden border border-outline-variant/40'
+    const bar = document.createElement('div')
+    bar.className = 'code-bar flex items-center justify-end gap-sm px-sm py-0.5 bg-[#0b1c30]/80 text-[#cfe3ff]/60'
+    const lang = pre.querySelector('code')?.className?.match(/language-([\w-]+)/)?.[1] || ''
+    if (lang) {
+      const label = document.createElement('span')
+      label.className = 'font-mono text-body-xs mr-auto'
+      label.textContent = lang
+      bar.appendChild(label)
+    }
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'code-copy flex items-center gap-xs font-mono text-body-xs hover:text-[#cfe3ff] transition-colors'
+    btn.title = t('common.copy')
+    btn.innerHTML = '<span class="material-symbols-outlined text-sm">content_copy</span>'
+    bar.appendChild(btn)
+    pre.replaceWith(wrap)
+    wrap.append(bar, pre)
+  }
+}
+function onRootClick(e) {
+  const btn = e.target.closest?.('.code-copy')
+  if (!btn) return
+  const code = btn.closest('.code-block')?.querySelector('pre code')?.textContent || ''
+  navigator.clipboard.writeText(code).then(() => {
+    const icon = btn.querySelector('.material-symbols-outlined')
+    if (icon) {
+      icon.textContent = 'check'
+      setTimeout(() => { icon.textContent = 'content_copy' }, 1500)
+    }
+  }).catch(() => { /* 静默 */ })
+}
 </script>
 
 <template>
-  <div ref="root" :data-role="turn.role" class="py-sm border-b border-outline-variant/40 last:border-b-0"
-    :class="turn.role === 'user' ? 'pt-xs' : ''">
+  <div ref="root" :data-role="turn.role" class="py-sm border-b border-outline-variant/40 last:border-b-0 group/turn"
+    :class="turn.role === 'user' ? 'pt-xs' : ''" @click="onRootClick">
     <!-- 角色行 -->
     <div class="flex items-center gap-xs px-md mb-xs">
       <span class="material-symbols-outlined text-sm" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? 'person' : 'smart_toy' }}</span>
       <span class="text-body-xs font-semibold" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? t('workbench.chat.roleYou') : t('workbench.chat.roleAgent') }}</span>
-      <span v-if="turn.role === 'assistant' && turn.steps" class="ml-auto text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
       <span v-if="turn.truncated" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.contentTruncated') }}</span>
+      <!-- 消息操作(hover 显现;复制终态可用,重新生成仅最后一条 assistant) -->
+      <span v-if="turn.role === 'assistant'" class="ml-auto flex items-center gap-xs">
+        <span v-if="turn.steps" class="text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
+        <button v-if="turn.status === 'done'" @click.stop="copyContent" type="button"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-on-surface opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          :title="t('common.copy')">
+          <span class="material-symbols-outlined text-sm">{{ copied ? 'check' : 'content_copy' }}</span>
+        </button>
+        <button v-if="showRegenerate" @click.stop="emit('regenerate')" type="button"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          :title="t('workbench.chat.regenerate')">
+          <span class="material-symbols-outlined text-sm">refresh</span>
+        </button>
+      </span>
     </div>
 
     <!-- USER:圆角气泡带(refs+文本),与 agent 文本同左缘(px-md 对齐) -->
