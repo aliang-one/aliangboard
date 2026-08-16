@@ -1342,6 +1342,7 @@
     "pullPolicy": "拉取策略",
     "command": "Command（可选）",
     "args": "Args（可选）",
+    "argsHint": "每行一条，行内空格整条保留",
     "workingDir": "工作目录",
     "ttyLabel": "tty（分配 TTY）",
     "imagePullSecrets": "镜像拉取凭证",

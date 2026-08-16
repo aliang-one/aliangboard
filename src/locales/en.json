@@ -1342,6 +1342,7 @@
     "pullPolicy": "Pull Policy",
     "command": "Command (optional)",
     "args": "Args (optional)",
+    "argsHint": "one per line; spaces kept within a line",
     "workingDir": "Working Dir",
     "ttyLabel": "tty (allocate TTY)",
     "imagePullSecrets": "Image Pull Secrets",
