@@ -101,8 +101,10 @@ export function updateConversation(db, id, patch) {
 }
 
 export function listConversations(db, projectId) {
+  // updatedAt DESC(活跃度):续接/运行中的对话浮顶——createdAt 排序下旧对话永远沉底,
+  // 与「打开看到最新」的直觉相反(2026-08-16 交互审查)
   return db.prepare(`SELECT id,status,steps,userMessage,title,content,error,createdAt,updatedAt
-    FROM workbench_conversations WHERE projectId=? ORDER BY createdAt DESC`).all(projectId)
+    FROM workbench_conversations WHERE projectId=? ORDER BY updatedAt DESC`).all(projectId)
 }
 
 export function appendTrace(db, id, step) {
@@ -190,6 +192,15 @@ export function appendMessage(db, { conversationId, role, content, refs, trace, 
 
 export function listMessages(db, conversationId) {
   return db.prepare('SELECT * FROM workbench_messages WHERE conversationId=? ORDER BY seq ASC').all(conversationId)
+}
+
+// 重新生成(P1):删掉最后一条 user 消息之后的全部消息(即待重跑的 assistant 回复),
+// 该 user 消息保留——runConversation 以 buildHistory(=剩余消息)重跑即重答此轮。
+// 返回删除条数;无 user 消息(空对话/全被删)返回 0(调用方据此 400)。
+export function truncateAfterLastUser(db, conversationId) {
+  const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conversationId)
+  if (!lastUser) return 0
+  return db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>?').run(conversationId, lastUser.seq).changes
 }
 
 export function getMaxSeq(db, conversationId) {

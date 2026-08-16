@@ -12,6 +12,8 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import { applyStreamEvent } from './conv-stream'
+import { isNearBottomCalc } from '@/logic/chatScroll'
+import { getDraft, setDraft } from '@/logic/chatDrafts'
 
 const props = defineProps({
   projectId: String,
@@ -124,7 +126,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming() })
+onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopStick() })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
@@ -197,7 +199,36 @@ function scrollableOf(el) {
   }
   return el
 }
-async function scrollToBottom() { await nextTick(); const el = scrollEl.value; if (!el) return; const target = scrollableOf(el); target.scrollTop = target.scrollHeight }
+function chatScroller() { const el = scrollEl.value; return el ? scrollableOf(el) : null }
+function isNearBottom() { const t = chatScroller(); if (!t) return true; return isNearBottomCalc(t.scrollHeight, t.scrollTop, t.clientHeight) }
+// 强落底(打开/切换对话/发送/用户点「回到底部」):先落一次,再开「粘底观测」——
+// ResizeObserver 盯内容高度,markdown/Prism/字体/图片晚撑高也持续钉底(替代固定 250ms
+// 补偿:渲染快的多滚无谓,渲染慢的仍不够)。用户滚离底部即自然停观测(isNearBottom false),
+// 2s 后渲染稳定自动停;无 ResizeObserver 环境(测试)静默退化为单次落底。
+let stickObserver = null, stickTimer = null
+function stopStick() { if (stickObserver) { stickObserver.disconnect(); stickObserver = null } if (stickTimer) { clearTimeout(stickTimer); stickTimer = null } }
+function startStick() {
+  stopStick()
+  const el = scrollEl.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  stickObserver = new ResizeObserver(() => { if (isNearBottom()) { const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight } })
+  if (el.firstElementChild) stickObserver.observe(el.firstElementChild)
+  stickTimer = setTimeout(stopStick, 2000)
+}
+async function scrollToBottom() {
+  await nextTick()
+  const t = chatScroller(); if (!t) return
+  t.scrollTop = t.scrollHeight
+  startStick()
+}
+// 跟随落底(流式 delta/done):仅当用户本来贴底才跟——上翻读历史不被拽到底(标准聊天交互)。
+// 先 await nextTick 再量:delta 的内容此刻才渲染,渲染前量高度会差一段(慢流尾段差一行)。
+async function followBottom() { if (!isNearBottom()) return; await nextTick(); const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight }
+// 「回到底部」按钮:非贴底时露出(流式中上翻读历史的回程入口)
+const showJumpBtn = ref(false)
+function onChatScroll() { showJumpBtn.value = !isNearBottom() }
+// 草稿实时保存(空值即删;发送后 resetInput 自动清)
+watch(input, v => setDraft(conversationId.value || 'new', v))
 
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
@@ -214,8 +245,12 @@ watch(() => props.conversationId, async (convId) => {
   errorBanner.value = ''
   if (convId) {
     conversationId.value = convId
+    // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
+    input.value = getDraft(convId)
     await pollOnce(convId)
     if (convStatus.value === 'running') startStreaming(convId)
+  } else {
+    input.value = getDraft('new')
   }
 }, { immediate: true })
 
@@ -300,7 +335,7 @@ async function pollOnce(id) {
       stopPolling()
       if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), steps: conv.steps ?? agentTurn.steps })
       sending.value = false
-      await scrollToBottom()
+      await followBottom()
     } else if (conv.status === 'failed') {
       stopPolling()
       errorBanner.value = conv.error || t('workbench.chat.agentFailed')
@@ -366,11 +401,11 @@ function startStreaming(id) {
     if (evt.type === 'approval' && evt.pending) {
       pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
     }
-    // delta 事件:自动滚到底
-    if (evt.type === 'delta') scrollToBottom()
+    // delta 事件:贴底跟随(上翻读历史不拽)
+    if (evt.type === 'delta') followBottom()
     // 终态:关流
     if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
-      stopStreaming(); sending.value = false; scrollToBottom()
+      stopStreaming(); sending.value = false; followBottom()
     }
     // end 事件:若已到终态则关流,否则也关(连接终结)
     if (evt.type === 'end') {
@@ -392,6 +427,30 @@ function startStreaming(id) {
     pollOnce(id).then(() => {
       if (!agentTurnDoneOrFinal() && convStatus.value === 'running') startPolling(id)
     })
+  }
+}
+
+// 重新生成最后一条回复(P1):调 regenerate 端点(服务端截掉最后 user 之后的回复重跑),
+// 本地同步移除该 assistant turn → 补 thinking → 续流。failed turn 重试同路径。
+const lastAssistantIndex = computed(() => {
+  for (let i = turns.value.length - 1; i >= 0; i--) if (turns.value[i].role === 'assistant') return i
+  return -1
+})
+async function regenerate() {
+  const id = props.activeConversationId || conversationId.value
+  if (!id || sending.value) return
+  errorBanner.value = ''
+  try {
+    await workbenchApi.conversations.regenerate(id)
+    if (lastAssistantIndex.value >= 0) turns.value.splice(lastAssistantIndex.value, 1)
+    turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', trace: [], steps: 0, denied: [], truncated: false, error: '' })
+    conversationId.value = id
+    convStatus.value = 'running'
+    sending.value = true
+    await scrollToBottom()
+    startStreaming(id)
+  } catch (e) {
+    errorBanner.value = e.message || t('workbench.chat.agentFailed')
   }
 }
 
@@ -527,7 +586,7 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
     <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
 
     <!-- Messages -->
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onChatScroll">
       <!-- Empty state:轻量建议式(去大图标孤岛/全宽边框按钮),附 @-mention 可发现性提示 -->
       <div v-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
         <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-sm">
@@ -557,8 +616,18 @@ function clearChat() { stopPolling(); stopStreaming(); turns.value = []; pending
         </details>
 
         <!-- Conversation -->
-        <div v-for="turn in turns" :key="turn._id">
-          <ChatTurn :turn="turn" />
+        <div v-for="(turn, i) in turns" :key="turn._id">
+          <ChatTurn :turn="turn"
+            :show-regenerate="turn.role === 'assistant' && i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
+            @regenerate="regenerate" />
+        </div>
+
+        <!-- 回到底部:非贴底时悬浮露出(流式中上翻读历史的回程入口;sticky 随内容驻留视口底) -->
+        <div v-if="showJumpBtn" class="sticky bottom-2 flex justify-end pr-sm pointer-events-none">
+          <button @click="scrollToBottom()" :title="t('workbench.chat.jumpBottom')"
+            class="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant border border-outline-variant shadow-card hover:bg-surface-container-highest hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-base">arrow_downward</span>
+          </button>
         </div>
       </div>
     </div>

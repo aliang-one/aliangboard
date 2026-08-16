@@ -187,7 +187,15 @@ function loadPersistedPlatformSessions() {
 function platformUserFromRequest(req) {
   const token = extractPlatformToken(req)
   if (!token) return null
-  const ps = platformSessions.get(token)
+  let ps = platformSessions.get(token)
+  if (!ps) {
+    // 懒加载兜底(2026-08-16):Map 未命中查一次 DB(会话可能在别的进程/重启后写入)。
+    // 登录主路径不受影响(登录时已双写 Map+DB);此兜底让外部铸的会话免重启网关即可用。
+    try {
+      const row = db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(token)
+      if (row) { platformSessions.set(token, row); ps = row }
+    } catch { /* 无表等,视作未命中 */ }
+  }
   if (!ps) return null
   if (Date.now() - ps.createdAt > sessionTtl) {
     platformSessions.delete(token)
@@ -1422,7 +1430,7 @@ async function handle(req, res) {
   })
   const projectRoutes = createWorkbenchProjectRoutes({
     db, sendJson, readBody, requirePlatform, requireAdmin,
-    WORKBENCH_DIR, getLlmConfig, createLlmClient,
+    WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
   })

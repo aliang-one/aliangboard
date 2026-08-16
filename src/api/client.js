@@ -194,6 +194,8 @@ export const resourceTreeApi = {
 // 工作台 API（W2，第三阶段）：任意平台用户，项目按 userId 归属
 export const workbenchApi = {
   listProjects: () => platformHttp.request('/api/workbench/projects'),
+  // 工作台「记录」页:跨项目对话记录 + 计数 + 存储信息(admin)
+  records: () => platformHttp.request('/api/workbench/records'),
   createProject: payload => platformHttp.request('/api/workbench/projects', { method: 'POST', body: JSON.stringify(payload) }),
   getProject: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`),
   readFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
@@ -222,6 +224,7 @@ export const workbenchApi = {
     approve: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
     deny: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/deny`, { method: 'POST' }),
     cancel: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+    regenerate: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/regenerate`, { method: 'POST' }),
     delete: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     rename: (id, title) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) }),
   },

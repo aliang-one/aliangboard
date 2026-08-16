@@ -10,12 +10,13 @@ import {
   createConversation,
   getConversation,
   updateConversation,
+  listConversations,
   appendMessage,
   getMaxSeq,
   buildHistory,
   setActiveConversation,
   getActiveConversationId,
-  listMessages,
+  listMessages, truncateAfterLastUser,
 } from './workbench-projects.mjs'
 
 function freshDb() {
@@ -200,4 +201,40 @@ test('updateConversation: patch references(保留字)不抛 + 值落库', () => 
   assert.equal(updated.status, 'running', '其他字段不受影响')
   const row = getConversation(db, conv.id)
   assert.deepEqual(JSON.parse(row.references), refs, 'references 落库可读回')
+})
+
+// 活跃度排序(2026-08-16 交互审查):updatedAt DESC——续接旧对话浮顶,createdAt 沉底违背直觉
+test('listConversations 按 updatedAt DESC(活跃优先,非创建时间)', () => {
+  const db = freshDb()
+  const pid = p1Id(db)
+  const old = createConversation(db, { projectId: pid, system: '', userMessage: '旧的' })
+  const fresh = createConversation(db, { projectId: pid, system: '', userMessage: '新的' })
+  // 旧对话后来被续接(updatedAt 更新)→ 应排到最前
+  updateConversation(db, old.id, { content: '续接后' })
+  const list = listConversations(db, pid)
+  assert.equal(list[0].id, old.id, '最近活跃的旧对话排最前')
+  assert.equal(list[1].id, fresh.id)
+})
+
+// dev28: 重新生成(P1)——truncateAfterLastUser 截掉最后 user 之后的回复,保留该 user 及更早轮次
+test('truncateAfterLastUser:多轮只截末轮回复,前几轮完整保留;无 user 返回 0', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: 'sys', userMessage: 'q1' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })                    // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' }) // seq2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2' })                    // seq3
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a2-bad', trace: '[]' }) // seq4
+  const removed = truncateAfterLastUser(db, conv.id)
+  assert.equal(removed, 1, '只删末轮回复')
+  const msgs = listMessages(db, conv.id)
+  assert.equal(msgs.length, 3)
+  assert.equal(msgs[2].content, 'q2', '末轮 user 保留(buildHistory 重跑即重答此轮)')
+  assert.equal(msgs[1].content, 'a1', '第一轮完整保留')
+  // 再跑一次:末轮已无回复 → 删 0(幂等;调用方据此 400)
+  assert.equal(truncateAfterLastUser(db, conv.id), 0)
+  // 无 user 消息的对话 → 0
+  const conv2 = createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  db.prepare("DELETE FROM workbench_messages WHERE conversationId=?").run(conv2.id)
+  assert.equal(truncateAfterLastUser(db, conv2.id), 0)
 })

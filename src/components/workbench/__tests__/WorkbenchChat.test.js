@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
     approve: vi.fn(),
     deny: vi.fn(),
     cancel: vi.fn(),
+    regenerate: vi.fn(),
   },
   search: vi.fn(),
 }))
@@ -311,6 +312,7 @@ test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades 
     // ── 自动重连成功:服务端 snapshot 补齐 gap ──
     esInstance.onmessage({ data: JSON.stringify({ type: 'snapshot', content: 'part1part2', trace: [], steps: 1 }) })
     await flushPromises()
+    await new Promise(r => setTimeout(r, 200)) // ChatTurn 流式渲染 150ms 合并窗(P0-3 节流)
     expect(w.html()).toContain('part1part2', '快照替换续流')
 
     // ── CLOSED(服务端关流且未终态)→ 降级轮询 ──
@@ -320,4 +322,44 @@ test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades 
     expect(esInstance.closed, 'CLOSED 关流').toBeTruthy()
     expect(api.conversations.get).toHaveBeenCalled()
   } finally { vi.unstubAllGlobals() }
+})
+
+// 草稿保持:切换对话不丢未发送输入;发送后清
+test('draft preserved across conversation switch, cleared on send', async () => {
+  const w = await mountChat({ conversationId: 'conv-a' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-a', status: 'done', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }], trace: '[]', steps: 0, recap: '' })
+  await flushPromises()
+  await w.find('textarea').setValue('写了一半的长问题')
+  // 切到对话 B
+  api.conversations.get.mockResolvedValue({ id: 'conv-b', status: 'done', messages: [], trace: '[]', steps: 0, recap: '' })
+  await w.setProps({ conversationId: 'conv-b' })
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('', '切走后 B 无草稿')
+  // 切回 A → 草稿恢复
+  api.conversations.get.mockResolvedValue({ id: 'conv-a', status: 'done', messages: [], trace: '[]', steps: 0, recap: '' })
+  await w.setProps({ conversationId: 'conv-a' })
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('写了一半的长问题', '切回恢复草稿')
+  // 发送 → 草稿清
+  api.conversations.append.mockResolvedValue({ status: 'running' })
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(w.find('textarea').element.value).toBe('', '发送后清空')
+})
+
+// dev28: 重新生成——调 regenerate 端点,本地移除最后 assistant turn 补 thinking
+test('regenerate: 移除最后 assistant turn → 调端点 → 补 thinking turn 续流', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-r' })
+  // 预置 turns:1 user + 1 done assistant(模拟已加载对话)
+  w.vm.turns.push({ _id: 1, role: 'user', content: 'q1' })
+  w.vm.turns.push({ _id: 2, role: 'assistant', status: 'done', content: '旧答案', trace: [], steps: 3 })
+  await flushPromises()
+  api.conversations.regenerate.mockResolvedValue({ status: 'running' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-r', status: 'running', messages: [{ role: 'user', content: 'q1' }], trace: '[]', steps: 0, recap: '' })
+  await w.vm.regenerate()
+  await flushPromises()
+  expect(api.conversations.regenerate).toHaveBeenCalledWith('conv-r')
+  const roles = w.vm.turns.map(x => [x.role, x.status])
+  expect(roles).toEqual([['user', undefined], ['assistant', 'thinking']], '旧 done 回复被移除,补 thinking')
+  expect(w.vm.sending).toBe(true)
 })

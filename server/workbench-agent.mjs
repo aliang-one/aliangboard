@@ -77,7 +77,7 @@ export function createWorkbenchAgent(deps) {
         history,
         refreshSystem,
         onDelta: text => busEmit(convId, { type: 'delta', text }),
-        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
+        onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
       // 用户已取消(cancelConversation 置 cancelled):丢弃 agent 结果——不覆盖状态、不追加历史
       if (getConversation(db, convId)?.status === 'cancelled') {
@@ -125,7 +125,7 @@ export function createWorkbenchAgent(deps) {
         },
         refreshSystem,
         onDelta: text => busEmit(convId, { type: 'delta', text }),
-        onStep: e => { appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) },
+        onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
       // 同 runConversation:取消后丢弃结果
       if (getConversation(db, convId)?.status === 'cancelled') {

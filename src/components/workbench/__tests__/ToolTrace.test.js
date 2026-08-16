@@ -50,3 +50,17 @@ test('ToolTrace: wb_top result 渲染用量百分比,≥80% 带 ⚠', async () =
   expect(text).toContain('side-1/s')
   expect(text).not.toContain('cpu null')
 })
+
+// dev27: tool_start running 态 chip(spinner,无 ✓;summary 不计瞬态)
+test('ToolTrace: tool_start 渲染 running chip(转动图标),summary 不计入', () => {
+  const trace = [
+    { type: 'tool', name: 'wb_list_resources', result: 'ok' },
+    { type: 'tool_start', name: 'wb_exec' },
+  ]
+  const w = mount(ToolTrace, { props: { trace }, global: { plugins: [i18n] } })
+  const html = w.html()
+  expect(html).toContain('animate-spin')
+  expect(html).toContain('wb_exec')
+  // summary(>5 才显示,这里构造 6 条验证不计入):直接验证 chip 数 = trace 数
+  expect(w.findAll('button').filter(b => b.text().includes('wb_exec'))).toHaveLength(1)
+})

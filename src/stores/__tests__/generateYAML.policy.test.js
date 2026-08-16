@@ -39,7 +39,8 @@ describe('策略组创建 YAML', () => {
     const obj = yamlLoad(yaml) // 改前:duplicated mapping key 抛错
     expect(obj.metadata.name).toBe('123')
     expect(obj.metadata.namespace).toBe('anydoor')
-    expect(obj.spec.hard).toMatchObject({ 'limits.cpu': 8, 'limits.memory': '16Gi', pods: 20, services: 10 })
+    // hard 值为 Quantity(kubectl 自身也输出带引号字符串);yamlScalar 隐式类型化防线后纯数字串加引号,round-trip 保真为字符串
+    expect(obj.spec.hard).toMatchObject({ 'limits.cpu': '8', 'limits.memory': '16Gi', pods: '20', services: '10' })
     expect(obj.status).toBeUndefined()
   })
 

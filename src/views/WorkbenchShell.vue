@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import WorkbenchProjects from './WorkbenchProjects.vue'
 import WorkbenchConfig from './WorkbenchConfig.vue'
 import WorkbenchLedger from './WorkbenchLedger.vue'
+import WorkbenchRecords from './WorkbenchRecords.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -16,6 +17,7 @@ const tabs = [
   { key: 'projects', label: t('workbench.shell.tabProjects'), icon: 'folder' },
   { key: 'config', label: t('workbench.shell.tabConfig'), icon: 'settings' },
   { key: 'global', label: t('workbench.shell.tabGlobal'), icon: 'public' },
+  { key: 'records', label: t('workbench.shell.tabRecords'), icon: 'history' },
 ]
 </script>
 
@@ -46,6 +48,7 @@ const tabs = [
       <WorkbenchProjects v-if="activeTab === 'projects'" />
       <WorkbenchConfig v-else-if="activeTab === 'config'" />
       <WorkbenchLedger v-else-if="activeTab === 'global'" />
+      <WorkbenchRecords v-else-if="activeTab === 'records'" />
     </div>
   </section>
 </template>

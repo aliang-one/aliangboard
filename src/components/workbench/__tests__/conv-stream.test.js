@@ -111,3 +111,24 @@ test('snapshot: 整体替换 content/trace/steps(重连补齐,非追加)', () =>
   state = applyStreamEvent(state, { type: 'snapshot' })
   expect(state.content).toBe('服务端全量')
 })
+
+// dev27: tool_start 瞬态(running 态 chip)——入列、配对移除、终态/审批清残留
+test('tool_start 入 trace;对应 tool 到达时按 name 配对移除再追加', () => {
+  let s = fresh()
+  s = applyStreamEvent(s, { type: 'step', step: { type: 'tool', name: 'a', result: 'r1' } })
+  s = applyStreamEvent(s, { type: 'step', step: { type: 'tool_start', name: 'b', args: { x: 1 } } })
+  expect(s.trace.map(x => x.type)).toEqual(['tool', 'tool_start'])
+  s = applyStreamEvent(s, { type: 'step', step: { type: 'tool', name: 'b', result: 'r2' } })
+  expect(s.trace.map(x => x.type)).toEqual(['tool', 'tool'])
+  expect(s.trace[1].result).toBe('r2')
+})
+
+test('终态/审批事件清 tool_start 残留(execTool 抛错直 failed 等)', () => {
+  let s = applyStreamEvent(fresh(), { type: 'step', step: { type: 'tool_start', name: 'wb_exec' } })
+  s = applyStreamEvent(s, { type: 'status', status: 'failed', error: 'boom' })
+  expect(s.trace).toHaveLength(0)
+  s = applyStreamEvent(s, { type: 'step', step: { type: 'tool_start', name: 'wb_exec' } })
+  s = applyStreamEvent(s, { type: 'approval', pending: { toolCallId: '1', name: 'wb_exec', args: {} } })
+  expect(s.trace).toHaveLength(0)
+  expect(s.status).toBe('pending_approval')
+})
