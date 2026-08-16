@@ -7,8 +7,8 @@ import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
-import { yamlScalar } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { notify } from '@/composables/useToast'
@@ -18,6 +18,7 @@ import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
+import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import { useCopySeed } from '@/composables/useCopySeed'
 
 const { t } = useI18n()
@@ -95,7 +96,7 @@ function makeForm() {
   externalName: '',
   createIngress: false,
   ingressClassName: '',
-  ingressRules: [{ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }],
+  ingressRules: [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }] }],
   ingressAdv: {},
   ingressCustomAnnotations: [],
   // Labels
@@ -145,6 +146,25 @@ const form = ref(makeForm())
 const ingressDialect = computed(() => detectDialect(form.value.ingressClassName))
 watch(ingressDialect, () => { form.value.ingressAdv = {} })
 
+// Service 候选:ns 已有(Vue Query)+ 向导自建虚拟项(createService 开启时;label 标「本向导创建」)
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const virtualServiceName = computed(() => (form.value.createService && form.value.name ? `${form.value.name}-svc` : ''))
+const ingressServiceOptions = computed(() => {
+  const real = (svcQ.data.value || []).filter(s => s.namespace === form.value.namespace)
+    .map(s => ({ name: s.name, ports: (s.portList || []).map(p => p.port) }))
+  const virt = virtualServiceName.value
+    ? [{ name: `${form.value.name}-svc`, ports: form.value.servicePorts.filter(p => p.port).map(p => String(p.port)), label: `${form.value.name}-svc${t('ns.ingressDetail.virtualSvcBadge')}` }]
+    : []
+  return [...virt, ...real]
+})
+// 虚拟名变化/消失时,仍指向旧虚拟名的 path 改指新虚拟名/清空(防悬空引用)
+watch(virtualServiceName, (nv, ov) => {
+  if (nv === ov) return
+  for (const h of form.value.ingressRules) for (const p of h.paths) {
+    if (p.serviceName === ov) p.serviceName = nv
+  }
+})
+
 // 复制 workload:若有 seed(来自 CopyWorkloadDialog),用源数据初始化表单
 const { consumeSeed } = useCopySeed()
 const copySeed = consumeSeed()
@@ -185,10 +205,6 @@ function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' 
 function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
 function removeServicePort(idx) { form.value.servicePorts.splice(idx, 1) }
-function addIngressRule() { form.value.ingressRules.push({ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }) }
-function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
-function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
-function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
 function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
@@ -245,7 +261,11 @@ const stepBlockReason = computed(() => {
         }
       }
     }
-    if (f.createIngress && !f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
+    if (f.createIngress) {
+      if (!f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
+      const badBackend = f.ingressRules.filter(r => r.host).some(r => r.paths.some(p => !p.serviceName || !p.servicePort))
+      if (badBackend) return t('deploy.ingressBackendRequired')
+    }
   }
   return null
 })
@@ -618,35 +638,10 @@ spec:`
   }
 
   // Ingress
-  if (f.createIngress && f.ingressRules.filter(r => r.host).length) {
-    const validRules = f.ingressRules.filter(r => r.host)
-    yaml += `\n---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${f.name}-ingress
-  namespace: ${f.namespace}`
-    const ingressAnn = buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations)
-    if (Object.keys(ingressAnn).length) {
-      yaml += '\n  annotations:'
-      for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: ${yamlScalar(v)}`
-    }
-    yaml += `
-spec:`
-    if (f.ingressClassName) yaml += `\n  ingressClassName: ${f.ingressClassName}`
-    const tlsRules = validRules.filter(r => r.tls)
-    if (tlsRules.length) {
-      yaml += `\n  tls:`
-      tlsRules.forEach(r => {
-        yaml += `\n  - hosts:\n    - ${r.host}\n    secretName: ${r.tlsSecret || f.name + '-tls'}`
-      })
-    }
-    yaml += `\n  rules:`
-    validRules.forEach(r => {
-      yaml += `\n  - host: ${r.host}\n    http:\n      paths:`
-      r.paths.filter(p => p.path).forEach(p => {
-        yaml += `\n      - path: ${p.path}\n        pathType: ${p.pathType}\n        backend:\n          service:\n            name: ${f.name}-svc\n            port:\n              number: ${f.servicePorts[0]?.port || 80}`
-      })
+  if (f.createIngress) {
+    yaml += buildWizardIngressYaml(f.ingressRules, {
+      name: f.name, namespace: f.namespace, ingressClassName: f.ingressClassName,
+      annotations: buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations),
     })
   }
 
@@ -1435,41 +1430,10 @@ async function handleDeploy() {
               </select>
             </div>
 
-            <!-- 多 Rule t('common.edit')器 -->
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressRules') }}</label>
-            <div class="flex flex-col gap-sm">
-              <div v-for="(rule, rIdx) in form.ingressRules" :key="rIdx" class="border border-outline-variant rounded-lg p-md bg-surface-container-low">
-                <div class="flex gap-sm items-center mb-xs">
-                  <span class="material-symbols-outlined text-primary text-base">language</span>
-                  <input v-model="rule.host" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" />
-                  <button v-if="form.ingressRules.length > 1" @click="removeIngressRule(rIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-                </div>
-                <!-- paths -->
-                <div class="flex flex-col gap-xs mb-xs">
-                  <div v-for="(p, pIdx) in rule.paths" :key="pIdx" class="flex gap-xs items-center">
-                    <input v-model="p.path" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="/api" />
-                    <select v-model="p.pathType" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs">
-                      <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
-                    </select>
-                    <button v-if="rule.paths.length > 1" @click="removeIngressPath(rIdx, pIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">close</span></button>
-                  </div>
-                  <button @click="addIngressPath(rIdx)" class="self-start flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded">
-                    <span class="material-symbols-outlined text-xs">add</span> {{ $t('deploy.addPath') }}
-                  </button>
-                </div>
-                <!-- TLS -->
-                <label class="flex items-center gap-sm cursor-pointer mt-xs">
-                  <input type="checkbox" v-model="rule.tls" class="rounded text-primary h-4 w-4" />
-                  <span class="text-xs">{{ $t('deploy.tlsLabel') }}</span>
-                  <input v-if="rule.tls" v-model="rule.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" :placeholder="$t('deploy.tlsSecretPlaceholder')" />
-                </label>
-              </div>
-              <button @click="addIngressRule" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addRule') }}
-              </button>
-            </div>
+            <!-- 多 Rule 编辑器(共享 IngressRulesEditor:path 级后端双下拉 + per-host TLS) -->
+            <IngressRulesEditor v-model="form.ingressRules" :services="ingressServiceOptions" :with-tls="true" :default-service-name="virtualServiceName || undefined" />
             <p class="text-xs text-on-surface-variant mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-xs">info</span>{{ $t('deploy.ingressRuleHint', { name: form.name }) }}
+              <span class="material-symbols-outlined text-xs">info</span>{{ t('deploy.ingressRuleHint') }}
             </p>
 
             <!-- 网关性能调优（按所选 IngressClass 的控制器方言注解，留空=默认）-->

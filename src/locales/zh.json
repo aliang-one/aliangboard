@@ -1437,7 +1437,7 @@
     "tlsSecretPlaceholder": "tls secret 名（留空自动生成）",
     "addPath": "添加 Path",
     "addRule": "添加 Rule（多域名）",
-    "ingressRuleHint": "每个 Rule 一个域名，可配多个 path 与 pathType（Prefix/Exact），后端统一指向 {name}-svc",
+    "ingressRuleHint": "每条路径可独立选择后端 Service 与端口。",
     "gatewayPerfTuning": "网关性能调优（高级 · nginx 注解）",
     "gatewayPerfHint": "参数以 nginx.ingress.kubernetes.io/* 注解写入；留空即用控制器默认值。",
     "customAnnotations": "自定义注解（任意 key/value）",
@@ -1487,6 +1487,7 @@
     "svcPortRequired": "开启 Service 时至少填写一个端口",
     "externalNameRequired": "ExternalName 类型需填写外部 DNS 名称",
     "ingressHostRequired": "开启 Ingress 时至少填写一个 Host",
+    "ingressBackendRequired": "Ingress 每条路径需选择后端 Service 与端口",
     "partialApplied": "部分资源应用失败（主工作负载已创建），可稍后重试："
   },
   "workload": {

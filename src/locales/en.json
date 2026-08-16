@@ -1437,7 +1437,7 @@
     "tlsSecretPlaceholder": "TLS secret name (auto-generated if empty)",
     "addPath": "Add Path",
     "addRule": "Add Rule (multi-domain)",
-    "ingressRuleHint": "Each Rule is one domain, supports multiple paths and pathTypes (Prefix/Exact), backend points to {name}-svc",
+    "ingressRuleHint": "Each path maps to its own backend service and port.",
     "gatewayPerfTuning": "Gateway Performance Tuning (Advanced · nginx annotations)",
     "gatewayPerfHint": "Parameters are written as nginx.ingress.kubernetes.io/* annotations; empty = controller default.",
     "customAnnotations": "Custom Annotations (any key/value)",
@@ -1487,6 +1487,7 @@
     "svcPortRequired": "Fill in at least one port when Service is enabled",
     "externalNameRequired": "ExternalName type requires an external DNS name",
     "ingressHostRequired": "Fill in at least one host when Ingress is enabled",
+    "ingressBackendRequired": "Each ingress path needs a backend service and port",
     "partialApplied": "Some resources failed to apply (main workload created); you can retry later: "
   },
   "workload": {
