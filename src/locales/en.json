@@ -2817,10 +2817,10 @@
       "hintListFiles": "List all files in this project",
       "noAnswer": "No answer returned",
       "agentFailed": "Agent call failed",
-"stop": "Stop",
-"stopped": "Stopped",
+      "stop": "Stop",
+      "stopped": "Stopped",
       "jumpBottom": "Jump to bottom",
-"stopFailed": "Failed to stop",
+      "stopFailed": "Failed to stop",
       "defaultProjectName": "Project",
       "loadProjectFailed": "Failed to load project",
       "title": "AI Assistant",
@@ -2866,7 +2866,8 @@
       "backToCluster": "Back to Cluster",
       "tabProjects": "Projects",
       "tabConfig": "Config",
-      "tabGlobal": "Global"
+      "tabGlobal": "Global",
+      "tabRecords": "Records"
     },
     "card": {
       "noProjects": "No projects yet. Click \"Create\" to make one.",
@@ -2887,6 +2888,29 @@
       "cluster": "Bound Cluster",
       "projectRoot": "Project Root",
       "distillStatus": "Distill Status"
+    },
+    "records": {
+      "title": "Workbench Records",
+      "subtitle": "Unified entry for conversations, messages and AI operation data — persisted server-side and traceable across sessions.",
+      "statConversations": "Conversations",
+      "statMessages": "Messages",
+      "statAiCalls": "AI Tool Calls",
+      "statProjects": "Projects",
+      "storageTitle": "Storage Locations",
+      "storageDb": "Conversation/message database",
+      "storageWb": "Workbench files (git repos)",
+      "files": "files",
+      "storageHint": "Conversations and messages live in SQLite; project manifests and cluster ledgers are standalone git repos; every AI tool call (including denied ones) enters the tamper-evident audit chain.",
+      "convTitle": "All conversations (by recent activity)",
+      "emptyTitle": "(untitled)",
+      "noConversations": "No conversations yet",
+      "auditTitle": "AI Tool Call Records",
+      "auditHint": "Audit chain source=workbench · latest 30",
+      "noAudits": "No AI call records yet",
+      "loadFailed": "Failed to load records",
+      "timeMinAgo": "{n}m ago",
+      "timeHourAgo": "{n}h ago",
+      "timeDayAgo": "{n}d ago"
     }
   },
   "workloadDetail": {
@@ -3324,12 +3348,39 @@
       "pods": "Pods",
       "services": "Services"
     },
-    "nodes": { "_t": "Nodes", "roles": "Role", "system": "System", "cpu": "CPU", "memory": "Memory" },
-    "workloads": { "_t": "Workloads", "replicas": "Replicas" },
-    "namespaces": { "_t": "Namespaces" },
-    "services": { "_t": "Services", "clusterIP": "Cluster IP", "externalIP": "External IP", "ports": "Ports" },
-    "ingress": { "_t": "Ingress", "hosts": "Hosts", "path": "Path", "backend": "Backend", "tls": "TLS" },
-    "rbac": { "_t": "RBAC", "bindings": "Bindings", "role": "Role", "subjects": "Subjects" }
+    "nodes": {
+      "_t": "Nodes",
+      "roles": "Role",
+      "system": "System",
+      "cpu": "CPU",
+      "memory": "Memory"
+    },
+    "workloads": {
+      "_t": "Workloads",
+      "replicas": "Replicas"
+    },
+    "namespaces": {
+      "_t": "Namespaces"
+    },
+    "services": {
+      "_t": "Services",
+      "clusterIP": "Cluster IP",
+      "externalIP": "External IP",
+      "ports": "Ports"
+    },
+    "ingress": {
+      "_t": "Ingress",
+      "hosts": "Hosts",
+      "path": "Path",
+      "backend": "Backend",
+      "tls": "TLS"
+    },
+    "rbac": {
+      "_t": "RBAC",
+      "bindings": "Bindings",
+      "role": "Role",
+      "subjects": "Subjects"
+    }
   },
   "envSource": {
     "nsMissing": "Resource not found in the current namespace (cross-namespace manual input allowed)"

@@ -1,6 +1,7 @@
 // 工作台项目 CRUD + 搜索 + 台账 + 蒸馏 + reconcile HTTP 端点从 server/index.mjs 抽出。
 // handler/dispatcher 模式。零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
 import { join } from 'node:path'
+import { statSync, readdirSync } from 'node:fs'
 import {
   listProjects, createProject, getProject,
   getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
@@ -19,7 +20,7 @@ import { reconcileProject } from '../reconcile.mjs'
 export function createWorkbenchProjectRoutes(deps) {
   const {
     db, sendJson, readBody, requirePlatform, requireAdmin,
-    WORKBENCH_DIR, getLlmConfig, createLlmClient,
+    WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
   } = deps

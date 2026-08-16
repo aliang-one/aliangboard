@@ -2817,10 +2817,10 @@
       "hintListFiles": "列出项目里的所有文件",
       "noAnswer": "未返回答案",
       "agentFailed": "Agent 调用失败",
-"stop": "停止",
-"stopped": "已停止",
+      "stop": "停止",
+      "stopped": "已停止",
       "jumpBottom": "回到底部",
-"stopFailed": "停止失败",
+      "stopFailed": "停止失败",
       "defaultProjectName": "项目",
       "loadProjectFailed": "加载项目失败",
       "title": "AI 助手",
@@ -2866,7 +2866,8 @@
       "backToCluster": "返回集群",
       "tabProjects": "项目",
       "tabConfig": "配置",
-      "tabGlobal": "全局"
+      "tabGlobal": "全局",
+      "tabRecords": "记录"
     },
     "card": {
       "noProjects": "还没有项目,点击「新建」创建第一个",
@@ -2887,6 +2888,29 @@
       "cluster": "绑定集群",
       "projectRoot": "项目根目录",
       "distillStatus": "蒸馏状态"
+    },
+    "records": {
+      "title": "工作台记录",
+      "subtitle": "对话、消息与 AI 操作数据的统一入口——内容持久化在服务端,跨会话可追溯。",
+      "statConversations": "对话",
+      "statMessages": "消息",
+      "statAiCalls": "AI 工具调用",
+      "statProjects": "项目",
+      "storageTitle": "存储位置",
+      "storageDb": "对话/消息数据库",
+      "storageWb": "工作台文件(git 仓库)",
+      "files": "个文件",
+      "storageHint": "对话与消息存于 SQLite 数据库;项目 manifests 与集群台账是独立 git 仓库;AI 的每一次工具调用(含被拒)全量进入防篡改审计链。",
+      "convTitle": "全部对话(按最近活跃)",
+      "emptyTitle": "(无标题)",
+      "noConversations": "暂无对话记录",
+      "auditTitle": "AI 工具调用记录",
+      "auditHint": "审计链 source=workbench · 最近 30 条",
+      "noAudits": "暂无 AI 调用记录",
+      "loadFailed": "读取记录失败",
+      "timeMinAgo": "{n} 分钟前",
+      "timeHourAgo": "{n} 小时前",
+      "timeDayAgo": "{n} 天前"
     }
   },
   "workloadDetail": {
@@ -3324,12 +3348,39 @@
       "pods": "Pod 数",
       "services": "服务数"
     },
-    "nodes": { "_t": "节点", "roles": "角色", "system": "系统", "cpu": "CPU", "memory": "内存" },
-    "workloads": { "_t": "工作负载", "replicas": "副本数" },
-    "namespaces": { "_t": "命名空间" },
-    "services": { "_t": "服务", "clusterIP": "集群 IP", "externalIP": "外部 IP", "ports": "端口" },
-    "ingress": { "_t": "路由", "hosts": "主机", "path": "路径", "backend": "后端", "tls": "TLS" },
-    "rbac": { "_t": "RBAC", "bindings": "绑定数", "role": "角色", "subjects": "主体" }
+    "nodes": {
+      "_t": "节点",
+      "roles": "角色",
+      "system": "系统",
+      "cpu": "CPU",
+      "memory": "内存"
+    },
+    "workloads": {
+      "_t": "工作负载",
+      "replicas": "副本数"
+    },
+    "namespaces": {
+      "_t": "命名空间"
+    },
+    "services": {
+      "_t": "服务",
+      "clusterIP": "集群 IP",
+      "externalIP": "外部 IP",
+      "ports": "端口"
+    },
+    "ingress": {
+      "_t": "路由",
+      "hosts": "主机",
+      "path": "路径",
+      "backend": "后端",
+      "tls": "TLS"
+    },
+    "rbac": {
+      "_t": "RBAC",
+      "bindings": "绑定数",
+      "role": "角色",
+      "subjects": "主体"
+    }
   },
   "envSource": {
     "nsMissing": "当前命名空间未找到该资源(可跨命名空间手输)"
