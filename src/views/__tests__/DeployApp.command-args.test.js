@@ -73,3 +73,25 @@ test('表单 UI:init 与 sidecar 行都有 command/args 输入框(args 为多行
   expect(w.find('[data-testid="init-args-input"]').element.tagName).toBe('TEXTAREA')
   expect(w.find('[data-testid="sidecar-args-input"]').element.tagName).toBe('TEXTAREA')
 })
+
+test('硬化:command 引号分组;args/env 值含引号、反斜杠、换行经 YAML 往返无损', async () => {
+  const { pod } = await previewWith({
+    containerName: 'main', image: 'nginx',
+    command: 'sh -c "echo hi"',
+    args: 'say "hello" \\ world',
+    envVars: [{ key: 'GREETING', value: 'he said "hi"\nand left' }],
+  })
+  expect(pod.containers[0].command).toEqual(['sh', '-c', 'echo hi'])
+  expect(pod.containers[0].args).toEqual(['say "hello" \\ world'])
+  expect(pod.containers[0].env).toEqual([{ name: 'GREETING', value: 'he said "hi"\nand left' }])
+})
+
+test('硬化:exec 探针与 lifecycle 钩子的 command 含引号/空格同样往返无损', async () => {
+  const { pod } = await previewWith({
+    containerName: 'main', image: 'nginx',
+    liveness: { enabled: true, type: 'exec', execCommand: 'sh -c "curl -f localhost:8080/ready"', initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
+    lifecycle: { postStart: 'sh -c "echo started"', preStop: '' },
+  })
+  expect(pod.containers[0].livenessProbe.exec.command).toEqual(['sh', '-c', 'curl -f localhost:8080/ready'])
+  expect(pod.containers[0].lifecycle.postStart.exec.command).toEqual(['sh', '-c', 'echo started'])
+})

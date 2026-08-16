@@ -368,7 +368,7 @@ const previewYAML = computed(() => {
 
   const envYaml = f.envVars
     .filter(e => e.key)
-    .map(e => `        - name: ${e.key}\n          value: "${e.value}"`)
+    .map(e => `        - name: ${e.key}\n          value: ${JSON.stringify(e.value)}`)
     .join('\n')
 
   const envCMKeyYaml = f.envCMKeys
@@ -393,7 +393,7 @@ const previewYAML = computed(() => {
     let s = `        ${name}:`
     if (p.type === 'http') s += `\n          httpGet:\n            path: ${p.httpPath}\n            port: ${p.port}`
     else if (p.type === 'tcp') s += `\n          tcpSocket:\n            port: ${p.port}`
-    else if (p.type === 'exec') s += `\n          exec:\n            command: [${splitCommandTokens(p.execCommand).map(x => `"${x}"`).join(', ')}]`
+    else if (p.type === 'exec') s += `\n          exec:\n            command: [${splitCommandTokens(p.execCommand).map(x => JSON.stringify(x)).join(', ')}]`
     s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}\n          timeoutSeconds: ${p.timeoutSeconds}\n          failureThreshold: ${p.failureThreshold}\n          successThreshold: ${p.successThreshold}`
     return s
   }
@@ -414,8 +414,8 @@ const previewYAML = computed(() => {
   // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
   const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -423,8 +423,8 @@ const previewYAML = computed(() => {
   // 初始容器（init）
   const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -579,8 +579,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
         image: ${f.image}
         imagePullPolicy: ${f.pullPolicy}`
 
-  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => `"${c}"`).join(', ')}]`
-  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => `"${c}"`).join(', ')}]`
+  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => JSON.stringify(c)).join(', ')}]`
+  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => JSON.stringify(c)).join(', ')}]`
   if (f.workingDir) yaml += `\n        workingDir: ${f.workingDir}`
   if (f.stdin) yaml += `\n        stdin: true`
   if (f.tty) yaml += `\n        tty: true`
@@ -608,8 +608,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
   // lifecycle
   if (f.lifecycle.postStart || f.lifecycle.preStop) {
     yaml += `\n        lifecycle:`
-    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => `"${c}"`).join(', ')}]`
-    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => `"${c}"`).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => JSON.stringify(c)).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => JSON.stringify(c)).join(', ')}]`
   }
   if (probesYaml) yaml += '\n' + probesYaml
   if (mountLines('main')) yaml += '\n' + mountLines('main')
