@@ -6,7 +6,9 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
-import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations } from '@/composables/useIngressPerf'
+import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
+import IngressPerfField from '@/components/common/IngressPerfField.vue'
+import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { yamlScalar } from '@/composables/useYaml'
@@ -19,6 +21,7 @@ import EnvSourceField from '@/components/common/EnvSourceField.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
+import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import { useCopySeed } from '@/composables/useCopySeed'
 
 const { t } = useI18n()
@@ -96,7 +99,7 @@ function makeForm() {
   externalName: '',
   createIngress: false,
   ingressClassName: '',
-  ingressRules: [{ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }],
+  ingressRules: [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }] }],
   ingressAdv: {},
   ingressCustomAnnotations: [],
   // Labels
@@ -146,6 +149,25 @@ const form = ref(makeForm())
 const ingressDialect = computed(() => detectDialect(form.value.ingressClassName))
 watch(ingressDialect, () => { form.value.ingressAdv = {} })
 
+// Service 候选:ns 已有(Vue Query)+ 向导自建虚拟项(createService 开启时;label 标「本向导创建」)
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const virtualServiceName = computed(() => (form.value.createService && form.value.name ? `${form.value.name}-svc` : ''))
+const ingressServiceOptions = computed(() => {
+  const real = (svcQ.data.value || []).filter(s => s.namespace === form.value.namespace)
+    .map(s => ({ name: s.name, ports: (s.portList || []).map(p => p.port) }))
+  const virt = virtualServiceName.value
+    ? [{ name: `${form.value.name}-svc`, ports: form.value.servicePorts.filter(p => p.port).map(p => String(p.port)), label: `${form.value.name}-svc${t('ns.ingressDetail.virtualSvcBadge')}` }]
+    : []
+  return [...virt, ...real]
+})
+// 虚拟名变化/消失时,仍指向旧虚拟名的 path 改指新虚拟名/清空(防悬空引用)
+watch(virtualServiceName, (nv, ov) => {
+  if (nv === ov) return
+  for (const h of form.value.ingressRules) for (const p of h.paths) {
+    if (p.serviceName === ov) p.serviceName = nv
+  }
+})
+
 // 复制 workload:若有 seed(来自 CopyWorkloadDialog),用源数据初始化表单
 const { consumeSeed } = useCopySeed()
 const copySeed = consumeSeed()
@@ -186,10 +208,6 @@ function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' 
 function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
 function removeServicePort(idx) { form.value.servicePorts.splice(idx, 1) }
-function addIngressRule() { form.value.ingressRules.push({ host: '', paths: [{ path: '/', pathType: 'Prefix' }], tls: false, tlsSecret: '' }) }
-function removeIngressRule(idx) { form.value.ingressRules.splice(idx, 1) }
-function addIngressPath(rIdx) { form.value.ingressRules[rIdx].paths.push({ path: '/', pathType: 'Prefix' }) }
-function removeIngressPath(rIdx, pIdx) { form.value.ingressRules[rIdx].paths.splice(pIdx, 1) }
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
 function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
@@ -246,7 +264,14 @@ const stepBlockReason = computed(() => {
         }
       }
     }
-    if (f.createIngress && !f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
+    if (f.createIngress) {
+      if (!f.ingressRules.some(r => r.host)) return t('deploy.ingressHostRequired')
+      // 端口/path 门禁:有 host 的组须至少一条 path,且 path/serviceName 非空、端口为纯数字
+      // (向导 YAML port.number 只收数字;PortSelect 手输的命名端口与零 path 空组在此拦截,免产非法 YAML)
+      const badBackend = f.ingressRules.filter(r => r.host).some(r =>
+        !r.paths.length || r.paths.some(p => !p.path || !p.serviceName || !p.servicePort || !/^\d+$/.test(String(p.servicePort))))
+      if (badBackend) return t('deploy.ingressBackendRequired')
+    }
   }
   return null
 })
@@ -343,7 +368,7 @@ const previewYAML = computed(() => {
 
   const envYaml = f.envVars
     .filter(e => e.key)
-    .map(e => `        - name: ${e.key}\n          value: "${e.value}"`)
+    .map(e => `        - name: ${e.key}\n          value: ${JSON.stringify(e.value)}`)
     .join('\n')
 
   const envCMKeyYaml = f.envCMKeys
@@ -368,7 +393,7 @@ const previewYAML = computed(() => {
     let s = `        ${name}:`
     if (p.type === 'http') s += `\n          httpGet:\n            path: ${p.httpPath}\n            port: ${p.port}`
     else if (p.type === 'tcp') s += `\n          tcpSocket:\n            port: ${p.port}`
-    else if (p.type === 'exec') s += `\n          exec:\n            command: [${splitCommandTokens(p.execCommand).map(x => `"${x}"`).join(', ')}]`
+    else if (p.type === 'exec') s += `\n          exec:\n            command: [${splitCommandTokens(p.execCommand).map(x => JSON.stringify(x)).join(', ')}]`
     s += `\n          initialDelaySeconds: ${p.initialDelaySeconds}\n          periodSeconds: ${p.periodSeconds}\n          timeoutSeconds: ${p.timeoutSeconds}\n          failureThreshold: ${p.failureThreshold}\n          successThreshold: ${p.successThreshold}`
     return s
   }
@@ -389,8 +414,8 @@ const previewYAML = computed(() => {
   // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
   const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -398,8 +423,8 @@ const previewYAML = computed(() => {
   // 初始容器（init）
   const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
     `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => `"${x}"`).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => `"${x}"`).join(', ')}]` : '') +
+    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
+    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
     (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
   ).filter(Boolean).join('\n')
@@ -554,8 +579,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
         image: ${f.image}
         imagePullPolicy: ${f.pullPolicy}`
 
-  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => `"${c}"`).join(', ')}]`
-  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => `"${c}"`).join(', ')}]`
+  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => JSON.stringify(c)).join(', ')}]`
+  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => JSON.stringify(c)).join(', ')}]`
   if (f.workingDir) yaml += `\n        workingDir: ${f.workingDir}`
   if (f.stdin) yaml += `\n        stdin: true`
   if (f.tty) yaml += `\n        tty: true`
@@ -583,8 +608,8 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
   // lifecycle
   if (f.lifecycle.postStart || f.lifecycle.preStop) {
     yaml += `\n        lifecycle:`
-    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => `"${c}"`).join(', ')}]`
-    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => `"${c}"`).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => JSON.stringify(c)).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => JSON.stringify(c)).join(', ')}]`
   }
   if (probesYaml) yaml += '\n' + probesYaml
   if (mountLines('main')) yaml += '\n' + mountLines('main')
@@ -620,35 +645,12 @@ spec:`
   }
 
   // Ingress
-  if (f.createIngress && f.ingressRules.filter(r => r.host).length) {
-    const validRules = f.ingressRules.filter(r => r.host)
-    yaml += `\n---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${f.name}-ingress
-  namespace: ${f.namespace}`
-    const ingressAnn = buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations)
-    if (Object.keys(ingressAnn).length) {
-      yaml += '\n  annotations:'
-      for (const [k, v] of Object.entries(ingressAnn)) yaml += `\n    ${k}: ${yamlScalar(v)}`
-    }
-    yaml += `
-spec:`
-    if (f.ingressClassName) yaml += `\n  ingressClassName: ${f.ingressClassName}`
-    const tlsRules = validRules.filter(r => r.tls)
-    if (tlsRules.length) {
-      yaml += `\n  tls:`
-      tlsRules.forEach(r => {
-        yaml += `\n  - hosts:\n    - ${r.host}\n    secretName: ${r.tlsSecret || f.name + '-tls'}`
-      })
-    }
-    yaml += `\n  rules:`
-    validRules.forEach(r => {
-      yaml += `\n  - host: ${r.host}\n    http:\n      paths:`
-      r.paths.filter(p => p.path).forEach(p => {
-        yaml += `\n      - path: ${p.path}\n        pathType: ${p.pathType}\n        backend:\n          service:\n            name: ${f.name}-svc\n            port:\n              number: ${f.servicePorts[0]?.port || 80}`
-      })
+  if (f.createIngress) {
+    yaml += buildWizardIngressYaml(f.ingressRules, {
+      // 旧向导命名约定:资源名 <name>-ingress、tls secret 默认 <name>-tls(重跑向导幂等,不旁生新 Ingress)
+      name: `${f.name}-ingress`, defaultTlsSecret: `${f.name}-tls`,
+      namespace: f.namespace, ingressClassName: f.ingressClassName,
+      annotations: buildIngressAnnotations(ingressDialect.value, f.ingressAdv, f.ingressCustomAnnotations),
     })
   }
 
@@ -681,6 +683,10 @@ function validate() {
   f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
   const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
   if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
+  if (f.createIngress) {
+    for (const e of validateIngressAdv(ingressDialect.value, f.ingressAdv)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+    for (const e of validateCustomAnnotations(f.ingressCustomAnnotations)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
+  }
   return errs
 }
 async function handleDeploy() {
@@ -1441,41 +1447,10 @@ async function handleDeploy() {
               </select>
             </div>
 
-            <!-- 多 Rule t('common.edit')器 -->
-            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressRules') }}</label>
-            <div class="flex flex-col gap-sm">
-              <div v-for="(rule, rIdx) in form.ingressRules" :key="rIdx" class="border border-outline-variant rounded-lg p-md bg-surface-container-low">
-                <div class="flex gap-sm items-center mb-xs">
-                  <span class="material-symbols-outlined text-primary text-base">language</span>
-                  <input v-model="rule.host" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="app.example.com" />
-                  <button v-if="form.ingressRules.length > 1" @click="removeIngressRule(rIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-                </div>
-                <!-- paths -->
-                <div class="flex flex-col gap-xs mb-xs">
-                  <div v-for="(p, pIdx) in rule.paths" :key="pIdx" class="flex gap-xs items-center">
-                    <input v-model="p.path" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="/api" />
-                    <select v-model="p.pathType" class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs">
-                      <option>Prefix</option><option>Exact</option><option>ImplementationSpecific</option>
-                    </select>
-                    <button v-if="rule.paths.length > 1" @click="removeIngressPath(rIdx, pIdx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">close</span></button>
-                  </div>
-                  <button @click="addIngressPath(rIdx)" class="self-start flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded">
-                    <span class="material-symbols-outlined text-xs">add</span> {{ $t('deploy.addPath') }}
-                  </button>
-                </div>
-                <!-- TLS -->
-                <label class="flex items-center gap-sm cursor-pointer mt-xs">
-                  <input type="checkbox" v-model="rule.tls" class="rounded text-primary h-4 w-4" />
-                  <span class="text-xs">{{ $t('deploy.tlsLabel') }}</span>
-                  <input v-if="rule.tls" v-model="rule.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" :placeholder="$t('deploy.tlsSecretPlaceholder')" />
-                </label>
-              </div>
-              <button @click="addIngressRule" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-                <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addRule') }}
-              </button>
-            </div>
+            <!-- 多 Rule 编辑器(共享 IngressRulesEditor:path 级后端双下拉 + per-host TLS) -->
+            <IngressRulesEditor v-model="form.ingressRules" :services="ingressServiceOptions" :with-tls="true" :default-service-name="virtualServiceName || undefined" />
             <p class="text-xs text-on-surface-variant mt-sm flex items-center gap-xs">
-              <span class="material-symbols-outlined text-xs">info</span>{{ $t('deploy.ingressRuleHint', { name: form.name }) }}
+              <span class="material-symbols-outlined text-xs">info</span>{{ t('deploy.ingressRuleHint') }}
             </p>
 
             <!-- 网关性能调优（按所选 IngressClass 的控制器方言注解，留空=默认）-->
@@ -1494,11 +1469,7 @@ async function handleDeploy() {
                   <div class="grid grid-cols-2 gap-xs">
                     <div v-for="fld in g.fields" :key="fld.key">
                       <label class="text-xs text-on-surface-variant block mb-xs">{{ $t(fld.labelKey) }}</label>
-                      <textarea v-if="fld.area" v-model="form.ingressAdv[fld.key]" rows="2" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph"></textarea>
-                      <select v-else-if="fld.options" v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm">
-                        <option v-for="o in fld.options" :key="o" :value="o">{{ o || $t('deploy.default') }}</option>
-                      </select>
-                      <input v-else v-model="form.ingressAdv[fld.key]" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="fld.ph" />
+                      <IngressPerfField v-model="form.ingressAdv[fld.key]" :fld="fld" />
                     </div>
                   </div>
                 </div>
@@ -1510,7 +1481,10 @@ async function handleDeploy() {
                   </div>
                   <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
                     <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-                    <input v-model="a.value" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="value" />
+                    <div class="flex-1 flex flex-col gap-xs">
+                      <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || $t('ns.ingress.valuePlaceholder')" />
+                      <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(a.key)) }}</p>
+                    </div>
                     <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
                   </div>
                   <p v-if="!form.ingressCustomAnnotations.length" class="text-xs text-on-surface-variant">{{ $t('deploy.noCustomAnnotations') }}</p>

@@ -62,7 +62,7 @@ function back() { router.push({ name: 'SelectCluster' }) }
   <div class="min-h-screen flex items-center justify-center bg-surface p-xl">
     <div class="w-full max-w-xl">
       <div class="text-center mb-xl">
-        <span class="material-symbols-outlined text-5xl text-primary">hub</span>
+        <img src="/aliang-logo.svg" alt="AliangBoard" class="w-12 h-auto mx-auto" width="48" height="44" />
         <h1 class="text-headline-lg font-bold text-on-surface mt-sm">{{ t('addCluster.title') }}</h1>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('addCluster.subtitle') }}</p>
       </div>

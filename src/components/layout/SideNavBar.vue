@@ -200,9 +200,7 @@ function nsStatusColor(status) {
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
       <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full">
-        <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary">
-          <span class="material-symbols-outlined text-lg filled">kubernetes</span>
-        </div>
+        <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
         <div class="min-w-0">
           <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
           <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
@@ -211,7 +209,7 @@ function nsStatusColor(status) {
       <button v-else data-test="cluster-anchor" @click="router.push('/cluster')"
         class="flex items-center gap-sm w-full min-w-0 group cursor-pointer"
         :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
-        <span class="material-symbols-outlined text-lg text-primary">kubernetes</span>
+        <img src="/aliang-logo.svg" alt="" class="h-5 w-auto shrink-0" width="22" height="20" />
         <span class="text-body-md font-semibold text-on-surface truncate">{{ store.cluster.name || 'Cluster' }}</span>
         <span class="ml-auto flex items-center gap-2xs text-body-sm text-on-surface-variant transition-colors group-hover:text-primary">
           <span class="material-symbols-outlined text-base">chevron_left</span>
@@ -380,7 +378,7 @@ function nsStatusColor(status) {
           class="cluster-slab absolute left-0 bottom-0 flex items-center gap-sm pl-md pr-lg text-left cursor-pointer"
           :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
           <span class="slab-chip flex items-center justify-center shrink-0">
-            <span class="material-symbols-outlined text-base filled">kubernetes</span>
+            <img src="/aliang-logo.svg" alt="" class="h-[18px] w-auto" width="20" height="18" />
           </span>
           <span class="min-w-0">
             <span class="flex items-center gap-2xs">

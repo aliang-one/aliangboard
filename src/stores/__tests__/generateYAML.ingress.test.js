@@ -60,3 +60,46 @@ describe('generateYAML: ingress rules 形状契约', () => {
     expect(obj.spec.rules[0].http.paths || []).toHaveLength(0)
   })
 })
+
+describe('generateYAML: ingress tlsList(③ per-host TLS 优先路径)', () => {
+  const rules = [
+    { host: 'a.example.com', http: { paths: [{ path: '/', pathType: 'Prefix', backend: { service: { name: 'svc-a', port: { number: 80 } } } }] } },
+    { host: 'b.example.com', http: { paths: [{ path: '/', pathType: 'Prefix', backend: { service: { name: 'svc-b', port: { number: 8080 } } } }] } },
+  ]
+
+  it('tlsList 非空 → 按序产出多条 per-host tls 块(hostsToK8sSpec 形状)', () => {
+    const yaml = store.generateYAML('ingress', {
+      name: 'multi', namespace: 'default', rules,
+      tlsList: [{ hosts: ['a.example.com'], secretName: 'a-tls' }, { hosts: ['b.example.com'], secretName: 'b-tls' }],
+    })
+    const obj = yamlLoad(yaml)
+    expect(obj.spec.tls).toEqual([
+      { hosts: ['a.example.com'], secretName: 'a-tls' },
+      { hosts: ['b.example.com'], secretName: 'b-tls' },
+    ])
+  })
+
+  it('tlsList 非空时优先于存量单 tls 布尔(忽略 tls/tlsSecret)', () => {
+    const yaml = store.generateYAML('ingress', {
+      name: 'x', namespace: 'default', rules,
+      tls: true, tlsSecret: 'legacy-tls',
+      tlsList: [{ hosts: ['a.example.com'], secretName: 'list-tls' }],
+    })
+    expect(yamlLoad(yaml).spec.tls).toEqual([{ hosts: ['a.example.com'], secretName: 'list-tls' }])
+  })
+
+  it('不传 tlsList(② 暴露弹窗等存量调用方)→ 单 tls 兜底行为不变', () => {
+    const yaml = store.generateYAML('ingress', {
+      name: 'x', namespace: 'default', rules,
+      tls: true, tlsSecret: 'legacy-tls',
+    })
+    expect(yamlLoad(yaml).spec.tls).toEqual([{ hosts: ['a.example.com'], secretName: 'legacy-tls' }])
+  })
+
+  it('tlsList 空数组(③ 全关 TLS)且 tls 为假 → 不产出 tls 块', () => {
+    const yaml = store.generateYAML('ingress', {
+      name: 'x', namespace: 'default', rules, tls: false, tlsList: [],
+    })
+    expect(yamlLoad(yaml).spec.tls).toBeUndefined()
+  })
+})

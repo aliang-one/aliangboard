@@ -196,11 +196,20 @@ export function listMessages(db, conversationId) {
 
 // 重新生成(P1):删掉最后一条 user 消息之后的全部消息(即待重跑的 assistant 回复),
 // 该 user 消息保留——runConversation 以 buildHistory(=剩余消息)重跑即重答此轮。
-// 返回删除条数;无 user 消息(空对话/全被删)返回 0(调用方据此 400)。
+// 返回 { removed, lastUserSeq };无 user 消息返回 { removed: 0, lastUserSeq: 0 }(调用方据此 400)。
 export function truncateAfterLastUser(db, conversationId) {
   const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conversationId)
-  if (!lastUser) return 0
-  return db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>?').run(conversationId, lastUser.seq).changes
+  if (!lastUser) return { removed: 0, lastUserSeq: 0 }
+  const removed = db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>?').run(conversationId, lastUser.seq).changes
+  return { removed, lastUserSeq: lastUser.seq }
+}
+
+// regenerate 后的摘要水位钳制(dev29 风险修复):appendMessage 的 seq 取"现存最大+1",
+// truncate 删除后新回复会复用被删 seq。若 summarizedUpTo ≥ lastUserSeq,buildHistory 会把
+// 原问题(seq ≤ upTo)当"已进 recap"跳过 → 重答只靠摘要、偏题。钳到 lastUserSeq-1,
+// 保证原问题走全文(recap 里的旧摘要冗余无害,LLM 可处理)。
+export function regenWatermark(prevUpTo, lastUserSeq) {
+  return Math.max(0, Math.min(prevUpTo ?? 0, lastUserSeq - 1))
 }
 
 export function getMaxSeq(db, conversationId) {

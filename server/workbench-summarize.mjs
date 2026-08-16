@@ -39,8 +39,13 @@ export async function maybeSummarize(
     })
     const seg = out?.content?.trim()
     if (!seg) return false
+    // 写入前防御钳制(dev29):await LLM 期间消息可能被 regenerate 截掉——appendMessage 的
+    // seq 取"现存最大+1",新回复会复用被删 seq;不钳的话 upTo 会把复用 seq 的新消息也
+    // 吞进"已摘要"(buildHistory 跳过全文)。当前水位已越过现存最大 → 放弃本轮写入。
+    const upToFinal = Math.min(upTo, getMaxSeq(db, convId))
+    if (upToFinal <= upToPrev) return false
     const newRecap = conv.recap ? `${conv.recap}\n\n${seg}` : seg
-    updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upTo })
+    updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upToFinal })
     return true
   } catch {
     return false // 摘失败不阻塞对话

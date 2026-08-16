@@ -21,7 +21,7 @@ import { buildStorageClassYaml } from '../src/data/storageClassYaml.js'
 import { emptySelector, emptyPeer, emptyPort, emptyIngressRule, emptyEgressRule, defaultModel, consequence, isDenyAll, modelToYaml, parseAndValidate } from '../src/logic/networkPolicy.js'
 import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '../src/composables/tableColumnsCore.js'
 import { formatBytes, parseSizeToBytes } from '../src/utils/bytes.js'
-import { splitCommandTokens, splitArgLines } from '../src/utils/containerTokens.js'
+import { splitCommandTokens, splitArgLines, joinCommandTokens } from '../src/utils/containerTokens.js'
 import { deriveClusterCounts } from '../src/logic/clusterCounts.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -263,11 +263,12 @@ test('Ingress 规则 PATCH 构造：按 host 聚合 + defaultBackend 启用/删�
   assert.equal(r3.spec.defaultBackend, null, 'enabled 但无 serviceName → null')
   // 空入参
   assert.deepEqual(buildIngressRulesPatch([], null), { spec: { rules: [], defaultBackend: null } })
-  // 默认值：空 path→'/'，空 pathType→'Prefix'，空 port→80
+  // 默认值：空 path→'/'，空 pathType→'Prefix'；空 port 无数字兜底——端口按类型分流
+  // (纯数字→number,否则→name;命名端口不再被 ||80 改写,空值由各入口校验拦截)
   const r4 = buildIngressRulesPatch([{ host: 'x', path: '', pathType: '', serviceName: 's', servicePort: '' }], null)
   assert.equal(r4.spec.rules[0].http.paths[0].path, '/')
   assert.equal(r4.spec.rules[0].http.paths[0].pathType, 'Prefix')
-  assert.equal(r4.spec.rules[0].http.paths[0].backend.service.port.number, 80)
+  assert.deepEqual(r4.spec.rules[0].http.paths[0].backend.service.port, { name: '' })
 })
 
 // --- Node 丰富信息抽取：容器运行时短名、Taint 归一化、额外字段 ---
@@ -575,6 +576,16 @@ test('containerTokens: splitCommandTokens 空白切分去空项;splitArgLines �
   assert.deepEqual(splitArgLines('cp /data/config.yaml /initconfig/config.yaml'), ['cp /data/config.yaml /initconfig/config.yaml'])
   assert.deepEqual(splitArgLines('--port=8080\n--debug\n\n  \n-x'), ['--port=8080', '--debug', '-x'])
   assert.deepEqual(splitArgLines(''), [])
+})
+
+test('containerTokens: splitCommandTokens 引号感知(单/双引号内空格不切,\\\" 转义);joinCommandTokens 反向补引号往返', () => {
+  assert.deepEqual(splitCommandTokens('sh -c "echo hi"'), ['sh', '-c', 'echo hi'])
+  assert.deepEqual(splitCommandTokens("sh -c 'echo hi'"), ['sh', '-c', 'echo hi'])
+  assert.deepEqual(splitCommandTokens('--flag="a b"'), ['--flag=a b'])
+  assert.deepEqual(splitCommandTokens('"say \\"hi\\""'), ['say "hi"'])
+  assert.equal(joinCommandTokens(['sh', '-c', 'echo hi']), 'sh -c "echo hi"')       // 含空格 token 重引号
+  assert.deepEqual(splitCommandTokens(joinCommandTokens(['sh', '-c', 'echo hi'])), ['sh', '-c', 'echo hi'])  // 往返无损
+  assert.equal(joinCommandTokens(['sh', '-c']), 'sh -c')                             // 无空格 token 不加引号
 })
 
 test('workloadToForm: args 按行映射 —— 单条含空格整行保留,多条换行分隔(command 仍空格 join)', () => {

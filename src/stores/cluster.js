@@ -382,17 +382,18 @@ export const useClusterStore = defineStore('cluster', () => {
   // === CRUD: Ingress (add/update/delete 已进工厂；updateIngressRules 手写——特殊 PATCH)===
   // 结构化编辑 Ingress 路由规则：入参 flatRules + defaultBackend，
   // 用 buildIngressRulesPatch 构造 PATCH body（rules + defaultBackend 一次提交）；
-  // defaultBackend===null 时 merge-patch 删除该字段。本地合并 rules/defaultBackend/hosts。
+  // defaultBackend===null 时 merge-patch 删除该字段。
+  // 单次远端写：PATCH 已携带全量 rules+defaultBackend；不再二次 updateIngress——
+  // 那条链路走 generateYAML 有损 SSA（单 tls 折叠/无 defaultBackend 会静默剪除多 TLS 条目）。
+  // 成功 toast 由调用方负责（④ NsIngressDetail.saveRules / ② NsWorkloadDetail.saveIngressMap 各自 notify）。
   async function updateIngressRules(name, ns, flatRules, defaultBackend = null) {
     const patch = buildIngressRulesPatch(flatRules, defaultBackend)
-    const rules = patch.spec.rules
-    const db = patch.spec.defaultBackend
     await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify(patch),
     })
-    updateIngress(name, ns, { rules, defaultBackend: db, hosts: rules.map(r => r.host).filter(Boolean).join(',') })
+    invalidateResource('ingresses') // Vue Query refetch 恢复缓存真值
   }
 
   // (ConfigMaps / Secrets / PVCs CRUD 已进工厂)
@@ -1195,7 +1196,10 @@ spec:
         http: { paths: [{ path: resource.path || '/', pathType: 'Prefix', backend: { serviceName: resource.backend?.split(':')[0], servicePort: Number(resource.backend?.split(':')[1]) || 80 } }] },
       }]
       const firstHost = rules[0]?.host || resource.hosts || ''
-      const tlsBlock = resource.tls ? `\n  tls:\n  - hosts:\n    - ${firstHost}\n    secretName: ${resource.tlsSecret || name + '-tls'}` : ''
+      // tlsList(多 host TLS,③ per-host 创建)优先;存量单 tls 布尔兜底(② 与其他调用方不变)
+      const tlsBlock = resource.tlsList?.length
+        ? '\n  tls:\n' + resource.tlsList.map(e => `  - hosts:\n    - ${e.hosts[0]}\n    secretName: ${e.secretName}`).join('\n')
+        : (resource.tls ? `\n  tls:\n  - hosts:\n    - ${firstHost}\n    secretName: ${resource.tlsSecret || name + '-tls'}` : '')
       const rulesYaml = rules.map(r => {
         const pathsYaml = (r.http?.paths || []).map(p => {
           const be = p.backend?.service || p.backend
