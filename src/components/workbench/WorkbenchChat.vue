@@ -43,6 +43,9 @@ const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填
 
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
 let es = null
+// P0(C):异步链(send/审批/regenerate)跨过组件生命周期后,闭包不得再碰已卸载组件——
+// 否则会在死组件上 startStreaming 新建 EventSource/定时器,无人回收(泄漏)。
+let unmounted = false
 let esErrCount = 0 // onerror 中 CONNECTING 态的自动重连次数(防风暴,>5 降级轮询)
 let watchdogTimer = null // SSE 看门狗(dev31);顶部声明避免 TDZ(immediate watch 在声明前调 stopWatchdog)
 
@@ -128,7 +131,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick() })
+onUnmounted(() => { unmounted = true; if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick() })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
@@ -474,6 +477,7 @@ async function regenerate() {
   errorBanner.value = ''
   try {
     await workbenchApi.conversations.regenerate(id)
+    if (unmounted) return // P0(C)
     if (lastAssistantIndex.value >= 0) turns.value.splice(lastAssistantIndex.value, 1)
     turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
     conversationId.value = id
@@ -514,7 +518,8 @@ async function send() {
   if (!msg || sending.value) return
   const userId = ++turnSeq
   const agentId = ++turnSeq
-  turns.value.push({ _id: userId, role: 'user', content: msg, refs: refs.value.length ? [...refs.value] : undefined })
+  const refsSnapshot = refs.value.length ? [...refs.value] : null // P0(B):失败回滚用
+  turns.value.push({ _id: userId, role: 'user', content: msg, refs: refsSnapshot ? [...refsSnapshot] : undefined })
   turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
   resetInput()
   sending.value = true
@@ -531,6 +536,7 @@ async function send() {
     // feature LLM 硬化:startStreaming(EventSource SSE)为 主路径;es.onerror 降级到 pollOnce + startPolling 兜底。
     if (props.activeConversationId) {
       const { references } = await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
+      if (unmounted) return // P0(C):await 期间被卸载(切对话/关 Modal)——不再碰已死组件
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
       if (Array.isArray(references) && references.length) {
@@ -540,6 +546,7 @@ async function send() {
       startStreaming(props.activeConversationId)
     } else {
       const { id, references } = await workbenchApi.conversations.create(payload)
+      if (unmounted) return // P0(C)
       conversationId.value = id
       convStatus.value = 'running'
       // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
@@ -551,8 +558,13 @@ async function send() {
       startStreaming(id)
     }
   } catch (e) {
-    updateTurn(agentId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
-    if (e.status === 503) errorBanner.value = e.message
+    // P0(B):发送失败回滚——幻影 user turn 从未落库,残留会永久混进后续真实历史
+    // (pollOnce 见 turns 非空不重建,直到刷新才"反向蒸发");输入/草稿/refs 还原,不必凭记忆重打。
+    turns.value = turns.value.filter(x => x._id !== userId && x._id !== agentId)
+    input.value = msg
+    setDraft(conversationId.value || 'new', msg)
+    if (refsSnapshot) refs.value = refsSnapshot
+    errorBanner.value = e.message || t('workbench.chat.agentFailed')
     sending.value = false
   }
 }
@@ -567,12 +579,13 @@ async function decideApproval(approved) {
     const id = conversationId.value
     if (approved) { await workbenchApi.conversations.approve(id) }
     else { await workbenchApi.conversations.deny(id) }
+    if (unmounted) return // P0(C)
     convStatus.value = 'running'
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
     startStreaming(id)
   } catch (e) {
-    if (pa.turnId) updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
-    sending.value = false
+    if (!unmounted && pa.turnId) updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
+    if (!unmounted) sending.value = false
   }
 }
 

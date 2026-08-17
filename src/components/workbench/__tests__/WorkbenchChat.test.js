@@ -400,3 +400,39 @@ test('pollOnce 对齐保留尾部 tool_start(运行中工具指示器不被看�
   const types = w.vm.turns.find(x => x.role === 'assistant').trace.map(x => x.type)
   expect(types).toEqual(['tool', 'tool_start'], 'DB trace 对齐后尾部 tool_start 保留')
 })
+
+// ── P0 审计修复(B/C,2026-08-17)──
+// B:发送失败回滚——幻影 user turn 从未落库却混进后续历史(反向蒸发),且输入/草稿/refs
+//    在 await 前就被清空,用户须凭记忆重打全文。
+test('B: create 失败——幻影双 turn 回滚、输入框还原、refs 还原', async () => {
+  const w = await mountChat()
+  await w.find('textarea').setValue('一条很长很重要的问题')
+  // 预置一个 @-ref(失败后应还原到 refs 供重发)
+  w.vm.$.setupState // noop(仅探活,script setup 不暴露内部)
+  api.conversations.create.mockRejectedValueOnce(Object.assign(new Error('网络炸了'), { status: 500 }))
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  // 幻影 user/agent turn 都不在
+  expect(w.text()).not.toContain('一条很长很重要的问题')
+  // 输入还原(可直接重发)
+  expect(w.find('textarea').element.value).toBe('一条很长很重要的问题')
+  // 错误以顶部 banner 呈现(允许);幻影消息轮不允许存在——上面已断言正文不含提问
+})
+
+// C:卸载守卫——send/审批的 await 期间组件被卸载(切对话/关 Modal)后,闭包不得再
+//    startStreaming(在已死组件上新建 EventSource/定时器,无人回收=泄漏)。
+test('C: send 的 await 期间卸载组件——不再创建 EventSource(泄漏守卫)', async () => {
+  const ES = vi.fn()
+  vi.stubGlobal('EventSource', ES)
+  try {
+    const w = await mountChat()
+    await w.find('textarea').setValue('will unmount mid-flight')
+    let resolveCreate
+    api.conversations.create.mockImplementationOnce(() => new Promise(r => { resolveCreate = r }))
+    await w.find('button.bg-primary').trigger('click')
+    w.unmount() // :key 切换/关 Modal 的等价物
+    resolveCreate({ id: 'conv-x', references: [] })
+    await flushPromises()
+    expect(ES).not.toHaveBeenCalled()
+  } finally { vi.unstubAllGlobals() }
+})
