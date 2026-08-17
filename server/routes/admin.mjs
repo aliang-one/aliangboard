@@ -4,6 +4,7 @@ import { listKeys, mintKey, revokeKey } from '../auth-keys.mjs'
 import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
 import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize.mjs'
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
+import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -41,6 +42,29 @@ export function createAdminRoutes(deps) {
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || '保存失败' }); return true }
+    }
+    // ====== 悬浮对话入口配置(maxItems/activityWindowMin 存 DB;clamp 兜底;2026-08-17)======
+    if (url.pathname === '/api/admin/presence-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const cfg = getPresenceConfig(db)
+      const rawMax = getSetting('presence.maxItems'), rawWin = getSetting('presence.activityWindowMin')
+      sendJson(res, 200, {
+        maxItems: cfg.maxItems, windowMin: cfg.windowMin,
+        maxItemsSource: rawMax ? 'db' : 'default', windowMinSource: rawWin ? 'db' : 'default',
+      })
+      return true
+    }
+    if (url.pathname === '/api/admin/presence-config' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const input = await readBody(req)
+      const maxItems = Number(input.maxItems), windowMin = Number(input.windowMin)
+      if (!Number.isFinite(maxItems) || !Number.isFinite(windowMin)) {
+        sendJson(res, 400, { message: 'maxItems / windowMin 必须为数字' }); return true
+      }
+      setSetting('presence.maxItems', clampPresence('maxItems', maxItems))
+      setSetting('presence.activityWindowMin', clampPresence('windowMin', windowMin))
+      sendJson(res, 200, { ok: true })
+      return true
     }
     if (url.pathname === '/api/admin/llm-config/test' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
