@@ -16,6 +16,26 @@ AliangBoard turns an LLM into an operator for your clusters: with the built-in *
 
 Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript) and a Node transparent Kubernetes API gateway (zero extra runtime dependencies).
 
+## 🌐 Live Demo
+
+| Item | Value |
+| --- | --- |
+| **Demo site** | [🚀 Open the live demo](https://demo-aliangboard.aliang.one/) |
+| **Username** | `admin` |
+| **Password** | `admin123` |
+
+> The demo is a public, shared instance: anything you create or change is visible to other visitors, so please do not put anything sensitive on it.
+
+## 📸 Screenshots
+
+**Namespace Overview** — layered topology of a namespace (monitoring / business / database / storage layers) with health at a glance:
+
+![Namespace Overview](screenshots/screen1.png)
+
+**Workload Overview** — a single workload at a glance: replicas, ready pods, image, events, CPU / memory and containers:
+
+![Workload Overview](screenshots/screen2.png)
+
 ## ✨ Features
 
 ### 🤖 AI Operations
@@ -63,22 +83,6 @@ Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript
 - Events live watch + involvedObject filtering
 - Namespace application layers (presentation / gateway / microservices / middleware / persistence, heuristic by default, exact via label `layer.aliangboard.io`)
 - Metrics charts (CPU / memory sampling, 15-min persisted window)
-
-## 📸 Screenshots
-
-**Namespace Overview** — layered topology of a namespace (monitoring / business / database / storage layers) with health at a glance:
-
-![Namespace Overview](screenshots/screen1.png)
-
-**Workload Overview** — a single workload at a glance: replicas, ready pods, image, events, CPU / memory and containers:
-
-![Workload Overview](screenshots/screen2.png)
-
-## 🌐 Live Demo
-
-Want to try AliangBoard before installing it? A live demo is running at **<https://demo-aliangboard.aliang.one>** — sign in with username `admin` and password `admin123`.
-
-> The demo is a public, shared instance: anything you create or change is visible to other visitors, so please do not put anything sensitive on it.
 
 ## 🚀 Quick Start
 

@@ -15,6 +15,26 @@ AliangBoard 把大模型变成集群里的操作员:通过内置的 **Agent 工�
 
 一句话技术栈:Vue 3 + Vite + Pinia 前端(纯 JS,无 TypeScript)+ Node 透明 Kubernetes API 网关(零额外运行时依赖)。
 
+## 🌐 在线体验
+
+| 项目 | 内容 |
+| --- | --- |
+| **在线地址** | [🚀 点击进入在线体验](https://demo-aliangboard.aliang.one/) |
+| **用户名** | `admin` |
+| **密码** | `admin123` |
+
+> 该 demo 为公开共享实例:你创建或修改的内容对其他访客可见,请勿在上面放置任何敏感信息。
+
+## 📸 截图
+
+**Namespace 总览** —— 命名空间分层拓扑(监控/业务/数据库/存储层),健康状态一屏尽览:
+
+![Namespace 总览](screenshots/screen1.png)
+
+**Workload 总览** —— 单工作负载详情:副本/就绪 Pod/镜像/事件/CPU 内存/容器:
+
+![Workload 总览](screenshots/screen2.png)
+
 ## ✨ 功能特性
 
 ### 🤖 AI 运维
@@ -62,22 +82,6 @@ AliangBoard 把大模型变成集群里的操作员:通过内置的 **Agent 工�
 - 事件实时 watch + involvedObject 过滤
 - 命名空间应用分层(展现层 / 网关 / 微服务 / 中间件 / 持久层,默认启发式识别,可用标签 `layer.aliangboard.io` 精确指定)
 - 指标图表(CPU / 内存采样,15 分钟持久化窗口)
-
-## 📸 截图
-
-**Namespace 总览** —— 命名空间分层拓扑(监控/业务/数据库/存储层),健康状态一屏尽览:
-
-![Namespace 总览](screenshots/screen1.png)
-
-**Workload 总览** —— 单工作负载详情:副本/就绪 Pod/镜像/事件/CPU 内存/容器:
-
-![Workload 总览](screenshots/screen2.png)
-
-## 🌐 在线体验
-
-安装前想先试试?这里有一个在线 demo:**<https://demo-aliangboard.aliang.one>**——用户名 `admin`,密码 `admin123`。
-
-> 该 demo 为公开共享实例:你创建或修改的内容对其他访客可见,请勿在上面放置任何敏感信息。
 
 ## 🚀 快速开始
 
