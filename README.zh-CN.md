@@ -65,7 +65,13 @@ AliangBoard 把大模型变成集群里的操作员:通过内置的 **Agent 工�
 
 ## 📸 截图
 
-<!-- TODO: 补充 2–4 张截图(登录页 / 资源列表 / exec 终端 / Agent 工作台),存放到 docs/ 或仓库根目录后嵌入此处。 -->
+**Namespace 总览** —— 命名空间分层拓扑(监控/业务/数据库/存储层),健康状态一屏尽览:
+
+![Namespace 总览](screenshots/screen1.png)
+
+**Workload 总览** —— 单工作负载详情:副本/就绪 Pod/镜像/事件/CPU 内存/容器:
+
+![Workload 总览](screenshots/screen2.png)
 
 ## 🌐 在线体验
 
