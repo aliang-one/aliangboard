@@ -78,6 +78,25 @@ export function hostsToK8sSpec(hosts, { defaultTlsSecret = '' } = {}) {
   return { rules, tls }
 }
 
+// hosts 编辑模型 → 校验错误数组(四入口共享;语义对齐 DeployApp 向导 stepBlockReason 的 backend 门禁)。
+// 生成层不变式(spec §3.3):hostsToK8sSpec 对 port 不做兜底——未填/命名端口必须由各入口
+// 用本函数拦截,否则 Number('')→0 / Number('http')→NaN,经 generateYAML `|| 80` 静默改写 80 端口。
+// 规则:有 host 的组须至少一条 path,且每条 path/serviceName 非空、servicePort 纯数字。
+// 无 host 的组跳过(与向导一致)。返回 [{host, path, reason}],reason ∈ noPath|noService|badPort。
+export function ingressHostsErrors(hosts) {
+  const errs = []
+  for (const h of hosts || []) {
+    if (!h.host) continue
+    const paths = h.paths || []
+    if (!paths.length) { errs.push({ host: h.host, reason: 'noPath' }); continue }
+    for (const p of paths) {
+      if (!p.path || !p.serviceName) errs.push({ host: h.host, path: p.path, reason: !p.path ? 'noPath' : 'noService' })
+      if (!/^\d+$/.test(String(p.servicePort ?? ''))) errs.push({ host: h.host, path: p.path, reason: 'badPort' })
+    }
+  }
+  return errs
+}
+
 // === ② 智能追加决策 ===
 // 同 host(精确、trim 后非空)的已有 Ingress 列表。ingressList 为 store ingress 对象。
 export function sameHostIngresses(ingressList, host) {

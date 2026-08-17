@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
 import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
 import { notify } from '@/composables/useToast'
-import { yamlScalar } from '@/composables/useYaml'
+import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { classifyResource } from '@/composables/useLayering'
 import { computeClusterHealth } from '@/composables/useClusterHealth'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
@@ -1163,18 +1163,9 @@ export const useClusterStore = defineStore('cluster', () => {
             return { name: '', port: Number(m[1]) || 80, targetPort: isNaN(m[2]) ? m[2] : Number(m[2]), protocol: m[3] || 'TCP', nodePort: null, appProtocol: '' }
           }) : [])
       // K8s 校验:多端口 Service 每个 port 都必须有 name(spec.ports[i].name: Required value)。
-      // 空名时自动补 port-<端口号>(重号追加序号去重);单端口保持匿名无损。
-      // 映射出全新数组/对象,不改动调用方 portList(防 Vue Query 缓存对象被污染)。
-      if (portSrc.length > 1) {
-        const used = new Set(portSrc.filter(p => p.name).map(p => p.name))
-        portSrc = portSrc.map(p => {
-          if (p.name) return p
-          let name = `port-${p.port}`, n = 1
-          while (used.has(name)) name = `port-${p.port}-${++n}`
-          used.add(name)
-          return { ...p, name }
-        })
-      }
+      // 空名自动补 port-<端口号>(重号加序号);单端口匿名无损;不动调用方对象(防缓存污染)。
+      // 单一事实源在 useYaml.ensureServicePortNames,与 DeployApp 向导共用(2026-08-17 前曾各自为政漏向导)。
+      portSrc = ensureServicePortNames(portSrc)
       const portsYaml = portSrc.map(p => {
         const tgt = p.targetPort
         const lines = [`    - port: ${p.port}`]
@@ -1600,7 +1591,9 @@ spec:
       const ports = resource.ports || []
       const addrYaml = addresses.length ? '\n' + addresses.map(a => `  - ip: ${a}`).join('\n') : ' []'
       const notReadyYaml = notReady.length ? `\n  notReadyAddresses:\n${notReady.map(a => `  - ip: ${a}`).join('\n')}` : ''
-      const portsYaml = ports.length ? '\n' + ports.map(p => `  - port: ${p.port}\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : ' []'
+      // 端口 name 无损回写(NsEndpoints 的 YAML 编辑器内容即本函数产出,丢 name 会破坏
+      // 已有多端口 Endpoints 的编辑保存;匿名端口保持匿名,不擅自补名——须与 Service 端口名对应)
+      const portsYaml = ports.length ? '\n' + ports.map(p => `  - port: ${p.port}` + (p.name ? `\n    name: ${p.name}` : '') + `\n    protocol: ${p.protocol || 'TCP'}`).join('\n') : ' []'
       return `apiVersion: v1
 kind: Endpoints
 metadata:

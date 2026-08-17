@@ -15,7 +15,7 @@ import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import { usePagination } from '@/composables/usePagination'
 import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
-import { hostsToK8sSpec } from '@/composables/useIngressRules'
+import { hostsToK8sSpec, ingressHostsErrors } from '@/composables/useIngressRules'
 import { notify } from '@/composables/useToast'
 
 const route = useRoute()
@@ -115,6 +115,13 @@ async function handleCreate() {
   const errs = [...validateIngressAdv(createDialect.value, adv.value), ...validateCustomAnnotations(customAnnotations.value)]
   if (errs.length) {
     notify('error', t('ingressPerf.invalidField', { field: t(errs[0].labelKey), msg: t(errs[0].msgKey) }))
+    return
+  }
+  // backend 门禁(生成层不兜底,spec §3.3):空 Service/非数字端口若放行,
+  // 会经 Number()→NaN/0 再被 generateYAML `|| 80` 静默改写 80 端口——必须在入口拦下。
+  const ruleErr = ingressHostsErrors(hosts.value)[0]
+  if (ruleErr) {
+    notify('error', t(ruleErr.reason === 'badPort' ? 'ns.ingress.rulesPortNumeric' : 'ns.ingress.rulesBackendInvalid', { host: ruleErr.host }))
     return
   }
   const spec = hostsToK8sSpec(hosts.value, { defaultTlsSecret: `${f.name}-tls` })

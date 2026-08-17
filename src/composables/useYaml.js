@@ -36,6 +36,23 @@ export function yamlScalar(v) {
   return s
 }
 
+// K8s 校验：Service 端口数 > 1 时每个 port 都必须有 name（spec.ports[i].name: Required value）。
+// 空名时自动补 port-<端口号>（重号追加序号去重）；单端口保持匿名无损。
+// 单一事实源：cluster.js 的 generateYAML 与 DeployApp 向导自拼的 Service 段共用——
+// 曾只在 store 层修过、向导漏掉，多端口 Service 被 K8s 拒（2026-08-17 系统审计 P1-A）。
+// 返回全新数组/对象，不改动调用方 portList（防 Vue Query 缓存对象被污染）。
+export function ensureServicePortNames(ports) {
+  if (!Array.isArray(ports) || ports.length < 2) return ports
+  const used = new Set(ports.filter(p => p.name).map(p => p.name))
+  return ports.map(p => {
+    if (p.name) return p
+    let name = `port-${p.port}`, n = 1
+    while (used.has(name)) name = `port-${p.port}-${++n}`
+    used.add(name)
+    return { ...p, name }
+  })
+}
+
 // 把 K8s 原始对象转成「干净 YAML」：深拷贝后剔除 metadata.managedFields（冗长），
 // 默认保留 status；stripStatus:true 时一并剔除 status（只读/派生）。
 // 供详情页「查看 YAML」复用——避免每个详情页各自 api.k8s 再拉一遍同一对象。

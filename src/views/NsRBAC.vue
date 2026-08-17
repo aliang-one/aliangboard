@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { notify } from '@/composables/useToast'
 import { useResourceList } from '@/composables/useK8sQuery'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -88,14 +89,23 @@ async function createSA() {
   showCreateSAModal.value = false
 }
 
-function createCRB() {
+async function createCRB() {
   if (!newCRB.value.name || !newCRB.value.roleName) return
-  store.addClusterRoleBinding({
+  // subject name 必填:空名 subjects[].name 会被 K8s 拒(generateYAML 产出 name: null)
+  if (!newCRB.value.subjectName.trim()) {
+    notify('error', t('ns.rbac.subjectNameRequired'))
+    return
+  }
+  // ServiceAccount 主体必须带 namespace(K8s 拒无 ns 的 SA subject);表单无 ns 输入 → 默认当前 ns
+  const subject = { kind: newCRB.value.subjectKind, name: newCRB.value.subjectName.trim() }
+  if (newCRB.value.subjectKind === 'ServiceAccount') subject.namespace = route.params.namespace
+  const r = await store.addClusterRoleBinding({
     name: newCRB.value.name,
     roleName: newCRB.value.roleName,
     roleKind: 'ClusterRole',
-    subjects: [{ kind: newCRB.value.subjectKind, name: newCRB.value.subjectName }],
+    subjects: [subject],
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
   newCRB.value = { name: '', roleName: '', subjectKind: 'User', subjectName: '' }
   showCreateCRBModal.value = false
 }

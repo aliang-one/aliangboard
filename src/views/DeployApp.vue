@@ -11,7 +11,7 @@ import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
-import { yamlScalar } from '@/composables/useYaml'
+import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { notify } from '@/composables/useToast'
@@ -411,9 +411,24 @@ const previewYAML = computed(() => {
     }).join('\n')
   }
 
+  // init/sidecar 自动派生容器名:image 前缀清洗成 DNS-1123(K8s 容器名 ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$,
+  // registry 前缀/大写/下划线/点会被拒),洗后为空用 fallback;与已用名撞车追加 -2/-3 去重。
+  // 用户显式填写的 name 不经此函数(原样透传,不做静默改写)。
+  const usedContainerNames = new Set([f.containerName || f.name])
+  function derivedContainerName(image, fallback) {
+    let s = String(image || '').split('/').pop().split(':')[0]
+      .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '')
+      .slice(0, 63).replace(/-+$/, '')
+    if (!s) s = fallback
+    let name = s, n = 1
+    while (usedContainerNames.has(name)) name = `${s}-${++n}`
+    usedContainerNames.add(name)
+    return name
+  }
+
   // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
   const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
+    `      - name: ${c.name || derivedContainerName(c.image, `sidecar-${idx + 1}`)}\n        image: ${c.image}` +
     (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
@@ -422,7 +437,7 @@ const previewYAML = computed(() => {
 
   // 初始容器（init）
   const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || c.image.split(':')[0]}\n        image: ${c.image}` +
+    `      - name: ${c.name || derivedContainerName(c.image, `init-${idx + 1}`)}\n        image: ${c.image}` +
     (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
     `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
@@ -633,7 +648,8 @@ spec:`
         yaml += `\n  type: ExternalName\n  externalName: ${f.externalName}`
       } else {
         yaml += `\n  type: ${f.serviceType}\n  selector:\n    app: ${f.name}\n  ports:`
-        validPorts.forEach(p => {
+        // 多端口必须全命名(K8s 拒无名多端口);与 store generateYAML 同一单源 helper
+        ensureServicePortNames(validPorts).forEach(p => {
           let line = `\n    - port: ${p.port}`
           if (p.name) line += `\n      name: ${p.name}`
           line += `\n      targetPort: ${p.targetPort || p.port}\n      protocol: ${p.protocol}`

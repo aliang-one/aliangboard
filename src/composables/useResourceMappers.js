@@ -220,7 +220,7 @@ export function extractEndpointSubsets(subsets) {
     const addTarget = a => { if (a.targetRef?.kind === 'Pod' && a.ip) targets[a.ip] = { podName: a.targetRef.name, podNs: a.targetRef.namespace } }
     ;(s.addresses || []).forEach(a => { if (!a.ip) return; addresses.push(a.ip); addTarget(a) })
     ;(s.notReadyAddresses || []).forEach(a => { if (!a.ip) return; notReadyAddresses.push(a.ip); addTarget(a) })
-    ;(s.ports || []).forEach(p => ports.push({ port: p.port, protocol: p.protocol || 'TCP' }))
+    ;(s.ports || []).forEach(p => ports.push({ name: p.name || '', port: p.port, protocol: p.protocol || 'TCP' }))
   })
   return { addresses, notReadyAddresses, ports, targets }
 }
