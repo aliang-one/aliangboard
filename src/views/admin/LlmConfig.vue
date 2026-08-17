@@ -55,6 +55,24 @@ async function save() {
   }
 }
 
+const probing = ref(false)
+const probeResult = ref(null)   // { ok, supported, sample, timedOut, message }
+async function probeReasoning() {
+  probing.value = true
+  probeResult.value = null
+  try {
+    const r = await adminApi.llmConfig.probeReasoning({ baseURL: form.value.baseURL.trim(), model: form.value.model.trim(), apiKey: form.value.apiKey })
+    probeResult.value = r
+    if (r.ok) notify(r.supported ? 'success' : 'warning', r.supported ? t('admin.llm.probeOk') : t('admin.llm.probeNo'))
+    else notify('error', r.message || t('admin.llm.probeFailed'))
+  } catch (e) {
+    probeResult.value = { ok: false, message: e.message || t('admin.llm.probeFailed') }
+    notify('error', e.message || t('admin.llm.probeFailed'))
+  } finally {
+    probing.value = false
+  }
+}
+
 async function testConn() {
   testing.value = true
   testResult.value = null
@@ -125,6 +143,9 @@ async function testConn() {
           <button @click="testConn" :disabled="testing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40">
             <span class="material-symbols-outlined text-base">{{ testing ? 'progress_activity' : 'cable' }}</span> {{ testing ? $t('admin.llm.testing') : $t('admin.llm.testConn') }}
           </button>
+          <button @click="probeReasoning" :disabled="probing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40">
+            <span class="material-symbols-outlined text-base">{{ probing ? 'progress_activity' : 'psychology' }}</span> {{ probing ? $t('admin.llm.probing') : $t('admin.llm.probeReasoning') }}
+          </button>
         </div>
         <div v-if="testResult" class="rounded-lg p-sm text-body-sm flex items-start gap-xs" :class="testResult.ok ? 'bg-status-running/10 text-status-running' : 'bg-error/5 text-error border border-error/20'">
           <span class="material-symbols-outlined text-base mt-0.5">{{ testResult.ok ? 'check_circle' : 'error' }}</span>
@@ -132,6 +153,15 @@ async function testConn() {
             <p>{{ testResult.ok ? $t('admin.llm.connSuccess') : $t('admin.llm.connFailed') }}</p>
             <p v-if="testResult.ok && testResult.reply" class="font-mono text-body-xs text-on-surface-variant break-all">{{ $t('admin.llm.reply') }}{{ testResult.reply }}</p>
             <p v-if="!testResult.ok && testResult.message" class="font-mono text-body-xs break-all">{{ testResult.message }}</p>
+          </div>
+        </div>
+        <div v-if="probeResult" class="rounded-lg p-sm text-body-sm flex items-start gap-xs"
+          :class="probeResult.ok && probeResult.supported ? 'bg-status-success/10 text-status-success' : probeResult.ok ? 'bg-status-warning/10 text-status-warning' : 'bg-error/5 text-error border border-error/20'">
+          <span class="material-symbols-outlined text-base mt-0.5">{{ probeResult.ok && probeResult.supported ? 'check_circle' : probeResult.ok ? 'info' : 'error' }}</span>
+          <div class="min-w-0">
+            <p v-if="probeResult.ok">{{ probeResult.supported ? $t('admin.llm.probeOk') : $t('admin.llm.probeNo') }}</p>
+            <p v-else class="font-mono text-body-xs break-all">{{ probeResult.message }}</p>
+            <p v-if="probeResult.ok && probeResult.supported && probeResult.sample" class="font-mono text-body-xs text-on-surface-variant break-all mt-0.5">{{ $t('admin.llm.probeSample') }}{{ probeResult.sample }}</p>
           </div>
         </div>
       </div>

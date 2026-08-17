@@ -1,7 +1,7 @@
 // LLM 客户端测试(注入 mock fetch,不发真请求)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createLlmClient } from './llm.mjs'
+import { probeReasoningSupport, createLlmClient } from './llm.mjs'
 
 function mockFetch(response, capture = {}) {
   return async (url, init) => {
@@ -150,4 +150,35 @@ test('chatStream: reasoning_content 增量 → onReasoning 回调 + 返回值带
   assert.deepEqual(rDeltas, ['先分析问题', '再决定查日志', '补充思考'])
   assert.equal(msg.content, '结论是')
   assert.deepEqual(cDeltas, ['结论是'], 'content 与 reasoning 互不混入')
+})
+
+// dev33: 思考能力探测——reasoning 增量命中/仅 content/总限超时,三态判定
+test('probeReasoningSupport: 思考模型(先 reasoning 后 content)→ supported + 采样', async () => {
+  const client = {
+    chatStream: async (_m, { onReasoning, onDelta }) => {
+      onReasoning('Let me compute. ')
+      onReasoning('1+1=2.')
+      onDelta('2')
+      return { role: 'assistant', content: '2', reasoning: 'Let me compute. 1+1=2.' }
+    },
+  }
+  const r = await probeReasoningSupport(client)
+  assert.equal(r.supported, true)
+  assert.equal(r.sawContent, true)
+  assert.equal(r.sample, 'Let me compute. 1+1=2.')
+  assert.equal(r.timedOut, false)
+})
+
+test('probeReasoningSupport: 非 thinking 模型(仅 content)→ 不支持', async () => {
+  const client = { chatStream: async (_m, { onDelta }) => { onDelta('2'); return { role: 'assistant', content: '2' } } }
+  const r = await probeReasoningSupport(client)
+  assert.equal(r.supported, false)
+  assert.equal(r.sawContent, true)
+})
+
+test('probeReasoningSupport: 慢模型总限超时 → 按已见字段给结论,不挂死', async () => {
+  const client = { chatStream: () => new Promise(() => {}) } // 永不返回
+  const r = await probeReasoningSupport(client, { totalMs: 30 })
+  assert.equal(r.timedOut, true)
+  assert.equal(r.supported, false, '超时未见任何 token → 判不支持(附 timedOut 供 UI 提示)')
 })
