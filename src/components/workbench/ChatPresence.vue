@@ -32,7 +32,6 @@ const currentProjectId = computed(() => (route?.name === 'WorkbenchProject' ? ro
 
 const visible = computed(() => visibleConversations(conversations.value, {
   currentProjectId: currentProjectId.value,
-  readAt: readAt.value,
 }))
 const presence = computed(() => presenceState(visible.value, readAt.value))
 
@@ -42,12 +41,14 @@ async function poll() {
     const data = await workbenchApi.conversations.active()
     conversations.value = (data && data.conversations) || []
     failCount.value = 0
-    // readAt 刷新:正在看的项目全部对话 + Modal 开着的选中对话
-    const watching = conversations.value
-      .filter(c => (currentProjectId.value && c.projectId === currentProjectId.value)
-        || (selected.value && c.id === selected.value.id))
-      .map(c => c.id)
-    if (watching.length) readAt.value = markRead(readAt.value, watching)
+    // readAt 刷新:正在看的项目全部对话 + Modal 开着的选中对话。
+    // 水位 = 看到的最新内容时刻(conv.updatedAt)而非墙钟——墙钟在服务端时钟领先时会误判
+    // 「正在看也未读」(updatedAt > 本机 now),标 updatedAt 则正在看永不亮、之后的真实写入仍会亮。
+    for (const c of conversations.value) {
+      const watching = (currentProjectId.value && c.projectId === currentProjectId.value)
+        || (selected.value && c.id === selected.value.id)
+      if (watching) readAt.value = markRead(readAt.value, [c.id], c.updatedAt)
+    }
     readAt.value = pruneReadAt(readAt.value, conversations.value.map(c => c.id)) // Map 防膨胀
   } catch { failCount.value++ }
 }
@@ -61,7 +62,7 @@ function onFabClick() {
 function openConv(c) {
   selected.value = c
   listOpen.value = false
-  readAt.value = markRead(readAt.value, [c.id])
+  readAt.value = markRead(readAt.value, [c.id], c.updatedAt)
 }
 
 let timer = null

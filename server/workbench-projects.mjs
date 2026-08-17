@@ -81,7 +81,7 @@ export function getConversation(db, id) {
   return db.prepare('SELECT * FROM workbench_conversations WHERE id=?').get(id) || null
 }
 
-export function updateConversation(db, id, patch) {
+export function updateConversation(db, id, patch, { touch = true } = {}) {
   if (!id) throw new Error('updateConversation 缺 id')
   const cols = Object.keys(patch)
   if (cols.length === 0) return getConversation(db, id)
@@ -95,8 +95,15 @@ export function updateConversation(db, id, patch) {
     if (v !== null && typeof v === 'object') return JSON.stringify(v)
     return v
   })
-  db.prepare(`UPDATE workbench_conversations SET ${setClause}, updatedAt=? WHERE id=?`)
-    .run(...vals, Date.now(), id)
+  // touch:false = 后台整理/元数据编辑(recap 摘要等)不 bump updatedAt——悬浮入口以 updatedAt
+  // 判「新动态」,这类写入对用户不可见,动了会让已读对话的小点无故复活。
+  if (touch) {
+    db.prepare(`UPDATE workbench_conversations SET ${setClause}, updatedAt=? WHERE id=?`)
+      .run(...vals, Date.now(), id)
+  } else {
+    db.prepare(`UPDATE workbench_conversations SET ${setClause} WHERE id=?`)
+      .run(...vals, id)
+  }
   return getConversation(db, id)
 }
 

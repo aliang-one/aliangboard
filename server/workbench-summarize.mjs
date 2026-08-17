@@ -45,7 +45,7 @@ export async function maybeSummarize(
     const upToFinal = Math.min(upTo, getMaxSeq(db, convId))
     if (upToFinal <= upToPrev) return false
     const newRecap = conv.recap ? `${conv.recap}\n\n${seg}` : seg
-    updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upToFinal })
+    updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upToFinal }, { touch: false })
     return true
   } catch {
     return false // 摘失败不阻塞对话

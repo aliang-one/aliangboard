@@ -140,3 +140,22 @@ test('摘要写入前钳制:LLM 期间消息被截 → upTo 不越过现存最�
   assert.ok((conv.summarizedUpTo ?? 0) <= maxSeq, '水位不越过现存最大 seq(复用 seq 的新回复不被吞)')
   if (wrote) assert.ok(conv.recap, '写入了 recap')
 })
+
+// 悬浮入口「新动态」语义(2026-08-17):recap 摘要是后台整理,不是用户可见的新消息——
+// 落库不得 bump updatedAt,否则已读对话的小点会无故复活。
+test('摘要落库不 bump updatedAt(否则已读对话误报新动态)', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  const conv = listConversations(db, p1Id(db))[0]
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
+  }
+  const before = getConversation(db, conv.id).updatedAt
+  const llm = { chat: async () => ({ content: 'RECAP' }) }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(fired, true)
+  const after = getConversation(db, conv.id)
+  assert.ok(after.recap.includes('RECAP'), 'recap 已写')
+  assert.equal(after.updatedAt, before, 'updatedAt 不动——摘要不是新消息')
+})

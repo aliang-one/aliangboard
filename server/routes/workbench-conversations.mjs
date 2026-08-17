@@ -207,7 +207,9 @@ export function createWorkbenchConvRoutes(deps) {
       if (!title) { sendJson(res, 400, { message: 'title 不能为空' }); return true }
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
-      db.prepare('UPDATE workbench_conversations SET title=?, updatedAt=? WHERE id=?').run(title, Date.now(), id)
+      // 重命名是元数据编辑,不 bump updatedAt——悬浮入口以 updatedAt 判「新动态」,
+      // 用户自己的改名不应让对话小点复活/跳顶。
+      db.prepare('UPDATE workbench_conversations SET title=? WHERE id=?').run(title, id)
       sendJson(res, 200, { id, title })
       return true
     }

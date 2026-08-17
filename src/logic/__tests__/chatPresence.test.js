@@ -31,12 +31,22 @@ test('presenceState:空→不显示;paused > update > running;全读终态→idl
   expect(presenceState([], {})).toEqual({ show: false, level: 'none', icon: '', badgeCount: 0, directOpen: false })
   const seen = { a: T0, c1: T0 }
   expect(presenceState([conv({ id: 'a', status: 'paused' }), conv({ id: 'b', status: 'done', updatedAt: T0 })], seen))
-    .toEqual({ show: true, level: 'paused', icon: 'pending_actions', badgeCount: 2, directOpen: false })
+    .toEqual({ show: true, level: 'paused', icon: 'pending_actions', badgeCount: 1, directOpen: false })
   expect(presenceState([conv({ id: 'a', updatedAt: T0 })], { a: T0 - 1 }).level).toBe('update')
   expect(presenceState([conv({ id: 'a', status: 'running', updatedAt: T0 })], { a: T0 }).level).toBe('running')
-  // 全部是已读终态 → idle:常驻但安静(smart_toy 不转圈)
+  // 全部是已读终态 → idle:常驻但安静(smart_toy 不转圈),未读数 0
   expect(presenceState([conv({ id: 'a', status: 'done', updatedAt: T0 })], { a: T0 }))
-    .toEqual({ show: true, level: 'idle', icon: 'smart_toy', badgeCount: 1, directOpen: true })
+    .toEqual({ show: true, level: 'idle', icon: 'smart_toy', badgeCount: 0, directOpen: true })
+})
+
+test('presenceState.badgeCount = 未读数(有新动态的条数),读了就减', () => {
+  const convs = [
+    conv({ id: 'u1', status: 'running', updatedAt: T0 }),              // 未看 → 计
+    conv({ id: 'u2', projectId: 'p2', projectName: 'P2', status: 'done', updatedAt: T0 }), // 未看 → 计
+    conv({ id: 's1', projectId: 'p3', projectName: 'P3', status: 'running', updatedAt: T0 - 1 }), // readAt 晚于 → 已读不计
+  ]
+  expect(presenceState(convs, { s1: T0 }).badgeCount).toBe(2)
+  expect(presenceState(convs, { u1: T0, u2: T0, s1: T0 }).badgeCount).toBe(0)
 })
 
 test('markRead/loadReadAt:roundtrip、不回退;pruneReadAt 保留 live', () => {

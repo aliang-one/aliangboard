@@ -14,7 +14,8 @@ export function visibleConversations(convs, { currentProjectId }) {
   return convs.filter(c => !(currentProjectId && c.projectId === currentProjectId))
 }
 
-// 按钮聚合状态:paused(等人决策) > 有新动态 > running(转圈) > idle(全读终态,常驻安静)
+// 按钮聚合状态:paused(等人决策) > 有新动态 > running(转圈) > idle(全读终态,常驻安静)。
+// badgeCount = 未读数(有新动态的条数)——条目常驻后总数恒定,数字必须是「待看的」才会随阅读递减。
 export function presenceState(visible, readAt) {
   if (!visible.length) return { show: false, level: 'none', icon: '', badgeCount: 0, directOpen: false }
   const level = visible.some(c => c.status === 'paused') ? 'paused'
@@ -22,7 +23,7 @@ export function presenceState(visible, readAt) {
     : visible.some(c => c.status === 'running') ? 'running'
     : 'idle'
   const icon = level === 'paused' ? 'pending_actions' : level === 'running' ? 'progress_activity' : 'smart_toy'
-  return { show: true, level, icon, badgeCount: visible.length, directOpen: visible.length === 1 }
+  return { show: true, level, icon, badgeCount: visible.filter(c => hasUpdate(c, readAt)).length, directOpen: visible.length === 1 }
 }
 
 export function loadReadAt() {

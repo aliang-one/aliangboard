@@ -136,3 +136,16 @@ test('stripRefsContext:JSON 未闭合(截断的历史行)原样返回', () => {
   const broken = `${REFS_CTX_HEADER}[pods/default/nginx]:\n{"kind": "Pod", "meta`
   assert.equal(stripRefsContext(broken), broken)
 })
+
+// 悬浮入口「新动态」语义(2026-08-17):重命名是元数据编辑,不是对话动态——
+// PATCH title 不得 bump updatedAt,否则刚读过的对话小点复活、且悬浮列表跳顶。
+test('重命名不 bump updatedAt(元数据编辑≠新动态)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  const before = getConversation(h.db, conv.id).updatedAt
+  h.setBody({ title: '新标题' })
+  assert.ok(await h.call('PATCH', `/api/workbench/conversations/${conv.id}`))
+  const after = getConversation(h.db, conv.id)
+  assert.equal(after.title, '新标题')
+  assert.equal(after.updatedAt, before, '重命名不动 updatedAt')
+})

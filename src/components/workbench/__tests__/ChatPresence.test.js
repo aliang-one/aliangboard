@@ -123,6 +123,29 @@ test('Modal 开着唯一 running 对话跑完:下一轮 poll 后 idle 档 FAB �
   } finally { vi.useRealTimers() }
 })
 
+// 「正在看」的已读水位 = 看到的最新内容时刻(conv.updatedAt),不是墙钟 Date.now():
+// running 对话流式落库在两轮 poll 之间持续 bump updatedAt,标墙钟会在两轮间闪「新动态」
+// (用户正盯着 Modal 看却提示未读)。标 updatedAt 后:正在看永不亮点,且 poll 内
+// fetch→markRead 同 tick 完成,小点一次都不会闪现。
+test('正在看的 running 对话:两轮 poll 间 updatedAt 前进也不亮新动态(水位=updatedAt)', async () => {
+  vi.useFakeTimers()
+  try {
+    api.active.mockImplementation(async () => ({ conversations: [conv()] })) // updatedAt=T0
+    const w = mount(ChatPresence, { global: { plugins: [i18n] } })
+    await vi.advanceTimersByTimeAsync(0)
+    await w.find('[data-testid="chat-presence-fab"]').trigger('click') // 直开 Modal → watching
+    await vi.advanceTimersByTimeAsync(0)
+    // 第二轮:服务端又落库了,且服务端时钟领先(updatedAt=T0+50s,超出本机假时钟 T0+40s)——
+    // 墙钟水位会误判未读;水位=updatedAt 则正在看永不亮
+    api.active.mockImplementation(async () => ({ conversations: [conv({ updatedAt: T0 + 50_000 })] }))
+    await vi.advanceTimersByTimeAsync(10_000)
+    const fab = w.find('[data-testid="chat-presence-fab"]')
+    expect(fab.exists()).toBe(true)
+    expect(fab.text()).toContain('progress_activity', '正在看 → running 档,不闪 update')
+    expect(fab.text()).not.toContain('smart_toy')
+  } finally { vi.useRealTimers() }
+})
+
 // 关闭通路:Modal 开着时 ChatModal emit update:modelValue=false → selected 置空、Modal 卸载。
 // FAB 在场与否取决于对话是否仍活跃 running,此处不断言 FAB(不误伤)
 test('Modal 关闭:emit update:modelValue=false → chat-modal 卸载', async () => {
