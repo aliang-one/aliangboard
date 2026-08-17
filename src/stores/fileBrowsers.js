@@ -6,7 +6,7 @@ import { fileBrowserApi } from '@/api/client'
 
 export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   const browsers = ref([])   // [{id, name, namespace, podName, container, status, zIndex, createdAt}]
-  let nextZ = 40             // 与终端同一层级:内容之上、模态框(z-100)之下
+  let nextZ = 60             // 与终端同一层级:内容之上、模态框(z-100)之下
 
   async function persistCreate(b) { try { await fileBrowserApi.create(b) } catch { /* 离线静默 */ } }
   async function persistUpdate(id, patch) { try { await fileBrowserApi.update(id, patch) } catch { /* noop */ } }

@@ -20,7 +20,8 @@ describe('FloatingWindow', () => {
     const w = mount(FloatingWindow, { props, attachTo: document.body })
     expect(w.vm.winStyle).toMatchObject({ left: '80px', width: '720px' })
     await w.find('[data-test="btn-maximize"]').trigger('click')
-    expect(w.vm.winStyle).toMatchObject({ right: '8px', zIndex: 42 })
+    // 2026-08-17:最大化避让应用骨架——侧栏 260/顶栏 64(sticky z-50,标题栏不再被压)/任务栏 32
+    expect(w.vm.winStyle).toMatchObject({ left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: 42 })
     w.unmount()
   })
   it('拖拽:标题栏 mousedown + document mousemove 改 left/top', async () => {

@@ -7,7 +7,7 @@ const props = defineProps({
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
   icon: { type: String, default: 'window' },
-  zIndex: { type: Number, default: 40 },
+  zIndex: { type: Number, default: 60 },
   width: { type: String, default: '720px' },
   height: { type: String, default: '460px' },
   cascadeIndex: { type: Number, default: 0 },
@@ -42,8 +42,11 @@ function onDragEnd() {
 }
 onUnmounted(() => { document.removeEventListener('mousemove', onDragMove); document.removeEventListener('mouseup', onDragEnd) })
 
+// 最大化 = 铺满「应用内容区」而非整个视口:避让应用骨架——左侧栏 260px(SideNavBar w-[260px])
+// + 顶部导航 64px(TopNavBar h-16,sticky z-50;旧写法 top:8px 让窗口标题栏钻到导航栏下面被压住)
+// + 底部任务栏 32px(TerminalTaskbar)。zIndex 由调用方给(终端/文件窗口基座 60+,恒高于顶栏 50)。
 const winStyle = computed(() => isMax.value
-  ? { left: '8px', top: '8px', right: '8px', bottom: '44px', zIndex: props.zIndex }
+  ? { left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: props.zIndex }
   : { left: pos.value.x + 'px', top: pos.value.y + 'px', width: props.width, height: props.height, zIndex: props.zIndex })
 </script>
 <template>
@@ -67,6 +70,6 @@ const winStyle = computed(() => isMax.value
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>
-    <div class="flex-1 min-h-0 p-0"><slot /></div>
+    <div class="flex flex-1 min-h-0 flex-col p-0"><slot /></div>
   </div>
 </template>

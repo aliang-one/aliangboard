@@ -8,7 +8,7 @@ import { terminalApi, getSessionToken } from '@/api/client'
 export const useTerminalStore = defineStore('terminals', () => {
   const terminals = ref([])  // [{id, name, namespace, podName, container, command, status, zIndex, createdAt}]
   // status: 'open'(浮动窗口) | 'minimized'(任务栏) | 'external'(在新浏览器标签页打开)
-  let nextZ = 40  // 终端窗口浮于内容之上、模态框（z-100）之下
+  let nextZ = 60  // 终端窗口浮于内容之上、模态框（z-100）之下
   const popupWins = new Map()  // id → window 引用（用于 focus / 检测关闭）
   let pollTimer = null
 

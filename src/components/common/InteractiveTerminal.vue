@@ -147,7 +147,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 </script>
 
 <template>
-  <div class="flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
+  <div class="h-full flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
     <!-- 未连接 -->
     <div v-if="status === 'idle'" class="flex-1 flex flex-col items-center justify-center gap-md p-xl">
       <span class="material-symbols-outlined text-4xl text-on-surface-variant">terminal</span>
