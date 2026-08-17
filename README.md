@@ -1,3 +1,5 @@
+**English** | [简体中文](README.zh-CN.md)
+
 # AliangBoard
 
 [![CI](https://github.com/aliang-one/aliangboard/actions/workflows/docker.yml/badge.svg)](https://github.com/aliang-one/aliangboard/actions/workflows/docker.yml)
@@ -6,87 +8,86 @@
 [![Vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
-> 开源、AI 原生的 Kubernetes 管理面板 —— 自然语言运维 + 全量多集群管理。
+> Open-source, AI-native Kubernetes management panel — natural-language
+> operations on top of full multi-cluster management.
 
-AliangBoard 把大模型变成集群里的操作员:内置 **Agent 工作台**与 **MCP server**,你可以用自然语言让模型查 Pod 日志、调试容器、回滚发布、改资源。同时它是一个完整的 K8s 面板,覆盖全量资源生命周期、exec / 端口转发 / 调试容器注入 / 多集群切换。
+AliangBoard turns an LLM into an operator for your clusters: with the built-in **Agent workbench** and **MCP server**, you can ask in natural language to read pod logs, debug containers, roll back a release, or modify resources. At the same time it is a complete Kubernetes panel covering the full resource lifecycle, exec / port-forward / debug-container injection, and multi-cluster switching.
 
-前端 Vue 3 + Vite + Pinia(纯 JS,无 TypeScript),后端 Node 透传网关(零额外运行时依赖)。
+Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript) and a Node transparent Kubernetes API gateway (zero extra runtime dependencies).
 
-## ✨ 特性
+## ✨ Features
 
-- 🤖 **AI 运维**:Agent 工作台 + MCP server,自然语言操作集群(写操作必人审)
-- 🗂 **全量资源**:30+ 资源同步 / 结构化创建表单 / Server-Side Apply / YAML 导出
-- 🖥 **Pod 深度运维**:exec 终端 · port-forward · 文件浏览(上传/下载) · kubectl debug 注入 · attach
-- 🔁 **发布与节点**:扩缩容 · 滚动重启 · 回滚(rollout undo) · Node cordon/drain
-- 🔌 **多集群**:一键切换、持久化、重新登录
-- 🔍 **全局搜索 + 资源归属拓扑(ownerReferences)+ Events watch**
-- 🏷 **Namespace 应用分层**:按展现层 / 网关 / 微服务 / 中间件 / 持久层 等归类工作负载
+### 🤖 AI Operations
 
-## 📸 截图
+- Agent workbench + MCP server (Streamable HTTP, API-key auth)
+- Tiered tools: read (free) / operator / admin (human-approved); writes are always human-approved
+- Full audit log (who / verb / resource / HTTP code)
+- Park a chat in the background and reopen it anytime from the floating entry point
 
-<!-- TODO: 补 2–4 张截图(登录页 / 资源列表 / exec 终端 / Agent 工作台),放到 docs/ 或仓库根,替换下面的占位:
-![Agent 工作台](docs/screenshot-agent.png)
--->
+### 🔌 Cluster & Multi-Cluster
 
-_待补充_
+- Bearer Token / Basic Auth connection validation, session restore, logout
+- Connected clusters are persisted; one-click switch or remove
 
-## 🤖 AI 工作台与 MCP
+### 🗂 Full Resource Lifecycle
 
-AliangBoard 把大模型变成集群操作员,有两条路径。
+- 30+ resource types synced; structured creation forms (20 built-in kinds) persisted via Server-Side Apply
+- YAML editing / export; optimistic delete with rollback on failure; apply multi-document YAML in one shot
+- Resource coverage table (see below)
 
-### 内置 Agent 工作台
+| Category | Resources |
+|---|---|
+| Core Workloads | Pod · Deployment · StatefulSet · DaemonSet |
+| Networking | Service · Ingress · Endpoints · NetworkPolicy · IngressClass |
+| Config & Storage | ConfigMap · Secret · PVC · PV · StorageClass |
+| RBAC | Role · ClusterRole · RoleBinding · ClusterRoleBinding · ServiceAccount |
+| Cluster & Policy | Namespace · Node · Event · RuntimeClass · PriorityClass · ResourceQuota · LimitRange · PDB |
+| Autoscaling | HPA |
+| Extensions | CRD + custom resources (API-discovery driven) |
 
-在管理后台「Agent Console」直接和集群对话。Agent 经绑定的 ServiceAccount 调用一组 K8s 工具:
+### 🖥 Pod Deep Operations
 
-- **只读(免审批)**:查 Pod 日志 · 列/取资源与 YAML · 看 Events · `can-i` 自检 RBAC · rollout 历史
-- **运维(需人审)**:扩缩容(1..20,禁 scale 到 0) · 滚动重启
-- **管理(需人审)**:exec 命令 · 读/浏览容器文件 · apply / delete 资源 · 更新镜像 · kubectl debug 注入 · 回滚到指定 revision
+- exec terminal (xterm.js, **tmux-backed: survives a page refresh**)
+- attach · port-forward (Service / Deployment resolved to backend pods via endpoints)
+- File browsing (upload / download with progress) · kubectl debug injection (ephemeral containers)
 
-**写操作一律走人审 checkpoint** —— Agent 提议,你点确认才执行,不会静默改集群。
+### 🔁 Rollout & Node Ops
 
-### MCP Server(接外部 AI)
+- scale · rolling restart · rollout undo · CronJob manual trigger
+- Node cordon / uncordon / drain (policy/v1 Eviction)
 
-AliangBoard 同时是一个 **MCP server**(`POST /mcp`,Streamable HTTP,API key 鉴权),把同一组工具暴露给 Claude Code 等外部 AI 客户端:
+### 🔍 Navigation & Insights
 
-```bash
-claude mcp add --transport http aliangboard {HOST}/mcp \
-  --header "Authorization: Bearer <YOUR_API_KEY>"
-```
+- Global search across resources and namespaces · ownerReferences ownership topology with clickable jumps
+- Events live watch + involvedObject filtering
+- Namespace application layers (presentation / gateway / microservices / middleware / persistence, heuristic by default, exact via label `layer.aliangboard.io`)
+- Metrics charts (CPU / memory sampling, 15-min persisted window)
 
-移除:`claude mcp remove aliangboard`
+## 📸 Screenshots
 
-### LLM 接入(Bring Your Own)
+<!-- TODO: add 2–4 screenshots (login page / resource list / exec terminal / Agent workbench), store them under docs/ or the repo root, and embed them here. -->
 
-Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 配置」填 `baseURL` + `apiKey` + `model`,或设环境变量 `LLM_BASE_URL` / `LLM_MODEL`。OpenAI、DeepSeek、通义千问、GLM、本地 vLLM / Ollama(开 OpenAI 兼容端点)均可接入。
+## 🚀 Quick Start
 
-### 安全模型
+### Kubernetes (recommended)
 
-- 每个 API key **绑定一个 ServiceAccount**,工具调用受该 SA 的 K8s RBAC 约束
-- 工具分 **read / operator / admin** 三档,minTier 过滤每个 key 的可用工具
-- 写操作 + 工作台文件写入 **必须人审**
-- 全量调用写入**审计日志**(who / verb / 资源 / HTTP code)
-
-## 🚀 快速开始
-
-### 方式一:Kubernetes(推荐)
-
-一条命令装进 `aliangboard` 命名空间(NodePort 暴露,默认 StorageClass 动态供给 1Gi PVC):
+One command installs into the `aliangboard` namespace (NodePort exposure, 1Gi PVC dynamically provisioned by the default StorageClass):
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/aliang-one/aliangboard/main/deployment.yaml
-kubectl -n aliangboard get svc aliangboard   # 看 PORT(S) 列的 NodePort,如 8787:31234/TCP
+kubectl -n aliangboard get svc aliangboard   # read the NodePort from the PORT(S) column, e.g. 8787:31234/TCP
 ```
 
-浏览器打开 `http://<任意节点 IP>:<NodePort>` 即可。
+Open `http://<any-node-IP>:<NodePort>` in your browser.
 
-- 默认管理员 `admin` / `admin`(仅首次启动播种,生产环境先改 env 再 apply)
-- 面板数据(API key、集群凭据、审计、工作台仓库)持久化在 PVC `aliangboard-data`;SQLite 单副本架构,请勿扩 replicas
-- 集群内部署时,API 地址用 `https://kubernetes.default.svc`,但默认 ServiceAccount 无任何 RBAC(会 403):需自建 ServiceAccount 并授予所需 RBAC,用 `kubectl create token` 取令牌,并携带集群 CA 证书(或仅开发环境 insecure 跳过校验)
-- 卸载即清数据:`kubectl delete ns aliangboard`(namespace 级联删除 PVC)
+- Default administrator `admin` / `admin` — seeded via `ADMIN_USERNAME` / `ADMIN_PASSWORD` on first start only (changing the env after seeding has no effect); set strong credentials before applying in production
+- Panel data (API keys, cluster credentials, audit log, workbench repository) persists in the `aliangboard-data` PVC; the SQLite store is single-replica — do not scale `replicas`
+- When running inside a Kubernetes cluster, use `https://kubernetes.default.svc` as the API address, but the default ServiceAccount has no RBAC (you will get 403): create your own ServiceAccount with the required RBAC, obtain a token with `kubectl create token`, and supply the cluster CA certificate (or skip verification with the insecure option, development only)
+- Uninstalling removes all data: `kubectl delete ns aliangboard` (namespace deletion cascades to the PVC)
 
-### 方式二:Docker
+### Docker
 
-镜像发布在 GHCR:
+Images are published on GHCR:
 
 ```bash
 docker pull ghcr.io/aliang-one/aliangboard:latest
@@ -96,169 +97,176 @@ docker run -d --name aliangboard \
   ghcr.io/aliang-one/aliangboard:latest
 ```
 
-或本地构建:
+Or build locally:
 
 ```bash
 docker build -t aliangboard .
 docker run -d --name aliangboard -p 8787:8787 -v aliangboard-data:/app/data aliangboard
 ```
 
-浏览器打开 `http://localhost:8787` 即可。SQLite 库与工作台 git 仓库持久化在 `aliangboard-data` 卷中,**包含凭据,请妥善保管**。
+Open `http://localhost:8787` in your browser. The SQLite database and the workbench git repository persist in the `aliangboard-data` volume — **it contains credentials, keep it safe**.
 
-### 方式三:从源码运行
+### From source
 
-需要 Node.js 25+(`server` 用 `node:sqlite` 内置模块,25 才免标志可用)。
+Requires Node.js 25+ (the server uses the built-in `node:sqlite` module, which is flag-free from Node 25; on 22–24 it is experimental and needs `--experimental-sqlite`). You also need network access to the target Kubernetes API server and a token or account with the required RBAC permissions.
 
 ```bash
 git clone https://github.com/aliang-one/aliangboard.git aliangboard && cd aliangboard
 npm install
-npm run server   # 终端 1:API Gateway
-npm run dev      # 终端 2:前端 dev server(Vite 代理 /api → 127.0.0.1:8787)
+npm run server   # terminal 1: API gateway
+npm run dev      # terminal 2: frontend dev server (Vite proxies /api → 127.0.0.1:8787)
 ```
 
-生产构建:`npm run build`(产物在 `dist/`,网关 `server/static.mjs` 同源服务)。
+Production build: `npm run build` (output in `dist/`, served same-origin by the gateway's `server/static.mjs`).
 
-## 已接入真实集群的能力
+## 🤖 AI Workbench & MCP
 
-- Bearer Token 或 Basic Auth 连接验证
-- 会话恢复与退出登录
-- 全量资源同步:Namespace、Node、Pod、Deployment、StatefulSet、DaemonSet、Service、Ingress、Endpoints、Event、ConfigMap、Secret、PVC、PV、StorageClass、IngressClass、RuntimeClass、PriorityClass、NetworkPolicy、HPA、ResourceQuota、LimitRange、Role / ClusterRole、ServiceAccount、RoleBinding / ClusterRoleBinding、PDB,以及 CRD 与自定义资源实例
-- 结构化创建表单(ConfigMap / Secret / PVC / PV / StorageClass / Ingress / Service / IngressClass / RuntimeClass / PriorityClass / NetworkPolicy / HPA / ResourceQuota / LimitRange / Role / ServiceAccount / RoleBinding / ClusterRoleBinding / PDB / Namespace)通过 Server-Side Apply 落库
-- 列表删除(乐观删除 + 失败回滚 + 全局错误提示)
-- Pod 删除与真实日志读取(支持多容器选择)
-- Deployment / StatefulSet 扩缩容、滚动重启、回滚(kubectl rollout undo)
-- Node Cordon、Uncordon 和基于 `policy/v1 Eviction` 的 Drain
-- Pod Exec 终端(kubectl exec,xterm.js 实时双向,终端尺寸自适应)—— 浏览器 WebSocket ↔ Gateway ↔ K8s(`@kubernetes/client-node` 处理 SPDY/WS 协议升级)
-- 端口转发(kubectl port-forward):Service / Deployment 自动经 endpoints 解析到后端 Pod,在网关本机开本地监听
-- Pod 文件浏览(kubectl cp 语义:列目录 / 预览 / 下载 / 上传),基于一次性 exec 落地真实容器文件
-- Pod 调试容器注入(kubectl debug / Ephemeral Containers):向无 shell / distroless Pod 注入临时容器排查问题,注入后即可在终端进入该容器
-- Pod Attach(kubectl attach):连接容器主进程 stdio,区别于 exec 开新 shell
-- 资源归属拓扑:沿 ownerReferences 解析归属链(Pod→ReplicaSet→Deployment…),可点击跳转
-- Events 实时推送(events?watch=true)与按 involvedObject 过滤;审计页以集群 Events 作为活动记录
-- CronJob 手动触发(kubectl create job --from);通用资源导出 YAML(kubectl get -o yaml)
-- 顶栏全局搜索:跨资源 / 跨命名空间检索并跳转
-- Namespace 应用分层:按 展现层 / 网关 / 微服务层(业务·支持服务·杂项)/ 中间件 / 持久层 / 存储 / 监控层 归类工作负载·Service·Ingress(默认启发式,可用 label `layer.aliangboard.io` 精确覆盖)
-- 多集群:已连接集群持久化,可一键切换或移除
-- API Discovery 驱动的 Server-Side Apply(kubectl edit / apply 语义)
-- 部署向导支持一次应用多份 YAML 文档
+AliangBoard turns an LLM into a cluster operator via two paths.
 
-## 环境要求
+### Built-in Agent Workbench
 
-- **Node.js 25+**(开发 / 源码运行)—— `server/index.mjs` 使用内置 `node:sqlite`(`import { DatabaseSync } from 'node:sqlite'`),该模块在 22–24 仍为 experimental(需 `--experimental-sqlite` 标志),25 起免标志可用。Docker 镜像已用 `node:25-alpine`,无需关心。
-- 能访问目标 Kubernetes API Server 的网络
-- 具备所需 Kubernetes RBAC 权限的 Token 或账号
+Chat with your cluster directly in the admin console ("Agent Console"). The agent calls a set of Kubernetes tools through a bound ServiceAccount:
 
-## 配置
+- **Read (no approval)**: pod logs · list / get resources and YAML · events · `can-i` RBAC self-check · rollout history
+- **Operator (human approval)**: scale (1..20, no scaling to 0) · rolling restart
+- **Admin (human approval)**: exec commands · read / browse container files · apply / delete resources · update image · kubectl debug injection · rollback to a specific revision
 
-后端环境变量:
+**Every write goes through a human-approval checkpoint** — the agent proposes, you confirm, nothing changes your cluster silently.
 
-| 变量 | 默认值 | 说明 |
+### MCP Server (external AI clients)
+
+AliangBoard is also an **MCP server** (`POST /mcp`, Streamable HTTP, API-key auth) that exposes the same toolset to external AI clients such as Claude Code:
+
+```bash
+claude mcp add --transport http aliangboard {HOST}/mcp \
+  --header "Authorization: Bearer <YOUR_API_KEY>"
+```
+
+Remove it with: `claude mcp remove aliangboard`
+
+### Bring Your Own LLM
+
+The agent speaks the **OpenAI-compatible protocol**. Set `baseURL` + `apiKey` + `model` in the admin console ("LLM Settings"), or set the environment variables `LLM_BASE_URL` / `LLM_MODEL`. OpenAI, DeepSeek, Qwen, GLM, and local vLLM / Ollama (with an OpenAI-compatible endpoint) all work.
+
+### Security Model
+
+- Every API key is **bound to one ServiceAccount**; tool calls are constrained by that SA's Kubernetes RBAC
+- Tools are tiered **read / operator / admin**; `minTier` filters the tools available to each key
+- Writes and workbench file writes **always require human approval**
+- Every call is recorded in the **audit log** (who / verb / resource / HTTP code)
+
+## ⚙️ Configuration
+
+Backend environment variables:
+
+| Variable | Default | Description |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | API Gateway 监听地址 |
-| `PORT` | `8787` | API Gateway 监听端口 |
-| `CORS_ORIGIN` | `*` | 允许的前端来源,生产环境应设置为实际域名 |
-| `SESSION_TTL_MS` | `28800000` | 内存会话有效期,默认 8 小时 |
-| `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API 请求超时,单位毫秒 |
-| `K8S_ALLOWED_HOSTS` | 空 | 逗号分隔的 API Server 主机允许列表 |
-| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | 是否跳过集群证书验证,只应用于开发环境 |
-| `PORT_FORWARD_HOST` | `127.0.0.1` | 端口转发本地监听地址(同 kubectl port-forward;仅本机可达,浏览器需能访问) |
-| `LLM_BASE_URL` | 空 | LLM 的 OpenAI 兼容 baseURL(也可在管理后台「LLM 配置」里设) |
-| `LLM_MODEL` | 空 | LLM 模型名(也可在管理后台设) |
+| `HOST` | `127.0.0.1` | API gateway listen address |
+| `PORT` | `8787` | API gateway listen port |
+| `CORS_ORIGIN` | `*` | Allowed frontend origins; set to your actual domain in production |
+| `SESSION_TTL_MS` | `28800000` | In-memory session lifetime, 8 hours by default |
+| `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API request timeout, in milliseconds |
+| `K8S_ALLOWED_HOSTS` | empty | Comma-separated allowlist of API server hosts |
+| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | Skip cluster certificate verification; use only in development |
+| `PORT_FORWARD_HOST` | `127.0.0.1` | Port-forward local listen address (same as kubectl port-forward; local to the gateway host, the browser must be able to reach it) |
+| `LLM_BASE_URL` | empty | OpenAI-compatible baseURL for the LLM (can also be set in the admin console "LLM Settings") |
+| `LLM_MODEL` | empty | LLM model name (can also be set in the admin console) |
 
-前端环境变量:
+Frontend environment variables:
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | 空 | API Gateway 的完整地址;同源部署时保持为空 |
-| `ALIANGBOARD_API_URL` | `http://127.0.0.1:8787` | Vite 开发代理目标 |
+| `VITE_API_BASE_URL` | empty | Full address of the API gateway; keep empty for same-origin deployments |
+| `ALIANGBOARD_API_URL` | `http://127.0.0.1:8787` | Vite dev proxy target |
 
-开发环境连接使用自签名证书的集群时,可以临时运行:
+To connect to a cluster with a self-signed certificate during development, you can temporarily run:
 
 ```bash
 K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 ```
 
-生产环境不要跳过 TLS 校验,应为 API Gateway 配置可信 CA,并设置 `K8S_ALLOWED_HOSTS` 和准确的 `CORS_ORIGIN`。
+Do not skip TLS verification in production. Configure a trusted CA for the API gateway instead, and set `K8S_ALLOWED_HOSTS` plus an accurate `CORS_ORIGIN`.
 
-## 权限建议
+## 🔐 RBAC Recommendations
 
-不要使用长期有效的 `cluster-admin` Token。建议创建专用 ServiceAccount,并按实际功能授予:
+Do not use long-lived `cluster-admin` tokens. Create a dedicated ServiceAccount and grant only what your usage actually needs:
 
-- 资源的 `get`、`list`、`watch`
-- 需要编辑的资源的 `create`、`update`、`patch`、`delete`
-- Pod 日志的 `get`
-- Pod eviction 的 `create`
-- Node 运维需要的 `patch`
-- Pod Exec 终端的 `pods/exec`(`create`)
-- 端口转发的 `pods/portforward`(`get` / `create`)
-- 调试容器注入的 `pods/ephemeralcontainers`(`update`)
-- Pod Attach 的 `pods/attach`(`create`)
-- CronJob 手动触发的 `jobs`(`create`)
+- `get`, `list`, `watch` on resources
+- `create`, `update`, `patch`, `delete` on the resources you need to edit
+- `get` on pod logs
+- `create` on pod eviction
+- `patch` for node operations
+- `pods/exec` (`create`) for the exec terminal
+- `pods/portforward` (`get` / `create`) for port forwarding
+- `pods/ephemeralcontainers` (`update`) for debug container injection
+- `pods/attach` (`create`) for pod attach
+- `jobs` (`create`) for CronJob manual trigger
 
-API Gateway 默认在内存中保存集群凭据和会话,重启后所有登录会话都会失效(容器部署时凭据持久化在 `/app/data` 卷)。生产环境若需要多实例部署,应将会话和加密后的集群凭据迁移到专用存储。
+The API gateway keeps cluster credentials and sessions in memory by default, so all login sessions are lost on restart (with container deployment, credentials persist in the `/app/data` volume). For multi-instance production deployments, move sessions and encrypted cluster credentials to dedicated storage.
 
-## 容器部署
+## 🐳 Container Deployment & Release
 
-仓库提供多阶段 `Dockerfile`:单进程 Node 同时服务前端静态文件与 API Gateway,开箱即用。
+The repository ships a multi-stage `Dockerfile`: a single Node process serves both the frontend static files and the API gateway, ready to run out of the box.
 
-容器相关变量(覆盖同名后端变量):
+Container variables (they override the backend variables of the same name):
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `HOST` | `0.0.0.0` | 容器内监听地址(镜像已设,勿改回 127.0.0.1) |
-| `PORT` | `8787` | 监听端口 |
-| `ALIANG_DB` | `/app/data/aliangboard.db` | SQLite 库路径(位于卷内) |
-| `ALIANG_WORKBENCH_DIR` | `/app/data/workbench` | 工作台 git 仓库目录(位于卷内) |
-| `ALIANG_STATIC_DIR` | `/app/dist` | 前端静态目录(一般无需改动) |
+| `HOST` | `0.0.0.0` | Listen address inside the container (set by the image; do not change it back to 127.0.0.1) |
+| `PORT` | `8787` | Listen port |
+| `ALIANG_DB` | `/app/data/aliangboard.db` | SQLite database path (inside the volume) |
+| `ALIANG_WORKBENCH_DIR` | `/app/data/workbench` | Workbench git repository directory (inside the volume) |
+| `ALIANG_STATIC_DIR` | `/app/dist` | Frontend static directory (rarely needs changing) |
 
-> 运行时镜像基于 `node:25-alpine`(`node:sqlite` 硬依赖),内置 `git`(工作台 repo 存储需要)。以非 root 用户 `node` 运行。
+> The runtime image is based on `node:25-alpine` (hard requirement for `node:sqlite`) with `git` built in (needed for the workbench repository). It runs as the non-root user `node`.
 
-### CI 自动发布
+### Release & CI
 
-推送到 GitHub `main` 分支时,`.github/workflows/docker.yml` 会自动构建 `linux/amd64` + `linux/arm64` 多架构镜像并发布到 GitHub Container Registry:
+- Builds are triggered **only** by pushing a `v*` tag (e.g. `v1.2.3`) or by a manual `workflow_dispatch` from the Actions page. Regular pushes do not build images.
+- Published image tags on GHCR:
+  - `ghcr.io/aliang-one/aliangboard:latest` — follows the newest release
+  - `ghcr.io/aliang-one/aliangboard:1.2.3` — immutable semver pin, for exact version lock
+  - `ghcr.io/aliang-one/aliangboard:1.2` — rolls with each minor release
+- Multi-platform `linux/amd64` + `linux/arm64`; authentication uses the built-in `GITHUB_TOKEN`, no extra secrets required
+- Historical images can be pruned via the manual cleanup workflow (`.github/workflows/cleanup-ghcr.yml`, dry-run by default)
+- Current release: `v1.0.3`
 
-```
-ghcr.io/aliang-one/aliangboard:latest
-ghcr.io/aliang-one/aliangboard:main
-ghcr.io/aliang-one/aliangboard:sha-<7位提交哈希>
-```
+## ⚠️ Known Limitations
 
-`sha-<哈希>` 标签不可变,可用于精确回滚。认证使用内置 `GITHUB_TOKEN`,无需额外配置 secret。
+- The exec terminal, port forwarding, and file browsing only work when a real cluster is connected; without one, the related entry points show an empty state.
+- Port forwarding opens a local TCP listener on the gateway host (default `127.0.0.1`, same as kubectl port-forward). When the panel runs on a remote host, the browser cannot reach that port directly — use an SSH tunnel or similar.
+- The exec terminal runs `/bin/sh` by default (adjustable via the component's `command` prop); for shell-less images such as distroless, use kubectl debug to inject an ephemeral container with a shell (requires Kubernetes 1.25+; EphemeralContainers is enabled by default).
+- Multi-cluster switching reuses the gateway session; sessions are lost when the gateway restarts, so saved clusters must be logged into again. Session credentials live only in the browser's localStorage — do not use them on shared devices.
+- The "Audit" page shows cluster Events as the activity record; full user-level auditing (who / verb / IP / HTTP code) requires cluster audit logging wired to a log backend — the standard Kubernetes API does not provide it.
+- Helm, GitOps, and alerting are not integrated yet.
+- HPA / PDB depend on specific API versions (e.g. autoscaling/v2, policy/v1); on older clusters the corresponding creation fails with a toast message.
+- When deployed inside a Kubernetes cluster, the port-forward listener opens in the panel Pod's network namespace and the browser cannot reach it directly; this capability targets Docker / source deployments and is unavailable for in-cluster installs (a gateway-side proxy may come later).
 
-## 当前边界
+## 🛠 Tech Stack
 
-- Pod Exec 终端、端口转发、文件浏览仅在连接真实集群时生效;未连接集群时相关入口为空状态。
-- 端口转发在网关本机开本地 TCP 监听(默认 `127.0.0.1`,同 kubectl port-forward);当 Dashboard 部署在远端主机时,浏览器无法直接访问该端口,需自行 SSH 端口转发等。
-- Exec 终端默认执行 `/bin/sh`(可通过组件 `command` 属性调整);distroless 等无 shell 镜像可用「kubectl debug」注入带 shell 的临时容器进入(需集群 K8s 1.25+,已默认启用 EphemeralContainers)。
-- 多集群切换复用网关中的会话;Gateway 重启后会话失效,已保存集群需重新登录。会话凭据仅存于浏览器 localStorage,请勿在共享设备使用。
-- 「审计日志」页以集群 Events 作为活动记录展示;完整的用户级审计(who/verb/IP/HTTP code)需集群开启 audit logging 并对接日志后端,标准 K8s API 不直接提供。
-- Helm、GitOps、告警尚未接入。
-- HPA / PDB 等依赖特定 API 版本(如 autoscaling/v2、policy/v1),低版本集群上对应创建会失败并以 toast 提示。
-- K8s 集群内部署时,端口转发的本地监听开在面板 Pod 的网络命名空间内,浏览器无法直连;该能力面向 docker/源码部署,集群内部署暂不可用(后续考虑网关侧代理)。
+**Frontend** — Vue 3 · Vite · Pinia · Vue Router · @tanstack/vue-query · vue-i18n · xterm.js · marked · DOMPurify (plain JS, no TypeScript)
 
-## 🛠 技术栈
+**Backend** — Node.js 25 (built-in `node:sqlite`) · @kubernetes/client-node · transparent Kubernetes API gateway with zero extra runtime dependencies
 
-**前端** — Vue 3 · Vite · Pinia · Vue Router · @tanstack/vue-query · vue-i18n · xterm.js · marked · DOMPurify(纯 JS,无 TypeScript)
+**Testing** — server and pure-logic tests on an in-house zero-dependency runner + `node --test`; frontend unit tests with vitest + @vue/test-utils + happy-dom
 
-**后端** — Node.js 25(`node:sqlite` 内置)· @kubernetes/client-node · 零额外运行时依赖的透明 K8s API 网关
+**Packaging** — a single multi-stage Docker image (`node:25-alpine`), one process serving API + SPA same-origin
 
-**测试** — 服务端 / 纯逻辑用自研零依赖运行器 + `node --test`;前端单测用 vitest + @vue/test-utils + happy-dom
+## 🤝 Contributing
 
-**打包** — 单个多阶段 Docker 镜像(`node:25-alpine`),单进程同源服务 API + SPA
-
-## 🤝 贡献
-
-欢迎 Issue 和 PR。本地开发:
+Issues and PRs are welcome. Local development:
 
 ```bash
 npm install
-npm run server     # API Gateway
-npm run dev        # 前端
-npm test           # 服务端 + 纯逻辑测试
-npm run test:unit  # 前端单测(vitest)
-npm run typecheck  # node --check 语法基线
+npm run server     # API gateway
+npm run dev        # frontend
+npm test           # server + pure-logic tests
+npm run test:unit  # frontend unit tests (vitest)
+npm run typecheck  # node --check syntax baseline
 ```
+
+**Bilingual sync rule:** any change to `README.md` must update `README.zh-CN.md` in the same PR.
 
 ## License
 
-[Apache License 2.0](./LICENSE)。允许商业使用、修改、分发与私用,只需保留版权与免责声明。
+[Apache License 2.0](./LICENSE). Commercial use, modification, distribution, and private use are permitted, provided the copyright and license notices are retained.
