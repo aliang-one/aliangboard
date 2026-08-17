@@ -19,6 +19,9 @@ const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/
 const FileBrowserWindow = defineAsyncComponent(() => import('@/components/common/FileBrowserWindow.vue'))
 // 传输面板同策略:仅 panelOpen 时才加载(任务列表轻,但保持一致)
 const TransfersPanel = defineAsyncComponent(() => import('@/components/common/TransfersPanel.vue'))
+// 悬浮 AI 对话入口:按钮本身极轻,直接静态引入;重货 ChatModal(内嵌 WorkbenchChat/
+// marked/dompurify)由 ChatPresence 内部 defineAsyncComponent 按需加载
+import ChatPresence from '@/components/workbench/ChatPresence.vue'
 // fullHeight 路由判定用:main 的 class 绑在 router-view 外,v-slot 的 route 够不到
 const route = useRoute()
 
@@ -96,5 +99,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <FileBrowserWindow v-for="b in fbStore.browsers" :key="b.id" :browser="b" v-show="b.status === 'open'" />
     <!-- 传输面板:按需挂载(关闭即销毁,状态在 transfers store) -->
     <TransfersPanel v-if="trStore.panelOpen" />
+    <!-- 全局悬浮 AI 对话入口:有活跃对话才可见(内部自管显隐/轮询) -->
+    <ChatPresence />
   </div>
 </template>

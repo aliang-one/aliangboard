@@ -10,7 +10,9 @@ const workbenchApi = vi.hoisted(() => ({
   conversations: { list: vi.fn() },
 }))
 
-vi.mock('@/api/client', () => ({ workbenchApi }))
+// getSavedClusters/activeApiServer:组件实例化 useClusterStore()(挂到后台按钮)→
+// store 初始化即调这两个,须在 mock 里提供
+vi.mock('@/api/client', () => ({ workbenchApi, getSavedClusters: () => [], activeApiServer: () => '' }))
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'proj-1' } }),

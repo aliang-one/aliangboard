@@ -2811,13 +2811,18 @@
       "renameConv": "重命名",
       "convTitlePlaceholder": "输入对话标题",
       "convRenamed": "对话已重命名",
-      "renameFailed": "重命名失败"
+      "renameFailed": "重命名失败",
+      "backgroundChat": "挂到后台",
+      "backgroundChatTitle": "对话将在后台继续运行,回到当前命名空间总览"
     },
     "ide": {
       "collapseFiles": "折叠文件树",
       "collapseChat": "折叠 AI 助手",
       "expandFiles": "展开文件树",
       "expandChat": "展开 AI 助手"
+    },
+    "presence": {
+      "title": "AI 对话"
     },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",

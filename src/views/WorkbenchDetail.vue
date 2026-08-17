@@ -6,12 +6,15 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
+import { useClusterStore } from '@/stores/cluster'
+import { relTime as relTimeFmt } from '@/logic/relTime'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const clusterStore = useClusterStore()
 const id = route.params.id
 const project = ref(null)
 const files = ref([])
@@ -59,6 +62,14 @@ function beforeUnloadGuard(e) {
 onMounted(() => window.addEventListener('beforeunload', beforeUnloadGuard))
 onUnmounted(() => window.removeEventListener('beforeunload', beforeUnloadGuard))
 
+// 挂到后台:对话是服务端 detached 执行,前端直接走人——回当前 ns 总览(分层拓扑),
+// 状态交给悬浮按钮(ChatPresence)。无集群会话则回集群选择页。
+function backgroundToTopology() {
+  const ns = clusterStore.currentNamespace
+  if (ns) router.push({ name: 'NamespaceOverview', params: { namespace: ns } })
+  else router.push('/cluster')
+}
+
 // Agent mode: conversation list
 const conversations = ref([])
 const activeConversationId = ref(null)
@@ -68,15 +79,6 @@ const convStatusStyle = {
   done: 'bg-surface-container-high text-on-surface-variant',
   failed: 'bg-error/10 text-error',
 }
-const relTime = ts => {
-  if (!ts) return ''
-  const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 60) return t('workbench.detail.timeJustNow')
-  if (s < 3600) return t('workbench.detail.timeMinAgo', { n: Math.floor(s / 60) })
-  if (s < 86400) return t('workbench.detail.timeHourAgo', { n: Math.floor(s / 3600) })
-  return t('workbench.detail.timeDayAgo', { n: Math.floor(s / 86400) })
-}
-
 function selectConversation(convId) { activeConversationId.value = convId }
 function newConversation() { activeConversationId.value = null }
 async function deleteConversation(convId) {
@@ -237,6 +239,14 @@ const treeRows = computed(() => {
       </h2>
       <span class="text-body-xs text-on-surface-variant">{{ project.clusterName }}</span>
 
+      <!-- 挂到后台:agent 模式专属——对话 detached 继续跑,状态由悬浮入口(ChatPresence)接管 -->
+      <button v-if="mode === 'agent'" data-testid="background-chat-btn" @click="backgroundToTopology"
+        class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"
+        :title="t('workbench.detail.backgroundChatTitle')">
+        <span class="material-symbols-outlined text-sm">picture_in_picture_alt</span>
+        <span class="hidden lg:inline">{{ t('workbench.detail.backgroundChat') }}</span>
+      </button>
+
       <!-- Mode switcher (segmented control) -->
       <div class="ml-auto flex items-center gap-xs bg-surface-container-low rounded-lg p-0.5">
         <button @click="setMode('agent')" class="flex items-center gap-xs px-md py-xs rounded-md text-body-sm font-medium transition-all"
@@ -295,7 +305,7 @@ const treeRows = computed(() => {
                   'bg-on-surface-variant/30': c.status === 'done',
                   'bg-error': c.status === 'failed',
                 }"></span>
-                <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTime(c.updatedAt) }}</span>
+                <span class="text-body-xs text-on-surface-variant shrink-0">{{ relTimeFmt(c.updatedAt, t) }}</span>
                 <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
               </div>
               <p v-if="renamingId === c.id" class="text-body-xs">

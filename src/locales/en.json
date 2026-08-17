@@ -2811,13 +2811,18 @@
       "renameConv": "Rename",
       "convTitlePlaceholder": "Enter conversation title",
       "convRenamed": "Conversation renamed",
-      "renameFailed": "Rename failed"
+      "renameFailed": "Rename failed",
+      "backgroundChat": "Background",
+      "backgroundChatTitle": "Conversation keeps running in background; back to namespace overview"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",
       "collapseChat": "Collapse AI chat",
       "expandFiles": "Expand file tree",
       "expandChat": "Expand AI chat"
+    },
+    "presence": {
+      "title": "AI Chat"
     },
     "chat": {
       "hintReadLedger": "Show me what files are in the current cluster ledger",
