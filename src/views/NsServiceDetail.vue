@@ -173,7 +173,8 @@ function openAddBackend() { pickedBackend.value = ''; showAddBackendModal.value 
 async function confirmAddBackend() {
   if (!canAddBackend.value) return
   try {
-    await store.updateService(route.params.name, route.params.namespace, { selector: mergedSelector.value })
+    const r = await store.updateService(route.params.name, route.params.namespace, { selector: mergedSelector.value })
+    if (!r?.ok) return // 失败:store 已 toast 错误;保留弹窗与用户选择
     notify('success', t('ns.svcDetail.backendAddedSuccess'))
     showAddBackendModal.value = false
     pickedBackend.value = ''
@@ -267,8 +268,8 @@ const editForm = ref({ type: 'ClusterIP', ports: [], selector: [], externalName:
 function openEdit() {
   if (!svc.value) return
   const rows = portRows.value.length
-    ? portRows.value.map(p => ({ port: p.port, targetPort: p.targetPort ?? '', protocol: p.protocol || 'TCP', nodePort: p.nodePort || '' }))
-    : [{ port: '', targetPort: '', protocol: 'TCP', nodePort: '' }]
+    ? portRows.value.map(p => ({ name: p.name || '', port: p.port, targetPort: p.targetPort ?? '', protocol: p.protocol || 'TCP', nodePort: p.nodePort || '' }))
+    : [{ name: '', port: '', targetPort: '', protocol: 'TCP', nodePort: '' }]
   editForm.value = {
     type: svc.value.type,
     ports: rows,
@@ -281,7 +282,7 @@ function openEdit() {
   }
   showEditModal.value = true
 }
-function addPortRow() { editForm.value.ports.push({ port: '', targetPort: '', protocol: 'TCP', nodePort: '' }) }
+function addPortRow() { editForm.value.ports.push({ name: '', port: '', targetPort: '', protocol: 'TCP', nodePort: '' }) }
 function removePortRow(idx) { editForm.value.ports.splice(idx, 1) }
 function addSelectorRow() { editForm.value.selector.push({ key: '', value: '' }) }
 function removeSelectorRow(idx) { editForm.value.selector.splice(idx, 1) }
@@ -289,7 +290,7 @@ function saveEdit() {
   const rows = editForm.value.ports.filter(p => p.port !== '' && p.port != null)
   const portList = rows.map(p => {
     const tgt = p.targetPort === '' ? p.port : p.targetPort
-    return { name: '', port: Number(p.port), targetPort: isNaN(tgt) ? tgt : Number(tgt), protocol: p.protocol || 'TCP', nodePort: p.nodePort ? Number(p.nodePort) : null, appProtocol: '' }
+    return { name: p.name || '', port: Number(p.port), targetPort: isNaN(tgt) ? tgt : Number(tgt), protocol: p.protocol || 'TCP', nodePort: p.nodePort ? Number(p.nodePort) : null, appProtocol: '' }
   })
   const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
   const selector = {}
@@ -309,8 +310,10 @@ function saveEdit() {
     updates.sessionAffinity = 'None'
   }
   if (editForm.value.externalTrafficPolicy) updates.externalTrafficPolicy = editForm.value.externalTrafficPolicy
-  store.updateService(route.params.name, route.params.namespace, updates)
-  showEditModal.value = false
+  store.updateService(route.params.name, route.params.namespace, updates).then(r => {
+    if (!r?.ok) return // 失败:store 已 toast 错误;保留编辑弹窗(编辑行的 name 由 generateYAML 多端口时自动补齐)
+    showEditModal.value = false
+  })
   notify('success', t('ns.svcDetail.serviceUpdated'))
 }
 
@@ -358,7 +361,8 @@ async function saveAddPort() {
       updates.selector = portMergeSelector.value
       merged = true
     }
-    await store.updateService(route.params.name, route.params.namespace, updates)
+    const r = await store.updateService(route.params.name, route.params.namespace, updates)
+    if (!r?.ok) return // 失败:store 已 toast 错误;保留弹窗与已填端口,不误报成功
     showAddPortModal.value = false
     notify('success', merged ? t('ns.svcDetail.addPortWithMerge', { workload: sourceWorkload.value }) : t('ns.svcDetail.addPortSuccess'))
   } catch (e) {
@@ -387,7 +391,8 @@ async function confirmDeletePort() {
   })
   const portsStr = portList.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(',')
   try {
-    await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
+    const r = await store.updateService(route.params.name, route.params.namespace, { portList, ports: portsStr })
+    if (!r?.ok) return // 失败:store 已 toast 错误;端口仍在列表,不误报删除成功
     notify('success', t('ns.svcDetail.deletePortSuccess'))
   } catch (e) {
     notify('error', e.message || t('ns.svcDetail.deletePortFailed'))

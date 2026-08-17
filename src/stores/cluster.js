@@ -238,23 +238,29 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 远端结构化更新：用更新后的对象重新生成清单并 server-side apply（与 YAML 编辑器同链路）。
   // 适用于 generateYAML 无损的资源；失败回滚本地并提示。Workload 浅编辑等用 remotePatch 定点 PATCH。
+  // {ok} 契约（与 remoteCreate/remoteDeletePath 对齐）：失败吞异常（内部已 toast）但必须返回 {ok:false}，
+  // 调用方（如 NsServiceDetail.saveAddPort）据此决定关弹窗/报成功，不再无条件成功。
   async function remoteUpdate(yamlStr, label, rollbackFn) {
     try {
       await api.applyYaml(yamlStr)
       notify('success', `${label}${i18n.global.t('common.save')}`)
+      return { ok: true }
     } catch (e) {
       notify('error', `${label}${i18n.global.t('store.saveFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrConflict')}`)
       if (rollbackFn) rollbackFn()
+      return { ok: false }
     }
   }
-  // 远端定点 PATCH（application/merge-patch+json），失败回滚本地并提示
+  // 远端定点 PATCH（application/merge-patch+json），失败回滚本地并提示;{ok} 契约同 remoteUpdate
   async function remotePatch(path, patch, label, rollbackFn) {
     try {
       await api.k8s(path, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
       notify('success', `${label}${i18n.global.t('common.save')}`)
+      return { ok: true }
     } catch (e) {
       notify('error', `${label}${i18n.global.t('store.saveFailed')}：${e.message || i18n.global.t('store.permissionDeniedOrNotExist')}`)
       if (rollbackFn) rollbackFn()
+      return { ok: false }
     }
   }
 
@@ -288,19 +294,22 @@ export const useClusterStore = defineStore('cluster', () => {
       invalidateResource(plural)
       return r // { ok } from remoteCreate;失败时已 toast,调用方可据 r.ok 决定后续(见 CreatePvcDialog)
     }
+    // {ok} 契约（对齐 add/remove）：调用方必须据 r.ok 决定关弹窗/报成功
     async function update(name, ns, updates) {
-      if (skipRemoteUpdate) return
+      if (skipRemoteUpdate) return { ok: true }
       let cur = fromCache(name, ns)
       if (!cur && fetch) cur = await fetch(name, ns).catch(() => null)
+      let r
       if (patchFn) {
-        await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, cur || {}), kind)
+        r = await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, cur || {}), kind)
       } else {
-        if (!cur) { invalidateResource(plural); return }
+        if (!cur) { invalidateResource(plural); return { ok: false, skipped: true } }
         const merged = { ...cur, ...(beforeSave ? beforeSave(updates) : updates) }
-        await remoteUpdate(yamlOf(merged), kind)
+        r = await remoteUpdate(yamlOf(merged), kind)
       }
-      if (sideEffects?.onUpdate) sideEffects.onUpdate(name, ns)
+      if (r.ok && sideEffects?.onUpdate) sideEffects.onUpdate(name, ns)
       invalidateResource(plural)
+      return r
     }
     async function remove(name, ns) {
       const r = await remoteDeletePath(itemApi(name, ns), `${kind}/${name}`)
@@ -1147,12 +1156,25 @@ export const useClusterStore = defineStore('cluster', () => {
     if (type === 'service') {
       const isExtName = resource.type === 'ExternalName'
       // 端口：优先用结构化 portList（含 name/nodePort/appProtocol，无损），否则解析扁平 ports 字符串
-      const portSrc = (!isExtName && resource.portList?.length)
+      let portSrc = (!isExtName && resource.portList?.length)
         ? resource.portList
         : (!isExtName ? String(resource.ports || '80:80/TCP').split(',').filter(Boolean).map(p => {
             const m = String(p).trim().match(/^(\d+)\s*:\s*([^/]+?)\s*\/?\s*(\w+)?$/) || [, 80, 80, 'TCP']
             return { name: '', port: Number(m[1]) || 80, targetPort: isNaN(m[2]) ? m[2] : Number(m[2]), protocol: m[3] || 'TCP', nodePort: null, appProtocol: '' }
           }) : [])
+      // K8s 校验:多端口 Service 每个 port 都必须有 name(spec.ports[i].name: Required value)。
+      // 空名时自动补 port-<端口号>(重号追加序号去重);单端口保持匿名无损。
+      // 映射出全新数组/对象,不改动调用方 portList(防 Vue Query 缓存对象被污染)。
+      if (portSrc.length > 1) {
+        const used = new Set(portSrc.filter(p => p.name).map(p => p.name))
+        portSrc = portSrc.map(p => {
+          if (p.name) return p
+          let name = `port-${p.port}`, n = 1
+          while (used.has(name)) name = `port-${p.port}-${++n}`
+          used.add(name)
+          return { ...p, name }
+        })
+      }
       const portsYaml = portSrc.map(p => {
         const tgt = p.targetPort
         const lines = [`    - port: ${p.port}`]

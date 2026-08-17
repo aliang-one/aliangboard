@@ -260,7 +260,8 @@ test('updateConfigMap 缓存未命中: fetch-first GET 兜底后 applyYaml 被�
   const store = getStore()
   // getQueryData 返回空数组 → fromCache 找不到 → 走 fetchConfigMap GET
   getQueryData.mockImplementation(() => [])
-  await expect(store.updateConfigMap('missing', 'default', { data: {} })).resolves.toBeUndefined()
+  // {ok} 契约(2026-08-17):update 失败吞异常但返回 {ok:false},调用方据此决定后续
+  await expect(store.updateConfigMap('missing', 'default', { data: {} })).resolves.toEqual({ ok: true })
   expect(applyYaml).toHaveBeenCalledTimes(1)
   expect(invalidateQueries).toHaveBeenCalled()
 })
