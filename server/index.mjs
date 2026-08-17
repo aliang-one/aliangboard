@@ -18,7 +18,7 @@ import { runBoundedCollect } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
-import { createLlmClient } from './llm.mjs'
+import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
@@ -1437,7 +1437,7 @@ async function handle(req, res) {
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
-    getSetting, setSetting, getLlmConfig, createLlmClient,
+    getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword,
