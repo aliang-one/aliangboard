@@ -474,3 +474,60 @@ test('I: 已决策审批的重放不重弹;新 toolCallId 照常弹', async () =
     expect(rejectBtn(), '新 toolCallId t2 正常弹出').toBeTruthy()
   } finally { vi.useRealTimers(); vi.unstubAllGlobals() }
 })
+
+// 悬浮 Modal 打开 paused 对话(2026-08-17 用户报告):审批弹了但看不到内容——重建路径
+// 只给 running 补 thinking 占位 turn,paused 没有 → 首轮 paused 的 agentTurn 为 undefined,
+// approve 后 SSE snapshot/delta 全被 `if (!agentTurn) return` 静默丢弃;多轮 paused 则兜底
+// 到上一轮 done turn,snapshot 会覆写旧答案。修复:paused 同样补占位 turn。
+test('paused 对话打开+approve 续跑:snapshot/delta 落在新 turn,上一轮答案不被覆写', async () => {
+  let esInstance = null
+  class FakeEventSource {
+    constructor(url) { this.url = url; this.onmessage = null; this.onerror = null; esInstance = this }
+    close() { this.closed = true }
+  }
+  vi.stubGlobal('EventSource', FakeEventSource)
+  try {
+    api.conversations.get.mockReset() // 该文件 beforeEach 只 mockClear,once 队列会跨测试泄漏
+    // 多轮 paused:上一轮完整答案 + 新提问,审批待决
+    api.conversations.get.mockResolvedValueOnce({
+      id: 'conv-pa', status: 'paused', content: '', trace: '[]', steps: 2, recap: '',
+      pendingApproval: JSON.stringify({ toolCallId: 't9', name: 'wb_scale', args: {} }),
+      messages: [
+        { role: 'user', content: '第一问' },
+        { role: 'assistant', content: '第一答(完整)', trace: '[]' },
+        { role: 'user', content: '第二问' },
+      ],
+    })
+    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa', activeConversationId: 'conv-pa' }, global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(w.html()).toContain('第一答(完整)', '历史答案可见')
+    expect(w.html()).toContain('第二问')
+    // 审批存在(报告中说"该出现的权限申请还是会出现")
+    expect(w.findAll('button').some(b => b.text().includes('workbench.chat.approve'))).toBe(true)
+    // approve → startStreaming;SSE hello + snapshot(续跑已有内容)
+    api.conversations.approve.mockResolvedValue({ status: 'running' })
+    await w.findAll('button').find(b => b.text().includes('workbench.chat.approve')).trigger('click')
+    await flushPromises()
+    expect(esInstance, 'approve 后建立 SSE').toBeTruthy()
+    esInstance.onmessage({ data: JSON.stringify({ type: 'hello', status: 'running' }) })
+    esInstance.onmessage({ data: JSON.stringify({ type: 'snapshot', content: '续跑已产出的内容', trace: [], steps: 2 }) })
+    await flushPromises()
+    const html = w.html()
+    expect(html).toContain('续跑已产出的内容', '续跑内容必须可见(修复前被丢弃)')
+    expect(html.match(/第一答\(完整\)/g)?.length).toBe(1, '上一轮答案不被 snapshot 覆写/复制')
+  } finally { vi.unstubAllGlobals() }
+})
+
+test('首轮 paused 对话打开:重建后存在 in-flight turn(审批不孤零零悬空)', async () => {
+  api.conversations.get.mockReset() // 同上:隔离 once 队列
+  api.conversations.get.mockResolvedValueOnce({
+    id: 'conv-pa2', status: 'paused', content: '', trace: '[]', steps: 1, recap: '',
+    pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }),
+    messages: [{ role: 'user', content: '唯一的问题' }],
+  })
+  const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa2' }, global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w.html()).toContain('唯一的问题')
+  // 修复前:无任何 assistant turn → 审批弹着但正文区"空转";修复后有 pending_approval 占位
+  expect(w.html()).toContain('pending_actions', 'paused 分支会把该占位 turn 置 pending_approval 渲染')
+})

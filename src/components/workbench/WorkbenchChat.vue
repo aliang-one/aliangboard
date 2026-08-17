@@ -317,9 +317,11 @@ async function pollOnce(id) {
             turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), trace: tryParseTrace(m.trace), steps: 0 })
           }
         }
-        // running 且末条非 assistant-thinking:补 thinking turn(如页面刷新续接运行中对话)。
+        // running/paused 且末条非 assistant-thinking:补 thinking turn(页面刷新续接运行中对话;
+        // 或悬浮 Modal 打开待审批对话——paused 不补的话,审批弹着但正文无 in-flight turn,
+        // approve 后 SSE 的 agentTurn 兜底到上一轮 done turn → snapshot 覆写旧答案,首轮则全丢弃)。
         const last = turns.value[turns.value.length - 1]
-        if (conv.status === 'running' && !(last && last.role === 'assistant' && last.status === 'thinking')) {
+        if ((conv.status === 'running' || conv.status === 'paused') && !(last && last.role === 'assistant' && last.status === 'thinking')) {
           turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
         }
       } else {
