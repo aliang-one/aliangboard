@@ -5,7 +5,7 @@ import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
-  truncateAfterLastUser, regenWatermark, listActiveConversations,
+  truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
 } from '../workbench-projects.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
@@ -153,11 +153,13 @@ export function createWorkbenchConvRoutes(deps) {
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '重新生成失败' }); return true }
     }
 
-    // GET /api/workbench/conversations/active — 悬浮入口原料:跨项目活跃对话(running/paused + 24h 内终态)。
+    // GET /api/workbench/conversations/active — 悬浮入口原料:近期动态模型(running/paused 永在 +
+    // 终态窗口内有动态,Top-N;窗口/条数由 presence.* 配置驱动,2026-08-17)。
     // 必须放在 GET /:id 之前:/[^/]+$/ 同样匹配 'active',放后面会被当 :id 查 → 404。
     if (url.pathname === '/api/workbench/conversations/active' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
-      sendJson(res, 200, { conversations: listActiveConversations(db) })
+      const cfg = getPresenceConfig(db)
+      sendJson(res, 200, { conversations: listActiveConversations(db, { windowMs: cfg.windowMs, cap: cfg.maxItems }) })
       return true
     }
 
