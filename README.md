@@ -65,7 +65,13 @@ Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript
 
 ## 📸 Screenshots
 
-<!-- TODO: add 2–4 screenshots (login page / resource list / exec terminal / Agent workbench), store them under docs/ or the repo root, and embed them here. -->
+**Namespace Overview** — layered topology of a namespace (monitoring / business / database / storage layers) with health at a glance:
+
+![Namespace Overview](screenshots/screen1.png)
+
+**Workload Overview** — a single workload at a glance: replicas, ready pods, image, events, CPU / memory and containers:
+
+![Workload Overview](screenshots/screen2.png)
 
 ## 🚀 Quick Start
 
