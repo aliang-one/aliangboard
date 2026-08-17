@@ -7,6 +7,7 @@
 [![Node](https://img.shields.io/badge/node-25%2B-339933)](https://nodejs.org)
 [![Vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![Live Demo](https://img.shields.io/badge/live-demo-brightgreen)](https://demo-aliangboard.aliang.one/)
 
 > Open-source, AI-native Kubernetes management panel — natural-language
 > operations on top of full multi-cluster management.
@@ -66,6 +67,12 @@ Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript
 ## 📸 Screenshots
 
 <!-- TODO: add 2–4 screenshots (login page / resource list / exec terminal / Agent workbench), store them under docs/ or the repo root, and embed them here. -->
+
+## 🌐 Live Demo
+
+Want to try AliangBoard before installing it? A live demo is running at **<https://demo-aliangboard.aliang.one>** — sign in with username `admin` and password `admin123`.
+
+> The demo is a public, shared instance: anything you create or change is visible to other visitors, so please do not put anything sensitive on it.
 
 ## 🚀 Quick Start
 

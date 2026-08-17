@@ -7,6 +7,7 @@
 [![Node](https://img.shields.io/badge/node-25%2B-339933)](https://nodejs.org)
 [![Vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![Live Demo](https://img.shields.io/badge/live-demo-brightgreen)](https://demo-aliangboard.aliang.one/)
 
 > 开源的 AI 原生 Kubernetes 管理面板——在完整的多集群管理之上,用自然语言操作集群。
 
@@ -65,6 +66,12 @@ AliangBoard 把大模型变成集群里的操作员:通过内置的 **Agent 工�
 ## 📸 截图
 
 <!-- TODO: 补充 2–4 张截图(登录页 / 资源列表 / exec 终端 / Agent 工作台),存放到 docs/ 或仓库根目录后嵌入此处。 -->
+
+## 🌐 在线体验
+
+安装前想先试试?这里有一个在线 demo:**<https://demo-aliangboard.aliang.one>**——用户名 `admin`,密码 `admin123`。
+
+> 该 demo 为公开共享实例:你创建或修改的内容对其他访客可见,请勿在上面放置任何敏感信息。
 
 ## 🚀 快速开始
 
