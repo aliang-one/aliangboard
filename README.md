@@ -31,7 +31,7 @@ Tech stack in one line: a Vue 3 + Vite + Pinia frontend (plain JS, no TypeScript
 
 ### 🗂 Full Resource Lifecycle
 
-- 30+ resource types synced; structured creation forms (19 kinds) persisted via Server-Side Apply
+- 30+ resource types synced; structured creation forms (20 built-in kinds) persisted via Server-Side Apply
 - YAML editing / export; optimistic delete with rollback on failure; apply multi-document YAML in one shot
 - Resource coverage table (see below)
 
