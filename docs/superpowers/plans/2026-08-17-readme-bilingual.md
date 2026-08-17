@@ -57,7 +57,7 @@ transparent K8s API gateway(zero extra runtime dependencies)。
 - Bearer Token / Basic Auth 连接验证、会话恢复、退出登录
 - 集群持久化、一键切换/移除
 ### 🗂 Full Resource Lifecycle
-- 30+ 资源类型同步;结构化创建表单(19 种)经 Server-Side Apply 落库
+- 30+ 资源类型同步;结构化创建表单(20 种,ConfigMap/Secret/PVC/PV/StorageClass/Ingress/Service/IngressClass/RuntimeClass/PriorityClass/NetworkPolicy/HPA/ResourceQuota/LimitRange/Role/ServiceAccount/RoleBinding/ClusterRoleBinding/PDB/Namespace)经 Server-Side Apply 落库
 - YAML 编辑/导出;乐观删除+失败回滚;多文档 YAML 一次应用
 - 资源覆盖表(见下)
 ### 🖥 Pod Deep Operations
@@ -114,7 +114,7 @@ transparent K8s API gateway(zero extra runtime dependencies)。
 - 历史镜像由 cleanup workflow 自动清理
 - 当前已发布:v1.0.3
 
-## ⚠️ Known Limitations(旧「当前边界」7 条直译)
+## ⚠️ Known Limitations(旧「当前边界」8 条直译)
 
 ## 🛠 Tech Stack(前端/后端/测试/打包四行直译)
 
@@ -193,7 +193,7 @@ git commit -m "docs(readme): 中文镜像 README.zh-CN.md——与英文版同�
   - CI/发布描述与 `.github/workflows/docker.yml` 一致
   - Features 无重复条目;覆盖表覆盖旧列表全部资源(28 kind + CRD/CR)
   - Quick Start 在 AI 章节之前
-  - 旧 README 事实性内容(两张 env 表 / RBAC 建议 / 边界 7 条 / 容器变量表)无丢失
+  - 旧 README 事实性内容(两张 env 表 / RBAC 建议 / 边界 8 条 / 容器变量表)无丢失
   - 截图为注释占位,未引用不存在文件
 
 - [ ] **Step 2: 跑测试基线确认零误伤**
