@@ -228,7 +228,7 @@ Container variables (they override the backend variables of the same name):
   - `ghcr.io/aliang-one/aliangboard:1.2.3` — immutable semver pin, for exact version lock
   - `ghcr.io/aliang-one/aliangboard:1.2` — rolls with each minor release
 - Multi-platform `linux/amd64` + `linux/arm64`; authentication uses the built-in `GITHUB_TOKEN`, no extra secrets required
-- Historical images are pruned automatically by the cleanup workflow
+- Historical images can be pruned via the manual cleanup workflow (`.github/workflows/cleanup-ghcr.yml`, dry-run by default)
 - Current release: `v1.0.3`
 
 ## ⚠️ Known Limitations

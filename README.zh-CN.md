@@ -227,7 +227,7 @@ API 网关默认把集群凭据与会话保存在内存中,重启后所有登录
   - `ghcr.io/aliang-one/aliangboard:1.2.3`——不可变 semver 精确锁定
   - `ghcr.io/aliang-one/aliangboard:1.2`——随每次 minor 发布滚动更新
 - 多平台 `linux/amd64` + `linux/arm64`;认证使用内置 `GITHUB_TOKEN`,无需额外 secrets
-- 历史镜像由 cleanup 工作流自动清理
+- 历史镜像可经手动 cleanup 工作流(`.github/workflows/cleanup-ghcr.yml`,默认 dry-run)清理
 - 当前发布版本:`v1.0.3`
 
 ## ⚠️ 已知限制
