@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -65,19 +66,25 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 // 服务端状态归 Vue Query：workloads/pods 两查询，与列表页/WorkloadDetail 同源缓存。
 // Plan 3 移除 hydrateCoreResources 后 store.workloadList/podList 在远端为空，
 // workload/managedPods/configRefs 直读 store → 整页空白；改读 query.data。
+// 部署感知自适应轮询(与 NamespaceOverview 同一状态机):本 workload 变更进行中
+// (滚动/扩缩/刚 apply)→ 两查询 3s;收敛 +10s 保持后回 30s,高频 5min 封顶防抖。
+// refetchInterval 直传 ref:变化即时重排定时器(闭包形式滞后一个旧周期)。
+const pollInterval = ref(SLOW_MS)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: pollInterval },
 })
 const podsQuery = useResourceList({
   key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: pollInterval },
 })
 const workload = computed(() => (workloadsQuery.data.value || []).find(
   w => w.name === route.params.name && w.namespace === route.params.namespace
 ))
+const { fastMode } = useDeployFastPoll(() => (workload.value?.raw ? [workload.value.raw] : []))
+watch(fastMode, f => { pollInterval.value = f ? FAST_MS : SLOW_MS }, { immediate: true })
 // 受管 Pod：复刻 store.getWorkloadPods 的选择器逻辑（selector.matchLabels → template labels.app
 // → workload labels.app → 名称前缀），数据源改为 podsQuery.data（远端不再依赖 store.podList）。
 const managedPods = computed(() => {
