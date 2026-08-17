@@ -9,7 +9,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi } from '@/api/client'
 import {
-  visibleConversations, presenceState, markRead, pruneReadAt, loadReadAt,
+  visibleConversations, presenceState, markRead, pruneReadAt, loadReadAt, hasUpdate,
 } from '@/logic/chatPresence'
 import { relTime } from '@/logic/relTime'
 
@@ -93,6 +93,8 @@ onUnmounted(() => {
           : c.status === 'done' ? 'check_circle'
           : 'progress_activity'
         }}</span>
+        <span v-if="hasUpdate(c, readAt)" data-testid="update-dot"
+          class="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mt-2" :title="t('workbench.presence.updateDot')"></span>
         <span class="min-w-0 flex-1">
           <span class="block text-body-sm truncate">{{ c.title || c.projectName }}</span>
           <span class="block text-body-xs text-on-surface-variant">{{ c.projectName }} · {{ relTime(c.updatedAt, t) }}</span>
@@ -111,8 +113,8 @@ onUnmounted(() => {
     </button>
   </div>
   <!-- 与按钮壳平级(评审修复 Critical-1):①布局——居中大弹层本就不该栖身按钮的 fixed 定位壳;
-      ②行为——点击未读终态(openConv 同步 markRead)或 Modal 开着对话跑完(下一轮 poll markRead)
-      都会使 presence.show=false 收掉按钮壳,打开中的 Modal 不得被连带卸载,仅由 selected 控制。
+      ②行为——近期动态模型下条目常驻,但 Modal 仍只许由 selected 控制挂载/卸载,
+      不得被按钮壳(空列表/failCount 隐藏)连带卸载。
       关闭即卸载(v-if selected)→ WorkbenchChat 的 SSE 随之断流;服务端 detached 继续跑 -->
   <ChatModal v-if="selected" :model-value="true" :conversation="selected"
     @update:model-value="v => { if (!v) selected = null }" />

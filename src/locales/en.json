@@ -2828,7 +2828,8 @@
       "expandChat": "Expand AI chat"
     },
     "presence": {
-      "title": "AI Chat"
+      "title": "AI Chat",
+      "updateDot": "New activity"
     },
     "chat": {
       "hintReadLedger": "Show me what files are in the current cluster ledger",

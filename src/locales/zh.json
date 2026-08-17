@@ -2828,7 +2828,8 @@
       "expandChat": "展开 AI 助手"
     },
     "presence": {
-      "title": "AI 对话"
+      "title": "AI 对话",
+      "updateDot": "有新动态"
     },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",
