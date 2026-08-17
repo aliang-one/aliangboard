@@ -19,8 +19,20 @@ export function createWorkbenchConvRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe, busSnapshot,
+    busSubscribe, busUnsubscribe, busSnapshot, busDispose,
   } = deps
+
+  // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
+  // 迟到审批(done/failed 后)与双击并发都挡在门外;命中即置 running,
+  // resumeConversation 内部的再次置 running 幂等无害。
+  function claimPausedForResume(db_, id) {
+    const conv = getConversation(db_, id)
+    if (!conv) return { ok: false, status: 404, message: '对话不存在' }
+    if (conv.status !== 'paused') return { ok: false, status: 400, message: '对话不在待审批状态' }
+    const changes = db_.prepare("UPDATE workbench_conversations SET status='running', updatedAt=? WHERE id=? AND status='paused'").run(Date.now(), id).changes
+    if (changes === 0) return { ok: false, status: 400, message: '对话不在待审批状态(并发审批已被处理)' }
+    return { ok: true }
+  }
 
   async function buildRefsContext(project, references) {
     if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
@@ -90,6 +102,11 @@ export function createWorkbenchConvRoutes(deps) {
         const input = await readBody(req)
         const conv = getConversation(db, id)
         if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+        // P0 守卫(D):运行中/待审批拒绝续接——detached run 无互斥,并发双 run 会交错写
+        // trace/检查点/messages(多标签页或直接 API 调用都能绕过前端 sending 守卫)。
+        if (conv.status === 'running' || conv.status === 'paused') {
+          sendJson(res, 400, { message: '对话运行中/待审批,不能续接' }); return true
+        }
         const project = getProject(db, conv.projectId)
         if (!project) { sendJson(res, 404, { message: '项目不存在' }); return true }
         if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问' }); return true }
@@ -116,8 +133,10 @@ export function createWorkbenchConvRoutes(deps) {
             if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) }
           }
         }
-        // 4) 标记 running → 后台跑 → 异步摘要(失败忽略)
-        updateConversation(db, id, { status: 'running', references: mergedRefs })
+        // 4) 标记 running + 复位上轮运行态字段(A)→ 后台跑 → 异步摘要(失败忽略)。
+        //    content/trace/steps/pendingApproval 不复位的话:上轮答案残留会让启动抢救
+        //    (salvageInterrupted)在本轮中断时把上轮答案补录成"新消息"(跨轮污染)。
+        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', trace: '[]', steps: 0, pendingApproval: null })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
@@ -188,12 +207,26 @@ export function createWorkbenchConvRoutes(deps) {
       const id = url.pathname.split('/')[4]
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      // P0(F):运行中先取消(cancelled 守卫让 in-flight run 的结果不再回写已删对话,
+      // 避免 appendTrace 抛错 → salvagePartial 给已删对话落孤儿 assistant 行);再 dispose
+      // bus 让挂在 SSE 上的客户端收到终结,而不是靠 keepalive 干等。
+      if (conv.status === 'running' || conv.status === 'paused') wbAgent.cancelConversation(id)
+      busDispose?.(id)
       if (conv.projectId) {
         const proj = getProject(db, conv.projectId)
         if (proj?.activeConversationId === id) setActiveConversation(db, conv.projectId, null)
       }
-      db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(id)
-      db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(id)
+      // P0(F):两条 DELETE 包事务——中途失败整体回滚,不再产生"messages 没了 conv 还在"
+      // 或反向的半删状态。
+      try {
+        db.exec('BEGIN')
+        db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(id)
+        db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(id)
+        db.exec('COMMIT')
+      } catch (e) {
+        try { db.exec('ROLLBACK') } catch { /* 已回滚 */ }
+        sendJson(res, 500, { message: e?.message || '删除失败' }); return true
+      }
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -275,8 +308,10 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/approve$/) && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
-      const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      // P0(E):仅 paused 可审批。迟到审批(done/failed 后)此前会让 resume 的
+      // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
+      const cas = claimPausedForResume(db, id)
+      if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
@@ -289,8 +324,8 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
-      const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      const cas = claimPausedForResume(db, id)
+      if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })

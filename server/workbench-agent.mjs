@@ -150,7 +150,10 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
-      const pending = JSON.parse(conv.pendingApproval)
+      const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
+      // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
+      // 以免把终态改写成 failed 吞掉已完成答案)。
+      if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
       tracker = trackPartial(convId)
       const out = await run({
         resume: {

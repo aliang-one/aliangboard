@@ -50,6 +50,7 @@ function makeHarness() {
 test('续接 @-ref:content 干净落库(不烤 refsCtx),refs 仍带完整资源', async () => {
   const h = makeHarness()
   const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id) // P0(D)守卫:续接须非运行态
   h.setBody({ message: '这个 pod 怎么了', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`), '路由命中')
 
@@ -66,6 +67,7 @@ test('续接 @-ref:content 干净落库(不烤 refsCtx),refs 仍带完整资源'
 test('续接 @-ref:新 refs 并入对话级 references(refreshSystem 每轮注入 system)', async () => {
   const h = makeHarness()
   const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id) // P0(D)守卫:续接须非运行态
   h.setBody({ message: '再看这个', references: [
     { kind: 'pods', namespace: 'default', name: 'nginx' },      // 重复引用 → 去重
     { kind: 'deployments', namespace: 'default', name: 'api' }, // 新引用 → 追加
@@ -82,6 +84,7 @@ test('续接 @-ref:新 refs 并入对话级 references(refreshSystem 每轮注�
 test('续接无 @-ref:references 保持原值,content 不动', async () => {
   const h = makeHarness()
   const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id) // P0(D)守卫:续接须非运行态
   h.setBody({ message: '继续' })
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
   const row = getConversation(h.db, conv.id)
@@ -148,4 +151,91 @@ test('重命名不 bump updatedAt(元数据编辑≠新动态)', async () => {
   const after = getConversation(h.db, conv.id)
   assert.equal(after.title, '新标题')
   assert.equal(after.updatedAt, before, '重命名不动 updatedAt')
+})
+
+// ── P0 生命周期守卫(2026-08-17 审计):双轨分叉同族——detached run 无互斥、终态可被迟到操作改写 ──
+
+test('A: 续接消息复位运行态字段——上一轮 content/trace/steps/pendingApproval 不残留(防 salvage 跨轮污染)', async () => {
+  const h = makeHarness()
+  // 模拟上一轮 done:content 有完整答案 + pendingApproval 残留
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done', content='上一轮完整答案', trace='[{\"type\":\"tool\"}]', steps=3, pendingApproval='{\"toolCallId\":\"t\"}' WHERE id=?").run(conv.id)
+  h.setBody({ message: '追问' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.content, '', 'content 复位')
+  assert.equal(row.trace, '[]', 'trace 复位')
+  assert.equal(row.steps, 0, 'steps 复位')
+  assert.equal(row.pendingApproval, null, 'pendingApproval 清空')
+})
+
+test('D: 运行中对话拒绝续接(409 语义 400)——防并发双 run 互踩', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' }) // status=running
+  h.setBody({ message: '再发一条' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
+  assert.equal(h.sent.at(-1).status, 400)
+  assert.match(h.sent.at(-1).json.message, /运行中/)
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 0, '未追加消息(createConversation 只建行,拒接后零消息)')
+})
+
+test('E1: 非 paused 对话拒绝审批——迟到审批不再把终态改写成 failed', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done', content='x' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/approve`))
+  assert.equal(h.sent.at(-1).status, 400)
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.status, 'done', '终态不被改写')
+  assert.equal(row.content, 'x')
+})
+
+test('E2: paused 双击 approve——第二次被 CAS 挡住,只 resume 一次', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval='{\"toolCallId\":\"t\",\"name\":\"wb_scale\",\"args\":{}}', messages='[]', queue='[]', denied='[]' WHERE id=?").run(conv.id)
+  let resumed = 0
+  // makeHarness 的 wbAgent 是固定桩;这里重建 routes 用计数桩
+  const sent2 = []
+  const routes2 = createWorkbenchConvRoutes({
+    db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: () => {}, resumeConversation: () => { resumed++ }, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}), requestKubernetes: async () => ({}),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
+  })
+  const call2 = (m, p) => routes2.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`))
+  assert.ok(await call2('POST', `/api/workbench/conversations/${conv.id}/approve`))
+  assert.equal(sent2.at(-1).status, 200, '第一次通过')
+  assert.ok(await call2('POST', `/api/workbench/conversations/${conv.id}/approve`))
+  assert.equal(sent2.at(-1).status, 400, '第二次被 CAS 拒')
+  assert.equal(resumed, 1, '只 resume 一次')
+})
+
+test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bus dispose', async () => {
+  const h = makeHarness()
+  const cancelled = []
+  const disposed = []
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  const sent2 = []
+  const routes2 = createWorkbenchConvRoutes({
+    db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: () => {}, resumeConversation: () => {}, cancelConversation: id => { cancelled.push(id); h.db.prepare("UPDATE workbench_conversations SET status='cancelled' WHERE id=?").run(id); return { ok: true } } },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}), requestKubernetes: async () => ({}),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: id => disposed.push(id),
+  })
+  const call2 = (m, p) => routes2.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`))
+  assert.ok(await call2('DELETE', `/api/workbench/conversations/${conv.id}`))
+  assert.equal(sent2.at(-1).status, 200)
+  assert.deepEqual(cancelled, [conv.id], '运行中先取消(结果不回写)')
+  assert.deepEqual(disposed, [conv.id], 'bus dispose(SSE 收到终结)')
+  assert.equal(getConversation(h.db, conv.id), null, '对话已删')
+  assert.equal(listMessages(h.db, conv.id).length, 0, '消息无孤儿行')
 })

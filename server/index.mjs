@@ -1424,7 +1424,7 @@ async function handle(req, res) {
   const convRoutes = createWorkbenchConvRoutes({
     db, sendJson, readBody, requireAdmin, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe, busSnapshot,
+    busSubscribe, busUnsubscribe, busSnapshot, busDispose,
   })
   // SP3: 工作台对话端点 dispatcher(7 端点抽到 routes/workbench-conversations.mjs)。命中即 return。
   // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。
