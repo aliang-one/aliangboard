@@ -144,3 +144,13 @@ test('reasoning 事件拼接到 reasoning;snapshot 恢复;终态保留', () => {
   s = applyStreamEvent(s, { type: 'status', status: 'done' })
   expect(s.reasoning).toBe('服务端快照推理', '终态不清 reasoning(折叠区可回看)')
 })
+
+test('status failed 事件:error 含 HTML(上游网关错误体)时净化为单行文本', () => {
+  const s = applyStreamEvent(fresh(), {
+    type: 'status', status: 'failed',
+    error: 'LLM HTTP 502: <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n</html>',
+  })
+  expect(s.status).toBe('error')
+  expect(s.error).not.toContain('<')
+  expect(s.error).toContain('502 Bad Gateway')
+})

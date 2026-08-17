@@ -12,6 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import { applyStreamEvent } from './conv-stream'
+import { sanitizeChatError } from '@/logic/chatErrors'
 import { isNearBottomCalc } from '@/logic/chatScroll'
 import { getDraft, setDraft } from '@/logic/chatDrafts'
 
@@ -365,8 +366,10 @@ async function pollOnce(id) {
     } else if (conv.status === 'failed') {
       stopPolling()
       stopWatchdog()
-      errorBanner.value = conv.error || t('workbench.chat.agentFailed')
-      if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: conv.error || t('workbench.chat.agentFailed') })
+      // 落库 error 可能是上游网关整页 HTML(如 nginx 502)——显示前净化,原文留在库里供诊断
+      const errMsg = sanitizeChatError(conv.error) || t('workbench.chat.agentFailed')
+      errorBanner.value = errMsg
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: errMsg })
       sending.value = false
     }
   } catch {
