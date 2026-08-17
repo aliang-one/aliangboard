@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -132,4 +132,49 @@ test('buildHistory: recap 在前 + summarizedUpTo 之后的全文消息', () => 
   assert.equal(h[0].role, 'system'); assert.match(h[0].content, /老对话摘要/)
   assert.equal(h[1].role, 'user'); assert.equal(h[1].content, 'new-q')  // 只剩 seq3 全文
   assert.equal(h.length, 2)
+})
+
+// 启动抢救(2026-08-17 意外中断内容保全):网关重启时 running→failed,若流式检查点已写了
+// conv.content 而末条消息不是 assistant(中断轮答案从未 append),补录为 assistant 消息——
+// 否则重开对话时用户看着流出来的答案蒸发。
+test('salvageInterrupted:有检查点内容且末条非 assistant → 补录;空内容/已录过 → 不动', () => {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  createProject(db, { name: 'p', clusterId: 'c1', ownerId: 'u1' })
+  const proj = db.prepare("SELECT id FROM workbench_projects WHERE name='p'").get()
+
+  // 场景1:running + content 检查点 + 只有 user 消息 → failed + 补录 assistant
+  const c1 = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q' })
+  appendMessage(db, { conversationId: c1.id, role: 'user', content: 'q' })
+  updateConversation(db, c1.id, { content: '检查点救回的部分答案' })
+  const salvaged = salvageInterrupted(db)
+  const row1 = getConversation(db, c1.id)
+  assert.equal(row1.status, 'failed', '标记失败')
+  assert.match(row1.error, /Server restarted/)
+  const msgs1 = listMessages(db, c1.id)
+  assert.equal(msgs1.at(-1).role, 'assistant')
+  assert.equal(msgs1.at(-1).content, '检查点救回的部分答案')
+  assert.equal(salvaged, 1)
+
+  // 场景2:running + 无 content(还没流出来就死了)→ 只标失败,不补录
+  const c2 = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q2' })
+  appendMessage(db, { conversationId: c2.id, role: 'user', content: 'q2' })
+  salvageInterrupted(db)
+  assert.equal(listMessages(db, c2.id).length, 1, '无内容不补录')
+
+  // 场景3:末条已是同内容 assistant(done 轮次遗留)→ 不重复补录
+  const c3 = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q3' })
+  appendMessage(db, { conversationId: c3.id, role: 'user', content: 'q3' })
+  updateConversation(db, c3.id, { content: '完整答案' })
+  appendMessage(db, { conversationId: c3.id, role: 'assistant', content: '完整答案' })
+  salvageInterrupted(db)
+  assert.equal(listMessages(db, c3.id).length, 2, '已录过不重复')
+
+  // 场景4:非 running 不碰
+  const c4 = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q4' })
+  updateConversation(db, c4.id, { status: 'done', content: 'x' })
+  const before4 = listMessages(db, c4.id).length
+  salvageInterrupted(db)
+  assert.equal(getConversation(db, c4.id).status, 'done')
+  assert.equal(listMessages(db, c4.id).length, before4)
 })

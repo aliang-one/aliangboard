@@ -208,3 +208,63 @@ test('取消后 agent 结果被丢弃:run 期间用户 cancel → 落库前守�
   const msgs = db.prepare('SELECT count(*) c FROM workbench_messages WHERE conversationId=?').get(conv.id).c
   assert.equal(msgs, 1, '只保留原 user 消息,assistant 不追加')
 })
+
+// ── 意外中断内容保全(2026-08-17):用户看着流出来的答案在中断后不许蒸发 ──
+// 根因:onDelta 只推 SSE 不落库,assistant 消息只在 done 追加,失败 catch 只写 status/error
+// → 中断后从 workbench_messages 重建,答案消失。三层防御:catch 落部分内容/流式检查点/启动抢救。
+
+test('runConversation 失败:已流出的部分内容落库为 assistant 消息(content+messages)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('这是已经流出来的')
+    opts.onDelta('部分答案')
+    throw new Error('LLM HTTP 502: boom')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed')
+  assert.match(row.error, /502/)
+  assert.equal(row.content, '这是已经流出来的部分答案', '部分内容保留在 conv.content')
+  const msgs = db.prepare("SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq").all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant', '部分答案落为 assistant 消息')
+  assert.equal(msgs.at(-1).content, '这是已经流出来的部分答案', '重开对话可见,不再蒸发')
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'))
+})
+
+test('runConversation 流式中途按 200 字符检查点写 content(进程硬死也有数据可救)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  let midRunContent = null
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('x'.repeat(150)) // 未达阈值
+    let mid1 = getConversation(db, conv.id).content
+    opts.onDelta('y'.repeat(60))  // 累计 210 ≥ 200 → 检查点
+    midRunContent = [mid1, getConversation(db, conv.id).content]
+    return new Promise(() => {}) // 永不结束 = 模拟进程死亡前的运行态
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 20))
+  assert.equal(midRunContent[0], null, '未达 200 字符不写库(防写放大)')
+  assert.equal(midRunContent[1].length, 210, '达到阈值即检查点,run 进行中 content 已可救')
+})
+
+test('resumeConversation 失败:同样保全部分内容(审批续跑路径对称)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, {
+    status: 'paused', messages: '[]', queue: '[]', denied: '[]',
+    pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }),
+  })
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('续跑已产出')
+    throw new Error('upstream dead')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed')
+  assert.equal(row.content, '续跑已产出')
+  const msgs = db.prepare("SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq").all(conv.id)
+  assert.equal(msgs.at(-1).content, '续跑已产出')
+})

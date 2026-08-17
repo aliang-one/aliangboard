@@ -49,6 +49,32 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
   // 新建对话首条 user 消息由 POST /conversations 在 createConversation 前 append;
   // 续接对话新 user 消息由 POST /:id/messages append。runConversation 只读不写消息。
   // 对话终态 → bus 事件序列(pending_approval → paused 不 dispose;done → dispose)。T7。
+
+  // 意外中断内容保全(2026-08-17):onDelta 原来只推 SSE 不落库,assistant 消息只在 done 追加,
+  // 失败/进程死亡后用户看着流出来的答案会蒸发(重开从 messages 重建,只剩提问)。
+  // 三层防御:①每 200 字符把累计内容检查点写 conv.content(进程硬死也有数据可救,阈值防写放大)
+  // ②失败 catch 把部分内容落成 assistant 消息 ③启动 salvageInterrupted 抢救检查点(workbench-projects)。
+  function trackPartial(convId) {
+    let partial = ''
+    let ckAt = 0
+    return {
+      onDelta: text => {
+        partial += text
+        if (partial.length - ckAt >= 200) { ckAt = partial.length; updateConversation(db, convId, { content: partial }) }
+        busEmit(convId, { type: 'delta', text })
+      },
+      partial: () => partial,
+    }
+  }
+  function salvagePartial(convId, err, partial) {
+    if (partial) {
+      updateConversation(db, convId, { status: 'failed', error: err.message, content: partial })
+      const trace = getConversation(db, convId)?.trace
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, trace })
+    } else {
+      updateConversation(db, convId, { status: 'failed', error: err.message })
+    }
+  }
   function finalizeConvEmit(convId, out) {
     const { events, dispose } = eventsForResult(out)
     for (const evt of events) busEmit(convId, evt)
@@ -58,6 +84,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
   // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
   async function runConversation(convId, llmClient, actor) {
+    let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -76,11 +103,12 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
+      tracker = trackPartial(convId)
       const out = await run({
         system: conv.system,
         history,
         refreshSystem,
-        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onDelta: tracker.onDelta,
         onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
@@ -93,7 +121,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       handleAgentResult(convId, project, out)
       finalizeConvEmit(convId, out)
     } catch (err) {
-      updateConversation(db, convId, { status: 'failed', error: err.message })
+      salvagePartial(convId, err, tracker ? tracker.partial() : '')
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -103,6 +131,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
   // resume from paused。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus,与 runConversation 对称。
   async function resumeConversation(convId, approved, llmClient, actor) {
+    let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -122,6 +151,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const pending = JSON.parse(conv.pendingApproval)
+      tracker = trackPartial(convId)
       const out = await run({
         resume: {
           messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
@@ -129,7 +159,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
           toolCallId: pending.toolCallId, approved,
         },
         refreshSystem,
-        onDelta: text => busEmit(convId, { type: 'delta', text }),
+        onDelta: tracker.onDelta,
         onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
@@ -142,7 +172,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       handleAgentResult(convId, project, out)
       finalizeConvEmit(convId, out)
     } catch (err) {
-      updateConversation(db, convId, { status: 'failed', error: err.message })
+      salvagePartial(convId, err, tracker ? tracker.partial() : '')
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)

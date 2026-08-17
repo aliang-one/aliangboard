@@ -241,6 +241,25 @@ export function truncateAfterLastUser(db, conversationId) {
   return { removed, lastUserSeq: lastUser.seq }
 }
 
+// 启动抢救(2026-08-17 意外中断内容保全):上次运行中的对话标记 failed('Server restarted');
+// 若流式检查点已写过 conv.content 而末条消息不是该内容(中断轮的答案从未 append),补录为
+// assistant 消息——否则重开对话时,用户亲眼看着流出来的答案会"蒸发"(重建只吃 messages)。
+// 返回补录条数。
+export function salvageInterrupted(db, { now = Date.now() } = {}) {
+  const running = db.prepare("SELECT id, content, trace FROM workbench_conversations WHERE status='running'").all()
+  let salvaged = 0
+  for (const c of running) {
+    const msgs = listMessages(db, c.id)
+    const last = msgs[msgs.length - 1]
+    if (c.content && !(last && last.role === 'assistant' && last.content === c.content)) {
+      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content, trace: c.trace || null })
+      salvaged++
+    }
+    db.prepare("UPDATE workbench_conversations SET status='failed', error='Server restarted', updatedAt=? WHERE id=?").run(now, c.id)
+  }
+  return salvaged
+}
+
 // regenerate 后的摘要水位钳制(dev29 风险修复):appendMessage 的 seq 取"现存最大+1",
 // truncate 删除后新回复会复用被删 seq。若 summarizedUpTo ≥ lastUserSeq,buildHistory 会把
 // 原问题(seq ≤ upTo)当"已进 recap"跳过 → 重答只靠摘要、偏题。钳到 lastUserSeq-1,
