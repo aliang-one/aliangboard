@@ -188,10 +188,10 @@ function confirmDelete(svc) {
   showDeleteModal.value = true
 }
 async function handleDelete() {
-  if (deleteTarget.value) {
-    await store.deleteService(deleteTarget.value.name, route.params.namespace)
-    queryClient.invalidateQueries({ queryKey: servicesKey })
-  }
+  if (!deleteTarget.value) return
+  const r = await store.deleteService(deleteTarget.value.name, route.params.namespace)
+  if (!r?.ok) return // 删除失败(如 SA 无权限 403):store 已 toast;确认框保留,不当作已删
+  queryClient.invalidateQueries({ queryKey: servicesKey })
   showDeleteModal.value = false
   deleteTarget.value = null
 }

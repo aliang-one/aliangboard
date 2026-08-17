@@ -413,7 +413,8 @@ function actionItems() {
 }
 
 async function handleDelete() {
-  await store.deleteService(route.params.name, route.params.namespace)
+  const r = await store.deleteService(route.params.name, route.params.namespace)
+  if (!r?.ok) return // 删除失败(如 SA 无权限 403):store 已 toast;留在原地,不跳列表——跳了就像删成功了
   router.push({ name: 'NsServices', params: { namespace: route.params.namespace } })
 }
 
