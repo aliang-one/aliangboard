@@ -105,21 +105,25 @@ test('cluster mode: 无角板、底部仅活动+设置', () => {
   expect(w.find('[data-test="bottom-settings"]').exists()).toBe(true)
 })
 
-test('ns mode: 集群与 3 图标同块成组,dock 内 icon-only(title 提示)', () => {
+test('ns mode: 部署+集群+3 图标同在单一 dock 板块,dock 内 icon-only(title 提示)', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   const w = mountSideNavBar()
-  // 集群 hero 与 3 图标同在 .dock 块内,不单独漂浮
+  // 部署/集群 hero/3 图标同在 .dock 板块内,不单独漂浮
   const dock = w.find('[data-test="bottom-actions"] .dock')
   expect(dock.exists()).toBe(true)
+  expect(dock.find('[data-test="deploy-card"]').exists()).toBe(true)
   expect(dock.find('[data-test="cluster-slab"]').exists()).toBe(true)
   const igs = dock.findAll('.dock-ig')
-  expect(igs.length).toBe(3)
+  expect(igs.length).toBe(4)
   igs.forEach(ig => {
     expect(ig.find('.material-symbols-outlined').exists()).toBe(true)
     expect(ig.attributes('title')).toBeTruthy()
     expect(ig.find('.dock-ig__lb').exists()).toBe(false)
   })
+  // 部署横跨底行(高频入口最大点击面),设置为普通瓦片
+  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('col-span-3')
+  expect(dock.find('[data-test="deploy-card"]').text()).toContain('部署')
 })
 
 test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {
@@ -131,20 +135,20 @@ test('集群态: ns-home 内有 ns-enter(进入下层); ns 态无', () => {
   expect(mountSideNavBar().find('[data-test="ns-enter"]').exists()).toBe(false)
 })
 
-test('ns mode: 部署大卡存在且点击 → NsDeploy', async () => {
+test('ns mode: 部署入口(dock 绿瓦片)存在且点击 → NsDeploy', async () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   pushMock.mockClear()
   const w = mountSideNavBar()
   const card = w.find('[data-test="deploy-card"]')
   expect(card.exists()).toBe(true)
-  expect(card.text()).toContain('部署')
-  expect(card.text()).toContain('DEPLOY')
+  expect(card.find('.material-symbols-outlined').text()).toBe('rocket_launch')
+  expect(card.attributes('title')).toBeTruthy()
   await card.trigger('click')
   expect(pushMock).toHaveBeenCalledWith({ name: 'NsDeploy', params: { namespace: 'default' } })
 })
 
-test('cluster mode: 无部署大卡', () => {
+test('cluster mode: 无部署入口', () => {
   routeRef.meta.scope = 'global'
   routeRef.path = '/cluster'
   const w = mountSideNavBar()
