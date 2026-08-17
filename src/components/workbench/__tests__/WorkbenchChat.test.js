@@ -436,3 +436,41 @@ test('C: send 的 await 期间卸载组件——不再创建 EventSource(泄漏�
     expect(ES).not.toHaveBeenCalled()
   } finally { vi.unstubAllGlobals() }
 })
+
+// I(2026-08-17 审计):SSE 重连后服务端 replay 旧 approval 事件——已 deny 的审批会重弹,
+// 再点 approve 语义混乱。修复:组件内记已决策 toolCallId,replay 跳过;新审批照常弹。
+// 同时覆盖 pollOnce paused 双源到达路径(轮询重放同 id 也不弹)。
+test('I: 已决策审批的重放不重弹;新 toolCallId 照常弹', async () => {
+  let esInstance = null
+  class FakeEventSource {
+    constructor(url) { this.url = url; this.onmessage = null; this.onerror = null; esInstance = this }
+    close() { this.closed = true }
+  }
+  vi.stubGlobal('EventSource', FakeEventSource)
+  vi.useFakeTimers()
+  try {
+    const pausedT1 = { id: 'conv-ap', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+      pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }) }
+    api.conversations.get.mockResolvedValueOnce(pausedT1) // 首拉:paused t1 → 弹
+    api.conversations.deny.mockResolvedValue({ status: 'running' })
+    api.conversations.get.mockResolvedValueOnce({ id: 'conv-ap', status: 'running', content: '', trace: '[]', steps: 1, recap: '', messages: [] }) // deny 后降级轮询:running
+    api.conversations.get.mockResolvedValueOnce({ ...pausedT1 }) // 轮询重放同 t1 → 不应弹
+    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-ap' }, global: { plugins: [i18n] } })
+    await vi.advanceTimersByTimeAsync(0)
+    const rejectBtn = () => w.findAll('button').find(b => b.text().includes('workbench.chat.reject'))
+    expect(rejectBtn(), 't1 首次到达弹出审批').toBeTruthy()
+    await rejectBtn().trigger('click') // deny t1
+    await vi.advanceTimersByTimeAsync(0)
+    // 轮询重放同 t1(stale paused 快照)
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(rejectBtn(), '已决策的 t1 重放不再弹').toBeFalsy()
+    // SSE replay 同 t1 也不弹
+    esInstance.onmessage({ data: JSON.stringify({ type: 'approval', pending: { toolCallId: 't1', name: 'wb_scale', args: {} } }) })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rejectBtn(), 'SSE 重放 t1 不再弹').toBeFalsy()
+    // 新审批 t2 照常弹
+    esInstance.onmessage({ data: JSON.stringify({ type: 'approval', pending: { toolCallId: 't2', name: 'wb_exec', args: {} } }) })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rejectBtn(), '新 toolCallId t2 正常弹出').toBeTruthy()
+  } finally { vi.useRealTimers(); vi.unstubAllGlobals() }
+})

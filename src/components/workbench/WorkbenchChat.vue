@@ -33,6 +33,9 @@ const errorBanner = ref('')
 const scrollEl = ref(null)
 const taEl = ref(null)
 const pendingApproval = ref(null)
+// I(2026-08-17 审计):已决策(approve/deny)的审批 id——SSE 重连/轮询重放旧审批时跳过,
+// 否则已 deny 的审批会重弹,再点 approve 语义混乱。跨组件实例不持久(服务端 CAS 兜底)。
+const decidedApprovals = new Set()
 let turnSeq = 0
 
 // --- 异步对话轮询状态 ---
@@ -357,7 +360,10 @@ async function pollOnce(id) {
       try { pa = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch { pa = null }
       if (agentTurn) updateTurn(agentTurn._id, { status: 'pending_approval', steps: conv.steps ?? agentTurn.steps })
       if (pa) {
-        pendingApproval.value = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
+        // I:重放已决策的审批(轮询侧)不重弹
+        if (!decidedApprovals.has(pa.toolCallId)) {
+          pendingApproval.value = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
+        }
       }
       sending.value = false
     } else if (conv.status === 'done') {
@@ -432,9 +438,11 @@ function startStreaming(id) {
       if (evt.status === 'running') convStatus.value = 'running'
       else if (evt.status === 'done' || evt.status === 'failed' || evt.status === 'paused') convStatus.value = evt.status
     }
-    // 审批事件:弹 modal
+    // 审批事件:弹 modal(I:SSE 重连 replay 已决策的审批不重弹)
     if (evt.type === 'approval' && evt.pending) {
-      pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
+      if (!decidedApprovals.has(evt.pending.toolCallId)) {
+        pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
+      }
     }
     // delta 事件:贴底跟随(上翻读历史不拽)
     if (evt.type === 'delta') followBottom()
@@ -573,6 +581,7 @@ async function decideApproval(approved) {
   const pa = pendingApproval.value
   if (!pa || !conversationId.value) return
   pendingApproval.value = null
+  decidedApprovals.add(pa.toolCallId) // I:决策后,该审批的重放(SSE/轮询)不再弹
   sending.value = true
   await scrollToBottom()
   try {
