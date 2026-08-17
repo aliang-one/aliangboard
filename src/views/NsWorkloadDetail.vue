@@ -13,6 +13,7 @@ import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistor
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
+import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -1093,7 +1094,7 @@ const META_LAYER_KEYS = ['aliangboard.io/layer', 'layer.aliangboard.io', 'tier']
 const META_MANAGED_KEY = 'aliangboard.io/managed-by'
 // 系统保留：永不进自定义列表、永不被删（原值保留）
 const META_SYS_LABELS = ['app', META_MANAGED_KEY, 'pod-template-hash', 'controller-revision-hash']
-const META_SYS_ANN = ['deployment.kubernetes.io/revision', 'kubectl.kubernetes.io/restartedAt', 'kubectl.kubernetes.io/last-applied-configuration', 'aliangboard.io/last-edited', 'aliangboard.io/last-action']
+// META_SYS_ANN 用共享名单(src/utils/systemMeta.js):复制 workload 反向映射同用,防两处漂移
 // 业务/分层键：由表单字段管理，从自定义列表隐藏
 // tags 现存 annotation（含逗号），但历史迁移可能残留 tags label——隐藏它，保存时一并清除（merge-patch null）
 const META_HIDDEN_LABELS = [...META_SYS_LABELS, META_CANON.owner, META_CANON.version, META_CANON.tags, ...META_LAYER_KEYS]

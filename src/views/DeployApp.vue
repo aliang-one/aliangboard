@@ -453,11 +453,11 @@ metadata:
   name: ${f.name}
   namespace: ${f.namespace}
   labels:
-${Object.entries(labels).map(([k, v]) => `    ${k}: ${v}`).join('\n')}`
+${Object.entries(labels).map(([k, v]) => `    ${k}: ${yamlScalar(v)}`).join('\n')}`
   if (Object.keys(annotations).length) {
     yaml += `
   annotations:
-${Object.entries(annotations).map(([k, v]) => `    ${k}: ${v}`).join('\n')}`
+${Object.entries(annotations).map(([k, v]) => `    ${k}: ${yamlScalar(v)}`).join('\n')}`
   }
   yaml += `
 spec:`
@@ -505,7 +505,7 @@ spec:`
   yaml += `
     metadata:
       labels:
-${Object.entries(labels).map(([k, v]) => `        ${k}: ${v}`).join('\n')}
+${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join('\n')}
     spec:`
   if (f.serviceAccountName) yaml += `\n      serviceAccountName: ${f.serviceAccountName}`
   if (f.priorityClassName) yaml += `\n      priorityClassName: ${f.priorityClassName}`
@@ -705,6 +705,13 @@ async function handleDeploy() {
   deployLoading.value = false
   if (!result.ok) {
     deployError.value = result.error || 'Deployment failed'
+    return
+  }
+  // 主工作负载失败(附属 Service/Ingress 可能已建):不是「部分成功」,是部署失败——
+  // 不弹成功面板,把失败原因呈报到表单错误区(2026-08-16:SSA 类型拒绝被成功面板掩盖)。
+  const failedMain = (result.failed || []).find(x => x.kind === f.workloadType && x.name === f.name)
+  if (failedMain) {
+    deployError.value = `${f.workloadType}/${f.name}: ${failedMain.error || t('common.applyFailed')}`
     return
   }
   showDeploySuccess.value = true

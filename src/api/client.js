@@ -293,6 +293,7 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/llm-config'),
     save: payload => platformHttp.request('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
     test: payload => platformHttp.request('/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(payload || {}) }),
+    probeReasoning: payload => platformHttp.request('/api/admin/llm-config/probe-reasoning', { method: 'POST', body: JSON.stringify(payload || {}) }),
   },
   // MCP 服务开关(Task 2):GET → {enabled};PUT ← {enabled} → {ok, enabled}
   mcpConfig: {

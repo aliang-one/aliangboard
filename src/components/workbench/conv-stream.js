@@ -1,6 +1,8 @@
 // 把 SSE 事件归约成 chat turn 状态。纯函数,无副作用,便于测试。
 // 事件类型(见 T7 SSE 端点 spec §4.1.4):hello | status | step | delta | approval | end。
 // 入参 state 是 agentTurn 当前快照;返回新 state(不可变)。
+import { sanitizeChatError } from '@/logic/chatErrors'
+
 export function applyStreamEvent(state, evt) {
   if (!evt || typeof evt !== 'object') return state
   switch (evt.type) {
@@ -44,7 +46,8 @@ export function applyStreamEvent(state, evt) {
       const clean = st => ({ ...st, trace: (st.trace || []).filter(x => x?.type !== 'tool_start') })
       if (evt.status === 'done') return clean({ ...state, status: 'done' })
       if (evt.status === 'paused') return clean({ ...state, status: 'pending_approval' })
-      if (evt.status === 'failed') return clean({ ...state, status: 'error', error: evt.error || '' })
+      // failed 的 error 可能是上游网关整页 HTML(nginx 502 等)——显示前净化
+      if (evt.status === 'failed') return clean({ ...state, status: 'error', error: sanitizeChatError(evt.error) })
       // cancelled 不在纯函数里塞文案(此模块无 i18n):error 留空,消费方(WorkbenchChat)用 t() 补
       if (evt.status === 'cancelled') return clean({ ...state, status: 'error', error: evt.error || '' })
       if (evt.status === 'running') return { ...state, status: 'thinking' }

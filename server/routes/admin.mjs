@@ -8,7 +8,7 @@ import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 export function createAdminRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin,
-    getSetting, setSetting, getLlmConfig, createLlmClient,
+    getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword,
@@ -55,6 +55,20 @@ export function createAdminRoutes(deps) {
         sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
         return true
       } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }); return true }
+    }
+    // 探测当前(或表单)配置的模型是否流式透传思考 token——工作台「思考过程」展示的前提
+    if (url.pathname === '/api/admin/llm-config/probe-reasoning' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req).catch(() => ({})) || {}
+        const saved = getLlmConfig()
+        const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 200, { ok: false, message: '先填 baseURL + model' }); return true }
+        const client = createLlmClient({ ...cfg, idleMs: 30000 })
+        const r = await probeReasoningSupport(client)
+        sendJson(res, 200, { ok: true, ...r })
+        return true
+      } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || '探测失败' }); return true }
     }
     if (url.pathname === '/api/admin/mcp-config' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
