@@ -1,66 +1,49 @@
-// 悬浮对话纯逻辑:活跃定义(running/paused + 未读终答)、徽标优先级(paused>未读>running)、
-// 已读 Map 的读写/防膨胀。时间全部注入,无 Date.now 直接断言。
+// 近期动态模型纯逻辑(2026-08-17):窗口过滤在服务端,前端只排「正在看的项目」;
+// readAt 仅驱动「新动态」徽标(点击不清条目)。时间全部注入。
 import { test, expect, beforeEach } from 'vitest'
 import {
-  isUnread, visibleConversations, presenceState,
+  hasUpdate, visibleConversations, presenceState,
   loadReadAt, markRead, pruneReadAt,
 } from '../chatPresence'
 
 const T0 = 1_700_000_000_000
-
 const conv = (over = {}) => ({ id: 'c1', projectId: 'p1', projectName: 'P1', title: null, status: 'running', updatedAt: T0, ...over })
 
 beforeEach(() => localStorage.clear())
 
-test('isUnread:仅终态可为未读;无 readAt 或 updatedAt>readAt 即未读', () => {
-  expect(isUnread(conv({ status: 'running' }), {})).toBe(false)
-  expect(isUnread(conv({ status: 'paused' }), {})).toBe(false)
-  expect(isUnread(conv({ status: 'cancelled' }), {})).toBe(false)
-  expect(isUnread(conv({ status: 'done', updatedAt: T0 }), {})).toBe(true)          // 从没读过
-  expect(isUnread(conv({ status: 'done', updatedAt: T0 }), { c1: T0 })).toBe(false) // 读到点了
-  expect(isUnread(conv({ status: 'done', updatedAt: T0 }), { c1: T0 - 1 })).toBe(true)
-  expect(isUnread(conv({ status: 'failed', updatedAt: T0 }), { c1: T0 - 1 })).toBe(true)
+test('hasUpdate:无记录=有更新;等于=无;晚于=有;任意状态(running 的新动静也算)', () => {
+  expect(hasUpdate(conv({ status: 'running', updatedAt: T0 }), {})).toBe(true)          // 没看过
+  expect(hasUpdate(conv({ updatedAt: T0 }), { c1: T0 })).toBe(false)
+  expect(hasUpdate(conv({ updatedAt: T0 + 1 }), { c1: T0 })).toBe(true)
+  expect(hasUpdate(conv({ status: 'done', updatedAt: T0 + 1 }), { c1: T0 })).toBe(true)  // 终态新动静
 })
 
-test('visibleConversations:排除正在看的项目;排除已读终态;保留其余', () => {
+test('visibleConversations:只排当前项目;已读终态不再被滤(窗口过滤在服务端)', () => {
   const convs = [
-    conv({ id: 'a', projectId: 'here', status: 'running' }),                          // 正在看的项目 → 排除
-    conv({ id: 'b', projectId: 'other', status: 'done', updatedAt: T0 }),             // 未读终态 → 保留
-    conv({ id: 'c', projectId: 'other', status: 'done', updatedAt: T0 - 5 }),         // 已读终态 → 排除
-    conv({ id: 'd', projectId: 'other', status: 'paused' }),                          // 保留
+    conv({ id: 'a', projectId: 'here', status: 'running' }),
+    conv({ id: 'b', projectId: 'other', status: 'done', updatedAt: T0 }),  // 已读终态 → 保留(新模型)
   ]
-  const readAt = { c: T0 }
-  expect(visibleConversations(convs, { currentProjectId: 'here', readAt }).map(c => c.id))
-    .toEqual(['b', 'd'])
-  // 不在任何项目页时(currentProjectId null),'a' 也保留
-  expect(visibleConversations(convs, { currentProjectId: null, readAt }).map(c => c.id))
-    .toEqual(['a', 'b', 'd'])
+  expect(visibleConversations(convs, { currentProjectId: 'here' }).map(c => c.id)).toEqual(['b'])
+  expect(visibleConversations(convs, { currentProjectId: null }).map(c => c.id)).toEqual(['a', 'b'])
 })
 
-test('presenceState:空→不显示;优先级 paused > 未读终答 > running;单个直开', () => {
+test('presenceState:空→不显示;paused > update > running;全读终态→idle', () => {
   expect(presenceState([], {})).toEqual({ show: false, level: 'none', icon: '', badgeCount: 0, directOpen: false })
-  expect(presenceState([conv({ status: 'running' })], {}))
-    .toEqual({ show: true, level: 'running', icon: 'progress_activity', badgeCount: 1, directOpen: true })
-  const doneUnread = conv({ status: 'done', updatedAt: T0 })
-  expect(presenceState([conv({ status: 'running' }), doneUnread], {}))
-    .toEqual({ show: true, level: 'unread', icon: 'smart_toy', badgeCount: 2, directOpen: false })
-  expect(presenceState([conv({ status: 'paused' }), doneUnread], {}))
+  const seen = { a: T0, c1: T0 }
+  expect(presenceState([conv({ id: 'a', status: 'paused' }), conv({ id: 'b', status: 'done', updatedAt: T0 })], seen))
     .toEqual({ show: true, level: 'paused', icon: 'pending_actions', badgeCount: 2, directOpen: false })
-  // 已读终态不推高优先级
-  expect(presenceState([conv({ id: 'x', status: 'running' }), conv({ status: 'done', updatedAt: T0 - 5 })], { x: 0, c1: T0 }).level)
-    .toBe('running')
+  expect(presenceState([conv({ id: 'a', updatedAt: T0 })], { a: T0 - 1 }).level).toBe('update')
+  expect(presenceState([conv({ id: 'a', status: 'running', updatedAt: T0 })], { a: T0 }).level).toBe('running')
+  // 全部是已读终态 → idle:常驻但安静(smart_toy 不转圈)
+  expect(presenceState([conv({ id: 'a', status: 'done', updatedAt: T0 })], { a: T0 }))
+    .toEqual({ show: true, level: 'idle', icon: 'smart_toy', badgeCount: 1, directOpen: true })
 })
 
-test('markRead/loadReadAt:roundtrip、不回退、多 id 一次写', () => {
+test('markRead/loadReadAt:roundtrip、不回退;pruneReadAt 保留 live', () => {
   let m = markRead({}, ['a'], T0)
   m = markRead(m, ['a', 'b'], T0 + 100)
   expect(m).toEqual({ a: T0 + 100, b: T0 + 100 })
-  m = markRead(m, ['a'], T0 + 50) // 更早的时间不回退
-  expect(m.a).toBe(T0 + 100)
-  expect(loadReadAt()).toEqual(m) // 已持久化
-})
-
-test('pruneReadAt:只保留仍活跃对话的条目', () => {
-  const m = { keep: 1, drop: 2 }
-  expect(pruneReadAt(m, ['keep'])).toEqual({ keep: 1 })
+  expect(markRead(m, ['a'], T0 + 50).a).toBe(T0 + 100)
+  expect(loadReadAt()).toEqual(m)
+  expect(pruneReadAt({ keep: 1, drop: 2 }, ['keep'])).toEqual({ keep: 1 })
 })

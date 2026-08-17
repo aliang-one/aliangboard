@@ -295,6 +295,11 @@ export const adminApi = {
     test: payload => platformHttp.request('/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(payload || {}) }),
     probeReasoning: payload => platformHttp.request('/api/admin/llm-config/probe-reasoning', { method: 'POST', body: JSON.stringify(payload || {}) }),
   },
+  // 悬浮对话入口配置(2026-08-17):{ maxItems, windowMin } → { ok }
+  presenceConfig: {
+    get: () => platformHttp.request('/api/admin/presence-config'),
+    save: payload => platformHttp.request('/api/admin/presence-config', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
   // MCP 服务开关(Task 2):GET → {enabled};PUT ← {enabled} → {ok, enabled}
   mcpConfig: {
     get: () => platformHttp.request('/api/admin/mcp-config'),

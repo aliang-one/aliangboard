@@ -2828,7 +2828,8 @@
       "expandChat": "Expand AI chat"
     },
     "presence": {
-      "title": "AI Chat"
+      "title": "AI Chat",
+      "updateDot": "New activity"
     },
     "chat": {
       "hintReadLedger": "Show me what files are in the current cluster ledger",
@@ -2908,7 +2909,14 @@
       "title": "Workbench Configuration",
       "cluster": "Bound Cluster",
       "projectRoot": "Project Root",
-      "distillStatus": "Distill Status"
+      "distillStatus": "Distill Status",
+      "presenceTitle": "Floating Chat",
+      "presenceMaxItems": "Items shown",
+      "presenceWindowMin": "Hide after (min)",
+      "presenceSave": "Save",
+      "presenceSaved": "Floating chat config saved",
+      "presenceSaveFailed": "Failed to save floating chat config",
+      "presenceHint": "Running/paused conversations stay; terminal ones drop after the window with no activity. Takes effect within ~10s after saving."
     },
     "records": {
       "title": "Workbench Records",

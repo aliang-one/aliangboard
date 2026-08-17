@@ -2828,7 +2828,8 @@
       "expandChat": "展开 AI 助手"
     },
     "presence": {
-      "title": "AI 对话"
+      "title": "AI 对话",
+      "updateDot": "有新动态"
     },
     "chat": {
       "hintReadLedger": "看一下现有 cluster ledger 下有什么文件",
@@ -2908,7 +2909,14 @@
       "title": "工作台配置",
       "cluster": "绑定集群",
       "projectRoot": "项目根目录",
-      "distillStatus": "蒸馏状态"
+      "distillStatus": "蒸馏状态",
+      "presenceTitle": "悬浮对话",
+      "presenceMaxItems": "展示条数",
+      "presenceWindowMin": "隐去时间(分钟)",
+      "presenceSave": "保存",
+      "presenceSaved": "悬浮对话配置已保存",
+      "presenceSaveFailed": "悬浮对话配置保存失败",
+      "presenceHint": "运行中/待审批对话常驻;终态对话超过隐去时间无动态后不再显示。保存后约 10 秒内全端生效。"
     },
     "records": {
       "title": "工作台记录",
