@@ -105,3 +105,18 @@ export function createLlmClient({
   }
   return { chat, chatStream, model, endpoint }
 }
+
+// 探测模型是否流式透传思考 token(reasoning_content/reasoning)——「LLM 配置」页用,
+// 告诉管理员当前模型切没切到能展示思考过程的模型(GLM/DeepSeek-R1 类;gpt-5.x 经
+// 部分代理只发 content)。思考模型对任何输入都先吐 reasoning(实测),极小 prompt
+// 即可判定;总限防慢模型挂死探测(超时按已见字段给结论)。
+export async function probeReasoningSupport(client, { totalMs = 45000, prompt = '1+1=?(探测用,请直接回答)' } = {}) {
+  let sawReasoning = false, sawContent = false, sample = ''
+  const work = client.chatStream({ messages: [{ role: 'user', content: prompt }] }, {
+    onReasoning: t => { sawReasoning = true; if (sample.length < 80) sample += String(t) },
+    onDelta: () => { sawContent = true },
+  })
+  const guard = new Promise(resolve => setTimeout(resolve, totalMs, 'timeout'))
+  const r = await Promise.race([work, guard])
+  return { supported: sawReasoning, sawContent, sample: sample.slice(0, 80), timedOut: r === 'timeout' }
+}
