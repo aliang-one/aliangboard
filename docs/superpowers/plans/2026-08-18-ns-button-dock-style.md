@@ -422,3 +422,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 4. 下拉:搜索 focus 绿环、行 hover/当前行高亮、点外关闭;空态点主按钮直接开下拉。
 5. 超长 ns 名 ellipsis 不撑破 band;260px 侧栏与底部坞同屏协调。
 6. 系统开启「减少动态效果」后无动画。
+
+## 终审延后项(2026-08-18 整分支终审裁决 Ready to merge,以下 Minor 延后)
+
+1. pods 文案 i18n:`{{ ns.pods }} pods` 硬编码英文(沿自旧代码),后续可加 `nav.podsCount` 键。
+2. 下拉行键盘不可达:`.ns-row` 为 div+@click,无 tabindex/role/回车支持(沿自旧代码,a11y follow-up)。
+3. hover 揭示未覆盖 `:focus-visible`:键盘用户看不到「进入/回总览」去向提示(a11y follow-up,加并列选择器即可)。
+4. `SideNavBar.nsband.test.js` 文件内顺序依赖:空态用例尾部还原 currentNamespace、行点击用例注入的 namespaceList 未清;建议 beforeEach 重置。
+5. 卫生:`.ns-band{cursor:pointer}` 冗余(可点击的是子按钮);`.ns-tile` 可补 `type="button"`。
