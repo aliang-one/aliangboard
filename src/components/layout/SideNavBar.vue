@@ -141,6 +141,12 @@ function selectNamespace(ns) {
   router.push({ name: 'NamespaceOverview', params: { namespace: ns } })
 }
 
+// ns 主按钮:空态开下拉(不跳转);否则进/回 NamespaceOverview(集群态=进入,ns态=回总览)
+function onNsHomeClick() {
+  if (!currentNs.value) { showNsDropdown.value = true; return }
+  router.push({ name: 'NamespaceOverview', params: { namespace: currentNs.value } })
+}
+
 function goNsRoute(routeKey) {
   if (!currentNs.value) return
   const name = nsRouteMap[routeKey]
@@ -220,60 +226,68 @@ function nsStatusColor(status) {
     <!-- Divider -->
     <div class="h-px bg-outline-variant/50 mx-md"></div>
 
-    <!-- Namespace Selector -->
+    <!-- Namespace Selector:浅坞 band(方案 B,docs/superpowers/specs/2026-08-18-ns-button-dock-style-design.md) -->
     <div class="px-md pt-md pb-sm shrink-0">
       <p class="text-label-caps text-on-surface-variant mb-xs px-sm">NAMESPACE</p>
       <div class="relative">
-        <div
-          class="w-full flex items-stretch rounded-lg border overflow-hidden transition-all"
-          :class="currentNs ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'"
-        >
+        <div class="ns-band" :class="isClusterMode ? 'ns-band--cluster' : 'ns-band--ns'">
           <button
             data-test="ns-home"
-            @click="currentNs && router.push({ name: 'NamespaceOverview', params: { namespace: currentNs } })"
-            class="flex-1 flex items-center gap-sm min-w-0 px-md py-sm"
-            :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
+            class="ns-main"
+            :title="!currentNs ? $t('nav.selectNamespace') : (isClusterMode ? $t('nav.enterNamespace') : $t('nav.backToNsOverview'))"
+            :aria-label="!currentNs ? $t('nav.selectNamespace') : (isClusterMode ? $t('nav.enterNamespace') : $t('nav.backToNsOverview'))"
+            @click="onNsHomeClick"
           >
-            <span class="material-symbols-outlined text-lg">folder_open</span>
-            <span v-if="isClusterMode" data-test="ns-enter" aria-hidden="true" class="material-symbols-outlined text-base text-on-surface-variant">arrow_forward</span>
-            <span class="text-body-md font-medium truncate">{{ currentNs || 'Select Namespace' }}</span>
+            <span class="ns-chip">
+              <span class="material-symbols-outlined ns-ci ns-ci--folder">folder_open</span>
+              <span class="material-symbols-outlined ns-ci ns-ci--hub">hub</span>
+            </span>
+            <span class="ns-txt">
+              <b class="ns-name" :class="{ 'ns-name--empty': !currentNs }">{{ currentNs || $t('nav.selectNamespace') }}</b>
+              <span v-if="currentNs" class="ns-sub">
+                <template v-if="isClusterMode">
+                  <span class="ns-t ns-t--def">{{ $t('nav.nsNotEntered') }}</span>
+                  <span class="ns-t ns-t--hov">{{ $t('nav.enterNamespace') }}</span>
+                </template>
+                <template v-else>
+                  <span class="ns-t ns-t--def">{{ $t('nav.nsHere') }}</span>
+                  <span class="ns-t ns-t--hov">{{ $t('nav.backToNsOverview') }}</span>
+                </template>
+              </span>
+            </span>
+            <span v-if="isClusterMode && currentNs" data-test="ns-enter" aria-hidden="true" class="ns-arr material-symbols-outlined">arrow_forward</span>
           </button>
           <button
+            class="ns-tile"
+            :title="$t('nav.switchNamespace')"
+            :aria-label="$t('nav.switchNamespace')"
+            :aria-expanded="showNsDropdown ? 'true' : 'false'"
             @click="showNsDropdown = !showNsDropdown"
-            class="px-md py-sm shrink-0 border-l border-current/10"
-            :class="currentNs ? 'text-primary' : 'text-on-surface-variant'"
           >
-            <span class="material-symbols-outlined text-lg transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
+            <span class="material-symbols-outlined transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
           </button>
         </div>
-        <!-- Dropdown -->
-        <div
-          v-if="showNsDropdown"
-          class="absolute top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-hidden"
-        >
-          <!-- Search -->
-          <div class="p-sm border-b border-outline-variant">
-            <div class="relative">
-              <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
-              <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="Filter namespaces..." />
+        <!-- Dropdown:坞语言化面板 -->
+        <div v-if="showNsDropdown" class="ns-drop">
+          <div class="p-1.5 border-b border-outline-variant">
+            <div class="ns-search">
+              <span class="material-symbols-outlined ns-search__ic">search</span>
+              <input v-model="nsSearch" :placeholder="$t('nav.filterNamespaces')" />
             </div>
           </div>
-          <!-- List -->
-          <div class="max-h-56 overflow-y-auto p-sm">
+          <div class="max-h-56 overflow-y-auto p-1.5">
             <div
               v-for="ns in filteredNamespaces"
               :key="ns.name"
+              class="ns-row"
+              :class="currentNs === ns.name ? 'ns-row--cur' : ''"
               @click="selectNamespace(ns.name)"
-              class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
-              :class="currentNs === ns.name ? 'bg-primary-container/20 text-primary' : 'text-on-surface'"
             >
-              <div class="flex items-center gap-sm">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="nsStatusColor(ns.status)"></span>
-                <span class="text-body-md font-medium">{{ ns.name }}</span>
-              </div>
-              <span class="text-body-sm text-on-surface-variant">{{ ns.pods }} pods</span>
+              <span class="w-2 h-2 rounded-full shrink-0" :class="nsStatusColor(ns.status)"></span>
+              <span class="ns-row__name">{{ ns.name }}</span>
+              <span class="ns-row__pods">{{ ns.pods }} pods</span>
             </div>
-            <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">No matching namespaces</p>
+            <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ $t('nav.noMatchingNamespaces') }}</p>
           </div>
         </div>
       </div>
