@@ -55,9 +55,9 @@
 | title/aria | `进入命名空间` | `回到命名空间拓扑总览` |
 | 主按钮点击 | push `NamespaceOverview`(进入 ns) | push `NamespaceOverview`(回总览) |
 
-**副标签重叠防线**(demo v3 踩坑):默认/hover 两版文案均绝对定位于**同一行盒**(容器高 13px、行高 13px、左上对齐),且**按态配对 display 显隐**(`.ns-band--ns` 只渲染 ns 对,`.ns-band--cluster` 只渲染集群对)——交叉淡入严格同位,不会上下叠印。
+**副标签重叠防线**(demo v3 踩坑):默认/hover 两版文案均绝对定位于**同一行盒**(容器高 13px、行高 13px、左上对齐);两态各含 def/hov 两条 span 做 opacity 交叉淡入;**按态 `v-if` 只渲染当前态那一对**(DOM 级防叠印,比 CSS 显隐更强)——交叉淡入严格同位,不会上下重叠。
 
-**两态切换 morph**:chip 底色/投影 transition .3s;箭头用 `<Transition name="ns-arr">`(滑入 +4px / 滑出 -4px,opacity .2s),非闪变。
+**两态切换 morph**:chip 底色/投影 transition .3s;箭头入场用 CSS keyframes 滑入(v-if 新插入自动播一次,坞块同法;不引入 Vue `<Transition>`,规避测试环境下离场时序脆弱),离场随 v-if 瞬时卸载。
 
 ## 5. 空态(无 ns 选中,首装/清库后)
 
@@ -101,22 +101,18 @@
       <b class="ns-name">{{ currentNs || $t('nav.selectNamespace') }}</b>
       <span v-if="currentNs" class="ns-sub">…四条按态配对的 ns-t…</span>
     </span>
-    <Transition name="ns-arr">
-      <span v-if="isClusterMode && currentNs" data-test="ns-enter" aria-hidden="true" class="ns-arr material-symbols-outlined">arrow_forward</span>
-    </Transition>
+    <span v-if="isClusterMode && currentNs" data-test="ns-enter" aria-hidden="true" class="ns-arr material-symbols-outlined">arrow_forward</span>
   </button>
-  <button class="ns-tile" :title="$t('nav.switchNamespace')" :aria-expanded="showNsDropdown" @click="showNsDropdown = !showNsDropdown">
-    <span class="material-symbols-outlined" :class="showNsDropdown && 'rotate-180'">expand_more</span>
+  <button class="ns-tile" :title="$t('nav.switchNamespace')" :aria-expanded="showNsDropdown ? 'true' : 'false'" @click="showNsDropdown = !showNsDropdown">
+    <span class="material-symbols-outlined transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
   </button>
 </div>
-<Transition name="ns-drop"> …下拉(结构同现状,类名换 ns-*)… </Transition>
+<div v-if="showNsDropdown" class="ns-drop"> …下拉(结构同现状,类名换 ns-*)… </div>
 ```
 
-脚本新增:
+脚本新增(标题不进 script:`home.test` 只 mock `$t` 不装 i18n 插件,引入 `useI18n()` 会破既有测试,故 title/aria 用模板内三元):
 
 ```js
-const bandTitle = computed(() => !currentNs.value ? t('nav.selectNamespace')
-  : isClusterMode.value ? t('nav.enterNamespace') : t('nav.backToNsOverview'))
 function onNsHomeClick() {
   if (!currentNs.value) { showNsDropdown.value = true; return }   // 空态:开下拉不跳转
   router.push({ name: 'NamespaceOverview', params: { namespace: currentNs.value } })
@@ -144,7 +140,7 @@ function onNsHomeClick() {
 - 手测清单(需集群环境,交付时列出):
   1. 集群态视觉(chip 白/箭头轻推/hover 揭示「进入命名空间」)与点击进入 ns;
   2. ns 态视觉(chip 绿渐变/hover 图标换 hub + 「↩ 回拓扑总览」)与点击回总览;
-  3. 两态切换 morph(chip 底色过渡、箭头滑入滑出);
+  3. 两态切换 morph(chip 底色过渡、箭头 keyframes 滑入/瞬时卸载);
   4. 下拉:搜索/选中行高亮/点外关闭;空态点击开下拉;
   5. 超长 ns 名截断(ellipsis)不撑破 band;
   6. `prefers-reduced-motion` 下动效全禁;
