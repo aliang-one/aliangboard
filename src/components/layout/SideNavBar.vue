@@ -452,6 +452,68 @@ function nsStatusColor(status) {
   .drill-up-enter-active, .drill-up-leave-active { transition: none; }
 }
 
+/* ===== Namespace band:浅坞 + 绿 chip(方案 B,docs/superpowers/specs/2026-08-18) ===== */
+.ns-band{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:18px 9px 9px 14px;
+  background:linear-gradient(160deg,#f4f8f5,#e9efeb);border:1px solid #d9e3dc;
+  box-shadow:0 5px 14px rgba(0,60,35,.10);
+  transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s,border-color .18s;cursor:pointer}
+.ns-band:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,60,35,.16);border-color:#b3d4c3}
+.ns-band:active{transform:translateY(0) scale(.985)}
+.ns-main{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:0;border:0;background:none;
+  text-align:left;cursor:pointer;font:inherit;color:inherit}
+.ns-chip{width:26px;height:26px;border-radius:9px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(120deg,#0ba874,#00835b);color:#fff;
+  box-shadow:0 3px 10px rgba(0,108,73,.30),inset 0 1px 0 rgba(255,255,255,.26);
+  transition:background .3s,box-shadow .3s,border-color .3s}
+.ns-band--cluster .ns-chip{background:#fff;border:1px solid #bbcabf;color:#006c49;
+  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 #fff}
+/* chip 图标:ns 态 hover folder↔hub(拓扑)交叉淡入;集群态不换 */
+.ns-ci{position:absolute;font-size:15px;transition:opacity .18s,transform .18s}
+.ns-ci--hub{opacity:0;transform:scale(.6)}
+.ns-band--ns .ns-main:hover .ns-ci--folder{opacity:0;transform:scale(.6)}
+.ns-band--ns .ns-main:hover .ns-ci--hub{opacity:1;transform:scale(1)}
+.ns-txt{flex:1;min-width:0}
+.ns-name{display:block;font-size:12px;font-weight:700;color:#0b1c30;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ns-name--empty{color:#6c7a71;font-weight:600}
+/* 副标签:默认/hover 同一行盒(高13px/行高13px,左上对齐)交叉淡入——严格同位不叠印 */
+.ns-sub{position:relative;display:block;height:13px;font-size:9px;white-space:nowrap}
+.ns-t{position:absolute;left:0;top:0;line-height:13px;color:#6c7a71;transition:opacity .18s}
+.ns-t--hov{color:#006c49;font-weight:700;opacity:0}
+.ns-main:hover .ns-t--def{opacity:0}
+.ns-main:hover .ns-t--hov{opacity:1}
+/* 集群态箭头:入场滑入一次 + 2.4s 缓动轻推循环(坞 LED 同节奏);hover 停循环再滑 3px */
+.ns-arr{flex:none;color:#006c49;font-size:15px;margin-left:2px;
+  animation:ns-arr-in .25s cubic-bezier(.2,.7,.3,1) backwards,ns-arr-nudge 2.4s .4s ease-in-out infinite}
+.ns-main:hover .ns-arr{animation:none;transform:translateX(3px)}
+@keyframes ns-arr-in{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:translateX(0)}}
+@keyframes ns-arr-nudge{0%,55%,100%{transform:translateX(0)}65%{transform:translateX(2.5px)}78%{transform:translateX(0)}}
+/* 下拉入口瓦片:dock-ig__sq 同款 */
+.ns-tile{width:28px;height:28px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  background:#fff;border:1px solid #bbcabf;color:#3c4a42;
+  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 #fff;
+  transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s,color .16s}
+.ns-tile:hover{transform:translateY(-2px);box-shadow:0 6px 14px rgba(0,60,35,.18);color:#006c49}
+.ns-tile:active{transform:translateY(0) scale(.95)}
+/* 下拉面板:白底 + 右下小角(呼应坞) + 加深投影;v-if 插入自动播一次入场 */
+.ns-drop{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:50;overflow:hidden;
+  background:#fff;border:1px solid #d9e3dc;border-radius:12px 12px 12px 5px;
+  box-shadow:0 10px 24px rgba(0,60,35,.14);
+  animation:ns-drop-in .22s cubic-bezier(.2,.7,.3,1)}
+@keyframes ns-drop-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.ns-search{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:9px;background:#fff;
+  border:1px solid #bbcabf;color:#6c7a71;transition:border-color .15s,box-shadow .15s}
+.ns-search:focus-within{border-color:#006c49;box-shadow:0 0 0 2px rgba(0,108,73,.12)}
+.ns-search input{flex:1;min-width:0;border:0;outline:0;font-size:12px;font-family:inherit;color:#0b1c30;background:none}
+.ns-search input::placeholder{color:#6c7a71}
+.ns-search__ic{font-size:14px}
+.ns-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;font-size:12.5px;color:#0b1c30;
+  cursor:pointer;transition:background .15s}
+.ns-row:hover{background:#eaf3ee}
+.ns-row--cur{background:#d7e8df;color:#006c49;font-weight:700}
+.ns-row__name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ns-row__pods{margin-left:auto;font-size:10px;color:#6c7a71}
+
 /* ===== 停靠坞:集群 hero + 部署 + 3 图标同块成组 ===== */
 .dock {
   border-radius: 18px 9px 9px 14px; /* 不规则圆角:左上大,其余小,右下中 */
@@ -518,5 +580,7 @@ function nsStatusColor(status) {
 @media (prefers-reduced-motion: reduce) {
   .dock, .dock-ig, .slab-led { animation: none !important; }
   .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
+  .ns-band,.ns-chip,.ns-ci,.ns-t,.ns-tile,.ns-row,.ns-search{transition:none !important}
+  .ns-arr,.ns-drop{animation:none !important}
 }
 </style>
