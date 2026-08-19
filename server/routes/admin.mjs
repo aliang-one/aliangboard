@@ -1,6 +1,8 @@
 // 管理 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // LLM/MCP 配置、集群 CRUD、API keys、审计日志、用户管理 逐字搬迁,仅依赖引用改走 deps 注入。
 import { listKeys, mintKey, revokeKey } from '../auth-keys.mjs'
+import { managedSaName, rbacTier } from '../sa-provision.mjs'
+import { randomUUID as cryptoRandomUUID } from 'node:crypto'
 import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
 import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize.mjs'
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
@@ -204,20 +206,39 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
+        const byo = input.mode === 'byo' || !!input.boundSA_name
+        if (byo) {
+          const k = mintKey(db, {
+            owner: input.owner || ps.username, clusterId: input.clusterId,
+            boundSA_namespace: input.boundSA_namespace, boundSA_name: input.boundSA_name,
+            tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null,
+            allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username,
+          })
+          // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
+          sendJson(res, 200, { apikey: k }); return true
+        }
+        // 托管(默认):先供给集群身份,成功才落库——失败不给「出生即死亡」的 key。
+        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: '托管签发未接通(网关未注入集群供给能力)' }); return true }
+        if (!input.boundSA_namespace) { sendJson(res, 400, { message: '托管签发需选择命名空间' }); return true }
+        const id = (randomUUID || cryptoRandomUUID)()  // deps 注入优先;未注入(测试 harness)回退 node:crypto
+        const name = managedSaName(id)
+        const tier = rbacTier({ tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null })
+        const prov = await deps.provisionCluster(deps.getCluster(input.clusterId), {
+          keyId: id, namespace: input.boundSA_namespace, name, tier,
+          namespaces: Array.isArray(input.allowed_namespaces) ? input.allowed_namespaces : [],
+        })
+        if (!prov.ok) {
+          sendJson(res, 502, { message: `集群身份创建失败: ${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'}(可重试,或用高级模式自带 ServiceAccount)`, failed: prov.failed })
+          return true
+        }
         const k = mintKey(db, {
-          owner: input.owner || ps.username,
-          clusterId: input.clusterId,
-          boundSA_namespace: input.boundSA_namespace,
-          boundSA_name: input.boundSA_name,
-          tier: input.tier || 'read',
-          tool_overrides: input.tool_overrides ?? null,
-          allowed_namespaces: input.allowed_namespaces ?? null,
-          label: input.label || null,
-          createdBy: ps.username,
+          id, owner: input.owner || ps.username, clusterId: input.clusterId,
+          boundSA_namespace: input.boundSA_namespace, boundSA_name: name, saManaged: 1,
+          tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null,
+          allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username,
         })
         // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
-        sendJson(res, 200, { apikey: k })
-        return true
+        sendJson(res, 200, { apikey: k }); return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || '签发 API key 失败' }); return true }
     }
     if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/overrides$/)) {

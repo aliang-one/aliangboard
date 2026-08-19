@@ -11,6 +11,7 @@ import { normalizeServer, getDispatcher, buildCallContext } from './call-context
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
+import { provisionSa } from './sa-provision.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1443,6 +1444,11 @@ async function handle(req, res) {
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword,
+    getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
+    provisionCluster: async (row, spec) => {
+      if (!row) throw new Error('集群不存在')
+      return provisionSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
   })
   const projectRoutes = createWorkbenchProjectRoutes({
     db, sendJson, readBody, requirePlatform, requireAdmin,
