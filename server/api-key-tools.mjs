@@ -7,6 +7,7 @@ import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
+import { provisionSa, rbacTier } from './sa-provision.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -115,7 +116,22 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     try {
       const bootstrapCtx = buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
       const audience = await getIssuer(requestFn, bootstrapCtx)
-      const token = await createSaBinding({ requestFn, audience })(bootstrapCtx, { namespace: keyRow.boundSA_namespace, name: keyRow.boundSA_name })
+      const mint = () => createSaBinding({ requestFn, audience })(bootstrapCtx, { namespace: keyRow.boundSA_namespace, name: keyRow.boundSA_name })
+      // SA 签 token 404(绑定身份被删,整 key 灭门根因):托管 key → 幂等重建一次再签(自愈);BYO → 说人话并引导去修复。
+      let token, prov
+      try {
+        token = await mint()
+      } catch (e) {
+        if (e.status !== 404) throw e
+        if (keyRow.saManaged) {
+          prov = await provisionSa({ requestFn, callCtx: bootstrapCtx }, { keyId: keyRow.id, namespace: keyRow.boundSA_namespace, name: keyRow.boundSA_name, tier: rbacTier(keyRow), namespaces: [...effectiveNamespaces(keyRow)] })
+          if (prov.ok) token = await mint()
+        }
+        if (!token) {
+          const why = prov && !prov.ok ? `(自动重建失败: ${prov.failed[0]?.error || prov.failed[0]?.kind || 'unknown'})` : ''
+          throw new Error(`SA_BINDING_ERROR: API key 的集群身份 ServiceAccount ${keyRow.boundSA_namespace}/${keyRow.boundSA_name} 不存在${why}。请到 平台管理 → API Keys 对该 key 点「${keyRow.saManaged ? '修复' : '接管并修复'}」${keyRow.saManaged ? '恢复使用' : '(平台将代建并后续自动维护该身份),或自行重建该 ServiceAccount'}`)
+        }
+      }
       const saCtx = buildCallContext({ apiServer: cluster.apiServer, authHeader: `Bearer ${token}`, ca: cluster.ca, insecure: !!cluster.insecure })
       const out = await fn(saCtx)
       finalizeAudit(db, intent, { result: 'ok' })

@@ -685,3 +685,63 @@ test('ns allowlist: 无 allowed_namespaces → 单 ns(向后兼容,他 ns 拒)',
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
   await assert.rejects(tools.callTool(k, cluster, 'list_resources', { kind: 'pods', namespace: 'other' }), (e) => e.reason === 'policy')
 })
+
+// --- SA 404 自愈 + 友好错误(managed SA lifecycle)---
+// mock:首次 token POST 404(SA 被删),之后恢复;SSA PATCH 记录成数组验证自愈重建。
+function mockWithSaDeletedOnce() {
+  const ssaCalls = []
+  let tokenCalls = 0
+  return {
+    ssaCalls,
+    requestFn: async (ctx, path, init = {}) => {
+      if (path.endsWith('/token')) {
+        tokenCalls++
+        if (tokenCalls === 1) { const e = new Error('serviceaccounts "sa" not found'); e.status = 404; throw e }
+        return { body: { status: { token: 'SA-TOKEN-2', expirationTimestamp: new Date(Date.now() + 600000).toISOString() } } }
+      }
+      if (init.method === 'PATCH' && path.includes('fieldManager=aliangboard')) { ssaCalls.push(path); return { body: {} } }
+      if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
+      if (/\/namespaces\/[^/]+\/pods$/.test(path)) return { body: { items: [] } }
+      throw new Error('mock: unexpected path ' + path)
+    },
+  }
+}
+
+test('自愈:托管 key 签 token 404 → 幂等重建(SSA)→ 重签成功,审计 ok', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', saManaged: 1 })
+  const { requestFn, ssaCalls } = mockWithSaDeletedOnce()
+  const tools = createApiKeyTools({ db, requestFn })
+  const out = await tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', kind: 'pods' })
+  assert.equal(out.kind, 'pods')
+  assert.ok(ssaCalls.some(p => p.includes('/serviceaccounts/sa?')), '重建了 SA')
+  assert.ok(ssaCalls.some(p => p.includes('/clusterrolebindings/')), '重建了 can-i CRB')
+})
+
+test('BYO key 签 token 404 → 不重建,抛 SA_BINDING_ERROR 中文引导(提「修复」)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' }) // saManaged=0
+  const { requestFn, ssaCalls } = mockWithSaDeletedOnce()
+  const tools = createApiKeyTools({ db, requestFn })
+  await assert.rejects(
+    () => tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', kind: 'pods' }),
+    e => e.message.startsWith('SA_BINDING_ERROR:') && e.message.includes('修复') && e.message.includes('ns/sa')
+  )
+  assert.equal(ssaCalls.length, 0, 'BYO 不代建')
+})
+
+test('自愈失败(重建也失败)→ 抛 SA_BINDING_ERROR 含「自动重建失败」', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', saManaged: 1 })
+  const requestFn = async (ctx, path, init = {}) => {
+    if (path.endsWith('/token')) { const e = new Error('serviceaccounts "sa" not found'); e.status = 404; throw e }
+    if (init.method === 'PATCH' && path.includes('fieldManager=aliangboard')) { const e = new Error('rbac forbidden'); e.status = 403; throw e }
+    if (path === '/.well-known/openid-configuration') return { body: { issuer: 'https://kubernetes.default.svc.cluster.local' } }
+    throw new Error('mock: unexpected path ' + path)
+  }
+  const tools = createApiKeyTools({ db, requestFn })
+  await assert.rejects(
+    () => tools.callTool(k, cluster, 'list_resources', { namespace: 'ns', kind: 'pods' }),
+    e => e.message.startsWith('SA_BINDING_ERROR:') && e.message.includes('自动重建失败')
+  )
+})
