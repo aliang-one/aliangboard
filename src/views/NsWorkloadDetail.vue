@@ -15,6 +15,7 @@ import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels } from '@/logic/workloadMeta'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -1109,11 +1110,15 @@ const META_HIDDEN_ANN = [...META_SYS_ANN, META_DESC_KEY, META_CANON.title, META_
 
 const showMetaModal = ref(false)
 const metaForm = ref({ title: '', owner: '', version: '', tags: '', description: '', layer: '', labels: [], annotations: [] })
+// selector 承重墙(2026-08-19 ai-gateway 事故):selector.matchLabels 绑定的标签创建后不可变——
+// 改 Pod 模板值即「selector does not match template labels」422。三防线见 @/logic/workloadMeta。
+const metaSelectorLabels = computed(() => selectorMatchLabels(workload.value?.raw))
 function openMetaEditor() {
   if (!workload.value) return
   const m = meta.value
   const curLabels = workload.value.labels || {}
   const curAnn = workload.value.annotations || {}
+  const sel = metaSelectorLabels.value
   metaForm.value = {
     title: m.title || '',
     owner: m.owner || '',
@@ -1121,8 +1126,9 @@ function openMetaEditor() {
     tags: m.tags || '',
     description: m.description || '',
     layer: META_LAYER_KEYS.map(k => curLabels[k]).find(Boolean) || workload.value.tier || '',
+    // 防线①:selector 绑定键从自定义列表隐藏(与 app/pod-template-hash 等系统保留同待遇)
     labels: Object.entries(curLabels)
-      .filter(([k]) => !META_HIDDEN_LABELS.includes(k))
+      .filter(([k]) => !META_HIDDEN_LABELS.includes(k) && !(k in sel))
       .map(([key, value]) => ({ key, value: String(value ?? '') })),
     annotations: Object.entries(curAnn)
       .filter(([k]) => !META_HIDDEN_ANN.includes(k))
@@ -1136,6 +1142,12 @@ async function saveMeta() {
   const wl = workload.value
   if (!wl) return
   const f = metaForm.value
+  // 防线②:用户手敲 selector 绑定键 → 前端明确拦截(旧路径直发 K8s 422 整体失败、文案难懂)
+  const conflict = findSelectorLabelConflict(f.labels, metaSelectorLabels.value)
+  if (conflict) {
+    notify('error', t('workload.meta.selectorLocked', { key: String(conflict.key).trim() }))
+    return
+  }
   const curLabels = wl.labels || {}
   const curAnn = wl.annotations || {}
   // 业务 canonical labels（非空才写）；title + tags 走 annotation（支持中文/逗号）
@@ -1168,10 +1180,12 @@ async function saveMeta() {
   const desiredTplLabels = {}
   Object.entries(rawTplLabels).forEach(([k, v]) => { if (!managedTpl.has(k)) desiredTplLabels[k] = v })
   Object.assign(desiredTplLabels, business, customLabels)
-  const allTplKeys = new Set([...Object.keys(desiredTplLabels), ...Object.keys(rawTplLabels)])
-  const templateChanged = [...allTplKeys].some(k => (desiredTplLabels[k] ?? '') !== (rawTplLabels[k] ?? ''))
+  // 防线③:selector 绑定键强制原值透传——业务/自定义一律不得覆写(selector 不可变,模板必须保持匹配)
+  const guardedTplLabels = guardTemplateLabels(desiredTplLabels, rawTplLabels, metaSelectorLabels.value)
+  const allTplKeys = new Set([...Object.keys(guardedTplLabels), ...Object.keys(rawTplLabels)])
+  const templateChanged = [...allTplKeys].some(k => (guardedTplLabels[k] ?? '') !== (rawTplLabels[k] ?? ''))
   const templateLabels = templateChanged
-    ? { ...desiredTplLabels, ...Object.keys(rawTplLabels).filter(k => managedTpl.has(k) && !(k in desiredTplLabels)).reduce((o, k) => { o[k] = null; return o }, {}) }
+    ? { ...guardedTplLabels, ...Object.keys(rawTplLabels).filter(k => managedTpl.has(k) && !(k in desiredTplLabels)).reduce((o, k) => { o[k] = null; return o }, {}) }
     : null
   store.updateWorkloadMeta(route.params.name, route.params.namespace, { labels, annotations, removedLabels, removedAnnotations, templateLabels })
   if (f.tags) recordTagUsage(route.params.namespace, f.tags) // 编辑标签也即时入历史，供下次建议
@@ -2174,6 +2188,11 @@ function podStatusBorder(s) {
       <!-- 自定义 Labels -->
       <div class="pt-md border-t border-outline-variant/40 flex flex-col gap-sm">
         <div class="flex items-center justify-between"><p class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.meta.customLabels') }}</p><button @click="addMetaLabel" class="text-xs text-primary hover:underline">{{ $t('workload.meta.addLabel') }}</button></div>
+        <!-- selector 绑定标签锁定提示(有才显示):告诉用户哪些键为什么改不了 -->
+        <p v-if="Object.keys(metaSelectorLabels).length" class="text-xs text-status-warning/90 flex items-start gap-xs">
+          <span class="material-symbols-outlined text-sm shrink-0">lock</span>
+          <span>{{ $t('workload.meta.selectorHint', { keys: Object.keys(metaSelectorLabels).join('、') }) }}</span>
+        </p>
         <div v-for="(l, i) in metaForm.labels" :key="i" class="flex items-center gap-xs">
           <input v-model="l.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
           <input v-model="l.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="value" />

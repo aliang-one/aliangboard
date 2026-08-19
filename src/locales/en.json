@@ -1813,6 +1813,8 @@
       "descPh": "One-line description (written to annotation, bypasses label length limit)",
       "layerLabel": "Layer layer",
       "customLabels": "Custom Labels",
+      "selectorLocked": "Label {key} is bound by spec.selector (immutable after creation); changing it makes Kubernetes reject the save. Recreate the workload via YAML to change it",
+      "selectorHint": "Selector-bound labels are locked (changing them would be rejected by Kubernetes): {keys}",
       "addLabel": "+ Add",
       "noLabels": "No custom labels",
       "annotations": "Annotations",

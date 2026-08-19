@@ -1813,6 +1813,8 @@
       "descPh": "一句话描述（写入注解，免 label 长度限制）",
       "layerLabel": "分层 layer",
       "customLabels": "自定义 Labels",
+      "selectorLocked": "标签 {key} 被工作负载的 spec.selector 绑定（创建后不可变），修改会导致 K8s 拒绝保存；如需调整请在 YAML 中迁移工作负载",
+      "selectorHint": "已锁定 selector 绑定标签（改值会导致保存被 K8s 拒绝）：{keys}",
       "addLabel": "+ 添加",
       "noLabels": "无自定义标签",
       "annotations": "Annotations（注解）",
