@@ -39,7 +39,12 @@ import WorkbenchChat from '../WorkbenchChat.vue'
 const i18n = createI18n({
   legacy: false,
   locale: 'zh',
-  messages: { zh: { workbench: { chat: { userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)', stop: '停止', stopped: '已停止' } } } },
+  messages: { zh: { workbench: { chat: {
+    userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)',
+    stop: '停止', stopped: '已停止', loadFailed: '对话加载失败,请检查网络后重试',
+    reasoningTitle: '思考过程',
+    convStatus: { running: '执行中', paused: '待审批', done: '完成', failed: '失败', cancelled: '已取消' },
+  } } } },
 })
 
 async function mountChat(props = {}) {
@@ -530,4 +535,90 @@ test('首轮 paused 对话打开:重建后存在 in-flight turn(审批不孤零�
   expect(w.html()).toContain('唯一的问题')
   // 修复前:无任何 assistant turn → 审批弹着但正文区"空转";修复后有 pending_approval 占位
   expect(w.html()).toContain('pending_actions', 'paused 分支会把该占位 turn 置 pending_approval 渲染')
+})
+
+// ── R1/R2/R3(2026-08-19 系统性修复):thinking 持久化重建 / 初拉退避重试 / 轮询回放检查点 ──
+
+// R1:重建 assistant turn 必须带 reasoning——服务端已把思考落消息级 reasoning 列,
+// 此前重建丢弃 → ChatTurn v-if="turn.reasoning" 恒 false,刷新后 thinking 永久消失。
+test('R1: 重建带 reasoning 的消息 → 思考折叠区渲染(刷新后 thinking 可回看)', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-r1', status: 'done', trace: '[]', steps: 1, recap: '',
+    messages: [
+      { role: 'user', content: '深思考问题' },
+      { role: 'assistant', content: '答案', reasoning: '这是当时的思考过程', trace: '[]' },
+    ],
+  })
+  const w = await mountChat({ conversationId: 'conv-r1' })
+  await flushPromises()
+  expect(w.html()).toContain('这是当时的思考过程', '重建的 assistant turn 带思考')
+  const at = w.vm.turns.find(x => x.role === 'assistant')
+  expect(at?.reasoning).toBe('这是当时的思考过程')
+})
+
+// R3:SSE 断线降级轮询(或环境无 EventSource)时,pollOnce 不回放 conv.content/reasoning 检查点
+// → 用户看着流出的半截回答,刷新后只剩转圈。回放须以 !es 为守卫(SSE 活跃时增量 ≥ 检查点,覆写会倒退)。
+test('R3: 轮询降级路径回放 content/reasoning 检查点到 in-flight turn', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-r3', status: 'running', content: '已流出的半截答案', reasoning: '已流出的半截思考',
+    trace: '[]', steps: 1, recap: '',
+    messages: [{ role: 'user', content: '问题' }],
+  })
+  const w = await mountChat({ conversationId: 'conv-r3' })
+  await flushPromises()
+  const at = w.vm.turns.find(x => x.role === 'assistant' && x.status === 'thinking')
+  expect(at?.content).toBe('已流出的半截答案', '检查点内容回放(此前轮询路径恒空)')
+  expect(at?.reasoning).toBe('已流出的半截思考', '检查点思考回放')
+})
+
+// R2:重建此前单发无重试,catch 静默 → turns 空 → 空态 UI("对话丢失"观感)。
+// 修复:500ms/1s/2s 退避重试;重试期间 loading 态(不闪空态建议卡);全部失败 → loadFailed banner。
+test('R2: 初拉持续失败 → 退避重试 3 次 → loadFailed banner,空态建议卡不误导', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockRejectedValue(new Error('network down'))
+  vi.useFakeTimers()
+  try {
+    const w = await mountChat({ conversationId: 'conv-r2' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.conversations.get).toHaveBeenCalledTimes(1)
+    expect(w.html()).not.toContain('hint', '重试期间显示 loading 而非空态建议卡')
+    await vi.advanceTimersByTimeAsync(3600)
+    expect(api.conversations.get.mock.calls.length).toBe(4, '首次 + 3 次退避重试(500/1000/2000ms)')
+    expect(w.vm.errorBanner).toBe('对话加载失败,请检查网络后重试')
+    expect(w.html()).not.toContain('hint', '失败后空态建议卡也不出现(banner 已示错,不再误导"开始新对话")')
+  } finally { vi.useRealTimers() }
+})
+
+// R2 正向路径:首次抖动、重试恢复 → 正常重建,无 errorBanner(瞬时网络错误不再表现为丢对话)。
+test('R2: 首拉失败重试成功 → 历史完整重建,无错误 banner', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get
+    .mockRejectedValueOnce(new Error('flaky'))
+    .mockResolvedValue({ id: 'conv-r2b', status: 'done', trace: '[]', steps: 0, recap: '',
+      messages: [{ role: 'user', content: '历史问题' }, { role: 'assistant', content: '历史答案' }] })
+  vi.useFakeTimers()
+  try {
+    const w = await mountChat({ conversationId: 'conv-r2b' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.vm.convStatus).toBe(null, '首拉失败')
+    await vi.advanceTimersByTimeAsync(600)
+    expect(w.vm.convStatus).toBe('done', '重试成功')
+    expect(w.html()).toContain('历史问题')
+    expect(w.html()).toContain('历史答案')
+    expect(w.vm.errorBanner).toBe('')
+  } finally { vi.useRealTimers() }
+})
+
+// cancelled 状态此前在 convStatusLabel 无映射(状态栏空标签);补齐文案。
+test('cancelled 状态:状态栏显示"已取消"', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-cc', status: 'cancelled', trace: '[]', steps: 0, recap: '',
+    messages: [{ role: 'user', content: 'q' }],
+  })
+  const w = await mountChat({ conversationId: 'conv-cc' })
+  await flushPromises()
+  expect(w.html()).toContain('已取消')
 })

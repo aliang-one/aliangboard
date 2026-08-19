@@ -2891,8 +2891,10 @@
         "running": "Running",
         "paused": "Awaiting Approval",
         "done": "Done",
-        "failed": "Failed"
-      }
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "loadFailed": "Failed to load conversation. Check your network and try again."
     },
     "shell": {
       "title": "Workbench",

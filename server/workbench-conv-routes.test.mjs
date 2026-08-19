@@ -42,6 +42,8 @@ function makeHarness() {
     db, pid, sent,
     setBody: b => { body = b },
     call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)),
+    // SSE 端点直测:注入自定义 res 捕获 write 的原始事件块
+    callSSE: (method, pathname, customRes) => routes.handle({ method, on: () => {} }, customRes, new URL(`http://x${pathname}`)),
   }
 }
 
@@ -238,4 +240,44 @@ test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bu
   assert.deepEqual(disposed, [conv.id], 'bus dispose(SSE 收到终结)')
   assert.equal(getConversation(h.db, conv.id), null, '对话已删')
   assert.equal(listMessages(h.db, conv.id).length, 0, '消息无孤儿行')
+})
+
+// ── reasoning 出参与复位(R1/R3,2026-08-19):conv 级检查点必须显式出参(响应体是枚举字段,
+// SELECT * 不会自动带);续接/regenerate 复位防上轮 thinking 污染本轮;SSE 终态快照补 reasoning。──
+
+test('R1: GET /:id 出参含 conv 级 reasoning 检查点 + 消息级 reasoning(轮询回放/重建回看的数据源)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '答', reasoning: '思考终值' })
+  h.db.prepare("UPDATE workbench_conversations SET status='running', content='检查点内容', reasoning='检查点思考' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('GET', `/api/workbench/conversations/${conv.id}`))
+  const { json } = h.sent[0]
+  assert.equal(json.reasoning, '检查点思考', 'conv 级 reasoning 出参(前端轮询回放用)')
+  assert.equal(json.messages[1].reasoning, '思考终值', '消息级 reasoning 出参(重建 turns 回看 thinking)')
+})
+
+test('R1: 续接消息复位 reasoning——上一轮 thinking 检查点不残留(与 content/trace 复位同族)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done', content='上一轮答案', reasoning='上一轮思考' WHERE id=?").run(conv.id)
+  h.setBody({ message: '追问' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.content, '', 'content 复位')
+  assert.equal(row.reasoning, '', 'reasoning 复位')
+})
+
+test('R1: SSE 终态快照含 reasoning——刚结束就连上的客户端 thinking 不丢', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done', content='完整答案', reasoning='完整思考' WHERE id=?").run(conv.id)
+  const chunks = []
+  const res = { writeHead: () => {}, write: s => chunks.push(s), end: () => {} }
+  assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res))
+  const events = chunks.join('').split('\n\n').filter(Boolean).map(c => JSON.parse(c.replace(/^data: /, '')))
+  const snap = events.find(e => e.type === 'snapshot')
+  assert.ok(snap, '终态补发快照')
+  assert.equal(snap.content, '完整答案')
+  assert.equal(snap.reasoning, '完整思考', '快照带 reasoning(此前只有 running 才有)')
 })

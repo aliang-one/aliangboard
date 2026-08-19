@@ -64,6 +64,10 @@ export function createConversationsSchema(db) {
   // T5:@-ref 落库(每轮 chat 前刷新用)。幂等:旧库已存在该表无此列时补;新库直接建表后 noop。
   // 「references」是 SQLite 保留字,引用时必须双引号。
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN "references" TEXT') } catch { /* 列已存在 */ }
+  // reasoning(思考过程)持久化(R1):conv 级=流式检查点(轮询回放/启动抢救用),
+  // 消息级=终值(重建 turns 回看 thinking 用)。此前 reasoning 只走 SSE 内存,刷新即蒸发。
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE workbench_messages ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
 }
 
 export function createConversation(db, { projectId, system, userMessage, references }) {
@@ -218,12 +222,12 @@ export function getLastReconcile(db, projectId) {
 }
 
 // 消息 CRUD(T1):每条消息一行,seq 按对话隔离单调递增。
-// node:sqlite 拒绝 undefined 绑定 → refs/trace 显式落 null(不传 undefined)。
-export function appendMessage(db, { conversationId, role, content, refs, trace, seq }) {
+// node:sqlite 拒绝 undefined 绑定 → refs/trace/reasoning 显式落 null(不传 undefined)。
+export function appendMessage(db, { conversationId, role, content, refs, trace, reasoning, seq }) {
   const finalSeq = seq ?? (getMaxSeq(db, conversationId) + 1)
   const id = randomUUID()
-  db.prepare(`INSERT INTO workbench_messages (id,conversationId,role,content,refs,trace,seq,createdAt) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(id, conversationId, role, content ?? '', refs ? JSON.stringify(refs) : null, trace ?? null, finalSeq, Date.now())
+  db.prepare(`INSERT INTO workbench_messages (id,conversationId,role,content,refs,trace,reasoning,seq,createdAt) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(id, conversationId, role, content ?? '', refs ? JSON.stringify(refs) : null, trace ?? null, reasoning ?? null, finalSeq, Date.now())
   return db.prepare('SELECT * FROM workbench_messages WHERE id=?').get(id)
 }
 
@@ -246,13 +250,13 @@ export function truncateAfterLastUser(db, conversationId) {
 // assistant 消息——否则重开对话时,用户亲眼看着流出来的答案会"蒸发"(重建只吃 messages)。
 // 返回补录条数。
 export function salvageInterrupted(db, { now = Date.now() } = {}) {
-  const running = db.prepare("SELECT id, content, trace FROM workbench_conversations WHERE status='running'").all()
+  const running = db.prepare("SELECT id, content, reasoning, trace FROM workbench_conversations WHERE status='running'").all()
   let salvaged = 0
   for (const c of running) {
     const msgs = listMessages(db, c.id)
     const last = msgs[msgs.length - 1]
     if (c.content && !(last && last.role === 'assistant' && last.content === c.content)) {
-      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content, trace: c.trace || null })
+      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content, reasoning: c.reasoning || null, trace: c.trace || null })
       salvaged++
     }
     db.prepare("UPDATE workbench_conversations SET status='failed', error='Server restarted', updatedAt=? WHERE id=?").run(now, c.id)

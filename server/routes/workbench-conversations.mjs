@@ -134,9 +134,9 @@ export function createWorkbenchConvRoutes(deps) {
           }
         }
         // 4) 标记 running + 复位上轮运行态字段(A)→ 后台跑 → 异步摘要(失败忽略)。
-        //    content/trace/steps/pendingApproval 不复位的话:上轮答案残留会让启动抢救
-        //    (salvageInterrupted)在本轮中断时把上轮答案补录成"新消息"(跨轮污染)。
-        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', trace: '[]', steps: 0, pendingApproval: null })
+        //    content/reasoning/trace/steps/pendingApproval 不复位的话:上轮答案/思考残留会让
+        //    启动抢救(salvageInterrupted)在本轮中断时把上轮内容补录成"新消息"(跨轮污染)。
+        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
@@ -164,7 +164,7 @@ export function createWorkbenchConvRoutes(deps) {
         if (removed === 0) { sendJson(res, 400, { message: '没有可重新生成的回复' }); return true }
         setActiveConversation(db, conv.projectId, id)
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
-        updateConversation(db, id, { status: 'running', content: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
+        updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
         sendJson(res, 200, { status: 'running' })
@@ -190,7 +190,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
       sendJson(res, 200, {
         id: conv.id, status: conv.status, steps: conv.steps,
-        content: conv.content, error: conv.error,
+        content: conv.content, reasoning: conv.reasoning, error: conv.error,
         pendingApproval: conv.pendingApproval, trace: conv.trace,
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
@@ -275,9 +275,10 @@ export function createWorkbenchConvRoutes(deps) {
       if (conv.status === 'done' || conv.status === 'failed' || conv.status === 'cancelled') {
         // 终态补发完整快照(dev31):此前只发 status+end 不带 content——刷新后恰逢对话刚结束的
         // 窗口连入的客户端,thinking turn 被置 done 但内容为空("看不到回答"的根因之一)。
+        // R1(2026-08-19):快照同时带 reasoning 检查点(与 running 分支对齐)——终态思考可回看。
         let finalTrace = []
         try { finalTrace = JSON.parse(conv.trace || '[]') } catch { finalTrace = [] }
-        send({ type: 'snapshot', content: conv.content || '', trace: finalTrace, steps: conv.steps ?? 0 })
+        send({ type: 'snapshot', content: conv.content || '', reasoning: conv.reasoning || '', trace: finalTrace, steps: conv.steps ?? 0 })
         send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
         send({ type: 'end' })
         res.end()

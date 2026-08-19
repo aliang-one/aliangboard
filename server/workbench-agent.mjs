@@ -22,23 +22,29 @@ export function createWorkbenchAgent(deps) {
 const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
 
   // checkpoint → paused; done → done + history
-  function handleAgentResult(convId, project, out) {
+  // tracker(R1):reasoning 与 content 同源同命运——终态/暂停一并落库,thinking 不再只活在 SSE。
+  function handleAgentResult(convId, project, out, tracker) {
     if (out.status === 'pending_approval') {
-      updateConversation(db, convId, {
+      const patch = {
         status: 'paused',
         messages: JSON.stringify(out.messages),
         queue: JSON.stringify(out.queue),
         denied: JSON.stringify(out.denied),
         pendingApproval: JSON.stringify(out.pending),
         steps: out.steps,
-      })
+      }
+      // paused 顺手落检查点:<200 字的 content/reasoning 尾巴此时不写,重启/resume 就丢
+      if (tracker) { patch.content = tracker.partial(); patch.reasoning = tracker.reasoning() }
+      updateConversation(db, convId, patch)
     } else {
-      updateConversation(db, convId, {
+      const patch = {
         status: 'done', messages: JSON.stringify(out.messages),
         content: out.content, steps: out.steps,
-      })
+      }
+      if (tracker) patch.reasoning = tracker.reasoning()
+      updateConversation(db, convId, patch)
       // T4:多轮核心 —— done 时追加 assistant 消息到 workbench_messages(供下一轮 buildHistory 读取)。
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', trace: JSON.stringify(out.trace || []) })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? tracker.reasoning() : null, trace: JSON.stringify(out.trace || []) })
       appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
       appendHistory(db, project.id, 'assistant', out.content || '')
     }
@@ -54,23 +60,37 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
   // 失败/进程死亡后用户看着流出来的答案会蒸发(重开从 messages 重建,只剩提问)。
   // 三层防御:①每 200 字符把累计内容检查点写 conv.content(进程硬死也有数据可救,阈值防写放大)
   // ②失败 catch 把部分内容落成 assistant 消息 ③启动 salvageInterrupted 抢救检查点(workbench-projects)。
-  function trackPartial(convId) {
-    let partial = ''
-    let ckAt = 0
+  // R1(2026-08-19):reasoning(思考)与 content 同款防御——此前只走 SSE,刷新即蒸发。
+  // seed 化:初始累计取 conv 现有检查点(resume 续跑不覆写暂停前已落库的前半段;append/regenerate
+  // 路由已复位 → seed 天然为空)。content/reasoning 各自独立阈值,任一过阈一次写两字段(不加写放大)。
+  function trackPartial(convId, conv) {
+    let partial = conv?.content || ''
+    let reasoning = conv?.reasoning || ''
+    let ckAt = partial.length
+    let rCkAt = reasoning.length
+    const checkpoint = () => updateConversation(db, convId, { content: partial, reasoning })
     return {
       onDelta: text => {
         partial += text
-        if (partial.length - ckAt >= 200) { ckAt = partial.length; updateConversation(db, convId, { content: partial }) }
+        if (partial.length - ckAt >= 200) { ckAt = partial.length; checkpoint() }
         busEmit(convId, { type: 'delta', text })
       },
+      onReasoning: text => {
+        reasoning += text
+        if (reasoning.length - rCkAt >= 200) { rCkAt = reasoning.length; checkpoint() }
+        busEmit(convId, { type: 'reasoning', text })
+      },
       partial: () => partial,
+      reasoning: () => reasoning,
     }
   }
-  function salvagePartial(convId, err, partial) {
-    if (partial) {
-      updateConversation(db, convId, { status: 'failed', error: err.message, content: partial })
+  function salvagePartial(convId, err, tracker) {
+    const partial = tracker ? tracker.partial() : ''
+    const reasoning = tracker ? tracker.reasoning() : ''
+    if (partial || reasoning) {
+      updateConversation(db, convId, { status: 'failed', error: err.message, content: partial, reasoning })
       const trace = getConversation(db, convId)?.trace
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, trace })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace })
     } else {
       updateConversation(db, convId, { status: 'failed', error: err.message })
     }
@@ -103,25 +123,30 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
-      tracker = trackPartial(convId)
+      tracker = trackPartial(convId, conv)
       const out = await run({
         system: conv.system,
         history,
         refreshSystem,
         onDelta: tracker.onDelta,
-        onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
+        onReasoning: tracker.onReasoning,
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
-      // 用户已取消(cancelConversation 置 cancelled):丢弃 agent 结果——不覆盖状态、不追加历史
+      // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
+      // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
+      // 此前全弃,刷新后用户看着流出来的答案蒸发)。无流出内容则不追加。
       if (getConversation(db, convId)?.status === 'cancelled') {
+        if (tracker && (tracker.partial() || tracker.reasoning())) {
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: getConversation(db, convId)?.trace })
+        }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out)
+      handleAgentResult(convId, project, out, tracker)
       finalizeConvEmit(convId, out)
     } catch (err) {
-      salvagePartial(convId, err, tracker ? tracker.partial() : '')
+      salvagePartial(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -154,7 +179,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
-      tracker = trackPartial(convId)
+      tracker = trackPartial(convId, conv)
       const out = await run({
         resume: {
           messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
@@ -163,19 +188,22 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         },
         refreshSystem,
         onDelta: tracker.onDelta,
-        onReasoning: text => busEmit(convId, { type: 'reasoning', text }),
+        onReasoning: tracker.onReasoning,
         onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
-      // 同 runConversation:取消后丢弃结果
+      // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
       if (getConversation(db, convId)?.status === 'cancelled') {
+        if (tracker && (tracker.partial() || tracker.reasoning())) {
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: getConversation(db, convId)?.trace })
+        }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out)
+      handleAgentResult(convId, project, out, tracker)
       finalizeConvEmit(convId, out)
     } catch (err) {
-      salvagePartial(convId, err, tracker ? tracker.partial() : '')
+      salvagePartial(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)

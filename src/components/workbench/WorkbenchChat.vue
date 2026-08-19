@@ -137,7 +137,7 @@ function removeRef(idx) { refs.value.splice(idx, 1) }
 onUnmounted(() => { unmounted = true; if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick() })
 
 const convStatusLabel = computed(() => {
-  const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed') }
+  const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed'), cancelled: t('workbench.chat.convStatus.cancelled') }
   return labels[convStatus.value] || ''
 })
 
@@ -241,6 +241,33 @@ watch(input, v => setDraft(conversationId.value || 'new', v))
 // --- 异步轮询 ---
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
 
+// 对话初载(R2,2026-08-19):此前 watch 里单发 pollOnce + catch 静默——瞬时网络错误下
+// turns 为空 → 渲染空态建议卡,观感即"对话丢失"。修复:500ms/1s/2s 退避重试;重试期间
+// loading 态;重试任一次成功且 running 也起 SSE(不只首次);全部失败 → loadFailed banner。
+// pollOnce 内部吞错,失败以 convStatus 仍为 null 判定(成功必置 running/paused/done/failed/cancelled)。
+const convLoading = ref(false)
+const LOAD_RETRY_DELAYS = [500, 1000, 2000]
+async function loadConversation(convId) {
+  convLoading.value = true
+  try {
+    await pollOnce(convId)
+    for (const delay of LOAD_RETRY_DELAYS) {
+      if (convStatus.value !== null || unmounted) break
+      await new Promise(r => setTimeout(r, delay))
+      if (unmounted) return
+      await pollOnce(convId)
+    }
+    if (unmounted) return
+    if (convStatus.value === null) {
+      errorBanner.value = t('workbench.chat.loadFailed')
+    } else if (convStatus.value === 'running') {
+      startStreaming(convId)
+    }
+  } finally {
+    if (!unmounted) convLoading.value = false
+  }
+}
+
 // Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
 watch(() => props.conversationId, async (convId) => {
   stopPolling()
@@ -256,8 +283,7 @@ watch(() => props.conversationId, async (convId) => {
     conversationId.value = convId
     // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
     input.value = getDraft(convId)
-    await pollOnce(convId)
-    if (convStatus.value === 'running') startStreaming(convId)
+    await loadConversation(convId)
   } else {
     input.value = getDraft('new')
   }
@@ -314,7 +340,8 @@ async function pollOnce(id) {
           if (m.role === 'user') {
             turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs) })
           } else {
-            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), trace: tryParseTrace(m.trace), steps: 0 })
+            // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
+            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace: tryParseTrace(m.trace), steps: 0 })
           }
         }
         // running/paused 且末条非 assistant-thinking:补 thinking turn(页面刷新续接运行中对话;
@@ -351,6 +378,14 @@ async function pollOnce(id) {
       }
       agentTurn.trace = [...trace, ...trailing]
       agentTurn.steps = conv.steps ?? agentTurn.steps
+      // R3(2026-08-19):SSE 不在(降级轮询/无 EventSource)时回放 conv 级检查点——
+      // 服务端每 200 字落库的 content/reasoning 是此路径唯一可见进度,不回放则用户看着
+      // 流出的半截回答在刷新后只剩转圈。!es 守卫必须保留:SSE 活跃时本地增量 ≥ 检查点,
+      // 看门狗 10s 对齐轮询若覆写会把 live 内容倒退回滞后快照。
+      if (!es && (conv.status === 'running' || conv.status === 'paused')) {
+        if (conv.content) agentTurn.content = conv.content
+        if (conv.reasoning) agentTurn.reasoning = conv.reasoning
+      }
     }
     // 首次重建(打开/切换/刷新对话)后滚到底部:聊天约定落在最新消息,
     // 此前停在顶部 → 用户被迫从最老历史一点点往下翻。
@@ -371,7 +406,8 @@ async function pollOnce(id) {
     } else if (conv.status === 'done') {
       stopPolling()
       stopWatchdog()
-      if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), steps: conv.steps ?? agentTurn.steps })
+      // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), reasoning: conv.reasoning || agentTurn.reasoning || '', steps: conv.steps ?? agentTurn.steps })
       sending.value = false
       await followBottom()
     } else if (conv.status === 'failed') {
@@ -636,15 +672,20 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
   <section class="h-full flex flex-col min-h-0 bg-surface-container-lowest">
     <!-- Status bar -->
     <div v-if="convStatus" class="shrink-0 flex items-center justify-center gap-xs py-0.5 bg-surface-container-low border-b border-outline-variant">
-      <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' }"></span>
+      <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' || convStatus === 'cancelled' }"></span>
       <span class="text-body-xs font-medium" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
     </div>
     <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
 
     <!-- Messages -->
     <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onChatScroll">
+      <!-- 对话初载/退避重试中(R2):显示 loading 而非空态——单发静默失败曾让"没加载出来"
+           被误读成"没有对话";加载失败(errorBanner)时同样不出建议卡,由 banner 示错 -->
+      <div v-if="convLoading || (!turns.length && errorBanner)" class="h-full flex items-center justify-center">
+        <span class="material-symbols-outlined animate-spin text-2xl text-on-surface-variant">{{ convLoading ? 'progress_activity' : 'cloud_off' }}</span>
+      </div>
       <!-- Empty state:轻量建议式(去大图标孤岛/全宽边框按钮),附 @-mention 可发现性提示 -->
-      <div v-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
+      <div v-else-if="!turns.length" class="h-full flex flex-col items-center justify-center px-lg">
         <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-sm">
           <span class="material-symbols-outlined text-xl text-primary">smart_toy</span>
         </div>

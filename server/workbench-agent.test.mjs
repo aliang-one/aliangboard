@@ -268,3 +268,99 @@ test('resumeConversation 失败:同样保全部分内容(审批续跑路径对�
   const msgs = db.prepare("SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq").all(conv.id)
   assert.equal(msgs.at(-1).content, '续跑已产出')
 })
+
+// ── reasoning(思考过程)持久化(R1):与 content 同款三层防御,刷新/重进后 thinking 可回看 ──
+test('runConversation done: reasoning 落 conv 检查点 + assistant 消息终值', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onReasoning('深度思考过程')
+    return { status: 'done', content: 'answer', trace: [], steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  assert.equal(getConversation(db, conv.id).reasoning, '深度思考过程', 'conv 级 reasoning 落库')
+  const last = db.prepare('SELECT role, reasoning FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  assert.equal(last.role, 'assistant')
+  assert.equal(last.reasoning, '深度思考过程', '消息级 reasoning 落库(重建 turns 回看)')
+})
+
+test('runConversation 流式中途按 200 字符检查点写 reasoning(进程硬死 thinking 也有数据可救)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  let midReasoning = null
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onReasoning('r'.repeat(210))
+    midReasoning = getConversation(db, conv.id).reasoning
+    return new Promise(() => {}) // 永不结束 = 模拟进程死亡前的运行态
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 20))
+  assert.equal(midReasoning.length, 210, '达阈值即检查点,run 进行中 reasoning 已可救')
+})
+
+test('runConversation paused:reasoning 顺手落库(审批挂起时 <200 字尾巴不丢)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onReasoning('想了一小段')
+    return { status: 'pending_approval', pending: { toolCallId: 'tc1', name: 'apply', args: {} }, messages: [], queue: [], denied: [], steps: 1 }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  assert.equal(getConversation(db, conv.id).reasoning, '想了一小段', 'paused 也落 reasoning 检查点')
+})
+
+// resume seed(暗坑修复):trackPartial 此前从空重新累计,续跑 200 字检查点会覆写暂停前
+// 已写库的前半段——中断抢救只救得回后半。seed 化后连续累计。
+test('resumeConversation:暂停前已写库的 content/reasoning 检查点不被续跑覆写', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, {
+    status: 'paused', messages: '[]', queue: '[]', denied: '[]',
+    pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }),
+    content: '前半段', reasoning: '前段思考',
+  })
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('后半段')
+    opts.onReasoning('后段思考')
+    throw new Error('died mid-resume')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.content, '前半段后半段', '前后拼接,前半段不丢')
+  assert.equal(row.reasoning, '前段思考后段思考', 'reasoning 同款连续累计')
+  const last = db.prepare('SELECT role, content, reasoning FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  assert.equal(last.role, 'assistant')
+  assert.equal(last.content, '前半段后半段')
+  assert.equal(last.reasoning, '前段思考后段思考')
+})
+
+// 取消保留部分答案(用户裁决 2026-08-19):与 failed 抢救对称——取消时已流出的
+// content+reasoning 落 assistant 消息,状态保持 cancelled;无流出内容则不追加(上一测试锁定)。
+test('取消后:已流出的部分内容+思考落 assistant 消息,状态保持 cancelled', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let resolveRun
+  const { createAgentRunner } = makeRunner((opts) => {
+    opts.onDelta('已流出的一半')   // 取消前内容已流出(<200 字,未触发检查点)
+    opts.onReasoning('想了一半')
+    return new Promise(res => { resolveRun = res })
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  agent.cancelConversation(conv.id)                  // 用户在 LLM 返回前取消
+  resolveRun({ status: 'done', content: '迟到的完整答案', trace: [], steps: 1, messages: [], queue: [], denied: [] })
+  await p
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', 'agent 完成不覆盖 cancelled')
+  assert.equal(row.content ?? '', '', '迟到终答不写 conv 级字段')
+  const msgs = db.prepare('SELECT role, content, reasoning FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.length, 2, 'user + 部分答案')
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.equal(msgs.at(-1).content, '已流出的一半', '已流出的部分答案保留,刷新不蒸发')
+  assert.equal(msgs.at(-1).reasoning, '想了一半', '部分思考一并保留')
+})

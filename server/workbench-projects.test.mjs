@@ -134,6 +134,44 @@ test('buildHistory: recap 在前 + summarizedUpTo 之后的全文消息', () => 
   assert.equal(h.length, 2)
 })
 
+// ── reasoning 持久化(R1:thinking 刷新/重进不丢)──
+// 两表幂等加列(conv 级=流式检查点,消息级=终值);appendMessage 往返;启动抢救连 thinking 一起救。
+test('reasoning 列:两表幂等迁移(重复建 schema 不抛)', () => {
+  const db = makeDb()
+  assert.doesNotThrow(() => createWorkbenchSchema(db), '重复执行幂等')
+  const convCol = db.prepare("SELECT name FROM pragma_table_info('workbench_conversations') WHERE name='reasoning'").get()
+  const msgCol = db.prepare("SELECT name FROM pragma_table_info('workbench_messages') WHERE name='reasoning'").get()
+  assert.ok(convCol, 'workbench_conversations.reasoning 列存在')
+  assert.ok(msgCol, 'workbench_messages.reasoning 列存在')
+})
+
+test('appendMessage:reasoning 落库可读回;不传 → null(旧行为)', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  createConversation(db, { projectId: proj.id, system: '', userMessage: 'q' })
+  const conv = listConversations(db, proj.id)[0]
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '答', reasoning: '思考过程' })
+  const msgs = listMessages(db, conv.id)
+  assert.equal(msgs[0].reasoning, null, 'user 消息无 reasoning')
+  assert.equal(msgs[1].reasoning, '思考过程', 'assistant 消息 reasoning 读回')
+})
+
+test('salvageInterrupted:检查点含 reasoning → 补录消息连 thinking 一起救回', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p', clusterId: 'c1', ownerId: 'u1' })
+  const proj = db.prepare("SELECT id FROM workbench_projects WHERE name='p'").get()
+  const c = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q' })
+  appendMessage(db, { conversationId: c.id, role: 'user', content: 'q' })
+  updateConversation(db, c.id, { content: '部分答案', reasoning: '部分思考' })
+  salvageInterrupted(db)
+  const last = listMessages(db, c.id).at(-1)
+  assert.equal(last.role, 'assistant')
+  assert.equal(last.content, '部分答案')
+  assert.equal(last.reasoning, '部分思考', 'thinking 随抢救保留')
+})
+
 // 启动抢救(2026-08-17 意外中断内容保全):网关重启时 running→failed,若流式检查点已写了
 // conv.content 而末条消息不是 assistant(中断轮答案从未 append),补录为 assistant 消息——
 // 否则重开对话时用户看着流出来的答案蒸发。

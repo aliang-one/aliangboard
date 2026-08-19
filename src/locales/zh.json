@@ -2891,8 +2891,10 @@
         "running": "执行中",
         "paused": "待审批",
         "done": "完成",
-        "failed": "失败"
-      }
+        "failed": "失败",
+        "cancelled": "已取消"
+      },
+      "loadFailed": "对话加载失败,请检查网络后重试"
     },
     "shell": {
       "title": "工作台",
