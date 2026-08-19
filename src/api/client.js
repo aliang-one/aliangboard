@@ -277,6 +277,8 @@ export const adminApi = {
     remove: id => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     updateOverrides: (id, tool_overrides) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/overrides`, { method: 'PATCH', body: JSON.stringify({ tool_overrides }) }),
     updateNamespaces: (id, allowed_namespaces) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/namespaces`, { method: 'PATCH', body: JSON.stringify({ allowed_namespaces }) }),
+    health: () => platformHttp.request('/api/admin/apikeys/health'),
+    repairSa: (id, body) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/sa/repair`, { method: 'POST', body: JSON.stringify(body || {}) }),
   },
   // 审计流水(Task 5):active/list/verify;GET,query params 直接透传。
   auditTrail: {

@@ -92,7 +92,19 @@ async function load() {
   } catch (e) { notify('error', e.message || t('common.loadFailed')) }
   finally { loading.value = false }
 }
-onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load() })
+// SA 健康(id → {ok, detail, managed});探测失败不阻塞列表。
+const saHealth = ref({})
+async function loadHealth() {
+  try { const res = await adminApi.apikeys.health(); saHealth.value = Object.fromEntries((res.health || []).map(h => [h.id, h])) } catch { /* 网关旧版本无此端点:静默降级 */ }
+}
+async function repairSa(row) {
+  try {
+    const res = await adminApi.apikeys.repairSa(row.id, row.saManaged ? {} : { takeover: true })
+    notify('success', t('admin.apiKeys.repairDone', { sa: res.boundSA }))
+    await load(); await loadHealth()
+  } catch (e) { notify('error', e.message || t('admin.apiKeys.repairFailed')) }
+}
+onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load(); loadHealth() })
 
 // 必填校验:空/纯空格视为缺。与服务端 mintKey 必填字段对齐(客户端先拦,
 // 不让用户看到裸的「mintKey 缺少必填字段」400)。
@@ -167,7 +179,14 @@ async function doRevoke(k) {
         <span v-if="nsSummary(row)" class="font-mono text-body-xs text-on-surface-variant">{{ nsSummary(row) }}</span>
         <span v-else class="text-body-xs text-on-surface-variant/50">—</span>
       </template>
-      <template #boundSA="{ row }"><span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span></template>
+      <template #boundSA="{ row }">
+        <div class="flex items-center gap-xs">
+          <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="{ background: saHealth[row.id] ? (saHealth[row.id].ok ? '#10b981' : '#dc2626') : 'var(--md-sys-color-outline-variant, #9ca3af)' }" :title="saHealth[row.id]?.detail || ''"></span>
+          <span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span>
+          <span v-if="row.saManaged" class="px-xs rounded-full text-[10px] leading-4 border border-outline-variant text-on-surface-variant">{{ $t('admin.apiKeys.managedBadge') }}</span>
+          <button v-if="saHealth[row.id] && !saHealth[row.id].ok" data-testid="sa-repair" class="text-body-xs text-primary underline underline-offset-2" @click="repairSa(row)">{{ row.saManaged ? $t('admin.apiKeys.repair') : $t('admin.apiKeys.repairTakeover') }}</button>
+        </div>
+      </template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
       <template #state="{ row }">
         <span v-if="row.revokedAt" class="text-body-xs text-error">{{ $t('admin.apiKeys.revokedBadge') }}</span>
