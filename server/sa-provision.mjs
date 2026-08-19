@@ -8,6 +8,8 @@ import { effectiveTools, DANGEROUS_TOOLS } from './authorize.mjs'
 
 const enc = encodeURIComponent
 const id8 = (keyId) => String(keyId).slice(0, 8)
+// 全部 tier 档名:tier 变更后旧档名 Role/RoleBinding 可能残留,teardown/sweep 须三档全清。
+export const TIERS = ['read', 'operator', 'admin']
 export const managedSaName = (keyId) => `aliangboard-mcp-${id8(keyId)}`
 const labels = (keyId) => ({ 'app.kubernetes.io/managed-by': 'aliangboard', 'aliangboard.io/api-key': keyId })
 
@@ -80,17 +82,38 @@ export async function provisionSa({ requestFn, callCtx }, { keyId, namespace, na
 }
 
 // 回收(best-effort,吊销时调用):SA/Role/RoleBinding/CRB;共享 ClusterRole 保留(其他 key 在用);404 视为成功。
+// Role/RoleBinding 按 TIERS 三档名全删——tier 曾变更(降档/改覆盖)后旧档名残留,只删当前档名会留孤儿 RBAC。
 export async function teardownSa({ requestFn, callCtx }, { keyId, namespace, name, tier, namespaces = [] }) {
-  const role = `aliangboard-mcp-${tier}-${id8(keyId)}`
   const nss = [...new Set([namespace, ...namespaces])]
   const paths = [
     `/api/v1/namespaces/${enc(namespace)}/serviceaccounts/${enc(name)}`,
     `/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${enc('aliangboard-mcp-cani-' + id8(keyId))}`,
-    ...nss.flatMap(ns => [
+    ...nss.flatMap(ns => TIERS.flatMap(t => {
+      const role = `aliangboard-mcp-${t}-${id8(keyId)}`
+      return [
+        `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings/${enc(role)}`,
+        `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/roles/${enc(role)}`,
+      ]
+    })),
+  ]
+  const deleted = [], errors = []
+  for (const p of paths) {
+    try { await requestFn(callCtx, p, { method: 'DELETE' }); deleted.push(p) }
+    catch (e) { if (e.status !== 404) errors.push({ path: p, error: e.message }) }
+  }
+  return { deleted, errors }
+}
+
+// tier 变更后清理旧档:DELETE 除 keepTier 外两档的 Role+RoleBinding(repair 成功后 best-effort 调,404 容忍)。
+export async function sweepStaleTierBindings({ requestFn, callCtx }, { keyId, namespace, keepTier, namespaces = [] }) {
+  const nss = [...new Set([namespace, ...namespaces])]
+  const paths = nss.flatMap(ns => TIERS.filter(t => t !== keepTier).flatMap(t => {
+    const role = `aliangboard-mcp-${t}-${id8(keyId)}`
+    return [
       `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings/${enc(role)}`,
       `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/roles/${enc(role)}`,
-    ]),
-  ]
+    ]
+  }))
   const deleted = [], errors = []
   for (const p of paths) {
     try { await requestFn(callCtx, p, { method: 'DELETE' }); deleted.push(p) }

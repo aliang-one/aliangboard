@@ -2,7 +2,7 @@
 // 托管 SA 供给契约:tier→规则模板、rbacTier 越档提升(overrides)、SSA 幂等供给、回收 404 容忍。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { roleRules, rbacTier, managedSaName, provisionSa, teardownSa } from './sa-provision.mjs'
+import { roleRules, rbacTier, managedSaName, provisionSa, teardownSa, sweepStaleTierBindings } from './sa-provision.mjs'
 
 const KEY = '11111111-2222-3333-4444-555555555555'
 
@@ -58,10 +58,10 @@ test('provisionSa: 部分失败 → {ok:false, failed 带标签},不抛', async 
   assert.equal(out.failed[0].kind, 'ClusterRoleBinding')
 })
 
-test('teardownSa: DELETE SA/Role/RoleBinding/CRB;共享 ClusterRole 不删;404 视为成功', async () => {
+test('teardownSa: DELETE SA + 三档名 Role/RoleBinding + CRB;共享 ClusterRole 不删;404 视为成功', async () => {
   const calls = []
   const requestFn = async (ctx, path, init = {}) => {
-    if (path.includes('/namespaces/ns1/roles/')) { const e = new Error('not found'); e.status = 404; throw e }
+    if (path.endsWith('/namespaces/ns2/roles/aliangboard-mcp-admin-11111111')) { const e = new Error('not found'); e.status = 404; throw e }
     calls.push({ path, init }); return { body: {} }
   }
   const out = await teardownSa({ requestFn, callCtx: {} }, { keyId: KEY, namespace: 'ns1', name: 'sa', tier: 'read', namespaces: ['ns2'] })
@@ -69,6 +69,29 @@ test('teardownSa: DELETE SA/Role/RoleBinding/CRB;共享 ClusterRole 不删;404 �
   const dels = calls.map(c => c.path)
   assert.ok(dels.includes('/api/v1/namespaces/ns1/serviceaccounts/sa'))
   assert.ok(dels.includes('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/aliangboard-mcp-cani-11111111'))
-  assert.ok(dels.some(p => p.endsWith('/namespaces/ns2/roles/aliangboard-mcp-read-11111111')))
+  for (const t of ['read', 'operator', 'admin']) for (const ns of ['ns1', 'ns2']) {
+    if (t === 'admin' && ns === 'ns2') continue // 该路径模拟 404(容忍,不计 errors)
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/${ns}/roles/aliangboard-mcp-${t}-11111111`), `${ns} ${t} role`)
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/${ns}/rolebindings/aliangboard-mcp-${t}-11111111`), `${ns} ${t} rb`)
+  }
   assert.ok(!dels.some(p => p.includes('/clusterroles/aliangboard-mcp-cani')), '共享 ClusterRole 不删')
+})
+
+test('sweepStaleTierBindings: keepTier 保留,其余两档 Role/RoleBinding 删;404 容忍', async () => {
+  const calls = []
+  const requestFn = async (ctx, path, init = {}) => {
+    if (path.endsWith('/namespaces/ns2/rolebindings/aliangboard-mcp-operator-11111111')) { const e = new Error('not found'); e.status = 404; throw e }
+    calls.push({ path, init }); return { body: {} }
+  }
+  const out = await sweepStaleTierBindings({ requestFn, callCtx: {} }, { keyId: KEY, namespace: 'ns1', keepTier: 'read', namespaces: ['ns2'] })
+  assert.equal(out.errors.length, 0, '404 容忍不计 errors')
+  const dels = calls.map(c => c.path)
+  for (const t of ['operator', 'admin']) for (const ns of ['ns1', 'ns2']) {
+    if (t === 'operator' && ns === 'ns2') continue // 该路径模拟 404
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/${ns}/roles/aliangboard-mcp-${t}-11111111`), `${ns} ${t} role`)
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/${ns}/rolebindings/aliangboard-mcp-${t}-11111111`), `${ns} ${t} rb`)
+  }
+  assert.ok(!dels.some(p => p.includes('aliangboard-mcp-read-')), 'keepTier 档不删')
+  assert.ok(!dels.some(p => p.includes('serviceaccounts')), 'SA 不在 sweep 范围')
+  assert.ok(!dels.some(p => p.includes('clusterrolebindings')), 'CRB 不在 sweep 范围')
 })

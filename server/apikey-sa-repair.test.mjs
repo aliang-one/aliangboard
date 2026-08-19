@@ -5,24 +5,25 @@ import { DatabaseSync } from 'node:sqlite'
 import { createApiKeysSchema, mintKey, revokeKey, listKeys } from './auth-keys.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 
-function makeHarness({ probe, teardownShouldThrow } = {}) {
+function makeHarness({ probe, teardownShouldThrow, sweepShouldThrow } = {}) {
   const db = new DatabaseSync(':memory:')
   createApiKeysSchema(db)
   const sent = []
   let body = {}
-  const provisionCalls = [], teardownCalls = []
+  const provisionCalls = [], teardownCalls = [], sweepCalls = []
   const routes = createAdminRoutes({
     db, sendJson: (r, s, j) => { sent.push({ status: s, json: j }) },
     readBody: async () => body, requireAdmin: () => ({ userId: 'u1', role: 'admin', username: 'admin' }),
     getCluster: () => ({ id: 'c1', apiServer: 'https://x', authHeader: 'Bearer a', insecure: 1 }),
     provisionCluster: async (row, spec) => { provisionCalls.push(spec); return { ok: true, applied: [], failed: [], total: 5 } },
     teardownCluster: async (row, spec) => { teardownCalls.push(spec); if (teardownShouldThrow) throw new Error('net error'); return { deleted: [], errors: [] } },
+    sweepStaleCluster: async (row, spec) => { sweepCalls.push(spec); if (sweepShouldThrow) throw new Error('sweep error'); return { deleted: [], errors: [] } },
     probeSa: async (row, ns, name) => (typeof probe === 'function' ? probe(ns, name) : { ok: true }),
   })
-  return { db, sent, provisionCalls, teardownCalls, setBody: b => { body = b }, call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
+  return { db, sent, provisionCalls, teardownCalls, sweepCalls, setBody: b => { body = b }, call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
 }
 
-test('repair 托管 key:按行内 ns/name 幂等供给,不改绑', async () => {
+test('repair 托管 key:按行内 ns/name 幂等供给,不改绑;sweep 以同 tier 为 keepTier 调一次', async () => {
   const h = makeHarness()
   const k = mintKey(h.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'aliangboard-mcp-11111111', saManaged: 1 })
   h.setBody({})
@@ -30,6 +31,27 @@ test('repair 托管 key:按行内 ns/name 幂等供给,不改绑', async () => {
   assert.equal(h.sent[0].status, 200)
   assert.equal(h.sent[0].json.boundSA, 'ns/aliangboard-mcp-11111111')
   assert.equal(h.provisionCalls[0].name, 'aliangboard-mcp-11111111')
+  assert.equal(h.provisionCalls[0].tier, h.sweepCalls[0].keepTier, 'sweep keepTier 与 provision tier 一致')
+  assert.equal(h.sweepCalls.length, 1)
+})
+
+test('repair sweep 抛错:best-effort,修复仍 200', async () => {
+  const h = makeHarness({ sweepShouldThrow: true })
+  const k = mintKey(h.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', saManaged: 1 })
+  h.setBody({})
+  await h.call('POST', `/api/admin/apikeys/${k.id}/sa/repair`)
+  assert.equal(h.sent[0].status, 200)
+  assert.equal(h.sent[0].json.ok, true)
+})
+
+test('repair BYO key 无 takeover → 400,provision 不被调', async () => {
+  const h = makeHarness()
+  const k = mintKey(h.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'my-sa' })
+  h.setBody({})
+  await h.call('POST', `/api/admin/apikeys/${k.id}/sa/repair`)
+  assert.equal(h.sent[0].status, 400)
+  assert.equal(h.provisionCalls.length, 0)
+  assert.equal(h.sweepCalls.length, 0)
 })
 
 test('repair BYO key + takeover:换托管名,行改绑 saManaged=1', async () => {

@@ -285,15 +285,21 @@ export function createAdminRoutes(deps) {
         const input = await readBody(req)
         const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
         if (!row) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
+        if (!row.saManaged && !input.takeover) { sendJson(res, 400, { message: '非托管 key 修复必须 takeover:true(平台将代建并改绑托管身份)' }); return true }
         if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: '修复未接通(网关未注入集群供给能力)' }); return true }
         let name = row.boundSA_name, managed = !!row.saManaged
         if (input.takeover) { name = managedSaName(id); managed = true }
+        const tier = rbacTier(row)
         let extraNs = []
         try { extraNs = row.allowed_namespaces ? JSON.parse(row.allowed_namespaces) : [] } catch { extraNs = [] }
         const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
-          keyId: id, namespace: row.boundSA_namespace, name, tier: rbacTier(row), namespaces: extraNs,
+          keyId: id, namespace: row.boundSA_namespace, name, tier, namespaces: extraNs,
         })
-        if (!prov.ok) { sendJson(res, 502, { message: `修复失败: ${prov.failed[0]?.error || '未知错误'}`, failed: prov.failed }); return true }
+        if (!prov.ok) { sendJson(res, 502, { message: `修复失败: ${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'}`, failed: prov.failed }); return true }
+        if (deps.sweepStaleCluster) {
+          // 清旧档名 RBAC(tier 曾变更后残留),best-effort:失败不影响修复结果。
+          try { await deps.sweepStaleCluster(deps.getCluster(row.clusterId), { keyId: id, namespace: row.boundSA_namespace, keepTier: tier, namespaces: extraNs }) } catch { /* best-effort */ }
+        }
         if (input.takeover && !setKeySaBinding(db, id, { namespace: row.boundSA_namespace, name, managed: true })) {
           sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true
         }
