@@ -4,7 +4,7 @@
 // Pod 模板 labels → selector ⊄ template → K8s 422「selector does not match template labels」。
 // 防线:①自定义列表隐藏 selector 键 ②保存前拦截撞键行 ③模板镜像对 selector 键强制原值透传。
 import { describe, test, expect } from 'vitest'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels } from '../workloadMeta.js'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '../workloadMeta.js'
 
 const KUBOARD_DEPLOY = {
   spec: {
@@ -59,5 +59,26 @@ describe('guardTemplateLabels:模板镜像对 selector 键强制原值透传', (
     const guarded = guardTemplateLabels({ a: '1' }, { a: '1' }, { ghost: 'g' })
     expect(guarded).toEqual({ a: '1' })
     expect(guardTemplateLabels({ a: '1' }, { a: '1' }, {})).toEqual({ a: '1' })
+  })
+})
+
+describe('templateSelectorBreaks:模板 YAML 编辑器防线(改 selector 键值 → K8s 422)', () => {
+  const sel = { 'k8s.kuboard.cn/layer': 'svc', app: 'ai-gateway' }
+  test('selector 键在新模板 labels 中值被改 → 返回冲突键', () => {
+    const tplLabels = { 'k8s.kuboard.cn/layer': 'gateway', app: 'ai-gateway', team: 'x' }
+    expect(templateSelectorBreaks(tplLabels, sel)).toEqual(['k8s.kuboard.cn/layer'])
+  })
+  test('值一致 / 键未提及(merge-patch 不删键,删行无害) → 通过(空数组)', () => {
+    expect(templateSelectorBreaks({ app: 'ai-gateway' }, sel)).toEqual([])
+    expect(templateSelectorBreaks({}, sel)).toEqual([])
+    expect(templateSelectorBreaks(null, sel)).toEqual([])
+  })
+  test('值类型差异按字符串比较(selector 数字/标签字符串)', () => {
+    expect(templateSelectorBreaks({ app: 'ai-gateway' }, { app: 'ai-gateway' })).toEqual([])
+    expect(templateSelectorBreaks({ replicas: '2' }, { replicas: 2 })).toEqual([])
+    expect(templateSelectorBreaks({ replicas: '3' }, { replicas: 2 })).toEqual(['replicas'])
+  })
+  test('无 selector → 恒通过', () => {
+    expect(templateSelectorBreaks({ any: 'thing' }, {})).toEqual([])
   })
 })

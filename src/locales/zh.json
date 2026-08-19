@@ -775,7 +775,8 @@
       "capacityPlaceholder": "50Gi",
       "accessModeLabel": "访问模式",
       "storageClassLabel": "存储类",
-      "storageClassPlaceholder": "ssd-standard"
+      "storageClassPlaceholder": "ssd-standard",
+      "immutableHint": "访问模式与存储类在 PVC 创建后不可变（K8s 限制），仅支持扩容容量"
     },
     "storage": {
       "title": "Storage",
@@ -1017,6 +1018,7 @@
       "noSelectorHint": "无 selector（ExternalName / headless 手动 Endpoints）",
       "sessionNoneOption": "None（负载均衡）",
       "sessionClientIpOption": "ClientIP（会话保持）",
+      "typeSwitchHint": "ExternalName 与其他类型之间不能互相切换（K8s 限制）；如需切换请删除后重建 Service",
       "defaultTrafficOption": "默认（Cluster）",
       "loadYaml": "加载中…",
       "deletePortTitle": "删除端口",
@@ -1815,6 +1817,7 @@
       "customLabels": "自定义 Labels",
       "selectorLocked": "标签 {key} 被工作负载的 spec.selector 绑定（创建后不可变），修改会导致 K8s 拒绝保存；如需调整请在 YAML 中迁移工作负载",
       "selectorHint": "已锁定 selector 绑定标签（改值会导致保存被 K8s 拒绝）：{keys}",
+      "tplSelectorLocked": "模板 labels 中 selector 绑定标签 {keys} 的值与 spec.selector 不一致，K8s 会拒绝保存；请保持原值（删除该行是安全的，不会被移除）",
       "addLabel": "+ 添加",
       "noLabels": "无自定义标签",
       "annotations": "Annotations（注解）",

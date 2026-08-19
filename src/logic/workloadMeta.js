@@ -37,3 +37,15 @@ export function guardTemplateLabels(desired, rawTplLabels, selector) {
   }
   return out
 }
+
+// 模板 YAML 编辑器防线:用户手编模板时把 selector 绑定标签的【值】改成与 selector 不一致
+// → K8s 422。merge-patch 不删未提及键,故「删行」无害不查,只查「出现且值不一致」;
+// 值按字符串比较(标签本就是字符串)。返回冲突键数组(空=通过)。
+export function templateSelectorBreaks(tplLabels, selector) {
+  const out = []
+  const labels = tplLabels && typeof tplLabels === 'object' ? tplLabels : {}
+  for (const [k, v] of Object.entries(selector || {})) {
+    if (k in labels && String(labels[k]) !== String(v)) out.push(k)
+  }
+  return out
+}

@@ -290,9 +290,11 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.capacityLabel') }}</label>
         <input v-model="editCapacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pvcDetail.capacityPlaceholder')" />
       </div>
+      <!-- accessModes / storageClass 创建后不可变(K8s: PVC spec 仅 resources.requests 支持扩容)——
+           此前可编辑可提交,保存必被 K8s 422 拒绝。锁定展示(原值随表单回填,提交不变)。 -->
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.accessModeLabel') }}</label>
-        <select v-model="editAccessModes" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary">
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.accessModeLabel') }} 🔒</label>
+        <select v-model="editAccessModes" disabled class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary opacity-60">
           <option value="RWO">RWO (ReadWriteOnce)</option>
           <option value="RWM">RWM (ReadWriteMany)</option>
           <option value="ROM">ROM (ReadOnlyMany)</option>
@@ -300,12 +302,10 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
         </select>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.storageClassLabel') }}</label>
-        <input v-model="editStorageClass" list="pvc-sc-list" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.pvcDetail.storageClassPlaceholder')" />
-        <datalist id="pvc-sc-list">
-          <option v-for="s in allSCs" :key="s.name" :value="s.name" />
-        </datalist>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pvcDetail.storageClassLabel') }} 🔒</label>
+        <input v-model="editStorageClass" disabled class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary opacity-60" :placeholder="t('ns.pvcDetail.storageClassPlaceholder')" />
       </div>
+      <p class="text-xs text-on-surface-variant/60 flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.pvcDetail.immutableHint') }}</p>
     </div>
     <template #actions>
       <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>

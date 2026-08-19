@@ -15,7 +15,7 @@ import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -1217,6 +1217,13 @@ async function saveTemplate(yamlStr) {
   try {
     const { load: yamlLoad } = await import('js-yaml')
     const parsed = yamlLoad(yamlStr)
+    // selector 承重墙(同元数据编辑器防线):手编模板改了 selector 绑定标签的值 → K8s 422,
+    // 在 apply 前拦截并明确指出冲突键(merge-patch 不删未提及键,删行无害不拦)。
+    const breaks = templateSelectorBreaks(parsed?.metadata?.labels || {}, metaSelectorLabels.value)
+    if (breaks.length) {
+      notify('error', t('workload.meta.tplSelectorLocked', { keys: breaks.join('、') }))
+      return
+    }
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
     notify('success', t('workload.notify.templateSaved'))
     showTemplateModal.value = false

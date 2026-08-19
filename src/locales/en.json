@@ -775,7 +775,8 @@
       "capacityPlaceholder": "50Gi",
       "accessModeLabel": "Access Mode",
       "storageClassLabel": "StorageClass",
-      "storageClassPlaceholder": "ssd-standard"
+      "storageClassPlaceholder": "ssd-standard",
+      "immutableHint": "Access modes and storage class are immutable after PVC creation (Kubernetes constraint); only capacity expansion is supported"
     },
     "storage": {
       "title": "Storage",
@@ -1017,6 +1018,7 @@
       "noSelectorHint": "No selector (ExternalName / headless with manual Endpoints)",
       "sessionNoneOption": "None (load balancing)",
       "sessionClientIpOption": "ClientIP (session affinity)",
+      "typeSwitchHint": "ExternalName cannot be switched to or from other types (Kubernetes constraint); recreate the Service to change it",
       "defaultTrafficOption": "Default (Cluster)",
       "loadYaml": "Loading…",
       "deletePortTitle": "Delete Port",
@@ -1815,6 +1817,7 @@
       "customLabels": "Custom Labels",
       "selectorLocked": "Label {key} is bound by spec.selector (immutable after creation); changing it makes Kubernetes reject the save. Recreate the workload via YAML to change it",
       "selectorHint": "Selector-bound labels are locked (changing them would be rejected by Kubernetes): {keys}",
+      "tplSelectorLocked": "Template label {keys} is bound by spec.selector with a different value; Kubernetes will reject the save. Keep the original value (deleting the line is safe — it will not be removed)",
       "addLabel": "+ Add",
       "noLabels": "No custom labels",
       "annotations": "Annotations",

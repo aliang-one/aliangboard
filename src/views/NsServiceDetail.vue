@@ -722,16 +722,20 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
   <!-- 统一 Edit 弹窗 -->
   <Modal v-model="showEditModal" :title="$t('ns.svcDetail.editService')" width="max-w-2xl">
     <div class="flex flex-col gap-md max-h-[60vh] overflow-y-auto pr-sm -mt-xs">
-      <!-- Service Type -->
+      <!-- Service Type:ClusterIP/NodePort/LoadBalancer 三者可互转;ExternalName 与其他类型
+           K8s 禁止互转(保存必 422)——按当前实际类型锁定不可达选项,提示走重建。 -->
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">Service Type</label>
         <div class="flex flex-wrap gap-xs">
-          <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" type="button" @click="editForm.type = st"
-            class="px-md py-sm rounded-lg border font-medium text-body-sm transition-all"
+          <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" type="button"
+            :disabled="(st === 'ExternalName') !== (svc?.type === 'ExternalName')"
+            @click="editForm.type = st"
+            class="px-md py-sm rounded-lg border font-medium text-body-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             :class="editForm.type === st ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'">
             {{ st }}
           </button>
         </div>
+        <p class="text-xs text-on-surface-variant/60 mt-xs flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.svcDetail.typeSwitchHint') }}</p>
       </div>
 
       <!-- ExternalName 目标 -->
