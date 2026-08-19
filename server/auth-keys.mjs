@@ -22,12 +22,14 @@ export function createApiKeysSchema(db) {
     label TEXT,
     createdBy TEXT,
     createdAt INTEGER NOT NULL,
+    saManaged INTEGER NOT NULL DEFAULT 0,
     revokedAt INTEGER
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_owner ON api_keys(owner)`)
   // 旧库(表已存在但无该列)补列;新库 CREATE 已带 → ALTER 抛「列已存在」,吞掉。
   try { db.exec('ALTER TABLE api_keys ADD COLUMN tool_overrides TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE api_keys ADD COLUMN allowed_namespaces TEXT') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN saManaged INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }
 }
 
 export function hashKey(plaintext) {
@@ -41,7 +43,7 @@ export function generateKeyPlaintext() {
 
 // 签发一把 key。返回 {id, plaintext(仅此次可见), prefix, ...}。明文不入库。
 export function mintKey(db, input) {
-  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null, tool_overrides = null, allowed_namespaces = null } = input || {}
+  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null, tool_overrides = null, allowed_namespaces = null, id: inputId = null, saManaged = 0 } = input || {}
   if (!owner || !clusterId || !boundSA_namespace || !boundSA_name) {
     throw new Error('mintKey 缺少必填字段(owner / clusterId / boundSA_namespace / boundSA_name)')
   }
@@ -49,12 +51,12 @@ export function mintKey(db, input) {
   const overridesJson = normalizeToolOverrides(tool_overrides)  // strict: 坏→抛
   const allowedNsJson = normalizeAllowedNamespaces(allowed_namespaces, boundSA_namespace)
   const plaintext = generateKeyPlaintext()
-  const id = randomUUID()
+  const id = inputId || randomUUID()
   const createdAt = Date.now()
-  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).run(
-    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, overridesJson, allowedNsJson, label, createdBy, createdAt)
-  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides: overridesJson, allowed_namespaces: allowedNsJson, label, createdBy, createdAt }
+  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`).run(
+    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, overridesJson, allowedNsJson, label, createdBy, createdAt, saManaged ? 1 : 0)
+  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides: overridesJson, allowed_namespaces: allowedNsJson, label, createdBy, createdAt, saManaged: saManaged ? 1 : 0 }
 }
 
 // 按明文查 key(高熵 hash 查找;返回行或 null。是否有效由 isActive 判)。
@@ -74,7 +76,13 @@ export function revokeKey(db, id) {
 
 // 列表(UI 用):绝不返回 keyHash / 明文,只 prefix。
 export function listKeys(db, { owner } = {}) {
-  const sql = `SELECT id, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt
+  const sql = `SELECT id, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged
                FROM api_keys ${owner ? 'WHERE owner = ?' : ''} ORDER BY createdAt DESC`
   return owner ? db.prepare(sql).all(owner) : db.prepare(sql).all()
+}
+
+// BYO 接管/托管改绑(只对未吊销 key)。返回是否生效。
+export function setKeySaBinding(db, id, { namespace, name, managed }) {
+  return db.prepare('UPDATE api_keys SET boundSA_namespace = ?, boundSA_name = ?, saManaged = ? WHERE id = ? AND revokedAt IS NULL')
+    .run(namespace, name, managed ? 1 : 0, id).changes > 0
 }

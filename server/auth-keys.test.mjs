@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import {
   createApiKeysSchema, hashKey, generateKeyPlaintext,
-  mintKey, lookupKey, isActive, revokeKey, listKeys,
+  mintKey, lookupKey, isActive, revokeKey, listKeys, setKeySaBinding,
 } from './auth-keys.mjs'
 
 function makeDb() {
@@ -134,4 +134,37 @@ test('mintKey: 非法 ns 名 → 抛,不建 key', () => {
 test('schema 幂等: 二次 createApiKeysSchema 不报错', () => {
   const db = makeDb()
   assert.doesNotThrow(() => createApiKeysSchema(db))
+})
+
+// --- 托管列 + 可选 id + 改绑(Task: managed SA lifecycle)---
+test('旧库无 saManaged 列 → createApiKeysSchema ALTER 补列,默认 0(BYO)', () => {
+  const db = new DatabaseSync(':memory:')
+  db.exec(`CREATE TABLE api_keys (id TEXT PRIMARY KEY, keyHash TEXT NOT NULL UNIQUE, prefix TEXT, owner TEXT NOT NULL,
+    clusterId TEXT NOT NULL, boundSA_namespace TEXT NOT NULL, boundSA_name TEXT NOT NULL, tier TEXT NOT NULL DEFAULT 'read',
+    tool_overrides TEXT, allowed_namespaces TEXT, label TEXT, createdBy TEXT, createdAt INTEGER NOT NULL, revokedAt INTEGER)`)
+  createApiKeysSchema(db) // ALTER 补列
+  const k = mintKey(db, { owner: 'a', clusterId: 'c', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  assert.equal(lookupKey(db, k.plaintext).saManaged, 0)
+})
+
+test('mintKey 接受可选 id + saManaged=1,原样落库并回传', () => {
+  const db = new DatabaseSync(':memory:')
+  createApiKeysSchema(db)
+  const k = mintKey(db, { id: 'fixed-id-1', owner: 'a', clusterId: 'c', boundSA_namespace: 'ns', boundSA_name: 'sa', saManaged: 1 })
+  assert.equal(k.id, 'fixed-id-1')
+  const row = lookupKey(db, k.plaintext)
+  assert.equal(row.id, 'fixed-id-1')
+  assert.equal(row.saManaged, 1)
+})
+
+test('setKeySaBinding:改绑 ns/name/managed;已吊销 → false', () => {
+  const db = new DatabaseSync(':memory:')
+  createApiKeysSchema(db)
+  const k = mintKey(db, { owner: 'a', clusterId: 'c', boundSA_namespace: 'ns', boundSA_name: 'old' })
+  assert.equal(setKeySaBinding(db, k.id, { namespace: 'ns', name: 'aliangboard-mcp-11111111', managed: true }), true)
+  const row = lookupKey(db, k.plaintext)
+  assert.equal(row.boundSA_name, 'aliangboard-mcp-11111111')
+  assert.equal(row.saManaged, 1)
+  revokeKey(db, k.id)
+  assert.equal(setKeySaBinding(db, k.id, { namespace: 'ns', name: 'x', managed: false }), false)
 })
