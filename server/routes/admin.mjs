@@ -1,6 +1,6 @@
 // 管理 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // LLM/MCP 配置、集群 CRUD、API keys、审计日志、用户管理 逐字搬迁,仅依赖引用改走 deps 注入。
-import { listKeys, mintKey, revokeKey } from '../auth-keys.mjs'
+import { listKeys, mintKey, revokeKey, setKeySaBinding } from '../auth-keys.mjs'
 import { managedSaName, rbacTier } from '../sa-provision.mjs'
 import { randomUUID as cryptoRandomUUID } from 'node:crypto'
 import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
@@ -266,12 +266,55 @@ export function createAdminRoutes(deps) {
         return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || '更新 ns allowlist 失败' }); return true }
     }
+    // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA。
+    if (req.method === 'GET' && url.pathname === '/api/admin/apikeys/health') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      if (!deps.probeSa || !deps.getCluster) { sendJson(res, 200, { health: [] }); return true }
+      const keys = listKeys(db).filter(k => !k.revokedAt)
+      const health = await Promise.all(keys.map(async k => {
+        const r = await deps.probeSa(deps.getCluster(k.clusterId), k.boundSA_namespace, k.boundSA_name)
+        return { id: k.id, prefix: k.prefix, boundSA: `${k.boundSA_namespace}/${k.boundSA_name}`, managed: !!k.saManaged, tier: k.tier, ok: !!(r && r.ok), detail: r?.detail || null }
+      }))
+      sendJson(res, 200, { health }); return true
+    }
+    // 修复托管身份;takeover=true 时 BYO key 换平台托管名并改绑(解决「SA 被删整 key 灭门」的存量 key)。
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/sa\/repair$/)) {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const id = decodeURIComponent(url.pathname.split('/')[4])
+        const input = await readBody(req)
+        const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
+        if (!row) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
+        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: '修复未接通(网关未注入集群供给能力)' }); return true }
+        let name = row.boundSA_name, managed = !!row.saManaged
+        if (input.takeover) { name = managedSaName(id); managed = true }
+        let extraNs = []
+        try { extraNs = row.allowed_namespaces ? JSON.parse(row.allowed_namespaces) : [] } catch { extraNs = [] }
+        const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
+          keyId: id, namespace: row.boundSA_namespace, name, tier: rbacTier(row), namespaces: extraNs,
+        })
+        if (!prov.ok) { sendJson(res, 502, { message: `修复失败: ${prov.failed[0]?.error || '未知错误'}`, failed: prov.failed }); return true }
+        if (input.takeover && !setKeySaBinding(db, id, { namespace: row.boundSA_namespace, name, managed: true })) {
+          sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true
+        }
+        sendJson(res, 200, { ok: true, boundSA: `${row.boundSA_namespace}/${name}`, managed }); return true
+      } catch (e) { sendJson(res, e.status || 400, { message: e.message || '修复失败' }); return true }
+    }
     if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.slice('/api/admin/apikeys/'.length))
+      const row = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(id)
       const revoked = revokeKey(db, id)
-      sendJson(res, 200, { ok: true, revoked })
-      return true
+      if (row?.saManaged && deps.teardownCluster && deps.getCluster) {
+        try {
+          let extraNs = []
+          try { extraNs = row.allowed_namespaces ? JSON.parse(row.allowed_namespaces) : [] } catch { extraNs = [] }
+          await deps.teardownCluster(deps.getCluster(row.clusterId), {
+            keyId: id, namespace: row.boundSA_namespace, name: row.boundSA_name, tier: rbacTier(row), namespaces: extraNs,
+          })
+        } catch { /* 回收 best-effort:吊销已成,失败不回滚 */ }
+      }
+      sendJson(res, 200, { ok: true, revoked }); return true
     }
 
     // ====== 审计流水(active/log/verify;Task 5)======

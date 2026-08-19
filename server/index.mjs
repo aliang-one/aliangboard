@@ -11,7 +11,7 @@ import { normalizeServer, getDispatcher, buildCallContext } from './call-context
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
-import { provisionSa } from './sa-provision.mjs'
+import { provisionSa, teardownSa } from './sa-provision.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1448,6 +1448,17 @@ async function handle(req, res) {
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error('集群不存在')
       return provisionSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    teardownCluster: async (row, spec) => {
+      if (!row) throw new Error('集群不存在')
+      return teardownSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    probeSa: async (row, ns, name) => {
+      if (!row) return { ok: false, detail: '集群不存在' }
+      try {
+        await requestKubernetes(buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }), `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`)
+        return { ok: true }
+      } catch (e) { return { ok: false, detail: e.status === 404 ? 'ServiceAccount 不存在' : e.message } }
     },
   })
   const projectRoutes = createWorkbenchProjectRoutes({
