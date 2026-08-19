@@ -45,6 +45,9 @@ async function openMintModal(w) {
   expect(btn, '入口「签发 API Key」按钮存在').toBeTruthy()
   await btn.trigger('click')
   await flushPromises()
+  // 本测试是 BYO 校验回归:mint 弹窗默认托管模式(SA name 服务端代建),须先切 BYO
+  await w.find('[data-testid="mint-mode-byo"]').trigger('click')
+  await flushPromises()
 }
 const submitBtn = w => w.findAll('button').find(b => b.text().trim() === '签发')
 

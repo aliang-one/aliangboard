@@ -19,7 +19,7 @@ const apikeys = ref([])
 const clusters = ref([])
 const loading = ref(true)
 const showMintModal = ref(false)
-const mintForm = ref({ owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' })
+const mintForm = ref({ mode: 'managed', owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' })
 const mintErrors = ref({}) // 必填校验行内提示:字段名 → 是否缺(owner 服务端兜底当前用户,非必填)
 const newKey = ref(null) // 签发成功后展示明文(仅此次)
 
@@ -96,10 +96,14 @@ onMounted(() => { mintForm.value.owner = auth.user?.username || ''; load() })
 
 // 必填校验:空/纯空格视为缺。与服务端 mintKey 必填字段对齐(客户端先拦,
 // 不让用户看到裸的「mintKey 缺少必填字段」400)。
-const MINT_REQUIRED = ['clusterId', 'boundSA_namespace', 'boundSA_name']
+const MINT_REQUIRED_BY_MODE = {
+  managed: ['clusterId', 'boundSA_namespace'],
+  byo: ['clusterId', 'boundSA_namespace', 'boundSA_name'],
+}
 function validateMint() {
+  const required = MINT_REQUIRED_BY_MODE[mintForm.value.mode] || MINT_REQUIRED_BY_MODE.byo
   mintErrors.value = Object.fromEntries(
-    MINT_REQUIRED.filter(k => !String(mintForm.value[k] || '').trim()).map(k => [k, true])
+    required.filter(k => !String(mintForm.value[k] || '').trim()).map(k => [k, true])
   )
   return !Object.keys(mintErrors.value).length
 }
@@ -118,10 +122,11 @@ async function doMint() {
       tool_overrides: overridesPayload(mintOverrides.value),
       allowed_namespaces: mintExtraNs.value.length ? mintExtraNs.value : null,
     }
+    if (mintForm.value.mode === 'managed') delete payload.boundSA_name  // 服务端代建
     const res = await adminApi.apikeys.create(payload)
     newKey.value = res.apikey
     showMintModal.value = false
-    mintForm.value = { owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
+    mintForm.value = { mode: 'managed', owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
     mintOverrides.value = { allow: [], deny: [] }
     mintExtraNs.value = []
     mintErrors.value = {}
@@ -183,6 +188,11 @@ async function doRevoke(k) {
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.owner') }}</label><input v-model="mintForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="alice" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.labelOptional') }}</label><input v-model="mintForm.label" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="debug-laptop" /></div>
         </div>
+        <div class="flex gap-xs mb-sm">
+          <button type="button" data-testid="mint-mode-managed" :class="['px-md py-xs rounded-full text-body-xs border transition-colors', mintForm.mode==='managed' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='managed'">{{ $t('admin.apiKeys.modeManaged') }}</button>
+          <button type="button" data-testid="mint-mode-byo" :class="['px-md py-xs rounded-full text-body-xs border transition-colors', mintForm.mode==='byo' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='byo'">{{ $t('admin.apiKeys.modeByo') }}</button>
+        </div>
+        <p class="text-body-xs text-on-surface-variant mb-sm">{{ mintForm.mode==='managed' ? $t('admin.apiKeys.modeManagedHint') : $t('admin.apiKeys.modeByoHint') }}</p>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindCluster') }} <span class="text-error">*</span></label>
           <select v-model="mintForm.clusterId" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm', mintErrors.clusterId ? 'border-error' : 'border-outline-variant']" @change="clearMintError('clusterId')">
             <option value="" disabled>{{ $t('admin.apiKeys.selectCluster') }}</option>
@@ -195,10 +205,10 @@ async function doRevoke(k) {
           </p>
         </div>
         <div class="grid grid-cols-2 gap-sm">
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaNamespace') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_namespace" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_namespace ? 'border-error' : 'border-outline-variant']" placeholder="default" @input="clearMintError('boundSA_namespace')" />
+          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t(mintForm.mode==='managed' ? 'admin.apiKeys.bindSaNamespaceManaged' : 'admin.apiKeys.bindSaNamespace') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_namespace" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_namespace ? 'border-error' : 'border-outline-variant']" placeholder="default" @input="clearMintError('boundSA_namespace')" />
             <p v-if="mintErrors.boundSA_namespace" data-testid="mint-error-boundSA_namespace" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
           </div>
-          <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaName') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_name" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_name ? 'border-error' : 'border-outline-variant']" placeholder="aliangboard-smoke" @input="clearMintError('boundSA_name')" />
+          <div v-if="mintForm.mode === 'byo'"><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindSaName') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_name" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_name ? 'border-error' : 'border-outline-variant']" placeholder="aliangboard-smoke" @input="clearMintError('boundSA_name')" />
             <p v-if="mintErrors.boundSA_name" data-testid="mint-error-boundSA_name" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
           </div>
         </div>
