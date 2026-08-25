@@ -11,6 +11,7 @@ import { useI18n } from 'vue-i18n'
 import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
+import AiConfigPanel from './AiConfigPanel.vue'
 import { applyStreamEvent } from './conv-stream'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
@@ -34,6 +35,7 @@ const errorBanner = ref('')
 const scrollEl = ref(null)
 const taEl = ref(null)
 const pendingApproval = ref(null)
+const showAiConfig = ref(false)
 // I(2026-08-17 审计):已决策(approve/deny)的审批 id——SSE 重连/轮询重放旧审批时跳过,
 // 否则已 deny 的审批会重弹,再点 approve 语义混乱。跨组件实例不持久(服务端 CAS 兜底)。
 const decidedApprovals = new Set()
@@ -734,6 +736,11 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </div>
         <p class="text-body-xs text-on-surface-variant/60 mt-lg flex items-center gap-xs">
           <span class="material-symbols-outlined text-sm">alternate_email</span>{{ t('workbench.chat.atMentionHint') }}
+          <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')"
+            class="ml-auto text-on-surface-variant hover:text-primary flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base">tune</span>
+            <span class="text-body-xs">{{ t('workbench.chat.aiConfig.open') }}</span>
+          </button>
         </p>
       </div>
 
@@ -849,5 +856,6 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ t('workbench.chat.approve') }}</button>
       </template>
     </Modal>
+    <AiConfigPanel v-model="showAiConfig" :conversation-id="conversationId" />
   </section>
 </template>

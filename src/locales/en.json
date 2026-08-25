@@ -3276,7 +3276,20 @@
         "failed": "Failed",
         "cancelled": "Cancelled"
       },
-      "loadFailed": "Failed to load conversation. Check your network and try again."
+      "loadFailed": "Failed to load conversation. Check your network and try again.",
+      "aiConfig": {
+        "open": "View AI config",
+        "title": "AI config (read-only)",
+        "promptTitle": "System prompt",
+        "promptConvNote": "Current: prompt in effect when this conversation was created (per-conversation audit)",
+        "promptGlobalNote": "Current: global effective config (new conversations will use)",
+        "toolsTitle": "Tool list",
+        "instructionsTitle": "Admin additional instructions",
+        "none": "(none)",
+        "modelTitle": "Model",
+        "disabledBadge": "Disabled",
+        "approvalBadge": "Approval required"
+      }
     },
     "shell": {
       "title": "Workbench",

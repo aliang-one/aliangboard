@@ -3276,7 +3276,20 @@
         "failed": "失败",
         "cancelled": "已取消"
       },
-      "loadFailed": "对话加载失败,请检查网络后重试"
+      "loadFailed": "对话加载失败,请检查网络后重试",
+      "aiConfig": {
+        "open": "查看 AI 配置",
+        "title": "AI 配置(只读)",
+        "promptTitle": "系统提示符",
+        "promptConvNote": "当前显示:本对话创建时生效的提示词(逐对话审计)",
+        "promptGlobalNote": "当前显示:全局当前生效配置(新对话将使用)",
+        "toolsTitle": "工具清单",
+        "instructionsTitle": "管理员追加指令",
+        "none": "(无)",
+        "modelTitle": "模型",
+        "disabledBadge": "已禁用",
+        "approvalBadge": "需人审"
+      }
     },
     "shell": {
       "title": "工作台",
