@@ -13,7 +13,7 @@ import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
-import { buildSubContainerSpec, mountsForTarget } from '@/logic/subContainer'
+import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -205,9 +205,9 @@ function addEnvCMKey() { form.value.envCMKeys.push({ name: '', cmName: '', key: 
 function removeEnvCMKey(idx) { form.value.envCMKeys.splice(idx, 1) }
 function addEnvSecretKey() { form.value.envSecretKeys.push({ name: '', secretName: '', key: '' }) }
 function removeEnvSecretKey(idx) { form.value.envSecretKeys.splice(idx, 1) }
-function addExtraContainer() { form.value.extraContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function addExtraContainer() { form.value.extraContainers.push(makeSubContainer()) }
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
-function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function addInitContainer() { form.value.initContainers.push(makeSubContainer()) }
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
 
 // 「完整编辑」弹窗:editing 指向目标槽位;确认 Object.assign 写回同槽(数组身份不变,
@@ -733,7 +733,7 @@ function validate() {
   })
   // init/sidecar 字段校验与弹窗单源(logic/containerValidation):image 必填/名 DNS-1123/
   // 资源 req≤lim/显式名查重(主容器有效名 + 其他容器显式名,按下标排除自身)。
-  // 空行整体跳过(isEmptyEnvRow,与 YAML 生成一致)。替代旧 missing-image 两条。
+  // 空行整体跳过(isSubContainerEmpty,与 YAML 生成一致)。替代旧 missing-image 两条。
   const mainName = f.containerName || f.name
   const initNames = f.initContainers.map(c => c.name).filter(Boolean)
   const sideNames = f.extraContainers.map(c => c.name).filter(Boolean)
@@ -746,7 +746,7 @@ function validate() {
     return names
   }
   const pushContainerErrs = (list, kind, labelKey) => list.forEach((c, i) => {
-    if (isEmptyEnvRow(c, ['name', 'image', 'command', 'args'])) return
+    if (isSubContainerEmpty(c)) return
     const label = `${t(labelKey)} ${c.name || '#' + (i + 1)}`
     for (const e of validateContainerFields(c, othersFor(kind, i)))
       errs.push({ step: 1, msg: `${label}: ${t(e.msgKey, e.params)}` })
@@ -1158,8 +1158,13 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
-                <div class="flex items-center justify-between mb-xs">
+                <div class="flex items-center gap-sm justify-between mb-xs">
                   <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('init', idx)"
+                    class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70 transition-colors"
+                    :title="$t('deploy.editContainerExpand')">
+                    {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                  </button>
                   <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
                     @click="openContainerEditor('init', idx)"
                     class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
@@ -1197,8 +1202,13 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
-                <div class="flex items-center justify-between mb-xs">
+                <div class="flex items-center gap-sm justify-between mb-xs">
                   <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('sidecar', idx)"
+                    class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70 transition-colors"
+                    :title="$t('deploy.editContainerExpand')">
+                    {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                  </button>
                   <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
                     @click="openContainerEditor('sidecar', idx)"
                     class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
@@ -1229,7 +1239,7 @@ async function handleDeploy() {
         </div>
 
         <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
-          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames"
+          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames" :namespace="form.namespace"
           @update:model-value="closeContainerEditor" @confirm="onContainerEdited" />
 
         <!-- 高级设置（默认折叠）-->

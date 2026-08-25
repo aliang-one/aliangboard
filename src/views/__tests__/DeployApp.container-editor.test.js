@@ -15,6 +15,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () =
 
 import DeployApp from '../DeployApp.vue'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
+import { makeSubContainer } from '@/logic/subContainer'
 
 function mountApp() {
   setActivePinia(createPinia())
@@ -67,4 +68,33 @@ test('sidecar 图标同样接线;ESC/取消(editing 置空)后不再写回', asy
   await flushPromises()
   expect(w.vm.form.extraContainers[0].name).toBe('')   // 未写回
   expect(w.findComponent(ContainerEditorDialog).exists()).toBe(false)
+})
+
+test('卡片高级 badge:高级字段有值才显示且计数正确;点 badge 开弹窗', async () => {
+  const w = mountApp()
+  await flushPromises()
+  // currentStep 是根级状态(容器 grid 在步骤 2 v-if 渲染),与 form 平级传
+  await w.setData({ currentStep: 1, form: { ...w.vm.form, name: 'app',
+    initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }], tty: true }] } })
+  await flushPromises()
+  const badge = w.find('[data-testid="ced-advanced-badge"]')
+  expect(badge.exists()).toBe(true)
+  expect(badge.text()).toContain('2')
+  await badge.trigger('click')
+  expect(w.findComponent(ContainerEditorDialog).props('container')).toMatchObject({ name: 'i0' })
+  expect(w.findComponent(ContainerEditorDialog).props('namespace')).toBe(w.vm.form.namespace)
+})
+
+test('validate:4 基础字段空但 env 有值的行不再被当空行跳过', async () => {
+  const w = mountApp()
+  await flushPromises()
+  await w.setData({ currentStep: 1, form: { ...w.vm.form, name: 'app', image: 'nginx',
+    initContainers: [{ ...makeSubContainer(), envVars: [{ key: '', value: 'v' }] }] } })
+  await flushPromises()
+  const errs = w.vm.validate()
+  expect(errs.some(e => e.step === 1 && e.msg.includes(i18n.global.t('deploy.containerFv.envMissingKey')))).toBe(true)
+  // 全默认行仍是空行,不报子容器错误
+  await w.setData({ form: { ...w.vm.form, initContainers: [makeSubContainer()] } })
+  await flushPromises()
+  expect(w.vm.validate().filter(e => e.step === 1 && e.msg.includes(i18n.global.t('deploy.initContainers')))).toEqual([])
 })
