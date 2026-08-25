@@ -8,21 +8,29 @@ import { DatabaseSync } from 'node:sqlite'
 import { createApiKeysSchema, mintKey, listKeys } from './auth-keys.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 
-function makeHarness({ provisionResult } = {}) {
+function makeHarness({ provisionResult, missingNs = [] } = {}) {
   const db = new DatabaseSync(':memory:')
   createApiKeysSchema(db)
   const sent = []
   let body = {}
-  const provisionCalls = [], sweepCalls = []
+  const provisionCalls = [], sweepCalls = [], k8sCalls = []
   const routes = createAdminRoutes({
     db, sendJson: (r, s, j) => { sent.push({ status: s, json: j }) },
     readBody: async () => body, requireAdmin: () => ({ userId: 'u1', role: 'admin', username: 'admin' }),
     getCluster: id => ({ id, apiServer: 'https://10.0.0.1:6443', authHeader: 'Bearer admin', insecure: 1, clusterId: id }),
+    buildCallContext: c => ({ apiServer: c.apiServer, authHeader: c.authHeader }),
+    // ns 存在性预检桩:GET /api/v1/namespaces/<ns>;missingNs 里的 → 404(真实集群「ns 不存在」语义)
+    requestKubernetes: async (ctx, path) => {
+      k8sCalls.push(path)
+      const m = path.match(/^\/api\/v1\/namespaces\/([^/?]+)/)
+      if (m && missingNs.includes(decodeURIComponent(m[1]))) { const e = new Error(`namespaces "${m[1]}" not found`); e.status = 404; throw e }
+      return { body: { kind: 'Namespace', metadata: { name: m ? m[1] : 'x' } } }
+    },
     provisionCluster: async (row, spec) => { provisionCalls.push({ row, spec }); return provisionResult || { ok: true, applied: [], failed: [], total: 5 } },
     sweepNamespacesCluster: async (row, spec) => { sweepCalls.push({ row, spec }); return { deleted: [], errors: [] } },
   })
   const seedKey = (extra = {}) => mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'aliangboard-mcp-deadbeef', tier: 'read', ...extra }).id
-  return { db, sent, provisionCalls, sweepCalls, setBody: b => { body = b }, seedKey, call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
+  return { db, sent, provisionCalls, sweepCalls, k8sCalls, setBody: b => { body = b }, seedKey, call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
 }
 const keyRow = (h, id) => listKeys(h.db).find(k => k.id === id)
 
@@ -101,4 +109,25 @@ test('坏 ns 名仍 400(strict 校验保持,供给零副作用)', async () => {
   await h.call('PATCH', `/api/admin/apikeys/${id}/namespaces`)
   assert.equal(h.sent[0].status, 400)
   assert.equal(h.provisionCalls.length, 0)
+})
+
+test('托管 key PATCH 加「集群里不存在的 ns」→ 400 明确指引 + 零供给 + DB 不动(kind 实测回归:SSA 往不存在 ns 打 RBAC 必 404)', async () => {
+  const h = makeHarness({ missingNs: ['ghost-ns'] })
+  const id = h.seedKey({ saManaged: 1, allowed_namespaces: null })
+  h.setBody({ allowed_namespaces: ['ghost-ns'] })
+  await h.call('PATCH', `/api/admin/apikeys/${id}/namespaces`)
+  assert.equal(h.sent[0].status, 400)
+  assert.match(h.sent[0].json.message, /ghost-ns.*不存在/)
+  assert.equal(h.provisionCalls.length, 0, '预检失败不进供给')
+  assert.equal(keyRow(h, id).allowed_namespaces, null)
+})
+
+test('BYO key PATCH 加「集群里不存在的 ns」→ 200 不预检(自管 RBAC,「先配 key 后建 ns」对 BYO 合法)', async () => {
+  const h = makeHarness({ missingNs: ['ghost-ns'] })
+  const id = h.seedKey({ boundSA_name: 'my-sa' })
+  h.setBody({ allowed_namespaces: ['ghost-ns'] })
+  await h.call('PATCH', `/api/admin/apikeys/${id}/namespaces`)
+  assert.equal(h.sent[0].status, 200)
+  assert.equal(h.k8sCalls.filter(p => p.startsWith('/api/v1/namespaces/')).length, 0, 'BYO 不做 ns 预检')
+  assert.equal(keyRow(h, id).allowed_namespaces, '["ghost-ns"]')
 })
