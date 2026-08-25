@@ -16,6 +16,7 @@ import { verifiedAt } from '../workbench-ledger.mjs'
 import { computeStorageInfo } from '../storage-info.mjs'
 import { runDistill } from '../distill.mjs'
 import { reconcileProject } from '../reconcile.mjs'
+import { msg } from '../messages.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
@@ -48,7 +49,7 @@ export function createWorkbenchProjectRoutes(deps) {
         }
         const storage = await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db })
         sendJson(res, 200, { conversations, counts, storage })
-      } catch (e) { sendJson(res, 500, { message: e?.message || '读取记录失败' }); return true }
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.recordsReadFailed') }); return true }
       return true
     }
 
@@ -69,8 +70,8 @@ export function createWorkbenchProjectRoutes(deps) {
         if (req.method === 'POST') {
           try {
             const input = await readBody(req)
-            if (!input.name || !input.clusterId) { sendJson(res, 400, { message: '缺 name / clusterId' }); return true }
-            if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: '集群不存在' }); return true }
+            if (!input.name || !input.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
+            if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
             const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
             const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
             await initRepo(repo)
@@ -78,15 +79,15 @@ export function createWorkbenchProjectRoutes(deps) {
             await wbCommit(repo, `初始化项目 ${p.name}`)
             sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) } })
             return true
-          } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '创建失败' }); return true }
+          } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.createFailed') }); return true }
         }
-        sendJson(res, 405, { message: 'method not allowed' }); return true
+        sendJson(res, 405, { message: msg(req, 'wbp.methodNotAllowed') }); return true
       }
 
       // 以下均需项目 + ownership
       const p = getProject(db, id)
-      if (!p) { sendJson(res, 404, { message: '项目不存在' }); return true }
-      if (p.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问该项目' }); return true }
+      if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
+      if (p.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
       const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
 
       // 详情:文件树 + 最近提交
@@ -100,7 +101,7 @@ export function createWorkbenchProjectRoutes(deps) {
       // 文件读写 :id/files/<path>
       if (seg[1] === 'files') {
         const relPath = decodeURIComponent(seg.slice(2).join('/'))
-        if (!relPath) { sendJson(res, 400, { message: '缺文件路径' }); return true }
+        if (!relPath) { sendJson(res, 400, { message: msg(req, 'wbp.filePathRequired') }); return true }
         try {
           if (req.method === 'GET') { sendJson(res, 200, { path: relPath, content: await wbReadFile(repo, relPath) }); return true }
           if (req.method === 'PUT') {
@@ -112,8 +113,8 @@ export function createWorkbenchProjectRoutes(deps) {
             await wbDeleteFile(repo, relPath) // 路径禁闭同 writeFile;删除进 commit 历史
             sendJson(res, 200, { ok: true, path: relPath }); return true
           }
-        } catch (e) { sendJson(res, 400, { message: e?.message || '文件操作失败' }); return true }
-        sendJson(res, 405, { message: 'method not allowed' }); return true
+        } catch (e) { sendJson(res, 400, { message: e?.message || msg(req, 'wbp.fileOpFailed') }); return true }
+        sendJson(res, 405, { message: msg(req, 'wbp.methodNotAllowed') }); return true
       }
 
       // 提交 :id/commit
@@ -123,22 +124,22 @@ export function createWorkbenchProjectRoutes(deps) {
           const r = await wbCommit(repo, input.message || 'update')
           sendJson(res, 200, r)
           return true
-        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '提交失败' }); return true }
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.commitFailed') }); return true }
       }
 
       // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
       if (seg[1] === 'reconcile' && req.method === 'POST') {
         try {
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
-          if (!cluster) { sendJson(res, 404, { message: '项目绑定的集群不存在' }); return true }
+          if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
           const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
           const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
           sendJson(res, 200, r)
           return true
-        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || 'reconcile 失败' }); return true }
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.reconcileFailed') }); return true }
       }
 
-      sendJson(res, 404, { message: '未知的工作台路由' })
+      sendJson(res, 404, { message: msg(req, 'wbp.unknownRoute') })
       return true
     }
 
@@ -148,12 +149,12 @@ export function createWorkbenchProjectRoutes(deps) {
       const projectId = url.searchParams.get('projectId')
       const kind = url.searchParams.get('kind') || 'pods'
       const q = (url.searchParams.get('q') || '').toLowerCase()
-      if (!projectId) { sendJson(res, 400, { message: '缺 projectId' }); return true }
+      if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
-      if (!p) { sendJson(res, 404, { message: '项目不存在' }); return true }
-      if (!p.clusterId) { sendJson(res, 400, { message: '项目未绑定集群' }); return true }
+      if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
+      if (!p.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.noBoundCluster') }); return true }
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
-      if (!cluster) { sendJson(res, 404, { message: '项目绑定的集群不存在' }); return true }
+      if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
 
       // kind → K8s list path
       const KIND_PATH = {
@@ -167,7 +168,7 @@ export function createWorkbenchProjectRoutes(deps) {
         networkpolicies: '/apis/networking.k8s.io/v1/networkpolicies', serviceaccounts: '/api/v1/serviceaccounts',
       }
       const listPath = KIND_PATH[kind]
-      if (!listPath) { sendJson(res, 400, { message: '不支持的 kind: ' + kind }); return true }
+      if (!listPath) { sendJson(res, 400, { message: msg(req, 'wbp.kindUnsupported', { kind }) }); return true }
 
       try {
         const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
@@ -180,14 +181,14 @@ export function createWorkbenchProjectRoutes(deps) {
         const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
         sendJson(res, 200, { items: filtered.slice(0, 50) })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '搜索失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.searchFailed') }); return true }
     }
 
     // ====== 集群台账(W3)。cluster-context repo,每集群一份。======
     if (url.pathname === '/api/workbench/ledger' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const clusterId = url.searchParams.get('clusterId')
-      if (!clusterId) { sendJson(res, 400, { message: '缺 clusterId' }); return true }
+      if (!clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.clusterIdRequired') }); return true }
       const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
       let files = [], index = null, learnings = null
       if (await hasRepo(repo)) {
@@ -203,11 +204,11 @@ export function createWorkbenchProjectRoutes(deps) {
       try {
         const input = await readBody(req)
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
         const r = await bootstrapLedgerForCluster(cluster)
         sendJson(res, 200, { index: r.index, files: r.files })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || 'bootstrap 失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.bootstrapFailed') }); return true }
     }
 
     // ====== 台账 distill(D2,自我学习;admin)======
@@ -216,23 +217,23 @@ export function createWorkbenchProjectRoutes(deps) {
       try {
         const input = await readBody(req)
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
         const cfg = getLlmConfig()
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: 'LLM 未配置(蒸馏需要 LLM)' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: msg(req, 'wbp.llmNotConfiguredDistill') }); return true }
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
         const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
         const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
         setLastDistill(db, cluster.id, out.stats) // 手动蒸馏也落水位:调度器不会立刻重跑同料(pending 不写——手动结果就地审阅,原行为)
         sendJson(res, 200, { proposed: out.proposed, current: out.material.currentLearnings, summary: out.summary, stats: out.stats })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '蒸馏失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.distillFailed') }); return true }
     }
     if (url.pathname === '/api/workbench/distill/apply' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(input.clusterId)
-        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
         const repo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
         if (!(await hasRepo(repo))) await initRepo(repo)
         await wbWriteFile(repo, 'learnings.md', input.learnings || '')
@@ -240,7 +241,7 @@ export function createWorkbenchProjectRoutes(deps) {
         clearPendingDistill(db, input.clusterId)
         sendJson(res, 200, { ok: true, files: await wbListFiles(repo) })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '应用失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.applyFailed') }); return true }
     }
     if (url.pathname === '/api/workbench/distill/dismiss' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -249,7 +250,7 @@ export function createWorkbenchProjectRoutes(deps) {
         clearPendingDistill(db, input.clusterId)
         sendJson(res, 200, { ok: true })
         return true
-      } catch (e) { sendJson(res, 500, { message: e?.message || '失败' }); return true }
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.dismissFailed') }); return true }
     }
 
     return false // 无匹配

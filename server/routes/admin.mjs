@@ -7,6 +7,7 @@ import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mj
 import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize.mjs'
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
+import { msg } from '../messages.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -43,7 +44,7 @@ export function createAdminRoutes(deps) {
         if (typeof input.apiKey === 'string' && input.apiKey) setSetting('llm.apiKey', input.apiKey) // 留空 = 不修改
         sendJson(res, 200, { ok: true })
         return true
-      } catch (e) { sendJson(res, 500, { message: e?.message || '保存失败' }); return true }
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }
     }
     // ====== 悬浮对话入口配置(maxItems/activityWindowMin 存 DB;clamp 兜底;2026-08-17)======
     if (url.pathname === '/api/admin/presence-config' && req.method === 'GET') {
@@ -61,7 +62,7 @@ export function createAdminRoutes(deps) {
       const input = await readBody(req)
       const maxItems = Number(input.maxItems), windowMin = Number(input.windowMin)
       if (!Number.isFinite(maxItems) || !Number.isFinite(windowMin)) {
-        sendJson(res, 400, { message: 'maxItems / windowMin 必须为数字' }); return true
+        sendJson(res, 400, { message: msg(req, 'admin.presenceNumeric') }); return true
       }
       setSetting('presence.maxItems', clampPresence('maxItems', maxItems))
       setSetting('presence.activityWindowMin', clampPresence('windowMin', windowMin))
@@ -75,12 +76,12 @@ export function createAdminRoutes(deps) {
         const saved = getLlmConfig()
         // 表单值优先(支持"填完即测,不必先保存");空字段(apiKey 留空=不改)回退已保存
         const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 200, { ok: false, message: '先填 baseURL + model(保存、或在上方填入后测试)' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 200, { ok: false, message: msg(req, 'admin.llmTestFillFirst') }); return true }
         const client = createLlmClient({ ...cfg, timeoutMs: 20000 })
-        const msg = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
-        sendJson(res, 200, { ok: true, reply: (msg.content || '').slice(0, 200) })
+        const reply = await client.chat({ messages: [{ role: 'user', content: 'ping(仅测连通性,请回 pong)' }] })
+        sendJson(res, 200, { ok: true, reply: (reply.content || '').slice(0, 200) })
         return true
-      } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || '连接失败' }); return true }
+      } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || msg(req, 'admin.llmTestConnectFailed') }); return true }
     }
     // 探测当前(或表单)配置的模型是否流式透传思考 token——工作台「思考过程」展示的前提
     if (url.pathname === '/api/admin/llm-config/probe-reasoning' && req.method === 'POST') {
@@ -89,12 +90,12 @@ export function createAdminRoutes(deps) {
         const input = await readBody(req).catch(() => ({})) || {}
         const saved = getLlmConfig()
         const cfg = { baseURL: input.baseURL || saved.baseURL, model: input.model || saved.model, apiKey: input.apiKey || saved.apiKey }
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 200, { ok: false, message: '先填 baseURL + model' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 200, { ok: false, message: msg(req, 'admin.llmProbeFillFirst') }); return true }
         const client = createLlmClient({ ...cfg, idleMs: 30000 })
         const r = await probeReasoningSupport(client)
         sendJson(res, 200, { ok: true, ...r })
         return true
-      } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || '探测失败' }); return true }
+      } catch (e) { sendJson(res, 200, { ok: false, message: e?.message || msg(req, 'admin.probeFailed') }); return true }
     }
     if (url.pathname === '/api/admin/mcp-config' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -123,7 +124,7 @@ export function createAdminRoutes(deps) {
       try {
         const input = await readBody(req)
         const mb = limitMbFromValue(input.limitMb)
-        if (!mb) { sendJson(res, 400, { message: 'limitMb 须为 1-10240 的整数(MB)' }); return true }
+        if (!mb) { sendJson(res, 400, { message: msg(req, 'admin.podfileLimitInvalid') }); return true }
         setSetting('podfile.limitMb', String(mb))
         sendJson(res, 200, { ok: true, limitMb: mb })
         return true
@@ -150,7 +151,7 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
-        if (!input.name) { sendJson(res, 400, { message: '集群名称不能为空' }); return true }
+        if (!input.name) { sendJson(res, 400, { message: msg(req, 'admin.clusterNameRequired') }); return true }
         // 解析凭据（复用 POST /api/session 的逻辑）
         let apiServer, authHeader = null, ca, cert, key
         if (input.kubeconfig) {
@@ -174,7 +175,7 @@ export function createAdminRoutes(deps) {
           ca = input.ca || null
           cert = input.cert || null
           key = input.key || null
-        } else { sendJson(res, 400, { message: '缺少凭据（token / 账密 / kubeconfig / 客户端证书）' }); return true }
+        } else { sendJson(res, 400, { message: msg(req, 'admin.credentialsMissing') }); return true }
         const insecure = input.insecure === true
         // 探测版本（经 buildCallContext 构造调用上下文）
         const probe = await requestKubernetes(buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), '/version')
@@ -184,7 +185,7 @@ export function createAdminRoutes(deps) {
           .run(id, input.name, apiServer.toString(), input.kubeconfig ? 'kubeconfig' : input.token ? 'token' : 'basic', authHeader, ca || null, cert || null, key || null, insecure ? 1 : 0, version, ps.username, Date.now())
         sendJson(res, 200, { cluster: { id, name: input.name, apiServer: apiServer.toString().replace(/\/$/, ''), version } })
         return true
-      } catch (e) { sendJson(res, e.status || 502, { message: e?.message || '添加集群失败（凭据无效或无法连接）' }); return true }
+      } catch (e) { sendJson(res, e.status || 502, { message: e?.message || msg(req, 'admin.addClusterFailed') }); return true }
     }
     if (url.pathname.startsWith('/api/admin/clusters/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -201,13 +202,13 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.split('/')[4])
       const row = deps.getCluster ? deps.getCluster(id) : null
-      if (!row) { sendJson(res, 404, { message: '集群不存在' }); return true }
+      if (!row) { sendJson(res, 404, { message: msg(req, 'admin.clusterNotFound') }); return true }
       try {
         const ctx = deps.buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure })
         const { body } = await deps.requestKubernetes(ctx, '/api/v1/namespaces?limit=500')
         const namespaces = (body?.items || []).map(it => it?.metadata?.name).filter(Boolean).sort()
         sendJson(res, 200, { namespaces })
-      } catch (e) { sendJson(res, 502, { message: `拉取 namespace 列表失败: ${e?.message || '未知错误'}` }) }
+      } catch (e) { sendJson(res, 502, { message: msg(req, 'admin.fetchNamespacesFailed', { reason: e?.message || msg(req, 'admin.unknownError') }) }) }
       return true
     }
 
@@ -233,8 +234,8 @@ export function createAdminRoutes(deps) {
           sendJson(res, 200, { apikey: k }); return true
         }
         // 托管(默认):先供给集群身份,成功才落库——失败不给「出生即死亡」的 key。
-        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: '托管签发未接通(网关未注入集群供给能力)' }); return true }
-        if (!input.boundSA_namespace) { sendJson(res, 400, { message: '托管签发需选择命名空间' }); return true }
+        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: msg(req, 'admin.mintProvisionUnavailable') }); return true }
+        if (!input.boundSA_namespace) { sendJson(res, 400, { message: msg(req, 'admin.mintNamespaceRequired') }); return true }
         const id = (randomUUID || cryptoRandomUUID)()  // deps 注入优先;未注入(测试 harness)回退 node:crypto
         const name = managedSaName(id)
         const tier = rbacTier({ tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null })
@@ -243,7 +244,7 @@ export function createAdminRoutes(deps) {
           namespaces: Array.isArray(input.allowed_namespaces) ? input.allowed_namespaces : [],
         })
         if (!prov.ok) {
-          sendJson(res, 502, { message: `集群身份创建失败: ${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'}(可重试,或用高级模式自带 ServiceAccount)`, failed: prov.failed })
+          sendJson(res, 502, { message: msg(req, 'admin.mintProvisionFailed', { reason: prov.failed[0]?.error || prov.failed[0]?.kind || msg(req, 'admin.unknownError') }), failed: prov.failed })
           return true
         }
         const k = mintKey(db, {
@@ -254,7 +255,7 @@ export function createAdminRoutes(deps) {
         })
         // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
         sendJson(res, 200, { apikey: k }); return true
-      } catch (e) { sendJson(res, e.status || 400, { message: e.message || '签发 API key 失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.mintFailed') }); return true }
     }
     if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/overrides$/)) {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -263,10 +264,10 @@ export function createAdminRoutes(deps) {
         const input = await readBody(req)
         const json = normalizeToolOverrides(input.tool_overrides)  // strict: 坏→抛
         const changes = db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id).changes
-        if (!changes) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
+        if (!changes) { sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true }
         sendJson(res, 200, { ok: true, id, tool_overrides: json })
         return true
-      } catch (e) { sendJson(res, e.status || 400, { message: e.message || '更新覆盖失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.updateOverridesFailed') }); return true }
     }
     if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/namespaces$/)) {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -274,7 +275,7 @@ export function createAdminRoutes(deps) {
         const id = decodeURIComponent(url.pathname.split('/')[4])
         const input = await readBody(req)
         const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
-        if (!row) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
+        if (!row) { sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true }
         const json = normalizeAllowedNamespaces(input.allowed_namespaces, row.boundSA_namespace)  // strict: 坏→抛
         const nextNs = json ? JSON.parse(json) : []
         let prevNs = []
@@ -282,17 +283,17 @@ export function createAdminRoutes(deps) {
         // 托管 key:先供给后落库(与托管 mint 同语义)——PATCH 只改 DB 会造出「策略允许、RBAC 403」的假 ns;
         // 供给失败 → 502 + 明细,DB 不动(宁可不改,不落一个不可用的 ns)。BYO:平台不碰其身份,只落库。
         if (row.saManaged) {
-          if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: 'ns allowlist 更新未接通(网关未注入集群供给能力)' }); return true }
+          if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: msg(req, 'admin.nsUpdateProvisionUnavailable') }); return true }
           // ns 存在性预检(kind 实测:SSA 往不存在的 ns 打 Role/Binding 必 404,502 报错还难懂)——
           // 提前 400 给明确指引;BYO 不预检(自管 RBAC,「先配 key 后建 ns」对 BYO 合法)。
           if (nextNs.length && deps.requestKubernetes && deps.buildCallContext) {
             const cluster = deps.getCluster(row.clusterId)
-            if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+            if (!cluster) { sendJson(res, 404, { message: msg(req, 'admin.clusterNotFound') }); return true }
             const checkCtx = deps.buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
             for (const ns of nextNs) {
               try { await deps.requestKubernetes(checkCtx, `/api/v1/namespaces/${encodeURIComponent(ns)}`) }
               catch (e) {
-                if (e.status === 404) { sendJson(res, 400, { message: `namespace '${ns}' 在集群中不存在,请先在集群创建后再添加(或用下拉选择已有 namespace);DB 未改动` }); return true }
+                if (e.status === 404) { sendJson(res, 400, { message: msg(req, 'admin.nsNotExistInCluster', { ns }) }); return true }
                 throw e
               }
             }
@@ -302,7 +303,7 @@ export function createAdminRoutes(deps) {
             keyId: id, namespace: row.boundSA_namespace, name: row.boundSA_name, tier, namespaces: nextNs,
           })
           if (!prov.ok) {
-            sendJson(res, 502, { message: `ns allowlist 更新失败:新 ns 的集群 RBAC 创建未成(${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'};DB 未改动,可重试)`, failed: prov.failed })
+            sendJson(res, 502, { message: msg(req, 'admin.nsUpdateRbacFailed', { reason: prov.failed[0]?.error || prov.failed[0]?.kind || msg(req, 'admin.unknownError') }), failed: prov.failed })
             return true
           }
           // 清理被移除 ns 的三档名 RBAC 残留(best-effort:失败不回滚 allowlist)。
@@ -317,7 +318,7 @@ export function createAdminRoutes(deps) {
         db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ? AND revokedAt IS NULL').run(json, id)
         sendJson(res, 200, { ok: true, id, allowed_namespaces: json, rbac: 'byo-self-managed' })
         return true
-      } catch (e) { sendJson(res, e.status || 400, { message: e.message || '更新 ns allowlist 失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.updateNsFailed') }); return true }
     }
     // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA。
     if (req.method === 'GET' && url.pathname === '/api/admin/apikeys/health') {
@@ -337,9 +338,9 @@ export function createAdminRoutes(deps) {
         const id = decodeURIComponent(url.pathname.split('/')[4])
         const input = await readBody(req)
         const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
-        if (!row) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
-        if (!row.saManaged && !input.takeover) { sendJson(res, 400, { message: '非托管 key 修复必须 takeover:true(平台将代建并改绑托管身份)' }); return true }
-        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: '修复未接通(网关未注入集群供给能力)' }); return true }
+        if (!row) { sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true }
+        if (!row.saManaged && !input.takeover) { sendJson(res, 400, { message: msg(req, 'admin.repairTakeoverRequired') }); return true }
+        if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: msg(req, 'admin.repairUnavailable') }); return true }
         let name = row.boundSA_name, managed = !!row.saManaged
         if (input.takeover) { name = managedSaName(id); managed = true }
         const tier = rbacTier(row)
@@ -348,16 +349,16 @@ export function createAdminRoutes(deps) {
         const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
           keyId: id, namespace: row.boundSA_namespace, name, tier, namespaces: extraNs,
         })
-        if (!prov.ok) { sendJson(res, 502, { message: `修复失败: ${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'}`, failed: prov.failed }); return true }
+        if (!prov.ok) { sendJson(res, 502, { message: msg(req, 'admin.repairFailedDetail', { reason: prov.failed[0]?.error || prov.failed[0]?.kind || msg(req, 'admin.unknownError') }), failed: prov.failed }); return true }
         if (deps.sweepStaleCluster) {
           // 清旧档名 RBAC(tier 曾变更后残留),best-effort:失败不影响修复结果。
           try { await deps.sweepStaleCluster(deps.getCluster(row.clusterId), { keyId: id, namespace: row.boundSA_namespace, keepTier: tier, namespaces: extraNs }) } catch { /* best-effort */ }
         }
         if (input.takeover && !setKeySaBinding(db, id, { namespace: row.boundSA_namespace, name, managed: true })) {
-          sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true
+          sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true
         }
         sendJson(res, 200, { ok: true, boundSA: `${row.boundSA_namespace}/${name}`, managed }); return true
-      } catch (e) { sendJson(res, e.status || 400, { message: e.message || '修复失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.repairFailed') }); return true }
     }
     if (url.pathname.startsWith('/api/admin/apikeys/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -414,24 +415,24 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const { username, password, role, displayName } = await readBody(req)
-        if (!username || !password) { sendJson(res, 400, { message: '用户名和密码不能为空' }); return true }
-        if (role && !['admin', 'user'].includes(role)) { sendJson(res, 400, { message: '角色只能是 admin 或 user' }); return true }
+        if (!username || !password) { sendJson(res, 400, { message: msg(req, 'admin.userCredentialsRequired') }); return true }
+        if (role && !['admin', 'user'].includes(role)) { sendJson(res, 400, { message: msg(req, 'admin.roleInvalid') }); return true }
         const existing = db.prepare('SELECT 1 FROM platform_users WHERE username=?').get(username)
-        if (existing) { sendJson(res, 409, { message: '用户名已存在' }); return true }
+        if (existing) { sendJson(res, 409, { message: msg(req, 'admin.usernameExists') }); return true }
         const id = randomUUID()
         db.prepare('INSERT INTO platform_users (id,username,passwordHash,role,displayName,createdAt) VALUES (?,?,?,?,?,?)')
           .run(id, username, hashPassword(password), role || 'user', displayName || null, Date.now())
         sendJson(res, 200, { user: { id, username, role: role || 'user', displayName, createdAt: Date.now(), clusterIds: [] } })
         return true
-      } catch (e) { sendJson(res, 500, { message: e?.message || '创建用户失败' }); return true }
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.createUserFailed') }); return true }
     }
     if (url.pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
       const target = db.prepare('SELECT role FROM platform_users WHERE id=?').get(id)
-      if (!target) { sendJson(res, 404, { message: '用户不存在' }); return true }
+      if (!target) { sendJson(res, 404, { message: msg(req, 'admin.userNotFound') }); return true }
       const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
-      if (target.role === 'admin' && adminCount <= 1) { sendJson(res, 400, { message: '不能删除最后一个管理员' }); return true }
+      if (target.role === 'admin' && adminCount <= 1) { sendJson(res, 400, { message: msg(req, 'admin.lastAdminProtected') }); return true }
       db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
       sendJson(res, 200, { ok: true })
@@ -443,7 +444,7 @@ export function createAdminRoutes(deps) {
       const input = await readBody(req)
       const fields = [], vals = []
       for (const k of ['role', 'displayName', 'disabled']) { if (input[k] != null) { fields.push(`${k}=?`); vals.push(input[k]) } }
-      if (!fields.length) { sendJson(res, 400, { message: '无更新字段' }); return true }
+      if (!fields.length) { sendJson(res, 400, { message: msg(req, 'admin.noUpdateFields') }); return true }
       vals.push(id)
       db.prepare(`UPDATE platform_users SET ${fields.join(',')} WHERE id=?`).run(...vals)
       sendJson(res, 200, { ok: true })
@@ -453,7 +454,7 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const userId = url.pathname.split('/')[4]
       const { newPassword } = await readBody(req)
-      if (!newPassword) { sendJson(res, 400, { message: '新密码不能为空' }); return true }
+      if (!newPassword) { sendJson(res, 400, { message: msg(req, 'admin.newPasswordRequired') }); return true }
       db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
       sendJson(res, 200, { ok: true })
       return true

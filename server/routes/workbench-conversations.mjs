@@ -9,6 +9,7 @@ import {
 } from '../workbench-projects.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
+import { msg } from '../messages.mjs'
 
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
@@ -25,12 +26,12 @@ export function createWorkbenchConvRoutes(deps) {
   // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
   // 迟到审批(done/failed 后)与双击并发都挡在门外;命中即置 running,
   // resumeConversation 内部的再次置 running 幂等无害。
-  function claimPausedForResume(db_, id) {
+  function claimPausedForResume(req, db_, id) {
     const conv = getConversation(db_, id)
-    if (!conv) return { ok: false, status: 404, message: '对话不存在' }
-    if (conv.status !== 'paused') return { ok: false, status: 400, message: '对话不在待审批状态' }
+    if (!conv) return { ok: false, status: 404, message: msg(req, 'wbc.convNotFound') }
+    if (conv.status !== 'paused') return { ok: false, status: 400, message: msg(req, 'wbc.notPaused') }
     const changes = db_.prepare("UPDATE workbench_conversations SET status='running', updatedAt=? WHERE id=? AND status='paused'").run(Date.now(), id).changes
-    if (changes === 0) return { ok: false, status: 400, message: '对话不在待审批状态(并发审批已被处理)' }
+    if (changes === 0) return { ok: false, status: 400, message: msg(req, 'wbc.notPausedConcurrent') }
     return { ok: true }
   }
 
@@ -69,10 +70,10 @@ export function createWorkbenchConvRoutes(deps) {
       try {
         const input = await readBody(req)
         const project = getProject(db, input.projectId)
-        if (!project) { sendJson(res, 404, { message: '项目不存在' }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问该项目' }); return true }
+        if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
+        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
         const cfg = getLlmConfig()
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
@@ -90,7 +91,7 @@ export function createWorkbenchConvRoutes(deps) {
         wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '创建对话失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.createFailed') }); return true }
     }
 
     // POST /api/workbench/conversations/:id/messages — 续接对话(多轮核心,T4)。
@@ -101,17 +102,17 @@ export function createWorkbenchConvRoutes(deps) {
         const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/messages
         const input = await readBody(req)
         const conv = getConversation(db, id)
-        if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+        if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
         // P0 守卫(D):运行中/待审批拒绝续接——detached run 无互斥,并发双 run 会交错写
         // trace/检查点/messages(多标签页或直接 API 调用都能绕过前端 sending 守卫)。
         if (conv.status === 'running' || conv.status === 'paused') {
-          sendJson(res, 400, { message: '对话运行中/待审批,不能续接' }); return true
+          sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
         }
         const project = getProject(db, conv.projectId)
-        if (!project) { sendJson(res, 404, { message: '项目不存在' }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问' }); return true }
+        if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
+        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
         const cfg = getLlmConfig()
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
@@ -142,7 +143,7 @@ export function createWorkbenchConvRoutes(deps) {
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
         sendJson(res, 200, { status: 'running', references: fetchedResources })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '续接失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.resumeFailed') }); return true }
     }
 
     // POST /api/workbench/conversations/:id/regenerate — 重新生成最后一条回复(P1 消息操作)。
@@ -153,15 +154,15 @@ export function createWorkbenchConvRoutes(deps) {
       try {
         const id = url.pathname.split('/')[4]
         const conv = getConversation(db, id)
-        if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
-        if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: '对话运行中,不能重新生成' }); return true }
+        if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+        if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: msg(req, 'wbc.busyNoRegen') }); return true }
         const project = getProject(db, conv.projectId)
-        if (!project) { sendJson(res, 404, { message: '项目不存在' }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: '无权访问' }); return true }
+        if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
+        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
         const cfg = getLlmConfig()
-        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const { removed, lastUserSeq } = truncateAfterLastUser(db, id)
-        if (removed === 0) { sendJson(res, 400, { message: '没有可重新生成的回复' }); return true }
+        if (removed === 0) { sendJson(res, 400, { message: msg(req, 'wbc.noRegenTarget') }); return true }
         setActiveConversation(db, conv.projectId, id)
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
         updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
@@ -169,7 +170,7 @@ export function createWorkbenchConvRoutes(deps) {
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
         sendJson(res, 200, { status: 'running' })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '重新生成失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.regenFailed') }); return true }
     }
 
     // GET /api/workbench/conversations/active — 悬浮入口原料:近期动态模型(running/paused 永在 +
@@ -187,7 +188,7 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/').pop()
       const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       sendJson(res, 200, {
         id: conv.id, status: conv.status, steps: conv.steps,
         content: conv.content, reasoning: conv.reasoning, error: conv.error,
@@ -206,7 +207,7 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4]
       const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       // P0(F):运行中先取消(cancelled 守卫让 in-flight run 的结果不再回写已删对话,
       // 避免 appendTrace 抛错 → salvagePartial 给已删对话落孤儿 assistant 行);再 dispose
       // bus 让挂在 SSE 上的客户端收到终结,而不是靠 keepalive 干等。
@@ -225,7 +226,7 @@ export function createWorkbenchConvRoutes(deps) {
         db.exec('COMMIT')
       } catch (e) {
         try { db.exec('ROLLBACK') } catch { /* 已回滚 */ }
-        sendJson(res, 500, { message: e?.message || '删除失败' }); return true
+        sendJson(res, 500, { message: e?.message || msg(req, 'wbc.deleteFailed') }); return true
       }
       sendJson(res, 200, { ok: true })
       return true
@@ -237,9 +238,9 @@ export function createWorkbenchConvRoutes(deps) {
       const id = url.pathname.split('/')[4]
       const input = await readBody(req)
       const title = String(input.title || '').slice(0, 100).trim()
-      if (!title) { sendJson(res, 400, { message: 'title 不能为空' }); return true }
+      if (!title) { sendJson(res, 400, { message: msg(req, 'wbc.titleRequired') }); return true }
       const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       // 重命名是元数据编辑,不 bump updatedAt——悬浮入口以 updatedAt 判「新动态」,
       // 用户自己的改名不应让对话小点复活/跳顶。
       db.prepare('UPDATE workbench_conversations SET title=? WHERE id=?').run(title, id)
@@ -253,7 +254,7 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/stream
       const conv = getConversation(db, id)
-      if (!conv) { sendJson(res, 404, { message: '对话不存在' }); return true }
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -300,7 +301,7 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname === '/api/workbench/conversations' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const projectId = url.searchParams.get('projectId')
-      if (!projectId) { sendJson(res, 400, { message: '缺 projectId' }); return true }
+      if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbc.projectIdRequired') }); return true }
       sendJson(res, 200, { conversations: listConversations(db, projectId) })
       return true
     }
@@ -311,10 +312,10 @@ export function createWorkbenchConvRoutes(deps) {
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
       // P0(E):仅 paused 可审批。迟到审批(done/failed 后)此前会让 resume 的
       // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
-      const cas = claimPausedForResume(db, id)
+      const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
@@ -325,10 +326,10 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
-      const cas = claimPausedForResume(db, id)
+      const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: 'LLM 未配置' }); return true }
+      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
       wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
@@ -344,7 +345,7 @@ export function createWorkbenchConvRoutes(deps) {
         const r = wbAgent.cancelConversation(id)
         if (!r.ok) { sendJson(res, 400, { message: r.message }); return true }
         sendJson(res, 200, { status: 'cancelled' })
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || '取消失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.cancelFailed') }); return true }
       return true
     }
 

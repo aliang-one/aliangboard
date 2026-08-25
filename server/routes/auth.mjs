@@ -1,5 +1,8 @@
 // 平台认证 + 集群接入 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // health / login / me / logout / my-clusters / connect-cluster 逐字搬迁,仅依赖引用改走 deps 注入。
+// 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
+import { msg } from '../messages.mjs'
+
 export function createAuthRoutes(deps) {
   const {
     db, sendJson, readBody, requirePlatform,
@@ -19,10 +22,10 @@ export function createAuthRoutes(deps) {
     if (url.pathname === '/api/auth/login' && req.method === 'POST') {
       try {
         const { username, password } = await readBody(req)
-        if (!username || !password) { sendJson(res, 400, { message: '用户名和密码不能为空' }); return true }
+        if (!username || !password) { sendJson(res, 400, { message: msg(req, 'auth.emptyCredentials') }); return true }
         const user = db.prepare('SELECT * FROM platform_users WHERE username=?').get(username)
         if (!user || user.disabled || !verifyPassword(password, user.passwordHash)) {
-          sendJson(res, 401, { message: '用户名或密码错误' }); return true
+          sendJson(res, 401, { message: msg(req, 'auth.badCredentials') }); return true
         }
         const token = randomUUID()
         const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
@@ -30,7 +33,7 @@ export function createAuthRoutes(deps) {
         db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
         sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
         return true
-      } catch (e) { sendJson(res, 500, { message: e?.message || '登录失败' }); return true }
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }
 
     // GET /api/auth/me — 当前登录用户信息
@@ -69,10 +72,10 @@ export function createAuthRoutes(deps) {
       try {
         const { clusterId } = await readBody(req)
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
-        if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+        if (!cluster) { sendJson(res, 404, { message: msg(req, 'auth.clusterNotFound') }); return true }
         if (ps.role !== 'admin') {
           const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps.userId, clusterId)
-          if (!assigned) { sendJson(res, 403, { message: '无权访问此集群' }); return true }
+          if (!assigned) { sendJson(res, 403, { message: msg(req, 'auth.clusterForbidden') }); return true }
         }
         // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致;经 buildCallContext 统一形状）
         const apiServer = normalizeServer(cluster.apiServer)
@@ -88,7 +91,7 @@ export function createAuthRoutes(deps) {
         db.prepare('UPDATE platform_sessions SET k8sSessionToken=? WHERE token=?').run(k8sToken, req.headers['x-platform-token'])
         sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version } })
         return true
-      } catch (e) { sendJson(res, e.status || 502, { message: e?.message || '连接集群失败' }); return true }
+      } catch (e) { sendJson(res, e.status || 502, { message: e?.message || msg(req, 'auth.connectFailed') }); return true }
     }
 
     return false // 无匹配
