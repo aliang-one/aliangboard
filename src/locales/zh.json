@@ -338,8 +338,8 @@
     "enterNamespace": "进入命名空间",
     "backToNsOverview": "↩ 回拓扑总览",
     "switchNamespace": "切换命名空间",
-    "filterNamespaces": "过滤命名空间...",
-    "noMatchingNamespaces": "无匹配命名空间",
+    "filterNamespaces": "筛选命名空间…",
+    "noMatchingNamespaces": "没有匹配的命名空间",
     "workloads": "工作负载",
     "workloadsList": "工作负载列表",
     "events": "事件",
@@ -356,10 +356,13 @@
     "switchCluster": "切换集群",
     "manageAll": "管理全部",
     "notSelected": "未选择",
+    "filterNamespaces": "过滤命名空间...",
+    "noMatchingNamespaces": "无匹配命名空间",
     "refreshPage": "刷新当前页",
     "refreshPageData": "刷新当前页数据",
     "activityLog": "活动记录",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "enterNamespace": "进入命名空间"
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",

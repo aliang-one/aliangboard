@@ -338,7 +338,7 @@
     "enterNamespace": "Enter namespace",
     "backToNsOverview": "↩ Topology overview",
     "switchNamespace": "Switch namespace",
-    "filterNamespaces": "Filter namespaces...",
+    "filterNamespaces": "Filter namespaces…",
     "noMatchingNamespaces": "No matching namespaces",
     "workloads": "Workloads",
     "workloadsList": "Workloads",
@@ -356,10 +356,13 @@
     "switchCluster": "Switch Cluster",
     "manageAll": "Manage All",
     "notSelected": "Not selected",
+    "filterNamespaces": "Filter namespaces...",
+    "noMatchingNamespaces": "No matching namespaces",
     "refreshPage": "Refresh current page",
     "refreshPageData": "Refresh current page data",
     "activityLog": "Activity Log",
-    "logout": "Logout"
+    "logout": "Logout",
+    "enterNamespace": "Enter namespace"
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
