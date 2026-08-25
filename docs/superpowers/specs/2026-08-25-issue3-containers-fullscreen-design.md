@@ -79,3 +79,5 @@ init/sidecar 增加环境变量/卷挂载(能力扩展非空间问题,记 backlo
 ## 明确不做(范围外)
 
 - 独立全屏编辑路由页;ConfigMap 详情页升级;init/sidecar 环境变量/卷挂载;YAML tab 可编辑
+
+> 注记(2026-08-25 合并时):④ 容器区解挤最终由并行分支的 ContainerEditorDialog 弹窗方案承载(已先合 main,校验单源齐备);本文 ④ 的「纵向堆叠+折叠摘要」布局洞察记 backlog 可后续融合。⑥ 三件套已合(42966e6)。
