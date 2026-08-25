@@ -22,7 +22,7 @@ export function createWorkbenchConvRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe, busSnapshot, busDispose,
+    busSubscribe, busUnsubscribe, busDispose,
   } = deps
 
   // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
@@ -35,6 +35,23 @@ export function createWorkbenchConvRoutes(deps) {
     const changes = db_.prepare("UPDATE workbench_conversations SET status='running', updatedAt=? WHERE id=? AND status='paused'").run(Date.now(), id).changes
     if (changes === 0) return { ok: false, status: 400, message: msg(req, 'wbc.notPausedConcurrent') }
     return { ok: true }
+  }
+
+  // 当前轮快照(2026-08-25 闪变续修):trace = conv.trace 中「上一条消息行 createdAt 之后」的事件
+  // (= 未落库的当前轮,覆盖 run+审批 resume 全程),assistant 全量形状瘦身为平铺——与消息级
+  // trace 同形状。替代终态发全对话 / running 发 bus 快照(按 run 重置,resume 丢暂停前半段)
+  // 两种口径不一的数据源;content/reasoning 用 conv 级检查点(已轮清零)。
+  function turnSnapshot(id) {
+    const conv = getConversation(db, id)
+    if (!conv) return null
+    const msgs = listMessages(db, id)
+    const lastTs = msgs.length ? Math.max(...msgs.map(m => m.createdAt || 0)) : 0
+    let all = []
+    try { all = JSON.parse(conv.trace || '[]') } catch { all = [] }
+    const trace = all
+      .filter(e => e && typeof e === 'object' && (e.ts || 0) > lastTs && e.type !== 'tool_start')
+      .map(e => e.type === 'assistant' ? { type: 'assistant', content: e.message?.content || '', ts: e.ts } : e)
+    return { content: conv.content || '', reasoning: conv.reasoning || '', trace, steps: conv.steps ?? 0 }
   }
 
   async function buildRefsContext(project, references) {
@@ -296,9 +313,8 @@ export function createWorkbenchConvRoutes(deps) {
         // 终态补发完整快照(dev31):此前只发 status+end 不带 content——刷新后恰逢对话刚结束的
         // 窗口连入的客户端,thinking turn 被置 done 但内容为空("看不到回答"的根因之一)。
         // R1(2026-08-19):快照同时带 reasoning 检查点(与 running 分支对齐)——终态思考可回看。
-        let finalTrace = []
-        try { finalTrace = JSON.parse(conv.trace || '[]') } catch { finalTrace = [] }
-        send({ type: 'snapshot', content: conv.content || '', reasoning: conv.reasoning || '', trace: finalTrace, steps: conv.steps ?? 0 })
+        const ts = turnSnapshot(id)   // 按轮切割+瘦身:全对话 trace 会把历史轮灌进最后一个 turn(交错渲染放大为可见污染)
+        send({ type: 'snapshot', content: conv.content || '', reasoning: conv.reasoning || '', trace: ts?.trace || [], steps: conv.steps ?? 0 })
         send({ type: 'status', status: conv.status, ...(conv.error ? { error: conv.error } : {}) })
         send({ type: 'end' })
         res.end()
@@ -307,9 +323,9 @@ export function createWorkbenchConvRoutes(deps) {
       // running:先订阅再补发快照(同步执行无竞态)——断线重连/晚连的客户端一键吃齐
       // 此前已 emit 的 delta/step(conv.content 只在 done 落库,不补则中段文本永久丢失)
       busSubscribe(id, send)
-      const snap = busSnapshot(id)
-      if (snap && (snap.content || (snap.trace && snap.trace.length))) {
-        send({ type: 'snapshot', content: snap.content || '', reasoning: snap.reasoning || '', trace: snap.trace || [], steps: snap.steps || 0 })
+      const snap = turnSnapshot(id)   // 按轮切割(覆盖 resume 前半段,bus 快照按 run 重置会丢)
+      if (snap && (snap.content || snap.trace.length)) {
+        send({ type: 'snapshot', content: snap.content, reasoning: snap.reasoning, trace: snap.trace, steps: snap.steps })
       }
       const keepalive = setInterval(() => { try { res.write(': keepalive\n\n') } catch {} }, 15000)
       req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })

@@ -395,7 +395,7 @@ test('SSE 死亡无 onerror:看门狗 10s 后 pollOnce 对齐 done 并停表', a
 
 // dev31 复查:看门狗 pollOnce 用 DB trace 覆盖时,保留尾部未配对 tool_start(运行中 chip 不被抹掉)
 test('pollOnce 对齐保留尾部 tool_start(运行中工具指示器不被看门狗抹掉)', async () => {
-  api.conversations.get.mockResolvedValue({ id: 'c1', status: 'running', messages: [{ role: 'user', content: 'q' }], trace: JSON.stringify([{ type: 'tool', name: 'wb_exec', result: 'x' }]), steps: 1, recap: '' })
+  api.conversations.get.mockResolvedValue({ id: 'c1', status: 'running', messages: [{ role: 'user', content: 'q', createdAt: 1000 }], trace: JSON.stringify([{ type: 'tool', name: 'wb_exec', result: 'x', ts: 2000 }]), steps: 1, recap: '' })
   const w = await mountChat({ conversationId: 'c1', activeConversationId: 'c1' })
   await flushPromises()
   // 模拟 SSE 已入列一个运行中的 tool_start(不落库)

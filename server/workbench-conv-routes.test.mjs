@@ -281,3 +281,33 @@ test('R1: SSE 终态快照含 reasoning——刚结束就连上的客户端 thin
   assert.equal(snap.content, '完整答案')
   assert.equal(snap.reasoning, '完整思考', '快照带 reasoning(此前只有 running 才有)')
 })
+
+test('快照按轮切割(2026-08-25 闪变续修):trace 只含上一条消息之后的当前轮事件,assistant 瘦身;历史轮不混入', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  // 历史轮:消息行 createdAt=T1;其 trace 事件 ts<T1。当前轮(未落库)事件 ts>T1。
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: '历史问', trace: null })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '历史答', trace: '[]' })
+  const T1 = Date.now()
+  h.db.prepare('UPDATE workbench_messages SET createdAt=? WHERE conversationId=?').run(T1, conv.id)
+  const trace = JSON.stringify([
+    { type: 'tool', name: '旧轮工具', args: {}, result: {}, ts: T1 - 5000 },
+    { type: 'assistant', message: { role: 'assistant', content: '旧轮文本' }, ts: T1 - 4000 },
+    { type: 'assistant', message: { role: 'assistant', content: '当前轮中间文本' }, ts: T1 + 1000 },
+    { type: 'tool', name: '当前轮工具', args: {}, result: {}, ts: T1 + 2000 },
+    { type: 'assistant', message: { role: 'assistant', content: '当前轮终答' }, ts: T1 + 3000 },
+  ])
+  h.db.prepare("UPDATE workbench_conversations SET status='done', content='当前轮终答', trace=? WHERE id=?").run(trace, conv.id)
+  const chunks = []
+  const res = { writeHead: () => {}, write: s => chunks.push(s), end: () => {} }
+  assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res))
+  const events = chunks.join('').split('\n\n').filter(Boolean).map(c => JSON.parse(c.replace(/^data: /, '')))
+  const snap = events.find(e => e.type === 'snapshot')
+  assert.ok(snap, '快照存在')
+  const names = snap.trace.map(e => e.name).filter(Boolean)
+  assert.ok(!names.includes('旧轮工具'), `历史轮工具不得混入: ${JSON.stringify(names)}`)
+  assert.ok(names.includes('当前轮工具'), '当前轮工具须在')
+  const asst = snap.trace.filter(e => e.type === 'assistant')
+  assert.ok(asst.some(e => e.content === '当前轮中间文本' && !e.message), 'assistant 须瘦身(content 平铺)')
+  assert.ok(!asst.some(e => e.content === '旧轮文本' || e.message?.content === '旧轮文本'), '历史轮文本不得混入')
+})
