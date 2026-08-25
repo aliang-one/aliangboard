@@ -10,6 +10,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import CreateConfigResourceModal from '@/components/common/CreateConfigResourceModal.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
@@ -55,75 +56,10 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [typeFilter, search] })
 
-// Create Secret
+// Create Secret（富 Modal：类型模板/校验/组装均在 CreateConfigResourceModal + secretTemplates 内）
 const showCreateModal = ref(false)
-const createForm = ref({
-  name: '', type: 'Opaque',
-  keys: [{ key: '', value: '' }],
-  username: '', password: '',
-  registry: '', registryUser: '', registryPassword: '', registryEmail: '',
-  tlsCrt: '', tlsKey: '',
-  sshKey: '',
-})
-
-function resetCreate() {
-  createForm.value = {
-    name: '', type: 'Opaque',
-    keys: [{ key: '', value: '' }],
-    username: '', password: '',
-    registry: '', registryUser: '', registryPassword: '', registryEmail: '',
-    tlsCrt: '', tlsKey: '',
-    sshKey: '',
-  }
-}
-function addCreateKey() {
-  createForm.value.keys.push({ key: '', value: '' })
-}
-function removeCreateKey(idx) {
-  createForm.value.keys.splice(idx, 1)
-}
-
-// 按 Secret 类型校验必填字段（避免提交后被 K8s 拒绝，如 tls 缺 crt/key）
-const canCreateSecret = computed(() => {
-  const f = createForm.value
-  if (!f.name) return false
-  switch (f.type) {
-    case 'kubernetes.io/basic-auth': return !!(f.username && f.password)
-    case 'kubernetes.io/dockerconfigjson': return !!(f.registry && f.registryUser && f.registryPassword)
-    case 'kubernetes.io/tls': return !!(f.tlsCrt && f.tlsKey)
-    case 'kubernetes.io/ssh-auth': return !!f.sshKey
-    default: return f.keys.some(k => k.key)   // Opaque：至少 1 个有效 key
-  }
-})
-
-async function handleCreate() {
-  const f = createForm.value
-  let data = {}
-  if (f.type === 'Opaque') {
-    f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
-  } else if (f.type === 'kubernetes.io/basic-auth') {
-    data = { username: f.username, password: f.password }
-  } else if (f.type === 'kubernetes.io/dockerconfigjson') {
-    let auth = ''
-    try { auth = btoa(`${f.registryUser}:${f.registryPassword}`) } catch (e) { auth = `${f.registryUser}:${f.registryPassword}` }
-    const cfg = { auths: { [f.registry]: { username: f.registryUser, password: f.registryPassword, email: f.registryEmail, auth } } }
-    data = { '.dockerconfigjson': JSON.stringify(cfg) }
-  } else if (f.type === 'kubernetes.io/tls') {
-    data = { 'tls.crt': f.tlsCrt, 'tls.key': f.tlsKey }
-  } else if (f.type === 'kubernetes.io/ssh-auth') {
-    data = { 'ssh-privatekey': f.sshKey }
-  }
-  const r = await store.addSecret({
-    name: f.name,
-    namespace: route.params.namespace,
-    type: f.type,
-    keys: Object.keys(data).length,
-    data,
-  })
-  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+function onCreated() {
   queryClient.invalidateQueries({ queryKey: secretsKey })
-  showCreateModal.value = false
-  resetCreate()
 }
 
 // Delete
@@ -175,7 +111,7 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.secrets.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.secrets.subtitle', { count: nsSecrets.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+      <button data-testid="open-create" @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.secrets.new') }}
       </button>
     </div>
@@ -238,104 +174,12 @@ function goDetail(row) {
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ (search || typeFilter !== 'All') ? 'search_off' : 'key' }}</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ (search || typeFilter !== 'All') ? t('ns.secrets.noMatch') : t('ns.secrets.empty') }}</p>
       <button v-if="search || typeFilter !== 'All'" @click="search = ''; typeFilter = 'All'" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.secrets.clearFilter') }}</button>
-      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.secrets.createShort') }}</button>
+      <button v-else data-testid="open-create" @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.secrets.createShort') }}</button>
     </div>
   </section>
 
-  <!-- Create Secret Modal -->
-  <Modal v-model="showCreateModal" :title="t('ns.secrets.createTitle')" width="max-w-lg">
-    <div class="flex flex-col gap-md">
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.nameLabel') }}</label>
-        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" />
-      </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.typeLabel') }}</label>
-        <select v-model="createForm.type" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="Opaque">{{ t('ns.secrets.typeOpaque') }}</option>
-          <option value="kubernetes.io/basic-auth">{{ t('ns.secrets.typeBasicAuth') }}</option>
-          <option value="kubernetes.io/dockerconfigjson">{{ t('ns.secrets.typeDocker') }}</option>
-          <option value="kubernetes.io/tls">{{ t('ns.secrets.typeTls') }}</option>
-          <option value="kubernetes.io/ssh-auth">{{ t('ns.secrets.typeSsh') }}</option>
-        </select>
-      </div>
-
-      <!-- Opaque：自由 key-value -->
-      <div v-if="createForm.type === 'Opaque'">
-        <label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('ns.secrets.dataKeysLabel') }}</label>
-        <div class="flex flex-col gap-sm">
-          <div v-for="(kv, idx) in createForm.keys" :key="idx" class="flex gap-sm items-center">
-            <input v-model="kv.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="KEY" />
-            <input v-model="kv.value" type="password" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="value" />
-            <button v-if="createForm.keys.length > 1" @click="removeCreateKey(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
-          </div>
-          <button @click="addCreateKey" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> {{ t('ns.secrets.addKey') }}
-          </button>
-        </div>
-      </div>
-
-      <!-- basic-auth -->
-      <div v-else-if="createForm.type === 'kubernetes.io/basic-auth'" class="flex flex-col gap-sm">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.usernameLabel') }}</label>
-          <input v-model="createForm.username" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="admin" />
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.passwordLabel') }}</label>
-          <input v-model="createForm.password" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="••••••" />
-        </div>
-        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.secrets.basicAuthHint') }}</p>
-      </div>
-
-      <!-- dockerconfigjson -->
-      <div v-else-if="createForm.type === 'kubernetes.io/dockerconfigjson'" class="flex flex-col gap-sm">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryLabel') }}</label>
-          <input v-model="createForm.registry" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="registry.example.com" />
-        </div>
-        <div class="grid grid-cols-2 gap-sm">
-          <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryUserLabel') }}</label>
-            <input v-model="createForm.registryUser" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
-          </div>
-          <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.registryPassLabel') }}</label>
-            <input v-model="createForm.registryPassword" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" />
-          </div>
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.emailLabel') }}</label>
-          <input v-model="createForm.registryEmail" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="user@example.com" />
-        </div>
-        <p class="text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">info</span>{{ t('ns.secrets.dockerHint') }}</p>
-      </div>
-
-      <!-- tls -->
-      <div v-else-if="createForm.type === 'kubernetes.io/tls'" class="flex flex-col gap-sm">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.tlsCrtLabel') }}</label>
-          <textarea v-model="createForm.tlsCrt" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
-        </div>
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.tlsKeyLabel') }}</label>
-          <textarea v-model="createForm.tlsKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-24 resize-y" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
-        </div>
-      </div>
-
-      <!-- ssh-auth -->
-      <div v-else-if="createForm.type === 'kubernetes.io/ssh-auth'" class="flex flex-col gap-sm">
-        <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.sshKeyLabel') }}</label>
-          <textarea v-model="createForm.sshKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono h-32 resize-y" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"></textarea>
-        </div>
-      </div>
-    </div>
-    <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button @click="handleCreate" :disabled="!canCreateSecret" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
-    </template>
-  </Modal>
+  <!-- Create Secret Modal（富组件：类型模板/固定字段/YAML 均在其中） -->
+  <CreateConfigResourceModal v-model="showCreateModal" kind="secret" :namespace="route.params.namespace" @created="onCreated" />
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" :title="t('ns.secrets.deleteTitle')" width="max-w-md">

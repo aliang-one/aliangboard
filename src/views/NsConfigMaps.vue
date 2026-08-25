@@ -10,6 +10,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import CreateConfigResourceModal from '@/components/common/CreateConfigResourceModal.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
@@ -44,35 +45,10 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [search] })
 
-// Create ConfigMap
+// Create ConfigMap（富 Modal：表单/校验/提交均在 CreateConfigResourceModal 内）
 const showCreateModal = ref(false)
-const createForm = ref({ name: '', keys: [{ key: '', value: '' }] })
-
-function resetCreate() {
-  createForm.value = { name: '', keys: [{ key: '', value: '' }] }
-}
-
-function addCreateKey() {
-  createForm.value.keys.push({ key: '', value: '' })
-}
-function removeCreateKey(idx) {
-  createForm.value.keys.splice(idx, 1)
-}
-
-async function handleCreate() {
-  const f = createForm.value
-  const data = {}
-  f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
-  const r = await store.addConfigMap({
-    name: f.name,
-    namespace: route.params.namespace,
-    keys: Object.keys(data).length,
-    data,
-  })
-  if (r && r.ok === false) return   // 远端创建失败：保留弹窗（错误已由 store notify）
+function onCreated() {
   queryClient.invalidateQueries({ queryKey: configmapsKey })
-  showCreateModal.value = false
-  resetCreate()
 }
 
 // Delete
@@ -117,7 +93,7 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.configmaps.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.configmaps.subtitle', { count: nsConfigMaps.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+      <button data-testid="open-create" @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.configmaps.new') }}
       </button>
     </div>
@@ -170,36 +146,12 @@ function goDetail(row) {
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? t('ns.configmaps.noMatch', { q: search }) : t('ns.configmaps.empty') }}</p>
       <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.configmaps.clearSearch') }}</button>
-      <button v-else @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.configmaps.createShort') }}</button>
+      <button v-else data-testid="open-create" @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.configmaps.createShort') }}</button>
     </div>
   </section>
 
-  <!-- Create ConfigMap Modal -->
-  <Modal v-model="showCreateModal" :title="t('ns.configmaps.createTitle')" width="max-w-lg">
-    <div class="flex flex-col gap-md">
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.configmaps.nameLabel') }}</label>
-        <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-config" />
-      </div>
-      <div>
-        <label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('ns.configmaps.dataKeysLabel') }}</label>
-        <div class="flex flex-col gap-sm">
-          <div v-for="(kv, idx) in createForm.keys" :key="idx" class="flex gap-sm items-center">
-            <input v-model="kv.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono" placeholder="KEY" />
-            <input v-model="kv.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="value" />
-            <button v-if="createForm.keys.length > 1" @click="removeCreateKey(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
-          </div>
-          <button @click="addCreateKey" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined">add</span> {{ t('ns.configmaps.addKey') }}
-          </button>
-        </div>
-      </div>
-    </div>
-    <template #actions>
-      <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
-    </template>
-  </Modal>
+  <!-- Create ConfigMap Modal（富组件） -->
+  <CreateConfigResourceModal v-model="showCreateModal" kind="configmap" :namespace="route.params.namespace" @created="onCreated" />
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" :title="t('ns.configmaps.deleteTitle')" width="max-w-md">
