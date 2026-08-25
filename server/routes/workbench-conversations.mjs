@@ -1,7 +1,7 @@
 // SP3: 工作台对话 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // 7 端点 + buildRefsContext 辅助逐字搬迁,仅依赖引用改走 deps 注入。
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
-import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
+import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -81,7 +81,7 @@ export function createWorkbenchConvRoutes(deps) {
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
         const { resources: fetchedResources } = await buildRefsContext(project, input.references)
 
-        const system = WORKBENCH_SYSTEM_PROMPT
+        const system = buildWorkbenchSystemPrompt()
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。

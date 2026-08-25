@@ -35,7 +35,7 @@ import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
-import { WORKBENCH_SYSTEM_PROMPT } from './workbench-prompt.mjs'
+import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -1113,7 +1113,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = WORKBENCH_SYSTEM_PROMPT
+          const system = buildWorkbenchSystemPrompt()
 
           // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
           let messageContent = String(input.message)
