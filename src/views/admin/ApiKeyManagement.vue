@@ -246,7 +246,7 @@ async function doRevoke(k) {
         </div>
         <div>
           <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('nsAllowlist.advanced') }}</label>
-          <NsAllowlistEditor :bound-ns="mintForm.boundSA_namespace" v-model="mintExtraNs" />
+          <NsAllowlistEditor :bound-ns="mintForm.boundSA_namespace" :cluster-id="mintForm.clusterId" v-model="mintExtraNs" />
         </div>
         <p class="text-body-xs text-on-surface-variant bg-surface-container-low rounded-lg p-sm">{{ $t('admin.apiKeys.saMustExist') }}</p>
       </div>
@@ -296,7 +296,7 @@ async function doRevoke(k) {
     <Modal v-model="showNsModal" :title="$t('nsAllowlist.editNsTitle', { prefix: editingKey?.prefix })" width="max-w-xl">
       <div v-if="editingKey" class="flex flex-col gap-md">
         <p class="text-body-xs text-on-surface-variant">{{ $t('nsAllowlist.nsMeta', { ns: editingKey.boundSA_namespace, name: editingKey.boundSA_name }) }}</p>
-        <NsAllowlistEditor :bound-ns="editingKey.boundSA_namespace" v-model="editExtraNs" />
+        <NsAllowlistEditor :bound-ns="editingKey.boundSA_namespace" :cluster-id="editingKey?.clusterId" v-model="editExtraNs" />
       </div>
       <template #actions>
         <button @click="showNsModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
