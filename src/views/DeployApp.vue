@@ -11,6 +11,9 @@ import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
+import { sanitizeImageToName } from '@/utils/containerNames'
+import { validateContainerFields } from '@/logic/containerValidation'
+import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
@@ -204,6 +207,30 @@ function addExtraContainer() { form.value.extraContainers.push({ name: '', image
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
 function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
+
+// 「完整编辑」弹窗:editing 指向目标槽位;确认 Object.assign 写回同槽(数组身份不变,
+// 卷挂载 init:idx/sidecar:idx target 稳定);取消/ESC/遮罩丢弃 draft。
+const editing = ref(null) // { kind: 'init'|'sidecar', index } | null
+const editingListKey = computed(() => (editing.value?.kind === 'sidecar' ? 'extraContainers' : 'initContainers'))
+const editingContainer = computed(() => (editing.value ? form.value[editingListKey.value][editing.value.index] : {}))
+// 查重集合 = 主容器有效名 + 其他容器显式名(按下标排除自身,保留他处同名 → 双方都报)
+const editingOtherNames = computed(() => {
+  const f = form.value, cur = editing.value
+  if (!cur) return []
+  const names = []
+  const main = f.containerName || f.name
+  if (main) names.push(main)
+  f.initContainers.forEach((c, i) => { if (c.name && !(cur.kind === 'init' && i === cur.index)) names.push(c.name) })
+  f.extraContainers.forEach((c, i) => { if (c.name && !(cur.kind === 'sidecar' && i === cur.index)) names.push(c.name) })
+  return names
+})
+function openContainerEditor(kind, index) { editing.value = { kind, index } }
+function closeContainerEditor() { editing.value = null }
+function onContainerEdited(payload) {
+  if (!editing.value) return
+  Object.assign(form.value[editingListKey.value][editing.value.index], payload)
+  editing.value = null
+}
 function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' }) }
 function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
@@ -413,15 +440,18 @@ const previewYAML = computed(() => {
     }).join('\n')
   }
 
-  // init/sidecar 自动派生容器名:image 前缀清洗成 DNS-1123(K8s 容器名 ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$,
-  // registry 前缀/大写/下划线/点会被拒),洗后为空用 fallback;与已用名撞车追加 -2/-3 去重。
+  // init/sidecar 自动派生容器名:image 前缀清洗成 DNS-1123(纯变换单源 utils/containerNames,
+  // 弹窗「自动命名预览」共用);与已用名撞车追加 -2/-3 去重。
+  // 播种 = 主容器有效名 + 全部显式名(2026-08-25 修复:原只播主容器名,
+  // 派生名可能与显式名撞车被 K8s 硬拒)。
   // 用户显式填写的 name 不经此函数(原样透传,不做静默改写)。
-  const usedContainerNames = new Set([f.containerName || f.name])
+  const usedContainerNames = new Set([
+    f.containerName || f.name,
+    ...f.initContainers.map(c => c.name).filter(Boolean),
+    ...f.extraContainers.map(c => c.name).filter(Boolean),
+  ])
   function derivedContainerName(image, fallback) {
-    let s = String(image || '').split('/').pop().split(':')[0]
-      .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '')
-      .slice(0, 63).replace(/-+$/, '')
-    if (!s) s = fallback
+    const s = sanitizeImageToName(image) || fallback
     let name = s, n = 1
     while (usedContainerNames.has(name)) name = `${s}-${++n}`
     usedContainerNames.add(name)
@@ -693,8 +723,28 @@ function validate() {
     if (v.type === 'configMap' && !v.cmName) errs.push({ step: 2, msg: t('deploy.volumeMissingConfigMap', { name: w }) })
     if (v.type === 'secret' && !v.secretName) errs.push({ step: 2, msg: t('deploy.volumeMissingSecret', { name: w }) })
   })
-  f.initContainers.forEach((c, i) => { if (!isEmptyEnvRow(c, ['name', 'image', 'command', 'args']) && !c.image) errs.push({ step: 1, msg: t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) }) }) })
-  f.extraContainers.forEach((c, i) => { if (!isEmptyEnvRow(c, ['name', 'image', 'command', 'args']) && !c.image) errs.push({ step: 1, msg: t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) }) }) })
+  // init/sidecar 字段校验与弹窗单源(logic/containerValidation):image 必填/名 DNS-1123/
+  // 资源 req≤lim/显式名查重(主容器有效名 + 其他容器显式名,按下标排除自身)。
+  // 空行整体跳过(isEmptyEnvRow,与 YAML 生成一致)。替代旧 missing-image 两条。
+  const mainName = f.containerName || f.name
+  const initNames = f.initContainers.map(c => c.name).filter(Boolean)
+  const sideNames = f.extraContainers.map(c => c.name).filter(Boolean)
+  const othersFor = (kind, idx) => {
+    const names = mainName ? [mainName] : []
+    // 按原列表下标排除自身:压缩数组(initNames/sideNames)索引与 idx 错位,
+    // 空名行夹中间时会误把自身名留在 others 里(nameDuplicate 撞自己)。
+    if (kind === 'init') names.push(...f.initContainers.filter((c, i) => i !== idx && c.name).map(c => c.name), ...sideNames)
+    else names.push(...initNames, ...f.extraContainers.filter((c, i) => i !== idx && c.name).map(c => c.name))
+    return names
+  }
+  const pushContainerErrs = (list, kind, labelKey) => list.forEach((c, i) => {
+    if (isEmptyEnvRow(c, ['name', 'image', 'command', 'args'])) return
+    const label = `${t(labelKey)} ${c.name || '#' + (i + 1)}`
+    for (const e of validateContainerFields(c, othersFor(kind, i)))
+      errs.push({ step: 1, msg: `${label}: ${t(e.msgKey, e.params)}` })
+  })
+  pushContainerErrs(f.initContainers, 'init', 'deploy.initContainers')
+  pushContainerErrs(f.extraContainers, 'sidecar', 'deploy.sidecarContainers')
   f.ports.forEach((p, i) => { if (!isEmptyEnvRow(p, ['containerPort']) && !p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
   f.envVars.forEach((e, i) => { if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
   f.envCMKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
@@ -1100,6 +1150,14 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                    @click="openContainerEditor('init', idx)"
+                    class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                    <span class="material-symbols-outlined text-base">open_in_full</span>
+                  </button>
+                </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
                   <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
@@ -1131,6 +1189,14 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                    @click="openContainerEditor('sidecar', idx)"
+                    class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                    <span class="material-symbols-outlined text-base">open_in_full</span>
+                  </button>
+                </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
                   <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
@@ -1153,6 +1219,10 @@ async function handleDeploy() {
             </div>
           </div>
         </div>
+
+        <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
+          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames"
+          @update:model-value="closeContainerEditor" @confirm="onContainerEdited" />
 
         <!-- 高级设置（默认折叠）-->
         <div class="mt-md border border-outline-variant rounded-xl overflow-hidden">

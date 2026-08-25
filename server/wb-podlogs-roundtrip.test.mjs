@@ -83,6 +83,7 @@ test('wb_get_pod_logs:工具结果进 LLM 消息的是真实日志,不是 [objec
     const msgTrace = typeof asst?.trace === 'string' ? JSON.parse(asst.trace) : asst?.trace
     assert.ok(Array.isArray(msgTrace) && msgTrace.some(e => e.type === 'tool' && e.name === 'wb_get_pod_logs'),
       `assistant 消息 trace 须含本轮工具事件,实际:${String(asst?.trace).slice(0, 120)}`)
+    assert.ok(msgTrace.some(e => e.type === 'tool' && typeof e.ts === 'number'), '工具事件须带 ts 时间戳')
   } finally {
     gw.kill('SIGKILL'); k8s.close(); llm.close()
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)

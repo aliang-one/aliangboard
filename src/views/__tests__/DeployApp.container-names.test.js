@@ -67,3 +67,14 @@ test('用户显式填写的 name 原样透传(不清洗)', async () => {
   const pod = await podWith({ extraContainers: [{ ...C('nginx'), name: 'my-proxy' }] })
   expect(pod.containers[1].name).toBe('my-proxy')
 })
+
+test('显式名入播种集:显式 nginx + 另一容器镜像 nginx → 派生 nginx-2(原 bug:撞车)', async () => {
+  // 原 bug:usedContainerNames 只播种主容器名 → 派生名与显式名撞车 → K8s 拒绝。
+  // extraContainers 的派生在 previewYAML 中先于 initContainers 求值。
+  const pod = await podWith({
+    initContainers: [{ ...C('nginx'), name: 'nginx' }],
+    extraContainers: [C('nginx')],
+  })
+  expect(pod.containers.map(c => c.name)).toEqual(['app', 'nginx-2'])
+  expect(pod.initContainers[0].name).toBe('nginx')
+})
