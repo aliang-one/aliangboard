@@ -12,6 +12,7 @@ import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
+import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
@@ -205,6 +206,30 @@ function addExtraContainer() { form.value.extraContainers.push({ name: '', image
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
 function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
+
+// 「完整编辑」弹窗:editing 指向目标槽位;确认 Object.assign 写回同槽(数组身份不变,
+// 卷挂载 init:idx/sidecar:idx target 稳定);取消/ESC/遮罩丢弃 draft。
+const editing = ref(null) // { kind: 'init'|'sidecar', index } | null
+const editingListKey = computed(() => (editing.value?.kind === 'sidecar' ? 'extraContainers' : 'initContainers'))
+const editingContainer = computed(() => (editing.value ? form.value[editingListKey.value][editing.value.index] : {}))
+// 查重集合 = 主容器有效名 + 其他容器显式名(按下标排除自身,保留他处同名 → 双方都报)
+const editingOtherNames = computed(() => {
+  const f = form.value, cur = editing.value
+  if (!cur) return []
+  const names = []
+  const main = f.containerName || f.name
+  if (main) names.push(main)
+  f.initContainers.forEach((c, i) => { if (c.name && !(cur.kind === 'init' && i === cur.index)) names.push(c.name) })
+  f.extraContainers.forEach((c, i) => { if (c.name && !(cur.kind === 'sidecar' && i === cur.index)) names.push(c.name) })
+  return names
+})
+function openContainerEditor(kind, index) { editing.value = { kind, index } }
+function closeContainerEditor() { editing.value = null }
+function onContainerEdited(payload) {
+  if (!editing.value) return
+  Object.assign(form.value[editingListKey.value][editing.value.index], payload)
+  editing.value = null
+}
 function addPort() { form.value.ports.push({ containerPort: '', protocol: 'TCP' }) }
 function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
@@ -1102,6 +1127,14 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                    @click="openContainerEditor('init', idx)"
+                    class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                    <span class="material-symbols-outlined text-base">open_in_full</span>
+                  </button>
+                </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
                   <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
@@ -1133,6 +1166,14 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
+                <div class="flex items-center justify-between mb-xs">
+                  <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                    @click="openContainerEditor('sidecar', idx)"
+                    class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                    <span class="material-symbols-outlined text-base">open_in_full</span>
+                  </button>
+                </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
                   <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
@@ -1155,6 +1196,10 @@ async function handleDeploy() {
             </div>
           </div>
         </div>
+
+        <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
+          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames"
+          @update:model-value="closeContainerEditor" @confirm="onContainerEdited" />
 
         <!-- 高级设置（默认折叠）-->
         <div class="mt-md border border-outline-variant rounded-xl overflow-hidden">
