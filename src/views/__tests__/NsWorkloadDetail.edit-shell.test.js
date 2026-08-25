@@ -6,6 +6,10 @@
 //   + checkAccessServer(loadPerms immediate watch)+ fetchPods;② setData editForm 需补齐
 //   Modal 模板触达的最小键骨架(探针三键 enabled 等,否则渲染崩)。
 import { test, expect, vi } from 'vitest'
+
+// 文件级捕获桩:saveEdit 会先 store.updateWorkload(Deployment 级)再 store.applyWorkloadTemplate(pod 模板)。
+// 两者均捕获,captured.at(-1) 即 applyWorkloadTemplate 的 tpl(其 .spec 为 pod spec)。
+const captured = vi.hoisted(() => [])
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
@@ -29,10 +33,20 @@ const demoWorkload = {
     },
   },
 }
-vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({ currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true), fetchWorkloads: vi.fn(async () => [demoWorkload]), fetchPods: vi.fn(async () => []) }) }))
+vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
+  currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true),
+  fetchWorkloads: vi.fn(async () => [demoWorkload]), fetchPods: vi.fn(async () => []),
+  updateWorkload: vi.fn((name, ns, updates) => captured.push(updates)),
+  applyWorkloadTemplate: vi.fn(async (name, ns, tpl) => captured.push(tpl)),
+  invalidateAllClusterQueries: vi.fn(async () => {}),
+}) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' } }), useRouter: () => ({ push: () => {} }) }))
 
 import NsWorkloadDetail from '../NsWorkloadDetail.vue'
+import { makeSubContainer } from '@/logic/subContainer'
+
+// captured.at(-1) = applyWorkloadTemplate 的 pod 模板 tpl;其 .spec 即 pod spec
+function capturedSpec() { return captured.at(-1)?.spec || captured.at(-1) }
 
 function mountDetail() {
   setActivePinia(createPinia())
@@ -83,4 +97,35 @@ test('编辑 Modal 打开后 init/sidecar 行内表单渲染已有行(锁定现�
   expect(values).toContain('s0')
   w.unmount()
   document.body.innerHTML = ''
+})
+
+test('saveEdit 重建:普通 sidecar 进 containers,原生进 initContainers 尾部(带 Always),挂载按原索引', async () => {
+  const w = mountDetail()
+  await flushPromises()
+  await w.setData({
+    editForm: {
+      ...w.vm.editForm,
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox' }],
+      extraContainers: [
+        { ...makeSubContainer(), name: 'plain', image: 'nginx' },
+        { ...makeSubContainer(), name: 'native', image: 'envoy', nativeSidecar: true },
+      ],
+      volumeMounts: [
+        { name: 'v1', target: 'sidecar:0', type: 'pvc', mountPath: '/a', subPath: '', readOnly: false, pvcName: 'p1', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] },
+        { name: 'v2', target: 'sidecar:1', type: 'pvc', mountPath: '/b', subPath: '', readOnly: false, pvcName: 'p2', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] },
+        { name: 'v3', target: 'init:0', type: 'pvc', mountPath: '/c', subPath: '', readOnly: false, pvcName: 'p3', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] },
+      ],
+    },
+  })
+  await flushPromises()
+  await w.vm.saveEdit()
+  await flushPromises()
+  const spec = capturedSpec()
+  const pod = spec.template?.spec || spec
+  expect(pod.containers.map(c => c.name)).toEqual([pod.containers[0].name, 'plain'])
+  expect(pod.initContainers.map(c => c.name)).toEqual(['i0', 'native'])
+  expect(pod.initContainers.map(c => c.restartPolicy)).toEqual([null, 'Always'])
+  expect(pod.containers.find(c => c.name === 'plain').volumeMounts).toEqual([{ name: 'v1', mountPath: '/a' }])
+  expect(pod.initContainers.find(c => c.name === 'native').volumeMounts).toEqual([{ name: 'v2', mountPath: '/b' }])
+  expect(pod.initContainers.find(c => c.name === 'i0').volumeMounts).toEqual([{ name: 'v3', mountPath: '/c' }])
 })

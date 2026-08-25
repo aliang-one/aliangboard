@@ -16,6 +16,8 @@ import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
+import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty } from '@/logic/subContainer'
+import { validateContainerFields } from '@/logic/containerValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -835,11 +837,6 @@ function scToForm(sc) {
   if (sc.capabilities) { f.addCaps = (sc.capabilities.add || []).join(','); f.dropCaps = (sc.capabilities.drop || []).join(',') }
   return f
 }
-// init/sidecar 容器 → 表单
-function containerToForm(c) {
-  return { name: c.name || '', image: c.image || '', command: joinCommandTokens(c.command || []), args: joinArgLines(c.args || []),
-    cpuReq: c.resources?.requests?.cpu || '', cpuLim: c.resources?.limits?.cpu || '', memReq: c.resources?.requests?.memory || '', memLim: c.resources?.limits?.memory || '' }
-}
 // 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
 function mergeVolumes(tplSpec, c0) {
   const byKey = new Map()
@@ -889,6 +886,9 @@ function addVolumeMount() {
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
 function openEdit() {
   if (!workload.value) return
+  // 子容器全量反解(单源);原生 sidecar(restartPolicy Always)归 extraContainers。
+  // 过渡兼容:Task 10 前行内模板仍读 cpuReq 系旧键——同时挂别名,Task 10 (d) 删。
+  const withLegacyKeys = c => ({ ...c, cpuReq: c.cpuRequest, cpuLim: c.cpuLimit, memReq: c.memoryRequest, memLim: c.memoryLimit })
   const raw = workload.value?.raw || {}
   const tplSpec = raw.spec?.template?.spec || raw.spec?.jobTemplate?.spec?.template?.spec || {}
   const c0 = tplSpec.containers?.[0] || {}
@@ -924,8 +924,11 @@ function openEdit() {
     securityContext: scToForm(c0.securityContext),
     lifecycle: { postStart: joinCommandTokens(c0.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(c0.lifecycle?.preStop?.exec?.command || []) },
     // 多容器
-    initContainers: (tplSpec.initContainers || []).map(containerToForm),
-    extraContainers: (tplSpec.containers || []).slice(1).map(containerToForm),
+    initContainers: (tplSpec.initContainers || []).filter(c => c.restartPolicy !== 'Always').map(c => withLegacyKeys(mapSubContainer(c))),
+    extraContainers: [
+      ...(tplSpec.containers || []).slice(1).map(c => withLegacyKeys(mapSubContainer(c))),
+      ...(tplSpec.initContainers || []).filter(c => c.restartPolicy === 'Always').map(c => withLegacyKeys(mapSubContainer(c))),
+    ],
     // 调度（pod spec）
     nodeSelectors: Object.entries(tplSpec.nodeSelector || {}).map(([key, value]) => ({ key, value: String(value) })),
     tolerations: (tplSpec.tolerations || []).map(t => ({ key: t.key || '', operator: t.operator || 'Equal', value: t.value || '', effect: t.effect || '' })),
@@ -977,16 +980,6 @@ function mountObjs(target, f) {
   const ms = (f.volumeMounts || []).filter(v => v.target === target && v.name && v.mountPath).map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; if (m.readOnly) o.readOnly = true; return o })
   return ms.length ? ms : null
 }
-function buildSubContainer(c, target, f) {
-  const o = { name: c.name || (c.image || '').split(':')[0] || 'container', image: c.image || '' }
-  const cmd = splitCommandTokens(c.command), args = splitArgLines(c.args)
-  if (cmd.length) o.command = cmd
-  if (args.length) o.args = args
-  o.resources = buildResources(c.cpuReq, c.cpuLim, c.memReq, c.memLim)
-  const m = mountObjs(target, f)
-  if (m) o.volumeMounts = m
-  return o
-}
 // 保存前校验：返回错误描述数组（空=通过）
 function validateEdit() {
   const f = editForm.value, errs = []
@@ -1002,8 +995,24 @@ function validateEdit() {
       if (v.type === 'secret' && !v.secretName) errs.push(t('workload.validation.volumeMissingSecret', { name: v.name || '#' + (i + 1) }))
     }
   })
-  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.initMissingImage', { name: c.name || '#' + (i + 1) })) })
-  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.sidecarMissingImage', { name: c.name || '#' + (i + 1) })) })
+  // 子容器校验接入单源(containerValidation):空行判定统一 isSubContainerEmpty——
+  // 仅配了高级字段(无 image)的行也须校验(与创建面一致),不再「image 空即跳过」。
+  const mainName = workload.value?.name || ''
+  const subOthers = (kind, selfIdx) => {
+    const initNames = (f.initContainers || []).map(c => c.name).filter(Boolean)
+    const sideNames = (f.extraContainers || []).map(c => c.name).filter(Boolean)
+    const out = mainName ? [mainName] : []
+    if (kind === 'init') out.push(...initNames.filter((_, i) => i !== selfIdx), ...sideNames)
+    else out.push(...initNames, ...sideNames.filter((_, i) => i !== selfIdx))
+    return out
+  }
+  const pushSubErrs = (list, kind, labelKey) => list.forEach((c, i) => {
+    if (isSubContainerEmpty(c)) return
+    for (const e of validateContainerFields(c, subOthers(kind, i)))
+      errs.push(`${t(labelKey)} ${c.name || '#' + (i + 1)}: ${t(e.msgKey, e.params)}`)
+  })
+  pushSubErrs(f.initContainers || [], 'init', 'workload.edit.initContainers')
+  pushSubErrs(f.extraContainers || [], 'sidecar', 'workload.edit.sidecarContainers')
   ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(t('workload.validation.portMissing', { idx: i + 1 })) })
   ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(t('workload.validation.envMissingKey', { idx: i + 1 })) })
   ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(t('workload.validation.envCmMissing', { name: e.name || '—' })) })
@@ -1061,10 +1070,19 @@ async function saveEdit() {
       if (ps.length) lc.postStart = { exec: { command: ps } }
       if (pst.length) lc.preStop = { exec: { command: pst } }
       c0.lifecycle = Object.keys(lc).length ? lc : null
-      // 多容器：重建 containers = [主, ...sidecar]，initContainers（按原索引传 target，各自挂卷）
-      spec.containers = [c0, ...(f.extraContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `sidecar:${idx}`, f) : null).filter(Boolean)]
-      const inits = (f.initContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `init:${idx}`, f) : null).filter(Boolean)
-      spec.initContainers = inits.length ? inits : null
+      // 多容器重建(单源 buildSubContainerSpec;nullAbsent=true 走 merge-patch 删除语义):
+      // 普通 sidecar 进 containers;原生 sidecar(sidecar 且 nativeSidecar)进 initContainers 尾部;
+      // 挂载 target 按「原数组索引」定位(native 行占用 extraContainers 索引,不可按过滤后序枚举)。
+      const sidecars = f.extraContainers || []
+      spec.containers = [c0, ...sidecars.map((c, idx) => (!c.image || c.nativeSidecar) ? null :
+        buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true })).filter(Boolean)]
+      const rebuiltInits = [
+        ...(f.initContainers || []).map((c, idx) => c.image ?
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `init:${idx}`), nullAbsent: true }) : null),
+        ...sidecars.map((c, idx) => (c.image && c.nativeSidecar) ?
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true }) : null),
+      ].filter(Boolean)
+      spec.initContainers = rebuiltInits.length ? rebuiltInits : null
       // 卷（按 name 去重；configMap/secret 带 items）
       const volDefs = new Map()
       ;(f.volumeMounts || []).filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
