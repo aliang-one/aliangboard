@@ -3409,7 +3409,8 @@
     "editNs": "Edit namespace allowlist",
     "editNsTitle": "Edit namespace allowlist · {prefix}…",
     "nsMeta": "SA={ns}/{name}; extra namespace list (bound ns always included)",
-    "updated": "ns allowlist updated",
+    "updated": "ns allowlist updated (cluster RBAC for new namespaces provisioned)",
+    "updatedByo": "ns allowlist updated; this key uses a self-managed SA — create RoleBindings in the new namespaces yourself",
     "updateFailed": "Failed to update",
     "advanced": "Advanced: namespace allowlist (add beyond bound ns)"
   },

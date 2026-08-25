@@ -258,11 +258,35 @@ export function createAdminRoutes(deps) {
       try {
         const id = decodeURIComponent(url.pathname.split('/')[4])
         const input = await readBody(req)
-        const key = db.prepare('SELECT boundSA_namespace FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
-        if (!key) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
-        const json = normalizeAllowedNamespaces(input.allowed_namespaces, key.boundSA_namespace)  // strict: 坏→抛
-        db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ?').run(json, id)
-        sendJson(res, 200, { ok: true, id, allowed_namespaces: json })
+        const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
+        if (!row) { sendJson(res, 404, { message: 'API key 不存在或已吊销' }); return true }
+        const json = normalizeAllowedNamespaces(input.allowed_namespaces, row.boundSA_namespace)  // strict: 坏→抛
+        const nextNs = json ? JSON.parse(json) : []
+        let prevNs = []
+        try { prevNs = row.allowed_namespaces ? JSON.parse(row.allowed_namespaces) : [] } catch { prevNs = [] }
+        // 托管 key:先供给后落库(与托管 mint 同语义)——PATCH 只改 DB 会造出「策略允许、RBAC 403」的假 ns;
+        // 供给失败 → 502 + 明细,DB 不动(宁可不改,不落一个不可用的 ns)。BYO:平台不碰其身份,只落库。
+        if (row.saManaged) {
+          if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: 'ns allowlist 更新未接通(网关未注入集群供给能力)' }); return true }
+          const tier = rbacTier(row)
+          const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
+            keyId: id, namespace: row.boundSA_namespace, name: row.boundSA_name, tier, namespaces: nextNs,
+          })
+          if (!prov.ok) {
+            sendJson(res, 502, { message: `ns allowlist 更新失败:新 ns 的集群 RBAC 创建未成(${prov.failed[0]?.error || prov.failed[0]?.kind || '未知错误'};DB 未改动,可重试)`, failed: prov.failed })
+            return true
+          }
+          // 清理被移除 ns 的三档名 RBAC 残留(best-effort:失败不回滚 allowlist)。
+          const removed = prevNs.filter(ns => !nextNs.includes(ns))
+          if (removed.length && deps.sweepNamespacesCluster) {
+            try { await deps.sweepNamespacesCluster(deps.getCluster(row.clusterId), { keyId: id, namespaces: removed }) } catch { /* best-effort */ }
+          }
+          db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ? AND revokedAt IS NULL').run(json, id)
+          sendJson(res, 200, { ok: true, id, allowed_namespaces: json, rbac: 'provisioned' })
+          return true
+        }
+        db.prepare('UPDATE api_keys SET allowed_namespaces = ? WHERE id = ? AND revokedAt IS NULL').run(json, id)
+        sendJson(res, 200, { ok: true, id, allowed_namespaces: json, rbac: 'byo-self-managed' })
         return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || '更新 ns allowlist 失败' }); return true }
     }

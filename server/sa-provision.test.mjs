@@ -2,7 +2,7 @@
 // 托管 SA 供给契约:tier→规则模板、rbacTier 越档提升(overrides)、SSA 幂等供给、回收 404 容忍。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { roleRules, rbacTier, managedSaName, provisionSa, teardownSa, sweepStaleTierBindings } from './sa-provision.mjs'
+import { roleRules, rbacTier, managedSaName, provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 
 const KEY = '11111111-2222-3333-4444-555555555555'
 
@@ -92,6 +92,25 @@ test('sweepStaleTierBindings: keepTier 保留,其余两档 Role/RoleBinding 删;
     assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/${ns}/rolebindings/aliangboard-mcp-${t}-11111111`), `${ns} ${t} rb`)
   }
   assert.ok(!dels.some(p => p.includes('aliangboard-mcp-read-')), 'keepTier 档不删')
+  assert.ok(!dels.some(p => p.includes('serviceaccounts')), 'SA 不在 sweep 范围')
+  assert.ok(!dels.some(p => p.includes('clusterrolebindings')), 'CRB 不在 sweep 范围')
+})
+
+test('sweepNsBindings: ns allowlist 移除 ns 后清残留——指定 ns 三档名 Role/RoleBinding 全删;SA/CRB/保留 ns 不动;404 容忍', async () => {
+  const calls = []
+  const requestFn = async (ctx, path, init = {}) => {
+    if (path.endsWith('/namespaces/gone/rolebindings/aliangboard-mcp-admin-11111111')) { const e = new Error('not found'); e.status = 404; throw e }
+    calls.push({ path, init }); return { body: {} }
+  }
+  const out = await sweepNsBindings({ requestFn, callCtx: {} }, { keyId: KEY, namespaces: ['gone'] })
+  assert.equal(out.errors.length, 0, '404 容忍不计 errors')
+  const dels = calls.map(c => c.path)
+  assert.equal(dels.length, 5, 'gone ns 三档 × Role+RoleBinding = 6 条,其中 1 条 404 不入 calls')
+  for (const t of ['read', 'operator']) {
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/gone/roles/aliangboard-mcp-${t}-11111111`), `gone ${t} role`)
+    assert.ok(dels.includes(`/apis/rbac.authorization.k8s.io/v1/namespaces/gone/rolebindings/aliangboard-mcp-${t}-11111111`), `gone ${t} rb`)
+  }
+  assert.ok(!dels.some(p => p.includes('/namespaces/ns1/')), '保留 ns 不动')
   assert.ok(!dels.some(p => p.includes('serviceaccounts')), 'SA 不在 sweep 范围')
   assert.ok(!dels.some(p => p.includes('clusterrolebindings')), 'CRB 不在 sweep 范围')
 })
