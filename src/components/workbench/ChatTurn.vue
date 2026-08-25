@@ -7,6 +7,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { renderMarkdown } from '@/logic/markdown'
 import ToolTrace from './ToolTrace.vue'
+import ToolTimeline from './ToolTimeline.vue'
 import ResourceCard from '@/components/common/ResourceCard.vue'
 
 const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false } })
@@ -190,6 +191,8 @@ function onRootClick(e) {
     <!-- AGENT -->
     <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
+      <!-- 轮内时间线:工具按发生顺序内联展示(调用发生处),点击行进详情 Modal;顶部 chips 保留作总览 -->
+      <ToolTimeline v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
       <!-- 思考过程(reasoning_content,深思考模型):流式时展开实时滚动,终答后自动收起可回看 -->
       <details v-if="turn.reasoning" :open="isStreaming" class="group/reasoning bg-surface-container-low/60 border border-outline-variant/50 rounded-lg">
