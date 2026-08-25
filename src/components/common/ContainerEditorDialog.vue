@@ -24,11 +24,26 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'confirm'])
 const { t } = useI18n()
 
-// 打开即重置 draft(全字段模型;传入容器可能是旧 8 字段——makeSubContainer 兜底混入)与 touched
-const draft = ref({ ...makeSubContainer(), ...props.container })
+// 打开即重置 draft(全字段模型;传入容器可能是旧 8 字段——makeSubContainer 兜底混入)与 touched。
+// 嵌套数组/对象必须深拷贝:浅展开保留父行引用 → addEnvRow 等会写进父容器,取消不再「丢弃」
+function cloneDraft(c) {
+  return {
+    ...makeSubContainer(), ...c,
+    envVars: (c.envVars || []).map(e => ({ ...e })),
+    envCMKeys: (c.envCMKeys || []).map(e => ({ ...e })),
+    envSecretKeys: (c.envSecretKeys || []).map(e => ({ ...e })),
+    ports: (c.ports || []).map(p => ({ ...p })),
+    liveness: { ...makeSubContainer().liveness, ...c.liveness },
+    readiness: { ...makeSubContainer().readiness, ...c.readiness },
+    startup: { ...makeSubContainer().startup, ...c.startup },
+    lifecycle: { ...makeSubContainer().lifecycle, ...c.lifecycle },
+    securityContext: { ...makeSubContainer().securityContext, ...c.securityContext },
+  }
+}
+const draft = ref(cloneDraft(props.container))
 const touched = ref({})
 watch(() => props.modelValue, open => {
-  if (open) { draft.value = { ...makeSubContainer(), ...props.container }; touched.value = {} }
+  if (open) { draft.value = cloneDraft(props.container); touched.value = {} }
 })
 
 // 折叠节状态(默认收起);高级项计数展示于标题旁(卡片 badge 按钮本体在调用方,Task 7/10)

@@ -113,6 +113,34 @@ test('全字段:env/ports/探针/原生开关在 draft 中编辑并随 confirm �
   expect(payload.nativeSidecar).toBe(true)
 })
 
+test('取消丢弃高级编辑:env 行/探针开关/勾选不泄漏进父容器对象', async () => {
+  const parent = { ...makeSubContainer(), name: 'sc', image: 'nginx' }
+  mountDialog({ container: parent })
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  $('ced-probes-section').querySelector('button[data-testid="ced-probes-toggle"]').click()
+  await nextTick()
+  $('ced-probe-enable-liveness').click()
+  await nextTick()
+  $('ced-cancel-btn').click()
+  expect(parent.envVars).toEqual([])
+  expect(parent.liveness.enabled).toBe(false)
+  // 确认路径仍完整写回:
+  wrapper.unmount()                                    // 先卸载,避免两个 teleport 残留串查询
+  mountDialog({ container: parent })
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
+  key0.value = 'K'; key0.dispatchEvent(new Event('input'))
+  await nextTick()
+  $('ced-confirm-btn').click()
+  expect(wrapper.emitted('confirm')[0][0].envVars).toEqual([{ key: 'K', value: '' }])
+})
+
 test('init 容器不渲染原生 sidecar 开关', async () => {
   mountDialog({ container: { ...makeSubContainer(), image: 'nginx' }, kind: 'init' })
   expect($('ced-native-toggle')).toBeNull()
