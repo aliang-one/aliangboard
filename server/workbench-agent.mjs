@@ -85,6 +85,10 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       },
       partial: () => partial,
       reasoning: () => reasoning,
+      // 轮间清零(2026-08-25 交错渲染):assistant 轮完成时清累积——检查点语义回到「当前轮
+      // partial」;已完成轮文本活在 trace。防跨轮全文经 conv.content 检查点 → snapshot/降级
+      // 轮询回灌前端,与已清零的流式 content 打架(闪变源之一)。
+      resetRound: () => { partial = ''; reasoning = ''; ckAt = 0; rCkAt = 0 },
     }
   }
   function salvagePartial(convId, err, tracker) {
@@ -146,7 +150,10 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         onStep: e => {
           if (e.type !== 'tool_start') {
             appendTrace(db, convId, e)
-            if (e.type === 'assistant') turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
+            if (e.type === 'assistant') {
+              turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
+              tracker?.resetRound()   // 检查点轮间清零(见 trackPartial 注释)
+            }
             else turnTrace.push(e)
           }
           busEmit(convId, { type: 'step', step: e })

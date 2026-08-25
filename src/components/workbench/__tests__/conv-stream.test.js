@@ -179,3 +179,17 @@ test('tool step 仍正常累积,不受 assistant 清零影响', () => {
   expect(s.trace.at(-1).name).toBe('wb_exec')
   expect(s.content).toBe('文本')   // tool 事件不清文本
 })
+
+// 闪变修复(2026-08-25):snapshot 的空 content/reasoning 不得清空 live 流式文本——
+// 服务端检查点 <200 字未落时 conv.content=''(或跨轮旧值),重连 snapshot 会把
+// 正在流出的文本打空,下个 delta 又长回来 → 周期性消失/复现。
+test('snapshot:空 content 不覆写 live 文本;有值才对齐', () => {
+  let s = { status: 'thinking', content: '正在流式的文本', reasoning: '思考中', trace: [{ type: 'tool', name: 'x' }], steps: 1 }
+  s = ase(s, { type: 'snapshot', content: '', reasoning: '', trace: [], steps: 5 })
+  expect(s.content).toBe('正在流式的文本')   // 空 = 不覆写
+  expect(s.reasoning).toBe('思考中')
+  expect(s.trace).toEqual([{ type: 'tool', name: 'x' }])  // 空 trace 同样不覆写
+  s = ase(s, { type: 'snapshot', content: '检查点文本', reasoning: 'r', trace: [{ type: 'tool', name: 'y' }], steps: 9 })
+  expect(s.content).toBe('检查点文本')       // 非空 = 对齐
+  expect(s.trace.length).toBe(1)
+})
