@@ -397,6 +397,13 @@ async function pollOnce(id) {
     if (agentTurn) {
       let trace = []
       if (conv.trace) { try { trace = JSON.parse(conv.trace) } catch { trace = [] } }
+      // 按轮切割(2026-08-25 闪变续修,与服务端 turnSnapshot 同口径):降级轮询路径也只取
+      // 上一条消息之后的当前轮事件——conv.trace 是全对话累积,整包换入会把历史轮灌进当前 turn。
+      if (trace.length) {
+        const lastMsgTs = (conv.messages || []).reduce((m, x) => Math.max(m, x.createdAt || 0), 0)
+        trace = trace.filter(e => e && (e.ts || 0) > lastMsgTs && e.type !== 'tool_start')
+          .map(e => e.type === 'assistant' ? { type: 'assistant', content: e.content ?? e.message?.content ?? '', ts: e.ts } : e)
+      }
       // 保留尾部未配对的 tool_start(运行中工具的转圈 chip):它不落库(dev27 瞬态设计),
       // 看门狗 10s 对齐轮询用 DB trace 整体覆盖时会把运行指示器抹掉——恰好在长工具
       // (wb_exec 30s)执行期间最需要它的时候。工具完成事件到达时按 name 配对移除。
