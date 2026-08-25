@@ -8,6 +8,14 @@ import { useLogViewer, LOG_LINE_OPTIONS, LOG_SINCE_OPTIONS } from '@/composables
 import { compileFilter, isNearBottom, levelCounts } from '@/logic/podLogs'
 
 const { t } = useI18n()
+// since 下拉的 i18n 键映射（静态字面量，i18n:check 可校验；动态拼接会被判引用键缺失）
+const SINCE_LABEL_KEYS = {
+  '': 'component.logViewer.since_all',
+  '300': 'component.logViewer.since_300',
+  '900': 'component.logViewer.since_900',
+  '3600': 'component.logViewer.since_3600',
+  '21600': 'component.logViewer.since_21600',
+}
 const props = defineProps({
   namespace: { type: String, required: true },
   podName: { type: String, required: true },
@@ -113,7 +121,7 @@ async function copyLogs() {
       <div class="flex items-center gap-xs">
         <span class="text-body-sm text-on-surface-variant font-medium">{{ t('component.logViewer.since') }}</span>
         <select v-model="logSince" data-testid="log-since" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
-          <option v-for="o in LOG_SINCE_OPTIONS" :key="o.value" :value="o.value">{{ t('component.logViewer.since_' + (o.value || 'all')) }}</option>
+          <option v-for="o in LOG_SINCE_OPTIONS" :key="o.value" :value="o.value">{{ t(SINCE_LABEL_KEYS[o.value] || 'component.logViewer.since_all') }}</option>
         </select>
       </div>
       <label class="flex items-center gap-1 cursor-pointer select-none" :class="logPrevious ? 'text-tertiary-container font-medium' : 'text-on-surface-variant'" :title="t('component.logViewer.previousHint')">
