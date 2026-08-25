@@ -14,6 +14,7 @@ import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
 import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
+import { firstVolumeMountError } from '@/logic/volumeMountValidation'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -275,6 +276,11 @@ const stepBlockReason = computed(() => {
     if (!f.image) return t('deploy.imageRequired')
     // 已填写的端口必须是正整数
     if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return t('deploy.portMustBeNumber')
+  }
+  if (currentStep.value === 2) {
+    // 存储门禁:每个卷必须来源完整+映射到有效容器的挂载路径(否则 YAML 里静默消失)
+    const e = firstVolumeMountError(f.volumeMounts, containerTargets.map(x => x.value))
+    if (e) return t(e.key, { n: e.n })
   }
   if (currentStep.value === 4) {
     if (f.createService) {

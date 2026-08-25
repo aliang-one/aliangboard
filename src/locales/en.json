@@ -1917,7 +1917,10 @@
     "externalNameRequired": "ExternalName type requires an external DNS name",
     "ingressHostRequired": "Fill in at least one host when Ingress is enabled",
     "ingressBackendRequired": "Each ingress path needs a backend service and port",
-    "partialApplied": "Some resources failed to apply (main workload created); you can retry later: "
+    "partialApplied": "Some resources failed to apply (main workload created); you can retry later: ",
+    "volumeSourceRequired": "Volume #{n} is missing its source (PVC/path/server/name per type)",
+    "volumeMountRequired": "Volume #{n} is missing the in-container mount path (must start with /)",
+    "volumeTargetInvalid": "Volume #{n} targets a container that does not exist or has no image"
   },
   "workload": {
     "notFound": "Workload Not Found",

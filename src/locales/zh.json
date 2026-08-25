@@ -1917,7 +1917,10 @@
     "externalNameRequired": "ExternalName 类型需填写外部 DNS 名称",
     "ingressHostRequired": "开启 Ingress 时至少填写一个 Host",
     "ingressBackendRequired": "Ingress 每条路径需选择后端 Service 与端口",
-    "partialApplied": "部分资源应用失败（主工作负载已创建），可稍后重试："
+    "partialApplied": "部分资源应用失败（主工作负载已创建），可稍后重试：",
+    "volumeSourceRequired": "第 {n} 个存储缺少来源(按类型填 PVC/路径/服务器/名称)",
+    "volumeMountRequired": "第 {n} 个存储缺少容器内挂载路径(须以 / 开头)",
+    "volumeTargetInvalid": "第 {n} 个存储的目标容器不存在或未配置镜像"
   },
   "workload": {
     "notFound": "工作负载未找到",
