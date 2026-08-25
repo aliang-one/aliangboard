@@ -43,3 +43,15 @@ test('竞态守卫:c1 慢响应晚于 c2 完成 → 保留 c2 结果', async () 
   resolveSlow(); await p1
   expect(list.value).toEqual(['fast-ns'])
 })
+
+test('重拉起手即清 list:切换集群的 loading 期不显示上一集群候选(视觉残留防线)', async () => {
+  let resolveC2
+  const fetchNs = id => id === 'c1' ? Promise.resolve({ namespaces: ['ns-of-c1'] }) : new Promise(r => { resolveC2 = () => r({ namespaces: ['ns-of-c2'] }) })
+  const { list, load } = useClusterNamespaces(fetchNs)
+  await load('c1')
+  expect(list.value).toEqual(['ns-of-c1'])
+  const p = load('c2')
+  expect(list.value).toEqual([])   // 起手清,不等响应
+  resolveC2(); await p
+  expect(list.value).toEqual(['ns-of-c2'])
+})

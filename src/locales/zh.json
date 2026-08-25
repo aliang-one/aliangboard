@@ -3436,7 +3436,6 @@
     "switchToSelect": "下拉选择",
     "loading": "加载中…",
     "loadFailed": "namespace 列表拉取失败",
-    "emptyList": "集群无 namespace",
     "allAdded": "集群 ns 已全部添加",
     "noCluster": "未选择集群,请手动输入",
     "updated": "ns allowlist 已更新(新 ns 的集群 RBAC 已同步创建)",
