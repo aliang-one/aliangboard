@@ -283,6 +283,20 @@ export function createAdminRoutes(deps) {
         // 供给失败 → 502 + 明细,DB 不动(宁可不改,不落一个不可用的 ns)。BYO:平台不碰其身份,只落库。
         if (row.saManaged) {
           if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: 'ns allowlist 更新未接通(网关未注入集群供给能力)' }); return true }
+          // ns 存在性预检(kind 实测:SSA 往不存在的 ns 打 Role/Binding 必 404,502 报错还难懂)——
+          // 提前 400 给明确指引;BYO 不预检(自管 RBAC,「先配 key 后建 ns」对 BYO 合法)。
+          if (nextNs.length && deps.requestKubernetes && deps.buildCallContext) {
+            const cluster = deps.getCluster(row.clusterId)
+            if (!cluster) { sendJson(res, 404, { message: '集群不存在' }); return true }
+            const checkCtx = deps.buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure })
+            for (const ns of nextNs) {
+              try { await deps.requestKubernetes(checkCtx, `/api/v1/namespaces/${encodeURIComponent(ns)}`) }
+              catch (e) {
+                if (e.status === 404) { sendJson(res, 400, { message: `namespace '${ns}' 在集群中不存在,请先在集群创建后再添加(或用下拉选择已有 namespace);DB 未改动` }); return true }
+                throw e
+              }
+            }
+          }
           const tier = rbacTier(row)
           const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
             keyId: id, namespace: row.boundSA_namespace, name: row.boundSA_name, tier, namespaces: nextNs,
