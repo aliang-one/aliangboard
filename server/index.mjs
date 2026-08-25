@@ -44,6 +44,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
+import { msg } from './messages.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -226,13 +227,13 @@ function platformUserFromRequest(req) {
 }
 function requirePlatform(req, res) {
   const ps = platformUserFromRequest(req)
-  if (!ps) { sendJson(res, 401, { message: '未登录或平台会话已过期' }); return null }
+  if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return null }
   return ps
 }
 function requireAdmin(req, res) {
   const ps = requirePlatform(req, res)
   if (!ps) return null
-  if (ps.role !== 'admin') { sendJson(res, 403, { message: '需要管理员权限' }); return null }
+  if (ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'api.adminRequired') }); return null }
   return ps
 }
 // 持久化一个会话（仅存可序列化字段；dispatcher 是运行期对象，重载时重建）
@@ -709,10 +710,10 @@ function wsSend(ws, type, payload) {
 }
 
 // 建立 Pod exec 终端会话
-async function handleExec(ws, session, url) {
+async function handleExec(ws, session, url, req) {
   const namespace = url.searchParams.get('namespace')
   const pod = url.searchParams.get('pod')
-  if (!namespace || !pod) { wsSend(ws, CH_ERROR, '缺少 namespace / pod 参数'); return ws.close() }
+  if (!namespace || !pod) { wsSend(ws, CH_ERROR, msg(req, 'api.missingNsPodParams')); return ws.close() }
   const container = url.searchParams.get('container') || ''
   const mode = url.searchParams.get('mode')   // 'attach' = 连接主进程 stdio；否则 exec 开新 shell
   const command = (url.searchParams.get('command') || '/bin/sh').trim().split(/\s+/)
@@ -775,7 +776,7 @@ async function handleExec(ws, session, url) {
   } catch (error) {
     // 探测命中缓存但实际不可用（镜像刚换/缓存 stale）→ 失效缓存,下次重探
     if (planned.kind === 'tmux') tmuxProbeCache.delete(probeKey(namespace, pod, container))
-    wsSend(ws, CH_ERROR, error?.message || `${mode === 'attach' ? 'attach' : 'exec'} 会话建立失败（容器可能未就绪或镜像内无 shell）`)
+    wsSend(ws, CH_ERROR, error?.message || msg(req, 'api.execSessionFailed', { mode: mode === 'attach' ? 'attach' : 'exec' }))
     return ws.close()
   }
 
@@ -1076,16 +1077,16 @@ async function handle(req, res) {
     try {
       const input = await readBody(req)
       const resuming = !!input.resume
-      if (!resuming && !input.message) return sendJson(res, 400, { message: '缺 message' })
+      if (!resuming && !input.message) return sendJson(res, 400, { message: msg(req, 'api.missingMessage') })
       const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: 'LLM 未配置(到管理后台「LLM 配置」设 baseURL + model,或设 LLM_BASE_URL/LLM_MODEL 环境变量)' })
+      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: msg(req, 'api.llmNotConfigured') })
       const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
 
       // 项目模式(W4b):workbench-only agent,历史走服务端 workbench_history(不进 git repo)。
       if (input.projectId) {
         const proj = getProject(db, input.projectId)
-        if (!proj) return sendJson(res, 404, { message: '项目不存在' })
-        if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: '无权访问该项目' })
+        if (!proj) return sendJson(res, 404, { message: msg(req, 'api.projectNotFound') })
+        if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: msg(req, 'api.noProjectAccess') })
         const repo = join(WORKBENCH_DIR, proj.clusterId, 'projects', proj.id)
         const ledgerRepo = join(WORKBENCH_DIR, proj.clusterId, 'cluster-context')
         const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(proj.clusterId)
@@ -1095,14 +1096,14 @@ async function handle(req, res) {
             let out = ''
             try { out += await wbReadFile(ledgerRepo, 'INDEX.md') } catch {}
             try { const l = await wbReadFile(ledgerRepo, 'learnings.md'); if (l && l.trim()) out += '\n\n# Learnings（团队知识/踩坑）\n' + l } catch {}
-            return out.trim() || '(集群台账尚未 bootstrap;建议先在「集群台账」页 bootstrap)'
+            return out.trim() || msg(req, 'api.ledgerNotBootstrapped')
           },
           readFile: (p) => wbReadFile(repo, p),
           writeFile: (p, c) => wbWriteFile(repo, p, c),
           readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
-          applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
+          applyManifests: async (yaml) => { if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply')); return applyYamlPartial(k8sSession, yaml) },
           appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
-          bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
+          bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
         }
         const { run } = createAgentRunner({ llmClient, workbench })
         const trace = []
@@ -1144,11 +1145,11 @@ async function handle(req, res) {
       }
 
       // K8s 模式(原):apiKeyId 必填,agent 用所选 key 的 SA + tier
-      if (!input.apiKeyId) return sendJson(res, 400, { message: '缺 apiKeyId(K8s 模式)或 projectId(项目模式)' })
+      if (!input.apiKeyId) return sendJson(res, 400, { message: msg(req, 'api.missingApiKeyIdOrProjectId') })
       const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
-      if (!keyRow) return sendJson(res, 404, { message: 'API key 不存在或已吊销' })
+      if (!keyRow) return sendJson(res, 404, { message: msg(req, 'api.apiKeyNotFoundOrRevoked') })
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
-      if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+      if (!cluster) return sendJson(res, 404, { message: msg(req, 'api.clusterNotFound') })
       const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
       const trace = []
       let out
@@ -1172,7 +1173,7 @@ async function handle(req, res) {
         return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
       }
       return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || 'agent 失败' }) }
+    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || msg(req, 'api.agentFailed') }) }
   }
 
   // ====== 工作台:有状态对话(P5)——5 端点 + 后台执行(detached Promise) ======
@@ -1214,22 +1215,22 @@ async function handle(req, res) {
         readFile: (p) => wbReadFile(repo, p),
         writeFile: (p, c) => wbWriteFile(repo, p, c),
         readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
-        applyManifests: async (yaml) => { if (!k8sSession) throw new Error('项目绑定的集群不存在,无法 apply'); return applyYamlPartial(k8sSession, yaml) },
+        applyManifests: async (yaml) => { if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply')); return applyYamlPartial(k8sSession, yaml) },
         appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
-        bootstrapLedger: async () => { if (!cluster) throw new Error('项目绑定的集群不存在'); return bootstrapLedgerForCluster(cluster) },
+        bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
         // === K8s 调查(workbench-principal,直连集群凭据) ===
         listResources: async (kind, namespace) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || 'pods').toLowerCase()
           const listPath = WB_K8S_LIST_PATH[k]
-          if (!listPath) throw new Error(`不支持的 kind: ${k}`)
+          if (!listPath) throw new Error(msg(req, 'api.unsupportedKind', { k }))
           const path = namespace && namespace !== '_' ? listPath.replace('/pods', `/namespaces/${enc(namespace)}/pods`).replace('/services', `/namespaces/${enc(namespace)}/services`).replace('/deployments', `/namespaces/${enc(namespace)}/deployments`).replace('/configmaps', `/namespaces/${enc(namespace)}/configmaps`).replace('/secrets', `/namespaces/${enc(namespace)}/secrets`).replace('/statefulsets', `/namespaces/${enc(namespace)}/statefulsets`).replace('/daemonsets', `/namespaces/${enc(namespace)}/daemonsets`).replace('/persistentvolumeclaims', `/namespaces/${enc(namespace)}/persistentvolumeclaims`).replace('/networkpolicies', `/namespaces/${enc(namespace)}/networkpolicies`).replace('/serviceaccounts', `/namespaces/${enc(namespace)}/serviceaccounts`).replace('/ingresses', `/namespaces/${enc(namespace)}/ingresses`) : listPath
           const resp = await requestKubernetes(k8sSession, path)
           const items = (resp?.body?.items || []).slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
           return { kind: k, count: resp?.body?.items?.length || 0, returned: items.length, items }
         },
         getPodLogs: async (args) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const tailN = Math.min(Math.max(Number(args.tail) || LOG_TAIL, 1), LOG_TAIL)
           const q = new URLSearchParams({ tailLines: String(tailN) })
           if (args.container) q.set('container', args.container)
@@ -1245,8 +1246,8 @@ async function handle(req, res) {
         // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
         readPodFile: async (args) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
-          if (!args.pod) throw new Error('缺 pod')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const p = safePodPath(args.path)
           // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
           // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
@@ -1254,10 +1255,10 @@ async function handle(req, res) {
           return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || 'pods').toLowerCase()
           const getter = WB_K8S_GET_PATH[k]
-          if (!getter) throw new Error(`不支持的 kind: ${k}`)
+          if (!getter) throw new Error(msg(req, 'api.unsupportedKind', { k }))
           const resResp = await requestKubernetes(k8sSession, getter(namespace, name))
           const resBody = resResp?.body
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
@@ -1267,27 +1268,27 @@ async function handle(req, res) {
         },
         // 轻量 GET:单个资源完整对象(无 events),适合 ConfigMap/Service/Secret 等不需要事件的场景
         getResource: async (namespace, kind, name) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || 'pods').toLowerCase()
           const getter = WB_K8S_GET_PATH[k]
-          if (!getter) throw new Error(`不支持的 kind: ${k}`)
+          if (!getter) throw new Error(msg(req, 'api.unsupportedKind', { k }))
           const resp = await requestKubernetes(k8sSession, getter(namespace, name))
           const body = resp?.body
           if (body?.metadata?.managedFields) delete body.metadata.managedFields
           return { resource: body }
         },
         getEvents: async (namespace, name) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const path = name ? `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}` : `/api/v1/namespaces/${enc(namespace)}/events`
           const resp = await requestKubernetes(k8sSession, path)
           const items = (resp?.body?.items || []).slice(0, 50).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
           return { count: resp?.body?.items?.length || 0, returned: items.length, items }
         },
         rolloutStatus: async (namespace, name) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
           const body = resp?.body
-          if (!body) throw new Error(`Deployment ${name} 不存在`)
+          if (!body) throw new Error(msg(req, 'api.deploymentNotFound', { name }))
           const s = body.status || {}
           const conditions = (s.conditions || []).map(c => ({ type: c.type, status: c.status, reason: c.reason, message: String(c.message || '').slice(0, 200) }))
           const replicas = { desired: s.replicas ?? 0, ready: s.readyReplicas ?? 0, updated: s.updatedReplicas ?? 0, available: s.availableReplicas ?? 0, unavailable: s.unavailableReplicas ?? 0 }
@@ -1298,7 +1299,7 @@ async function handle(req, res) {
         // 实时资源用量(kubectl top 等价):metrics.k8s.io + limits/capacity join,
         // 算好 cpuPct/memPct(OOM 前兆/CPU 打满一眼可见,agent 不用自己换算数量单位)。
         topUsage: async (args) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           try {
             const scope = String(args.scope || 'pods').toLowerCase()
             if (scope === 'nodes') {
@@ -1320,7 +1321,7 @@ async function handle(req, res) {
             }
             // 默认 pods(ns 必填;pod 可选 → 单 pod 精查)
             const ns = args.namespace
-            if (!ns) throw new Error('scope=pods 需要 namespace')
+            if (!ns) throw new Error(msg(req, 'api.topNeedsNamespace'))
             const mResp = await requestKubernetes(k8sSession, args.pod
               ? `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods/${enc(args.pod)}`
               : `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods`)
@@ -1347,50 +1348,50 @@ async function handle(req, res) {
             return { scope: 'pods', namespace: ns, count: items.length, items }
           } catch (e) {
             // metrics.k8s.io 未注册/未就绪:404(无该 API)或 503( aggregated 未路出)——给可读指引
-            if (e.status === 404 || e.status === 503) throw new Error('metrics-server 未安装或未就绪(kubectl top 同样不可用);装好后再试。原始错误: ' + e.message)
+            if (e.status === 404 || e.status === 503) throw new Error(msg(req, 'api.metricsServerUnavailable', { msg: e.message }))
             throw e
           }
         },
         // === K8s 运维(scale/restart,用项目绑定集群凭据,需人审) ===
         scale: async (namespace, kind, name, replicas) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || '').toLowerCase()
-          if (!['deployments', 'statefulsets'].includes(k)) throw new Error(`scale 仅支持 deployments/statefulsets,不是 ${k}`)
+          if (!['deployments', 'statefulsets'].includes(k)) throw new Error(msg(req, 'api.scaleUnsupported', { k }))
           const n = Math.min(Math.max(Number(replicas) | 0, 1), 20) // 钳到 1..20
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}/scale`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { replicas: n } }) })
-          return { kind: k, name, replicas: resp?.body?.spec?.replicas ?? n, message: `${namespace}/${name} 已调整到 ${n} 副本` }
+          return { kind: k, name, replicas: resp?.body?.spec?.replicas ?? n, message: msg(req, 'api.scaledTo', { ns: namespace, name, n }) }
         },
         restart: async (namespace, kind, name) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || '').toLowerCase()
-          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(`restart 仅支持 deployments/statefulsets/daemonsets,不是 ${k}`)
+          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.restartUnsupported', { k }))
           const ts = new Date().toISOString()
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': ts } } } } }) })
-          return { kind: k, name, restartedAt: ts, message: `${namespace}/${name} 已触发滚动重启` }
+          return { kind: k, name, restartedAt: ts, message: msg(req, 'api.rollingRestartTriggered', { ns: namespace, name }) }
         },
         updateImage: async (namespace, kind, name, image, container) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = String(kind || '').toLowerCase()
-          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(`updateImage 仅支持 deployments/statefulsets/daemonsets,不是 ${k}`)
-          if (!image) throw new Error('image 不能为空')
+          if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.updateImageUnsupported', { k }))
+          if (!image) throw new Error(msg(req, 'api.imageRequired'))
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`)
           const body = resp?.body
-          if (!body) throw new Error(`${k}/${name} 不存在`)
+          if (!body) throw new Error(msg(req, 'api.workloadNotFound', { k, name }))
           const containers = body.spec?.template?.spec?.containers || []
           const idx = container ? containers.findIndex(c => c.name === container) : 0
-          if (idx < 0) throw new Error(`容器 ${container} 不存在`)
+          if (idx < 0) throw new Error(msg(req, 'api.containerNotFound', { container }))
           const patch = { spec: { template: { spec: { containers: containers.map((c, i) => i === idx ? { ...c, image } : c) } } } }
           await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
           const updatedContainers = container ? [{ name: container, image }] : [{ name: containers[0]?.name || '', image }]
-          return { kind: k, name, containers: updatedContainers, message: `${namespace}/${name} 镜像更新为 ${image}` }
+          return { kind: k, name, containers: updatedContainers, message: msg(req, 'api.imageUpdated', { ns: namespace, name, image }) }
         },
         rolloutUndo: async (namespace, name, toRevision) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           // apps/v1 已移除 deployments/rollback 子资源,kubectl rollout undo 实为客户端行为:
           // 取目标 revision 的 ReplicaSet 完整 template,merge-patch 回 Deployment(与前端 rollbackWorkload 同源)。
           const depResp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
           const dep = depResp?.body
-          if (!dep) throw new Error(`deployments/${name} 不存在`)
+          if (!dep) throw new Error(msg(req, 'api.deploymentsNotFound', { name }))
           const uid = dep.metadata?.uid
           const rsResp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/replicasets`)
           const revisions = (rsResp?.body?.items || [])
@@ -1398,29 +1399,29 @@ async function handle(req, res) {
             .map(rs => ({ rev: Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision'] || 0), template: rs.spec?.template, image: rs.spec?.template?.spec?.containers?.[0]?.image }))
             .filter(r => r.rev > 0 && r.template)
             .sort((a, b) => b.rev - a.rev)
-          if (!revisions.length) throw new Error(`${namespace}/${name} 没有可回滚的 revision`)
+          if (!revisions.length) throw new Error(msg(req, 'api.noRevisionsToRollback', { ns: namespace, name }))
           const target = toRevision ? revisions.find(r => r.rev === Number(toRevision)) : revisions[1]
           if (!target) {
-            if (toRevision) throw new Error(`revision ${toRevision} 不存在,可用: ${revisions.map(r => r.rev).join(', ')}`)
-            throw new Error(`${namespace}/${name} 没有更早的 revision 可回滚`)
+            if (toRevision) throw new Error(msg(req, 'api.revisionNotFound', { rev: toRevision, list: revisions.map(r => r.rev).join(', ') }))
+            throw new Error(msg(req, 'api.noEarlierRevision', { ns: namespace, name }))
           }
           await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: target.template } }) })
-          return { name, fromRevision: revisions[0]?.rev, toRevision: target.rev, image: target.image, availableRevisions: revisions.map(r => r.rev), message: `${namespace}/${name} 已回滚到 revision ${target.rev}` }
+          return { name, fromRevision: revisions[0]?.rev, toRevision: target.rev, image: target.image, availableRevisions: revisions.map(r => r.rev), message: msg(req, 'api.rolledBackTo', { ns: namespace, name, rev: target.rev }) }
         },
         // === 容器内诊断 exec(需人审):nc/curl/mysql ping 等连通性检查 ===
         // 复用 execCapture(超时 + 流式上限 + ANSI 清洗);非交互一次性。命令原文进审批弹窗,人看到才跑。
         execInPod: async (args) => {
-          if (!k8sSession) throw new Error('项目绑定的集群不存在')
-          if (!args.pod) throw new Error('缺 pod')
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
-          if (!command.trim()) throw new Error('缺 command')
+          if (!command.trim()) throw new Error(msg(req, 'api.missingCommand'))
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return {
             pod: args.pod, container: args.container || '', exitCode: r.status ?? null,
             stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
             stderr: (r.stderr || '').slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
-            ...(r.timedOut ? { hint: `命令超时(>${Math.round(WB_EXEC_TIMEOUT_MS / 1000)}s)被中止,输出为已收部分;一次性 exec 不适用于长驻命令(tail -f/top/交互式)` } : {}),
+            ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }
         },
       },
@@ -1456,27 +1457,27 @@ async function handle(req, res) {
     hashPassword,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
-      if (!row) throw new Error('集群不存在')
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return provisionSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     teardownCluster: async (row, spec) => {
-      if (!row) throw new Error('集群不存在')
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return teardownSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     sweepStaleCluster: async (row, spec) => {
-      if (!row) throw new Error('集群不存在')
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return sweepStaleTierBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     sweepNamespacesCluster: async (row, spec) => {
-      if (!row) throw new Error('集群不存在')
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return sweepNsBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     probeSa: async (row, ns, name) => {
-      if (!row) return { ok: false, detail: '集群不存在' }
+      if (!row) return { ok: false, detail: msg(req, 'api.clusterNotFound') }
       try {
         await requestKubernetes(buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }), `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`)
         return { ok: true }
-      } catch (e) { return { ok: false, detail: e.status === 404 ? 'ServiceAccount 不存在' : e.message } }
+      } catch (e) { return { ok: false, detail: e.status === 404 ? msg(req, 'api.saNotFound') : e.message } }
     },
   })
   const projectRoutes = createWorkbenchProjectRoutes({
@@ -1495,15 +1496,15 @@ async function handle(req, res) {
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
   if (url.pathname.startsWith('/api/key/') && req.method === 'GET') {
     const keyRow = resolveApiKey(db, req)
-    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') })
     const _rl = checkRate(keyRow.id)
     if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const m = url.pathname.match(/^\/api\/key\/([^/]+)\/namespaces\/([^/]+)\/pods\/([^/]+)\/logs$/)
-    if (!m) return sendJson(res, 404, { message: '未知的 API-key 工具路由(骨架仅支持 .../pods/<pod>/logs)' })
+    if (!m) return sendJson(res, 404, { message: msg(req, 'api.unknownApiKeyRoute') })
     const clusterId = decodeURIComponent(m[1]), namespace = decodeURIComponent(m[2]), pod = decodeURIComponent(m[3])
-    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
+    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: msg(req, 'api.apiKeyNotBoundToCluster') })
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
-    if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+    if (!cluster) return sendJson(res, 404, { message: msg(req, 'api.clusterNotFound') })
     try {
       const out = await apiKeyTools.getPodLogs(keyRow, cluster, {
         namespace, pod,
@@ -1513,7 +1514,7 @@ async function handle(req, res) {
       return sendJson(res, 200, out)
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
-      return sendJson(res, e.status || 502, { message: e.message || '拉取日志失败' })
+      return sendJson(res, e.status || 502, { message: e.message || msg(req, 'api.fetchLogsFailed') })
     }
   }
 
@@ -1521,20 +1522,20 @@ async function handle(req, res) {
   const callMatch = req.method === 'POST' && url.pathname.match(/^\/api\/key\/([^/]+)\/call$/)
   if (callMatch) {
     const keyRow = resolveApiKey(db, req)
-    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: '无效或已吊销的 API key' })
+    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') })
     const _rl = checkRate(keyRow.id)
     if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const clusterId = decodeURIComponent(callMatch[1])
-    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: 'API key 未绑定此集群' })
+    if (clusterId !== keyRow.clusterId) return sendJson(res, 403, { error: 'PERMISSION_DENIED', reason: 'policy', message: msg(req, 'api.apiKeyNotBoundToCluster') })
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
-    if (!cluster) return sendJson(res, 404, { message: '集群不存在' })
+    if (!cluster) return sendJson(res, 404, { message: msg(req, 'api.clusterNotFound') })
     try {
       const input = await readBody(req)
       const out = await apiKeyTools.callTool(keyRow, cluster, input.tool, input.args || {}, 'direct')
       return sendJson(res, 200, out)
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return sendJson(res, 403, { error: e.code, reason: e.reason, message: e.message })
-      return sendJson(res, e.status || 502, { message: e.message || '工具调用失败' })
+      return sendJson(res, e.status || 502, { message: e.message || msg(req, 'api.toolCallFailed') })
     }
   }
 
@@ -1553,13 +1554,13 @@ async function handle(req, res) {
         else if (parsed.user?.username != null || parsed.user?.password != null) {
           authHeader = `Basic ${Buffer.from(`${parsed.user.username || ''}:${parsed.user.password || ''}`).toString('base64')}`
         }
-        if (!authHeader && !(cert && key)) throw new Error('kubeconfig 未包含可用凭据（需 token / 账号密码 / 客户端证书）')
+        if (!authHeader && !(cert && key)) throw new Error(msg(req, 'api.kubeconfigNoCredentials'))
       } else if (input.authMethod === 'basic') {
-        if (!input.username || !input.password) return sendJson(res, 400, { message: '用户名和密码不能为空' })
+        if (!input.username || !input.password) return sendJson(res, 400, { message: msg(req, 'api.emptyCredentials') })
         apiServer = normalizeServer(input.apiServer)
         authHeader = `Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`
       } else {
-        if (!input.token) return sendJson(res, 400, { message: 'Bearer Token 不能为空' })
+        if (!input.token) return sendJson(res, 400, { message: msg(req, 'api.tokenRequired') })
         apiServer = normalizeServer(input.apiServer)
         authHeader = `Bearer ${String(input.token)}`
       }
@@ -1578,13 +1579,13 @@ async function handle(req, res) {
         cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: session.version },
       })
     } catch (error) {
-      return sendJson(res, error.status || 400, { message: error.message || '连接 Kubernetes 集群失败' })
+      return sendJson(res, error.status || 400, { message: error.message || msg(req, 'api.connectK8sFailed') })
     }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/session') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     return sendJson(res, 200, {
       cluster: { apiServer: session.apiServer.toString().replace(/\/$/, ''), version: session.version || 'unknown' },
     })
@@ -1602,36 +1603,36 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/api/apply') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     try {
       const input = await readBody(req)
       const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''))
       // 全失败 → 422:保留单资源「失败即抛错」语义(remoteCreate/remoteUpdate/CRD 等走 catch 回滚)
       if (!applied.length) {
-        return sendJson(res, 422, { message: failed[0]?.error || '应用 YAML 失败', details: { failed, total } })
+        return sendJson(res, 422, { message: failed[0]?.error || msg(req, 'api.applyYamlFailed'), details: { failed, total } })
       }
       // 部分或全成功 → 200 + 每资源明细(resources 向后兼容单资源调用方;applied/failed 供前端识别部分成功)
       return sendJson(res, 200, { resources, applied, failed, total })
     } catch (error) {
-      return sendJson(res, error.status || 422, { message: error.message || '应用 YAML 失败', details: error.details })
+      return sendJson(res, error.status || 422, { message: error.message || msg(req, 'api.applyYamlFailed'), details: error.details })
     }
   }
 
   // 端口转发管理（创建 / 列表 / 停止）
   if (url.pathname === '/api/portforward') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const token = req.headers.authorization.replace(/^Bearer\s+/i, '')
     if (req.method === 'POST') {
       try {
         const input = await readBody(req)
         const port = Number(input.port)
         const localPort = input.localPort ? Number(input.localPort) : 0
-        if (!input.namespace || !input.name || !port) return sendJson(res, 400, { message: '缺少 namespace / name / port' })
+        if (!input.namespace || !input.name || !port) return sendJson(res, 400, { message: msg(req, 'api.missingNsNamePort') })
         const fwd = await startForward(session, token, input.kind, input.namespace, input.name, port, localPort)
         return sendJson(res, 200, fwd)
       } catch (error) {
-        return sendJson(res, error.status || 400, { message: error?.message || '端口转发建立失败' })
+        return sendJson(res, error.status || 400, { message: error?.message || msg(req, 'api.portForwardFailed') })
       }
     }
     if (req.method === 'GET') return sendJson(res, 200, { forwards: listForwards(token) })
@@ -1639,7 +1640,7 @@ async function handle(req, res) {
 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/portforward/')) {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const id = decodeURIComponent(url.pathname.slice('/api/portforward/'.length))
     const removed = stopForward(id)
     return sendJson(res, removed ? 200 : 404, { ok: removed })
@@ -1648,11 +1649,11 @@ async function handle(req, res) {
   // PVC 文件浏览（helper busybox Pod 只读挂载 + exec ls/cat；只读，不支持写入）
   if (url.pathname.startsWith('/api/pvcfile/')) {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const action = url.pathname.slice('/api/pvcfile/'.length)
     try {
       const input = await readBody(req)
-      if (!input.namespace || !input.pvc) return sendJson(res, 400, { message: '缺少 namespace / pvc' })
+      if (!input.namespace || !input.pvc) return sendJson(res, 400, { message: msg(req, 'api.missingNsPvc') })
       const podName = await ensurePvcBrowser(session, input.namespace, input.pvc)
       const sub = (input.path || '/').replace(/^\//, '')
       const fullPath = sub ? `/data/${sub}`.replace(/\/$/, '') : '/data'
@@ -1674,16 +1675,16 @@ async function handle(req, res) {
         const buf = truncated ? r.stdout.subarray(0, PODFILE_PREVIEW_LIMIT) : r.stdout
         return sendJson(res, 200, { path: '/' + sub, content: buf.toString('utf8'), truncated, binary: r.stdout.includes(0) })
       }
-      return sendJson(res, 404, { message: `未知 pvcfile 操作：${action}（只读浏览，仅支持 list / read）` })
+      return sendJson(res, 404, { message: msg(req, 'api.unknownPvcfileAction', { action }) })
     } catch (error) {
-      return sendJson(res, error.status || 502, { message: error?.message || 'PVC 文件浏览失败' })
+      return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.pvcBrowseFailed') })
     }
   }
 
   // Pod 文件浏览（基于一次性 exec：ls / cat / 写入）
   if (url.pathname.startsWith('/api/podfile/')) {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const action = url.pathname.slice('/api/podfile/'.length)
     try {
       // upload:二进制流式(元信息走查询串,请求体 pipe → exec stdin,不经 base64/不整包缓冲)。
@@ -1692,7 +1693,7 @@ async function handle(req, res) {
         const q = url.searchParams
         const namespace = q.get('namespace'), pod = q.get('pod')
         const container = q.get('container') || '', path = q.get('path') || ''
-        if (!namespace || !pod || !path) return sendJson(res, 400, { message: '缺少 namespace / pod / path' })
+        if (!namespace || !pod || !path) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodPath') })
         const contentLength = parseInt(req.headers['content-length'] || '', 10)
         const { KubeConfig, Exec } = await k8sClient()
         const exec = new Exec(buildKubeConfig(KubeConfig, session))
@@ -1710,14 +1711,14 @@ async function handle(req, res) {
           return sendJson(res, 200, { ...r, path })
         } catch (error) {
           console.error('[podfile/upload]', error?.status || '', error?.message || error)
-          if (error.canceled) return sendJson(res, 499, { message: '客户端中断上传' })
-          return sendJson(res, error.status || 502, { message: error?.message || '上传失败' })
+          if (error.canceled) return sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+          return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.uploadFailed') })
         }
       }
       const input = await readBody(req)
       const namespace = input.namespace, pod = input.pod, container = input.container || ''
       const path = input.path || '/'
-      if (!namespace || !pod) return sendJson(res, 400, { message: '缺少 namespace / pod' })
+      if (!namespace || !pod) return sendJson(res, 400, { message: msg(req, 'api.missingNsPod') })
 
       if (action === 'list') {
         const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'ls -1Ap "$1"', 'ls', path])
@@ -1769,14 +1770,14 @@ async function handle(req, res) {
           })
         } catch (error) {
           console.error('[podfile/download]', error?.status || '', error?.message || error)
-          if (!res.headersSent) return sendJson(res, error.status || 502, { message: error?.message || '下载失败' })
+          if (!res.headersSent) return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.downloadFailed') })
         }
         return
       }
-      return sendJson(res, 404, { message: `未知 podfile 操作：${action}` })
+      return sendJson(res, 404, { message: msg(req, 'api.unknownPodfileAction', { action }) })
     } catch (error) {
       console.error(`[podfile/${action}]`, error?.status || '', error?.message || error)
-      return sendJson(res, error.status || 502, { message: error?.message || 'Pod 文件操作失败' })
+      return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.podfileOpFailed') })
     }
   }
 
@@ -1787,7 +1788,7 @@ async function handle(req, res) {
   // DELETE /api/terminals/:id       → 关闭并删除
   if (url.pathname === '/api/terminals') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     try {
       if (req.method === 'GET') {
@@ -1809,11 +1810,11 @@ async function handle(req, res) {
         return sendJson(res, 200, term)
       }
       return sendJson(res, 405, { message: 'Method not allowed' })
-    } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
+    } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.terminalOpFailed') }) }
   }
   if (url.pathname.startsWith('/api/terminals/')) {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const id = decodeURIComponent(url.pathname.slice('/api/terminals/'.length))
     try {
@@ -1822,7 +1823,7 @@ async function handle(req, res) {
         const fields = []
         const vals = []
         for (const k of ['name', 'status']) { if (input[k] != null) { fields.push(`${k} = ?`); vals.push(input[k]) } }
-        if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+        if (!fields.length) return sendJson(res, 400, { message: msg(req, 'api.noUpdateFields') })
         vals.push(id, token)
         db.prepare(`UPDATE terminals SET ${fields.join(', ')} WHERE id = ? AND sessionToken = ?`).run(...vals)
         return sendJson(res, 200, { ok: true })
@@ -1842,12 +1843,12 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true })
       }
       return sendJson(res, 405, { message: 'Method not allowed' })
-    } catch (error) { return sendJson(res, 500, { message: error?.message || '终端会话操作失败' }) }
+    } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.terminalOpFailed') }) }
   }
   // === 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminals 同构;无 WS 会话,DELETE 仅删行) ===
   if (url.pathname === '/api/file-browsers') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     try {
       if (req.method === 'GET') {
@@ -1867,11 +1868,11 @@ async function handle(req, res) {
         return sendJson(res, 200, b)
       }
       return sendJson(res, 405, { message: 'Method not allowed' })
-    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+    } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.fileBrowserOpFailed') }) }
   }
   if (url.pathname.startsWith('/api/file-browsers/')) {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const id = decodeURIComponent(url.pathname.slice('/api/file-browsers/'.length))
     try {
@@ -1879,7 +1880,7 @@ async function handle(req, res) {
         const input = await readBody(req)
         const fields = [], vals = []
         for (const k of ['name', 'status']) { if (input[k] != null) { fields.push(`${k} = ?`); vals.push(input[k]) } }
-        if (!fields.length) return sendJson(res, 400, { message: '无更新字段' })
+        if (!fields.length) return sendJson(res, 400, { message: msg(req, 'api.noUpdateFields') })
         vals.push(id, token)
         db.prepare(`UPDATE file_browsers SET ${fields.join(', ')} WHERE id = ? AND sessionToken = ?`).run(...vals)
         return sendJson(res, 200, { ok: true })
@@ -1889,17 +1890,17 @@ async function handle(req, res) {
         return sendJson(res, 200, { ok: true })
       }
       return sendJson(res, 405, { message: 'Method not allowed' })
-    } catch (error) { return sendJson(res, 500, { message: error?.message || '文件窗口操作失败' }) }
+    } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.fileBrowserOpFailed') }) }
   }
 
 
   // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
   if (req.method === 'POST' && url.pathname === '/api/pod/debug') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     try {
       const input = await readBody(req)
-      if (!input.namespace || !input.pod || !input.image) return sendJson(res, 400, { message: '缺少 namespace / pod / image' })
+      if (!input.namespace || !input.pod || !input.image) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodImage') })
       const name = input.name || 'debugger'
       await attachEphemeral(session, input.namespace, input.pod, {
         name,
@@ -1911,21 +1912,21 @@ async function handle(req, res) {
       })
       return sendJson(res, 200, { ok: true, container: name })
     } catch (error) {
-      return sendJson(res, error.status || 422, { message: error?.message || '注入临时容器失败（集群可能未启用 EphemeralContainers，需 K8s 1.25+）' })
+      return sendJson(res, error.status || 422, { message: error?.message || msg(req, 'api.ephemeralInjectFailed') })
     }
   }
 
   // 手动触发 CronJob（kubectl create job --from）
   if (req.method === 'POST' && url.pathname === '/api/cronjob/trigger') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     try {
       const input = await readBody(req)
-      if (!input.namespace || !input.name) return sendJson(res, 400, { message: '缺少 namespace / name' })
+      if (!input.namespace || !input.name) return sendJson(res, 400, { message: msg(req, 'api.missingNsName') })
       const job = await triggerCronJob(session, input.namespace, input.name, input.jobName)
       return sendJson(res, 200, { ok: true, job: job?.metadata?.name || '' })
     } catch (error) {
-      return sendJson(res, error.status || 422, { message: error?.message || '触发 CronJob 失败' })
+      return sendJson(res, error.status || 422, { message: error?.message || msg(req, 'api.triggerCronJobFailed') })
     }
   }
 
@@ -1935,7 +1936,7 @@ async function handle(req, res) {
     try {
       const input = await readBody(req)
       const ref = parseImageRef(String(input.image || ''))
-      if (!ref.registry || !ref.repo) return sendJson(res, 400, { message: '无法解析镜像仓库地址（需含 registry 主机，如 registry.example.com/repo/app）' })
+      if (!ref.registry || !ref.repo) return sendJson(res, 400, { message: msg(req, 'api.registryUnparsable') })
       const headers = {}
       if (input.username || input.password) {
         headers.authorization = 'Basic ' + Buffer.from(`${input.username || ''}:${input.password || ''}`).toString('base64')
@@ -1949,34 +1950,34 @@ async function handle(req, res) {
         // https 不可达（明文 registry / 端口未开 TLS）→ 回退 http
         r = await kubeFetch(`http://${ref.registry}${path}`, { headers, dispatcher: agent })
       }
-      if (r.status === 401) return sendJson(res, 401, { message: 'Registry 需要认证，请填写账号密码', needsAuth: true })
-      if (r.status === 404) return sendJson(res, 404, { message: `仓库 ${ref.repo} 不存在` })
+      if (r.status === 401) return sendJson(res, 401, { message: msg(req, 'api.registryNeedsAuth'), needsAuth: true })
+      if (r.status === 404) return sendJson(res, 404, { message: msg(req, 'api.registryRepoNotFound', { repo: ref.repo }) })
       if (!r.ok) {
         const t = await r.text().catch(() => '')
-        return sendJson(res, 502, { message: `Registry 返回 ${r.status}：${t.slice(0, 200)}` })
+        return sendJson(res, 502, { message: msg(req, 'api.registryReturned', { status: r.status, body: t.slice(0, 200) }) })
       }
       const data = await r.json()
       const tags = Array.isArray(data.tags) ? data.tags.slice().sort().reverse() : []
       return sendJson(res, 200, { registry: ref.registry, repo: ref.repo, tags })
     } catch (error) {
-      return sendJson(res, 502, { message: `无法访问 Registry：${error?.message || error}` })
+      return sendJson(res, 502, { message: msg(req, 'api.registryUnreachable', { msg: error?.message || error }) })
     }
   }
 
   // 资源归属拓扑（ownerReferences 链）
   if (req.method === 'GET' && url.pathname === '/api/resource/tree') {
     const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     const ns = url.searchParams.get('namespace')
     const kind = url.searchParams.get('kind')
     const name = url.searchParams.get('name')
     const apiVersion = url.searchParams.get('apiVersion') || 'v1'
-    if (!ns || !kind || !name) return sendJson(res, 400, { message: '缺少 namespace / kind / name' })
+    if (!ns || !kind || !name) return sendJson(res, 400, { message: msg(req, 'api.missingNsKindName') })
     try {
       const tree = await resolveOwnerTree(session, ns, kind, name, apiVersion)
       return sendJson(res, 200, tree)
     } catch (error) {
-      return sendJson(res, error.status || 502, { message: error?.message || '解析归属链失败' })
+      return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.resolveOwnerFailed') })
     }
   }
 
@@ -1991,7 +1992,7 @@ async function handle(req, res) {
 
   if (isK8s) {
   const session = sessionFromRequest(req)
-  if (!session) return sendJson(res, 401, { message: '未登录或会话已过期' })
+  if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
 
   const kubernetesPath = decodeURIComponent(url.pathname.slice('/api/k8s'.length)) + (url.search || '')
 
@@ -2011,7 +2012,7 @@ async function handle(req, res) {
         const text = await upstream.text().catch(() => '')
         let errBody = text
         try { errBody = JSON.parse(text) } catch { /* 非 JSON，保留原文 */ }
-        return sendJson(res, upstream.status || 502, errBody?.message ? errBody : { message: text || `Kubernetes API 返回 HTTP ${upstream.status}` })
+        return sendJson(res, upstream.status || 502, errBody?.message ? errBody : { message: text || msg(req, 'api.k8sHttpError', { status: upstream.status }) })
       }
       res.writeHead(upstream.status, {
         'content-type': upstream.headers.get('content-type') || 'application/json',
@@ -2027,7 +2028,7 @@ async function handle(req, res) {
       req.on('close', () => { try { pipe.destroy() } catch { /* noop */ } })
       return
     } catch (error) {
-      return sendJson(res, error.status || 502, { message: error.message || 'Kubernetes 流式请求失败' })
+      return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sStreamFailed') })
     }
   }
 
@@ -2043,7 +2044,7 @@ async function handle(req, res) {
     })
     return sendJson(res, result.status, result.body ?? {})
   } catch (error) {
-    return sendJson(res, error.status || 502, { message: error.message || 'Kubernetes API 请求失败', details: error.details })
+    return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
   }
   } // end if (isK8s)
 
@@ -2057,7 +2058,7 @@ const httpServer = createServer((req, res) => {
   // 直接杀死进程(曾致网关整体宕机)。错误打日志,进程必须活着。
   handle(req, res).catch(error => {
     console.error('[http] handle 未捕获:', error?.stack || error?.message || error)
-    try { sendJson(res, 500, { message: error.message || '服务器错误' }) } catch { /* res 已不可写 */ }
+    try { sendJson(res, 500, { message: error.message || msg(req, 'api.serverError') }) } catch { /* res 已不可写 */ }
   })
 })
 
@@ -2073,7 +2074,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     socket.destroy()
     return
   }
-  wsServer.handleUpgrade(req, socket, head, ws => handleExec(ws, session, url))
+  wsServer.handleUpgrade(req, socket, head, ws => handleExec(ws, session, url, req))
 })
 
 loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不掉线）

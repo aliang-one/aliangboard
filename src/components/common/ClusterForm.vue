@@ -56,12 +56,12 @@ function resetErrors() { errors.value = {} }
     <!-- Token -->
     <div v-if="form.authMethod === 'token'" class="flex flex-col gap-sm">
       <div>
-        <label class="text-body-xs text-on-surface-variant block mb-xs">API Server <span class="text-error">*</span></label>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('component.clusterForm.apiServer') }} <span class="text-error">*</span></label>
         <input v-model="form.apiServer" data-testid="cluster-form-apiserver" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', errors.apiServer ? 'border-error' : 'border-outline-variant']" placeholder="https://10.0.0.1:6443" @input="clearError('apiServer')" />
         <p v-if="errors.apiServer" data-testid="cluster-form-error-apiServer" class="text-body-xs text-error mt-xs">{{ errors.apiServer }}</p>
       </div>
       <div>
-        <label class="text-body-xs text-on-surface-variant block mb-xs">Bearer Token <span class="text-error">*</span></label>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('component.clusterForm.bearerToken') }} <span class="text-error">*</span></label>
         <input v-model="form.token" data-testid="cluster-form-token" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', errors.token ? 'border-error' : 'border-outline-variant']" placeholder="eyJhb..." @input="clearError('token')" />
         <p v-if="errors.token" data-testid="cluster-form-error-token" class="text-body-xs text-error mt-xs">{{ errors.token }}</p>
       </div>
@@ -69,7 +69,7 @@ function resetErrors() { errors.value = {} }
     <!-- Basic -->
     <div v-if="form.authMethod === 'basic'" class="flex flex-col gap-sm">
       <div>
-        <label class="text-body-xs text-on-surface-variant block mb-xs">API Server <span class="text-error">*</span></label>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('component.clusterForm.apiServer') }} <span class="text-error">*</span></label>
         <input v-model="form.apiServer" data-testid="cluster-form-apiserver" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', errors.apiServer ? 'border-error' : 'border-outline-variant']" placeholder="https://10.0.0.1:6443" @input="clearError('apiServer')" />
         <p v-if="errors.apiServer" data-testid="cluster-form-error-apiServer" class="text-body-xs text-error mt-xs">{{ errors.apiServer }}</p>
       </div>

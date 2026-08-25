@@ -1,0 +1,18 @@
+{
+  "nav": {
+    "first": "1",
+    "inner": {
+      "a": "x",
+      "a": "y"
+    },
+    "items": [
+      { "label": "one" },
+      { "label": "two" }
+    ],
+    "hint": "use {name} here",
+    "hint2": "brace { open unbalanced"
+  },
+  "nav": {
+    "second": "2"
+  }
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createHttp, parseBody } from '../http.js'
+import { i18n } from '@/i18n'
 
 // 构造 fetch 响应对象
 function res({ ok = true, status = 200, body = '', bodyType = 'text' } = {}) {
@@ -115,12 +116,12 @@ describe('createHttp.blob', () => {
 })
 
 describe('createHttp.authHeaders', () => {
-  it('returns resolveAuth result', () => {
+  it('returns accept-language + resolveAuth result', () => {
     const http = createHttp({ resolveAuth: () => ({ 'x-platform-token': 'P' }) })
-    expect(http.authHeaders()).toEqual({ 'x-platform-token': 'P' })
+    expect(http.authHeaders()).toEqual({ 'accept-language': i18n.global.locale.value, 'x-platform-token': 'P' })
   })
-  it('empty object when no resolver', () => {
+  it('accept-language present when no resolver', () => {
     const http = createHttp({})
-    expect(http.authHeaders()).toEqual({})
+    expect(http.authHeaders()).toEqual({ 'accept-language': i18n.global.locale.value })
   })
 })

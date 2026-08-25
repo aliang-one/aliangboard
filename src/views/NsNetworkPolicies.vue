@@ -100,17 +100,17 @@ async function handleDelete() {
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.networkPolicies.subtitle', { count: nsNetworkPolicies.length, ns: route.params.namespace }) }}</p>
       </div>
       <button @click="showCreate = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> Create NetworkPolicy
+        <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.networkPolicies.create') }}
       </button>
     </div>
 
     <!-- Filter Tabs -->
     <div v-if="nsNetworkPolicies.length" class="flex border-b border-outline-variant mb-md">
       <button v-for="tab in [
-        { key: 'all', label: 'All' },
-        { key: 'ingress', label: 'Ingress Only' },
-        { key: 'egress', label: 'Egress Only' },
-        { key: 'both', label: 'Both' }
+        { key: 'all', label: t('ns.networkPolicies.filterAll') },
+        { key: 'ingress', label: t('ns.networkPolicies.filterIngressOnly') },
+        { key: 'egress', label: t('ns.networkPolicies.filterEgressOnly') },
+        { key: 'both', label: t('ns.networkPolicies.filterBoth') }
       ]" :key="tab.key" @click="activeFilter = tab.key"
         class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors"
         :class="activeFilter === tab.key ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
@@ -129,7 +129,7 @@ async function handleDelete() {
         </div>
       </template>
       <template #podSelector="{ row }">
-        <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-xs rounded-full">All Pods</span>
+        <span v-if="Object.keys(row.podSelector || {}).length === 0" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-xs rounded-full">{{ $t('ns.netpolDetail.allPods') }}</span>
         <div v-else class="flex flex-wrap gap-xs max-w-xs">
           <span v-for="(val, key) in row.podSelector" :key="key" class="px-1.5 py-0.5 bg-primary-container/10 text-primary text-xs rounded">{{ key }}={{ val }}</span>
         </div>
@@ -176,12 +176,12 @@ async function handleDelete() {
   <NetworkPolicyEditor v-model="showCreate" :namespace="route.params.namespace" @applied="onApplied" />
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete NetworkPolicy" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete NetworkPolicy <span class="text-on-surface font-semibold">{{ deleteTarget?.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing this policy may expose pods to unintended network traffic. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('common.deleteTitle', { name: 'NetworkPolicy' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="$t('ns.netpolDetail.deleteConfirm', { name: deleteTarget?.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.netpolDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

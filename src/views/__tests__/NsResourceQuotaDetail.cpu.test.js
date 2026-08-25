@@ -38,7 +38,7 @@ describe('NsResourceQuotaDetail CPU 毫核往返', () => {
   it('打开编辑:limits.cpu="20" → 输入框回显 20000', async () => {
     const w = mountView()
     await flush()
-    const editBtn = w.findAll('button').find(b => b.text().includes('Edit'))
+    const editBtn = w.findAll('button').find(b => b.text().includes('common.edit'))
     await editBtn.trigger('click')
     const cpuInput = w.find('input[placeholder="20000"]')
     expect(cpuInput.exists()).toBe(true)
@@ -49,11 +49,11 @@ describe('NsResourceQuotaDetail CPU 毫核往返', () => {
     updateSpy.mockClear()
     const w = mountView()
     await flush()
-    const editBtn = w.findAll('button').find(b => b.text().includes('Edit'))
+    const editBtn = w.findAll('button').find(b => b.text().includes('common.edit'))
     await editBtn.trigger('click')
     const cpuInput = w.find('input[placeholder="20000"]')
     await cpuInput.setValue('20000')
-    const saveBtn = w.findAll('button').find(b => b.text().includes('Save Changes'))
+    const saveBtn = w.findAll('button').find(b => b.text().includes('common.saveChanges'))
     await saveBtn.trigger('click')
     expect(updateSpy).toHaveBeenCalledTimes(1)
     const arg = updateSpy.mock.calls.at(-1)[2]

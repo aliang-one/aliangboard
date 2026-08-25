@@ -1,0 +1,20 @@
+// routes/workbench-conversations.mjs 的用户可见消息（zh 与原文逐字一致，既有测试断言依赖）
+export const TABLE = {
+  'wbc.convNotFound': { zh: '对话不存在', en: 'Conversation not found' },
+  'wbc.notPaused': { zh: '对话不在待审批状态', en: 'Conversation is not awaiting approval' },
+  'wbc.notPausedConcurrent': { zh: '对话不在待审批状态(并发审批已被处理)', en: 'Conversation is not awaiting approval (concurrent approval already handled)' },
+  'wbc.projectNotFound': { zh: '项目不存在', en: 'Project not found' },
+  'wbc.noProjectAccess': { zh: '无权访问该项目', en: 'No access to this project' },
+  'wbc.noAccess': { zh: '无权访问', en: 'Access denied' },
+  'wbc.llmNotConfigured': { zh: 'LLM 未配置', en: 'LLM is not configured' },
+  'wbc.createFailed': { zh: '创建对话失败', en: 'Failed to create conversation' },
+  'wbc.busyNoResume': { zh: '对话运行中/待审批,不能续接', en: 'Conversation is running or awaiting approval; cannot continue' },
+  'wbc.resumeFailed': { zh: '续接失败', en: 'Failed to continue conversation' },
+  'wbc.busyNoRegen': { zh: '对话运行中,不能重新生成', en: 'Conversation is running; cannot regenerate' },
+  'wbc.noRegenTarget': { zh: '没有可重新生成的回复', en: 'No reply to regenerate' },
+  'wbc.regenFailed': { zh: '重新生成失败', en: 'Failed to regenerate' },
+  'wbc.deleteFailed': { zh: '删除失败', en: 'Failed to delete' },
+  'wbc.titleRequired': { zh: 'title 不能为空', en: 'title is required' },
+  'wbc.projectIdRequired': { zh: '缺 projectId', en: 'projectId is required' },
+  'wbc.cancelFailed': { zh: '取消失败', en: 'Failed to cancel' },
+}

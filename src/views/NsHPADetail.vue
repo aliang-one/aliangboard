@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -14,6 +15,7 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
@@ -62,8 +64,8 @@ async function handleDelete() {
 // Scaling status description
 function scalingDescription(h) {
   if (!h) return ''
-  if (h.status === 'Scaling') return `Scaling up from ${h.currentReplicas} replicas (CPU at ${h.currentCPU}%)`
-  return `Stable at ${h.currentReplicas} replicas (CPU at ${h.currentCPU}%)`
+  if (h.status === 'Scaling') return t('ns.hpaDetail.scalingUpDesc', { replicas: h.currentReplicas, cpu: h.currentCPU })
+  return t('ns.hpaDetail.stableDesc', { replicas: h.currentReplicas, cpu: h.currentCPU })
 }
 </script>
 
@@ -86,17 +88,17 @@ function scalingDescription(h) {
           <div class="flex items-center gap-md mt-xs">
             <StatusChip :status="hpa.status" size="sm" />
             <span class="px-2.5 py-0.5 bg-secondary-container/10 text-secondary text-label-caps rounded-full font-medium">HPA</span>
-            <span class="text-body-sm text-on-surface-variant">Target: <span class="text-primary font-medium">{{ hpa.targetKind }}/{{ hpa.targetName }}</span></span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ hpa.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetLabel') }}: <span class="text-primary font-medium">{{ hpa.targetKind }}/{{ hpa.targetName }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ hpa.age }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
       </div>
     </div>
@@ -115,14 +117,14 @@ function scalingDescription(h) {
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <!-- Target Info -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Target Info</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.hpaDetail.targetInfo') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Scale Target</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.hpaDetail.scaleTarget') }}</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ hpa.targetKind }}/{{ hpa.targetName }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Current Replicas</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.hpaDetail.currentReplicas') }}</p>
               <p class="text-headline-md text-on-surface font-bold">{{ hpa.currentReplicas }}</p>
             </div>
           </div>
@@ -130,26 +132,26 @@ function scalingDescription(h) {
 
         <!-- Replica Range -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Replica Range</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.hpaDetail.replicaRange') }}</h3>
           <div class="flex items-center gap-lg">
             <div class="flex-1">
               <div class="flex justify-between mb-sm">
-                <span class="text-body-sm text-on-surface-variant">Min Replicas</span>
+                <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.minReplicas') }}</span>
                 <span class="text-body-md font-bold text-on-surface">{{ hpa.minReplicas }}</span>
               </div>
               <div class="flex justify-between mb-sm">
-                <span class="text-body-sm text-on-surface-variant">Max Replicas</span>
+                <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.maxReplicas') }}</span>
                 <span class="text-body-md font-bold text-on-surface">{{ hpa.maxReplicas }}</span>
               </div>
               <div class="flex justify-between">
-                <span class="text-body-sm text-on-surface-variant">Current</span>
+                <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.currentLabel') }}</span>
                 <span class="text-body-md font-bold text-primary">{{ hpa.currentReplicas }}</span>
               </div>
             </div>
             <div class="w-px h-16 bg-outline-variant/30"></div>
             <div class="flex-1">
               <div class="flex items-center gap-sm mb-sm">
-                <span class="text-body-sm text-on-surface-variant">Replica Utilization</span>
+                <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.replicaUtilization') }}</span>
               </div>
               <ProgressBar :value="hpa.maxReplicas ? Math.round((hpa.currentReplicas / hpa.maxReplicas) * 100) : 0" :max="100" color="primary" size="md" :show-label="true" :label="`${hpa.currentReplicas} / ${hpa.maxReplicas}`" />
             </div>
@@ -158,18 +160,18 @@ function scalingDescription(h) {
 
         <!-- Current Metrics -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Current Metrics</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.hpaDetail.currentMetrics') }}</h3>
           <div class="space-y-lg">
             <!-- CPU Utilization -->
             <div>
               <div class="flex items-center justify-between mb-sm">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-primary text-lg">memory</span>
-                  <span class="text-body-md font-medium text-on-surface">CPU Utilization</span>
+                  <span class="text-body-md font-medium text-on-surface">{{ t('ns.hpaDetail.cpuUtilization') }}</span>
                 </div>
                 <div class="flex items-center gap-md">
-                  <span class="text-body-sm text-on-surface-variant">Target: <span class="font-semibold text-on-surface">{{ hpa.cpuTarget }}%</span></span>
-                  <span class="text-body-sm" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-semibold' : 'text-on-surface'">Current: <span class="font-bold">{{ hpa.currentCPU }}%</span></span>
+                  <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetLabel') }}: <span class="font-semibold text-on-surface">{{ hpa.cpuTarget }}%</span></span>
+                  <span class="text-body-sm" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-semibold' : 'text-on-surface'">{{ t('ns.hpaDetail.currentLabel') }}: <span class="font-bold">{{ hpa.currentCPU }}%</span></span>
                 </div>
               </div>
               <ProgressBar :value="hpa.currentCPU" :max="100" color="primary" size="md" />
@@ -179,11 +181,11 @@ function scalingDescription(h) {
               <div class="flex items-center justify-between mb-sm">
                 <div class="flex items-center gap-sm">
                   <span class="material-symbols-outlined text-secondary text-lg">storage</span>
-                  <span class="text-body-md font-medium text-on-surface">Memory Utilization</span>
+                  <span class="text-body-md font-medium text-on-surface">{{ t('ns.hpaDetail.memoryUtilization') }}</span>
                 </div>
                 <div class="flex items-center gap-md">
-                  <span class="text-body-sm text-on-surface-variant">Target: <span class="font-semibold text-on-surface">{{ hpa.memoryTarget || '-' }}%</span></span>
-                  <span class="text-body-sm" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-semibold' : 'text-on-surface'">Current: <span class="font-bold">{{ hpa.currentMemory }}%</span></span>
+                  <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetLabel') }}: <span class="font-semibold text-on-surface">{{ hpa.memoryTarget || '-' }}%</span></span>
+                  <span class="text-body-sm" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-semibold' : 'text-on-surface'">{{ t('ns.hpaDetail.currentLabel') }}: <span class="font-bold">{{ hpa.currentMemory }}%</span></span>
                 </div>
               </div>
               <ProgressBar :value="hpa.currentMemory" :max="100" color="secondary" size="md" />
@@ -196,30 +198,30 @@ function scalingDescription(h) {
       <div class="lg:col-span-4 flex flex-col gap-lg">
         <!-- Summary -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.hpaDetail.summary') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Status</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.status') }}</span>
               <StatusChip :status="hpa.status" size="sm" />
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Namespace</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}</span>
               <span class="text-body-md font-medium text-primary">{{ hpa.namespace }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Age</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}</span>
               <span class="text-body-md text-on-surface">{{ hpa.age }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Min Replicas</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.minReplicas') }}</span>
               <span class="text-body-md font-semibold text-on-surface">{{ hpa.minReplicas }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Max Replicas</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.maxReplicas') }}</span>
               <span class="text-body-md font-semibold text-on-surface">{{ hpa.maxReplicas }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Current Replicas</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.currentReplicas') }}</span>
               <span class="text-body-md font-bold text-primary">{{ hpa.currentReplicas }}</span>
             </div>
           </div>
@@ -227,11 +229,11 @@ function scalingDescription(h) {
 
         <!-- Scaling Info -->
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Scaling Status</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.hpaDetail.scalingStatus') }}</h3>
           <div class="p-md rounded-lg" :class="hpa.status === 'Scaling' ? 'bg-tertiary-container/10 border border-tertiary-container/20' : 'bg-primary-container/10 border border-primary/20'">
             <div class="flex items-center gap-sm mb-xs">
               <span class="material-symbols-outlined text-lg" :class="hpa.status === 'Scaling' ? 'text-tertiary-container' : 'text-primary'">{{ hpa.status === 'Scaling' ? 'trending_up' : 'check_circle' }}</span>
-              <span class="text-body-md font-semibold" :class="hpa.status === 'Scaling' ? 'text-tertiary-container' : 'text-primary'">{{ hpa.status === 'Scaling' ? 'Scaling Up' : 'Stable' }}</span>
+              <span class="text-body-md font-semibold" :class="hpa.status === 'Scaling' ? 'text-tertiary-container' : 'text-primary'">{{ hpa.status === 'Scaling' ? t('ns.hpaDetail.scalingUp') : t('ns.hpaDetail.stable') }}</span>
             </div>
             <p class="text-body-sm text-on-surface-variant">{{ scalingDescription(hpa) }}</p>
           </div>
@@ -243,18 +245,18 @@ function scalingDescription(h) {
     <div v-if="activeTab === 'metrics'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Configured Metrics</h3>
+          <h3 class="text-headline-sm">{{ t('ns.hpaDetail.configuredMetrics') }}</h3>
           <span class="px-2.5 py-0.5 bg-surface-container text-label-caps text-on-surface-variant border border-outline-variant rounded">autoscaling/v2</span>
         </div>
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Metric Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Target Type</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Target Value</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Current Value</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Status</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.hpaDetail.metricName') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.type') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.hpaDetail.targetType') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.hpaDetail.targetValue') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.hpaDetail.currentValue') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.status') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -275,7 +277,7 @@ function scalingDescription(h) {
                 <span class="font-mono text-code-sm" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-semibold' : 'text-on-surface'">{{ hpa.currentCPU }}%</span>
               </td>
               <td class="px-lg py-md">
-                <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="hpa.currentCPU > hpa.cpuTarget ? 'bg-error-container/40 text-error' : 'bg-primary-container/20 text-primary'">{{ hpa.currentCPU > hpa.cpuTarget ? 'Above Target' : 'Within Target' }}</span>
+                <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="hpa.currentCPU > hpa.cpuTarget ? 'bg-error-container/40 text-error' : 'bg-primary-container/20 text-primary'">{{ hpa.currentCPU > hpa.cpuTarget ? t('ns.hpaDetail.aboveTarget') : t('ns.hpaDetail.withinTarget') }}</span>
               </td>
             </tr>
             <!-- Memory Metric -->
@@ -295,7 +297,7 @@ function scalingDescription(h) {
                 <span class="font-mono text-code-sm" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-semibold' : 'text-on-surface'">{{ hpa.currentMemory }}%</span>
               </td>
               <td class="px-lg py-md">
-                <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'bg-error-container/40 text-error' : 'bg-primary-container/20 text-primary'">{{ hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'Above Target' : 'Within Target' }}</span>
+                <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'bg-error-container/40 text-error' : 'bg-primary-container/20 text-primary'">{{ hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? t('ns.hpaDetail.aboveTarget') : t('ns.hpaDetail.withinTarget') }}</span>
               </td>
             </tr>
           </tbody>
@@ -307,27 +309,27 @@ function scalingDescription(h) {
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <div class="flex items-center gap-sm mb-md">
             <span class="material-symbols-outlined text-primary">memory</span>
-            <h3 class="text-headline-sm">CPU Metric Detail</h3>
+            <h3 class="text-headline-sm">{{ t('ns.hpaDetail.cpuMetricDetail') }}</h3>
           </div>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Resource Name</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.resourceName') }}</span>
               <span class="font-mono text-code-sm text-on-surface">cpu</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Metric Type</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.metricType') }}</span>
               <span class="text-body-md text-on-surface">Resource</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Target Type</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetType') }}</span>
               <span class="text-body-md text-on-surface">Utilization</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Average Utilization</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.averageUtilization') }}</span>
               <span class="font-mono text-code-sm text-primary font-semibold">{{ hpa.cpuTarget }}%</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Current Utilization</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.currentUtilization') }}</span>
               <span class="font-mono text-code-sm" :class="hpa.currentCPU > hpa.cpuTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentCPU }}%</span>
             </div>
           </div>
@@ -335,27 +337,27 @@ function scalingDescription(h) {
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <div class="flex items-center gap-sm mb-md">
             <span class="material-symbols-outlined text-secondary">storage</span>
-            <h3 class="text-headline-sm">Memory Metric Detail</h3>
+            <h3 class="text-headline-sm">{{ t('ns.hpaDetail.memoryMetricDetail') }}</h3>
           </div>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Resource Name</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.resourceName') }}</span>
               <span class="font-mono text-code-sm text-on-surface">memory</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Metric Type</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.metricType') }}</span>
               <span class="text-body-md text-on-surface">Resource</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Target Type</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetType') }}</span>
               <span class="text-body-md text-on-surface">Utilization</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Average Utilization</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.averageUtilization') }}</span>
               <span class="font-mono text-code-sm text-primary font-semibold">{{ hpa.memoryTarget || '-' }}%</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Current Utilization</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.currentUtilization') }}</span>
               <span class="font-mono text-code-sm" :class="hpa.memoryTarget && hpa.currentMemory > hpa.memoryTarget ? 'text-error font-bold' : 'text-on-surface font-semibold'">{{ hpa.currentMemory }}%</span>
             </div>
           </div>
@@ -372,48 +374,48 @@ function scalingDescription(h) {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">HPA Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">HorizontalPodAutoscaler "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsHPA', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to HPAs</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'HPA' }) }}</h2>
+    <p class="text-body-md text-on-surface-variant mt-sm">{{ t('ns.hpaDetail.notFoundMsg', { name: route.params.name, namespace: route.params.namespace }) }}</p>
+    <button @click="router.push({ name: 'NsHPA', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'HPAs' }) }}</button>
   </div>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete HPA" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete HorizontalPodAutoscaler <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">The target workload will no longer be autoscaled. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('common.deleteTitle', { name: 'HPA' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('common.confirmDelete', { type: 'HorizontalPodAutoscaler', name: route.params.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.hpaDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit HPA" width="max-w-lg">
+  <Modal v-model="showEditModal" :title="t('common.editTitle', { name: 'HPA' })" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Min Replicas</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.hpaDetail.minReplicas') }}</label>
           <input v-model.number="editForm.minReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Max Replicas</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.hpaDetail.maxReplicas') }}</label>
           <input v-model.number="editForm.maxReplicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Target (%)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.hpaDetail.cpuTargetPct') }}</label>
           <input v-model.number="editForm.cpuTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Target (%)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.hpaDetail.memoryTargetPct') }}</label>
           <input v-model.number="editForm.memoryTarget" type="number" min="1" max="100" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" :disabled="editForm.minReplicas > editForm.maxReplicas" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="saveEdit" :disabled="editForm.minReplicas > editForm.maxReplicas" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.save') }}</button>
     </template>
   </Modal>
 </template>

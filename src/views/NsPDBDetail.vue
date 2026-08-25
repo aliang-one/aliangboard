@@ -102,10 +102,10 @@ async function handleDelete() {
       </div>
       <div class="flex gap-sm">
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -130,7 +130,7 @@ async function handleDelete() {
           </div>
           <div class="flex items-baseline gap-sm">
             <span class="text-display-lg font-bold" :class="pdb.allowedDisruptions > 0 ? 'text-primary' : 'text-error'">{{ pdb.allowedDisruptions }}</span>
-            <span class="text-on-surface-variant text-body-md">Allowed Disruptions</span>
+            <span class="text-on-surface-variant text-body-md">{{ t('ns.pdbDetail.allowedDisruptions') }}</span>
           </div>
           <p class="text-body-sm text-on-surface-variant mt-sm" v-html="t('ns.pdbDetail.allowedDisruptionsDesc')"></p>
         </div>
@@ -216,12 +216,12 @@ async function handleDelete() {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">PodDisruptionBudget Not Found</h2>
-    <button @click="router.push({ name: 'NsPDBs', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to PodDisruptionBudgets</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'PodDisruptionBudget' }) }}</h2>
+    <button @click="router.push({ name: 'NsPDBs', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'PodDisruptionBudgets' }) }}</button>
   </div>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit PodDisruptionBudget" width="max-w-lg">
+  <Modal v-model="showEditModal" :title="t('common.editTitle', { name: 'PodDisruptionBudget' })" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.pdbDetail.constraintTypeLabel') }}</label>
@@ -243,18 +243,18 @@ async function handleDelete() {
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleEdit" :disabled="editForm.constraintType === 'minAvailable' ? !editForm.minAvailable : !editForm.maxUnavailable" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleEdit" :disabled="editForm.constraintType === 'minAvailable' ? !editForm.minAvailable : !editForm.maxUnavailable" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.save') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete PodDisruptionBudget" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete PDB <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
+  <Modal v-model="showDeleteModal" :title="t('common.deleteTitle', { name: 'PodDisruptionBudget' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('common.confirmDelete', { type: 'PDB', name: route.params.name }) }}</p>
     <p class="text-body-sm text-error mt-sm" v-html="t('ns.pdbDetail.deleteWarning')"></p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

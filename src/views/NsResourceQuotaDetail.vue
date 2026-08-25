@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -14,6 +15,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
@@ -94,24 +96,25 @@ const quotaEntries = computed(() => {
   })
 })
 
-// Friendly names for quota keys
-const friendlyNames = {
-  'limits.cpu': 'CPU Limits',
-  'limits.memory': 'Memory Limits',
-  'requests.cpu': 'CPU Requests',
-  'requests.memory': 'Memory Requests',
-  'pods': 'Pods',
-  'services': 'Services',
-  'persistentvolumeclaims': 'PersistentVolumeClaims',
-  'requests.storage': 'Storage Requests',
-  'replicationcontrollers': 'ReplicationControllers',
-  'resourcequotas': 'ResourceQuotas',
-  'secrets': 'Secrets',
-  'configmaps': 'ConfigMaps',
+// Friendly names for quota keys (完整 i18n 键，便于静态门禁校验；未知 key 回退展示原始 K8s quota key)
+const friendlyNameKeys = {
+  'limits.cpu': 'ns.resourceQuotaDetail.quotaLimitsCpu',
+  'limits.memory': 'ns.resourceQuotaDetail.quotaLimitsMemory',
+  'requests.cpu': 'ns.resourceQuotaDetail.quotaRequestsCpu',
+  'requests.memory': 'ns.resourceQuotaDetail.quotaRequestsMemory',
+  'pods': 'ns.resourceQuotaDetail.quotaPods',
+  'services': 'ns.resourceQuotaDetail.quotaServices',
+  'persistentvolumeclaims': 'ns.resourceQuotaDetail.quotaPvc',
+  'requests.storage': 'ns.resourceQuotaDetail.quotaStorageRequests',
+  'replicationcontrollers': 'ns.resourceQuotaDetail.quotaReplicationControllers',
+  'resourcequotas': 'ns.resourceQuotaDetail.quotaResourceQuotas',
+  'secrets': 'ns.resourceQuotaDetail.quotaSecrets',
+  'configmaps': 'ns.resourceQuotaDetail.quotaConfigMaps',
 }
 
 function friendlyName(key) {
-  return friendlyNames[key] || key
+  const k = friendlyNameKeys[key]
+  return k ? t(k) : key
 }
 
 function parseNumeric(val) {
@@ -149,17 +152,17 @@ function getPercent(used, hard) {
           <h1 class="text-display-lg text-on-surface">{{ rq.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
             <span class="px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded-full font-medium">ResourceQuota</span>
-            <span class="text-body-sm text-on-surface-variant">{{ quotaEntries.length }} resources tracked</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ rq.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.resourceQuotaDetail.resourcesTracked', { count: quotaEntries.length }) }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ rq.age }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="openEditModal" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -176,7 +179,7 @@ function getPercent(used, hard) {
     <div v-if="activeTab === 'overview'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">Resource Usage ({{ quotaEntries.length }} quotas)</h3>
+          <h3 class="text-headline-sm">{{ t('ns.resourceQuotaDetail.resourceUsageCount', { count: quotaEntries.length }) }}</h3>
         </div>
         <div class="divide-y divide-outline-variant/30">
           <div v-for="entry in quotaEntries" :key="entry.key" class="px-lg py-md">
@@ -201,7 +204,7 @@ function getPercent(used, hard) {
           </div>
           <div v-if="!quotaEntries.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">speed</span>
-            <p class="mt-sm">No quota entries</p>
+            <p class="mt-sm">{{ t('ns.resourceQuotaDetail.noQuotaEntries') }}</p>
           </div>
         </div>
       </div>
@@ -214,53 +217,53 @@ function getPercent(used, hard) {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">ResourceQuota Not Found</h2>
-    <button @click="router.push({ name: 'NsResourceQuotas', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to ResourceQuotas</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'ResourceQuota' }) }}</h2>
+    <button @click="router.push({ name: 'NsResourceQuotas', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'ResourceQuotas' }) }}</button>
   </div>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit ResourceQuota" width="max-w-lg">
+  <Modal v-model="showEditModal" :title="t('common.editTitle', { name: 'ResourceQuota' })" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">CPU Limit <span class="text-on-surface-variant/60 text-xs normal-case font-normal ml-xs">(millicores, 1=1000m)</span></label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.cpu') }} {{ t('ns.resourceQuotaDetail.limitSuffix') }} <span class="text-on-surface-variant/60 text-xs normal-case font-normal ml-xs">{{ t('ns.resourceQuotaDetail.millicoresHint') }}</span></label>
           <input v-model="editForm.cpuHard" placeholder="20000" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Memory Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.memory') }} {{ t('ns.resourceQuotaDetail.limitSuffix') }}</label>
           <input v-model="editForm.memoryHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Pods Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.resourceQuotaDetail.podsLimit') }}</label>
           <input v-model="editForm.podsHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Services Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.resourceQuotaDetail.servicesLimit') }}</label>
           <input v-model="editForm.servicesHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">PVC Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.resourceQuotaDetail.pvcLimit') }}</label>
           <input v-model="editForm.pvcHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Storage Limit</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.resourceQuotaDetail.storageLimit') }}</label>
           <input v-model="editForm.storageHard" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save Changes</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.saveChanges') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete ResourceQuota" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete ResourceQuota <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing a ResourceQuota may allow uncontrolled resource consumption. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('common.deleteTitle', { name: 'ResourceQuota' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('common.confirmDelete', { type: 'ResourceQuota', name: route.params.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.resourceQuotaDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

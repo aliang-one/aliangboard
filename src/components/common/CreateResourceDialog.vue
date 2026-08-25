@@ -50,15 +50,15 @@ const pvcForm = ref({
 })
 
 const titles = {
-  deployment: 'Create Deployment',
-  service: 'Create Service',
-  configmap: 'Create ConfigMap',
-  secret: 'Create Secret',
-  ingress: 'Create Ingress',
-  pvc: 'Create PersistentVolumeClaim',
+  deployment: 'component.createResource.titleDeployment',
+  service: 'component.createResource.titleService',
+  configmap: 'component.createResource.titleConfigMap',
+  secret: 'component.createResource.titleSecret',
+  ingress: 'component.createResource.titleIngress',
+  pvc: 'component.createResource.titlePvc',
 }
 
-const title = computed(() => titles[props.resourceType] || 'Create Resource')
+const title = computed(() => t(titles[props.resourceType] || 'component.createResource.titleFallback'))
 
 function close() { emit('update:modelValue', false) }
 const isOpen = computed(() => props.modelValue)
@@ -93,7 +93,7 @@ function handleCreate() {
               </div>
               <div>
                 <h3 class="text-headline-sm font-bold">{{ title }}</h3>
-                <p class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ namespace }}</span></p>
+                <p class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium">{{ namespace }}</span></p>
               </div>
             </div>
             <button @click="close" class="p-1 text-on-surface-variant hover:bg-surface-container rounded-lg"><span class="material-symbols-outlined">close</span></button>
@@ -102,7 +102,7 @@ function handleCreate() {
           <!-- Tabs -->
           <div class="flex border-b border-outline-variant shrink-0">
             <button @click="activeTab = 'form'" class="px-xl py-sm border-b-2 text-body-md font-medium" :class="activeTab === 'form' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant'">
-              <span class="material-symbols-outlined text-sm align-middle mr-1">edit</span>Form
+              <span class="material-symbols-outlined text-sm align-middle mr-1">edit</span>{{ t('component.createResource.tabForm') }}
             </button>
             <button @click="activeTab = 'yaml'" class="px-xl py-sm border-b-2 text-body-md font-medium" :class="activeTab === 'yaml' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant'">
               <span class="material-symbols-outlined text-sm align-middle mr-1">description</span>YAML
@@ -205,47 +205,47 @@ spec:
               <!-- Deployment Form -->
               <template v-if="resourceType === 'deployment'">
                 <div class="grid grid-cols-2 gap-md mb-lg">
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="deploymentForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-deployment" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Replicas</label><input v-model.number="deploymentForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" /></div>
-                  <div class="col-span-2"><label class="text-label-caps text-on-surface-variant block mb-xs">Image *</label><input v-model="deploymentForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="nginx:latest" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Container Port</label><input v-model="deploymentForm.containerPort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="8080" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Pull Policy</label>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.name') }} *</label><input v-model="deploymentForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-deployment" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.replicas') }}</label><input v-model.number="deploymentForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" /></div>
+                  <div class="col-span-2"><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.image') }} *</label><input v-model="deploymentForm.image" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="nginx:latest" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.containerPort') }}</label><input v-model="deploymentForm.containerPort" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="8080" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.pullPolicy') }}</label>
                     <select v-model="deploymentForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-primary"><option>IfNotPresent</option><option>Always</option><option>Never</option></select>
                   </div>
                 </div>
-                <h4 class="text-label-caps text-on-surface-variant mb-sm">RESOURCES</h4>
+                <h4 class="text-label-caps text-on-surface-variant mb-sm">{{ t('component.createResource.resourcesTitle') }}</h4>
                 <div class="grid grid-cols-4 gap-sm">
-                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">CPU Req</label><input v-model="deploymentForm.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">CPU Limit</label><input v-model="deploymentForm.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">Mem Req</label><input v-model="deploymentForm.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">Mem Limit</label><input v-model="deploymentForm.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">{{ t('component.createResource.cpuReq') }}</label><input v-model="deploymentForm.cpuRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">{{ t('component.createResource.cpuLimit') }}</label><input v-model="deploymentForm.cpuLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">{{ t('component.createResource.memReq') }}</label><input v-model="deploymentForm.memoryRequest" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-body-sm text-on-surface-variant block mb-xs">{{ t('component.createResource.memLimit') }}</label><input v-model="deploymentForm.memoryLimit" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
                 </div>
               </template>
 
               <!-- Service Form -->
               <template v-if="resourceType === 'service'">
                 <div class="grid grid-cols-2 gap-md mb-lg">
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="serviceForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-service" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-sm">Type</label>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.name') }} *</label><input v-model="serviceForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-service" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('common.type') }}</label>
                     <div class="flex gap-sm">
                       <button v-for="t in ['ClusterIP','NodePort','LoadBalancer']" :key="t" @click="serviceForm.type = t" class="px-md py-sm rounded-lg border text-body-md transition-all" :class="serviceForm.type === t ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">{{ t }}</button>
                     </div>
                   </div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Port</label><input v-model.number="serviceForm.port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Target Port</label><PortSelect v-model="serviceForm.targetPort" :options="nsContainerPorts" placeholder="8080" :empty-hint="t('component.createDialog.serviceEmptyHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.port') }}</label><input v-model.number="serviceForm.port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.targetPort') }}</label><PortSelect v-model="serviceForm.targetPort" :options="nsContainerPorts" placeholder="8080" :empty-hint="t('component.createDialog.serviceEmptyHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
                 </div>
               </template>
 
               <!-- ConfigMap Form -->
               <template v-if="resourceType === 'configmap'">
-                <div class="mb-lg"><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="configMapForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-config" /></div>
-                <h4 class="text-label-caps text-on-surface-variant mb-sm">DATA</h4>
+                <div class="mb-lg"><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.name') }} *</label><input v-model="configMapForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-config" /></div>
+                <h4 class="text-label-caps text-on-surface-variant mb-sm">{{ t('component.createResource.dataTitle') }}</h4>
                 <div v-for="(d, i) in configMapForm.data" :key="i" class="flex gap-sm mb-sm">
-                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Key" />
-                  <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="Value" />
+                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('component.createResource.keyPlaceholder')" />
+                  <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" :placeholder="t('component.createResource.valuePlaceholder')" />
                   <button @click="removeRow(configMapForm.data, i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
                 </div>
-                <button @click="addRow(configMapForm.data)" class="flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span>Add Key</button>
+                <button @click="addRow(configMapForm.data)" class="flex items-center gap-sm px-md py-sm text-primary font-medium text-body-sm hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined">add</span>{{ t('common.addKey') }}</button>
               </template>
 
               <!-- Secret Form -->
@@ -267,15 +267,15 @@ spec:
               </div>
               <!-- 名称 -->
               <div class="mt-md">
-                <label class="text-label-caps text-on-surface-variant block mb-xs">Secret Name *</label>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.secretName') }} *</label>
                 <input v-model="secretForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" />
               </div>
               <!-- Opaque: key-value 列表 -->
               <div v-if="secretForm.templateId === 'opaque'" class="mt-md">
-                <label class="text-label-caps text-on-surface-variant block mb-xs">Data</label>
+                <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.dataTitle') }}</label>
                 <div v-for="(d, i) in secretForm.fields.data" :key="i" class="flex gap-xs mb-xs">
-                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" placeholder="key" />
-                  <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" placeholder="value" />
+                  <input v-model="d.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" :placeholder="t('component.createResource.keyPlaceholder')" />
+                  <input v-model="d.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" :placeholder="t('component.createResource.valuePlaceholder')" />
                   <button @click="() => { if (secretForm.fields.data.length > 1) secretForm.fields.data.splice(i, 1) }" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-lg">close</span></button>
                 </div>
                 <button @click="secretForm.fields.data.push({ key: '', value: '' })" class="text-body-sm text-primary font-medium hover:underline">{{ t('component.createDialog.addData') }}</button>
@@ -310,22 +310,22 @@ spec:
               <!-- Ingress Form -->
               <template v-if="resourceType === 'ingress'">
                 <div class="grid grid-cols-2 gap-md mb-lg">
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="ingressForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-ingress" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Host</label><input v-model="ingressForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="app.example.com" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service Name</label><input v-model="ingressForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="my-service" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Service Port</label><input v-model.number="ingressForm.servicePort" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Path</label><input v-model="ingressForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/" /></div>
-                  <div class="flex items-end"><label class="flex items-center gap-sm cursor-pointer"><input v-model="ingressForm.enableTLS" type="checkbox" class="rounded text-primary h-4 w-4" /><span class="text-body-md">Enable TLS</span></label></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.name') }} *</label><input v-model="ingressForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-ingress" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.host') }}</label><input v-model="ingressForm.host" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="app.example.com" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.serviceName') }}</label><input v-model="ingressForm.serviceName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="my-service" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.servicePort') }}</label><input v-model.number="ingressForm.servicePort" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.path') }}</label><input v-model="ingressForm.path" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="/" /></div>
+                  <div class="flex items-end"><label class="flex items-center gap-sm cursor-pointer"><input v-model="ingressForm.enableTLS" type="checkbox" class="rounded text-primary h-4 w-4" /><span class="text-body-md">{{ t('component.createResource.enableTls') }}</span></label></div>
                 </div>
               </template>
 
               <!-- PVC Form -->
               <template v-if="resourceType === 'pvc'">
                 <div class="grid grid-cols-2 gap-md mb-lg">
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Name *</label><input v-model="pvcForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-pvc" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Capacity</label><input v-model="pvcForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="10Gi" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">Storage Class</label><input v-model="pvcForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="standard" /></div>
-                  <div><label class="text-label-caps text-on-surface-variant block mb-sm">Access Mode</label>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('common.name') }} *</label><input v-model="pvcForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-pvc" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.capacity') }}</label><input v-model="pvcForm.capacity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="10Gi" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.createResource.storageClass') }}</label><input v-model="pvcForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="standard" /></div>
+                  <div><label class="text-label-caps text-on-surface-variant block mb-sm">{{ t('component.createResource.accessMode') }}</label>
                     <div class="flex gap-sm">
                       <button v-for="m in ['RWO','RWX','ROX']" :key="m" @click="pvcForm.accessMode = {RWO:'ReadWriteOnce',RWX:'ReadWriteMany',ROX:'ReadOnlyMany'}[m]" class="px-md py-sm rounded-lg border text-body-md transition-all" :class="pvcForm.accessMode === {RWO:'ReadWriteOnce',RWX:'ReadWriteMany',ROX:'ReadOnlyMany'}[m] ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface border-outline-variant'">{{ m }}</button>
                     </div>
@@ -337,9 +337,9 @@ spec:
 
           <!-- Actions -->
           <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant shrink-0">
-            <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">Cancel</button>
+            <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">{{ t('common.cancel') }}</button>
             <button @click="handleCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all flex items-center gap-sm">
-              <span class="material-symbols-outlined text-lg">add</span> Create
+              <span class="material-symbols-outlined text-lg">add</span> {{ t('component.createResource.create') }}
             </button>
           </div>
         </div>

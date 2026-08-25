@@ -126,12 +126,12 @@ const nodeHealthPct = computed(() => {
     <div class="flex flex-col gap-md mb-lg">
       <div class="flex justify-between items-end">
         <div>
-          <h2 class="text-display-lg text-on-surface">Workloads</h2>
-          <p class="text-on-surface-variant text-body-md mt-1">Manage and monitor your containerized applications across all namespaces.</p>
+          <h2 class="text-display-lg text-on-surface">{{ t('ns.workloads.title') }}</h2>
+          <p class="text-on-surface-variant text-body-md mt-1">{{ t('workloads.subtitle') }}</p>
         </div>
         <div class="flex gap-sm">
           <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
-            <span class="material-symbols-outlined">file_download</span> Export
+            <span class="material-symbols-outlined">file_download</span> {{ t('common.export') }}
           </button>
           <SplitButton
             :label="t('ns.workloads.new')"
@@ -180,19 +180,19 @@ const nodeHealthPct = computed(() => {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Edit">
+          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="t('common.edit')">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
-          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="Logs">
+          <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="t('workloads.logs')">
             <span class="material-symbols-outlined text-lg">receipt_long</span>
           </button>
-          <button @click.stop="restartWorkload(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" title="Restart">
+          <button @click.stop="restartWorkload(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" :title="t('common.restart')">
             <span class="material-symbols-outlined text-lg">restart_alt</span>
           </button>
         </div>
       </template>
       <template #pagination>
-        <span class="text-body-sm text-on-surface-variant">Rows per page: {{ pageSize }}</span>
+        <span class="text-body-sm text-on-surface-variant">{{ t('workloads.rowsPerPage') }}: {{ pageSize }}</span>
         <Pagination :total="filteredWorkloads.length" :page-size="pageSize" :current-page="currentPage" @page-change="p => currentPage = p" />
       </template>
     </DataTable>
@@ -202,15 +202,15 @@ const nodeHealthPct = computed(() => {
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
           <span class="material-symbols-outlined text-primary">check_circle</span>
-          <span class="text-label-caps text-on-surface-variant">Node Health</span>
+          <span class="text-label-caps text-on-surface-variant">{{ t('workloads.nodeHealth') }}</span>
         </div>
         <h3 class="text-headline-sm font-bold text-on-surface">{{ nodeHealthPct != null ? nodeHealthPct + '%' : '—' }}</h3>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.healthyNodes }} / {{ store.totalNodes }} nodes Ready</p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('workloads.nodesReady', { healthy: store.healthyNodes, total: store.totalNodes }) }}</p>
       </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
           <span class="material-symbols-outlined text-tertiary-container">memory</span>
-          <span class="text-label-caps text-on-surface-variant">CPU Usage</span>
+          <span class="text-label-caps text-on-surface-variant">{{ t('workloads.cpuUsage') }}</span>
         </div>
         <h3 class="text-headline-sm font-bold text-on-surface">{{ store.cluster.cpuUsage != null ? store.cluster.cpuUsage + '%' : '—' }}</h3>
         <div class="w-full bg-outline-variant/30 h-2 rounded-full mt-2 overflow-hidden">
@@ -220,10 +220,10 @@ const nodeHealthPct = computed(() => {
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <div class="flex justify-between items-start mb-md">
           <span class="material-symbols-outlined text-secondary">workspaces</span>
-          <span class="text-label-caps text-on-surface-variant">Workloads</span>
+          <span class="text-label-caps text-on-surface-variant">{{ t('ns.workloads.title') }}</span>
         </div>
         <h3 class="text-headline-sm font-bold text-on-surface">{{ workloadList.length }}</h3>
-        <p class="text-body-sm text-on-surface-variant mt-1">{{ store.cluster.podCount }} pods across cluster</p>
+        <p class="text-body-sm text-on-surface-variant mt-1">{{ t('workloads.podsAcrossCluster', { count: store.cluster.podCount }) }}</p>
       </div>
     </div>
   </section>

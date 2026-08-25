@@ -30,6 +30,13 @@ const cm = computed(() => cmDetail.data.value)
 const yaml = computed(() => store.generateYAML('configmap', cm.value))
 
 const activeTab = ref('data')
+const tabs = computed(() => [
+  { key: 'data', label: t('ns.cmDetail.tabData') },
+  { key: 'references', label: t('ns.cmDetail.tabReferences') },
+  { key: 'annotations', label: t('ns.cmDetail.tabAnnotations') },
+  { key: 'labels', label: t('ns.cmDetail.tabLabels') },
+  { key: 'yaml', label: t('ns.cmDetail.tabYaml') },
+])
 const selectedKey = ref('')
 const showDeleteModal = ref(false)
 const showAddKeyModal = ref(false)
@@ -224,24 +231,24 @@ function saveEditLabel() {
           <h1 class="text-display-lg text-on-surface">{{ cm.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
             <span class="px-2.5 py-0.5 bg-secondary-container/10 text-secondary text-label-caps rounded-full font-medium">ConfigMap</span>
-            <span class="text-body-sm text-on-surface-variant">{{ cm.keys }} keys</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ cm.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ $t('ns.cmDetail.keysCount', { n: cm.keys }) }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ $t('ns.cmDetail.ageLabel', { age: cm.age }) }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ $t('common.delete') }}
         </button>
       </div>
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['data', 'references', 'annotations', 'labels', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
-        :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
-        <span v-if="tab === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
+      <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
+        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
+        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        {{ tab.label }}
+        <span v-if="tab.key === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
       </button>
     </div>
 
@@ -251,7 +258,7 @@ function saveEditLabel() {
       <div class="w-56 shrink-0 bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex flex-col">
         <div class="px-md py-sm border-b border-outline-variant bg-surface-container-low flex items-center gap-sm">
           <span class="material-symbols-outlined text-secondary text-base">folder</span>
-          <span class="text-label-caps text-on-surface-variant truncate">Files ({{ dataEntries.length }})</span>
+          <span class="text-label-caps text-on-surface-variant truncate">{{ $t('ns.cmDetail.filesCount', { n: dataEntries.length }) }}</span>
         </div>
         <div class="flex-1 overflow-y-auto max-h-[60vh]">
           <button v-for="([key, val], idx) in dataEntries" :key="idx"
@@ -322,9 +329,9 @@ function saveEditLabel() {
     <div v-if="activeTab === 'annotations'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Annotations ({{ allAnnotations.length }})</h3>
+          <h3 class="text-headline-sm">{{ $t('ns.cmDetail.annotationsCount', { n: allAnnotations.length }) }}</h3>
           <button @click="showAddAnnModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Annotation
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.cmDetail.addAnnotation') }}
           </button>
         </div>
         <div class="divide-y divide-outline-variant/30">
@@ -339,15 +346,15 @@ function saveEditLabel() {
             <div v-if="editingAnn === key" class="flex gap-sm">
               <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
               <div class="flex flex-col gap-xs">
-                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
-                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
+                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
           </div>
           <div v-if="!allAnnotations.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">label</span>
-            <p class="mt-sm">No annotations</p>
+            <p class="mt-sm">{{ $t('ns.cmDetail.noAnnotations') }}</p>
           </div>
         </div>
       </div>
@@ -357,9 +364,9 @@ function saveEditLabel() {
     <div v-if="activeTab === 'labels'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Labels ({{ allLabels.length }})</h3>
+          <h3 class="text-headline-sm">{{ $t('ns.cmDetail.labelsCount', { n: allLabels.length }) }}</h3>
           <button @click="showAddLabelModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Label
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.cmDetail.addLabel') }}
           </button>
         </div>
         <div class="divide-y divide-outline-variant/30">
@@ -374,15 +381,15 @@ function saveEditLabel() {
             <div v-if="editingLabel === key" class="flex gap-sm">
               <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
               <div class="flex gap-xs">
-                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
-                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
+                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant break-all">{{ val }}</div>
           </div>
           <div v-if="!allLabels.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">label_off</span>
-            <p class="mt-sm">No labels</p>
+            <p class="mt-sm">{{ $t('ns.cmDetail.noLabels') }}</p>
           </div>
         </div>
       </div>
@@ -395,71 +402,71 @@ function saveEditLabel() {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">ConfigMap Not Found</h2>
-    <button @click="router.push({ name: 'NsConfigMaps', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to ConfigMaps</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ $t('common.notFound', { name: 'ConfigMap' }) }}</h2>
+    <button @click="router.push({ name: 'NsConfigMaps', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('common.backTo', { name: 'ConfigMaps' }) }}</button>
   </div>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete ConfigMap" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete ConfigMap <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Pods using this ConfigMap may fail. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('common.deleteTitle', { name: 'ConfigMap' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="$t('ns.cmDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.cmDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Add Key Modal -->
-  <Modal v-model="showAddKeyModal" title="Add Data Key" width="max-w-lg">
+  <Modal v-model="showAddKeyModal" :title="$t('ns.cmDetail.addDataKeyTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Key Name</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.keyName') }}</label>
         <input v-model="newKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="MY_CONFIG_KEY" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.value') }}</label>
         <textarea v-model="newValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-24 resize-y focus:ring-2 focus:ring-primary" placeholder="config value..."></textarea>
       </div>
     </div>
     <template #actions>
-      <button @click="showAddKeyModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addKey" :disabled="!newKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddKeyModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addKey" :disabled="!newKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 
   <!-- Add Annotation Modal -->
-  <Modal v-model="showAddAnnModal" title="Add Annotation" width="max-w-lg">
+  <Modal v-model="showAddAnnModal" :title="$t('ns.cmDetail.addAnnotationTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Annotation Key</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.annotationKey') }}</label>
         <input v-model="newAnnKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="kubectl.kubernetes.io/last-applied-configuration" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.value') }}</label>
         <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" placeholder="{}"></textarea>
       </div>
     </div>
     <template #actions>
-      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 
   <!-- Add Label Modal -->
-  <Modal v-model="showAddLabelModal" title="Add Label" width="max-w-md">
+  <Modal v-model="showAddLabelModal" :title="$t('ns.cmDetail.addLabelTitle')" width="max-w-md">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Label Key</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.labelKey') }}</label>
         <input v-model="newLabelKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="app.kubernetes.io/name" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.value') }}</label>
         <input v-model="newLabelValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
       </div>
     </div>
     <template #actions>
-      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 </template>

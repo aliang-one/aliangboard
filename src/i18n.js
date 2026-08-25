@@ -7,15 +7,25 @@ const saved = (typeof localStorage !== 'undefined' && typeof localStorage.getIte
   ? localStorage.getItem('aliangboard.locale')
   : null
 
+const initial = saved || 'zh'
+
+// 启动即同步 <html lang>（index.html 写死的 zh-CN 只是无 JS 时的兜底默认）
+if (typeof document !== 'undefined' && document.documentElement) {
+  document.documentElement.lang = initial === 'zh' ? 'zh-CN' : 'en'
+}
+
 export const i18n = createI18n({
   legacy: false,
-  locale: saved || 'zh',
+  locale: initial,
   fallbackLocale: 'en',
   messages: { zh, en },
 })
 
 export function setLocale(l) {
   i18n.global.locale.value = l
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'
+  }
   if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
     localStorage.setItem('aliangboard.locale', l)
   }

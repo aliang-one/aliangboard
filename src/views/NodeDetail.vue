@@ -101,13 +101,13 @@ async function handleDrain() {
         </div>
         <div class="flex gap-xs">
           <button v-if="isCordoned" @click="handleUncordon" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-colors">
-            <span class="material-symbols-outlined text-base">lock_open</span> Uncordon
+            <span class="material-symbols-outlined text-base">lock_open</span> {{ t('nodeDetail.uncordon') }}
           </button>
           <button v-else @click="showCordonModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
-            <span class="material-symbols-outlined text-base">lock</span> Cordon
+            <span class="material-symbols-outlined text-base">lock</span> {{ t('nodeDetail.cordon') }}
           </button>
           <button @click="showDrainModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">
-            <span class="material-symbols-outlined text-base">output</span> Drain
+            <span class="material-symbols-outlined text-base">output</span> {{ t('nodeDetail.drain') }}
           </button>
         </div>
       </div>
@@ -129,22 +129,22 @@ async function handleDrain() {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
-            <span class="text-body-sm font-semibold">Resource Usage</span>
+            <span class="text-body-sm font-semibold">{{ t('nodeDetail.resourceUsage') }}</span>
           </div>
           <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-3 gap-md p-md">
             <div>
               <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
-              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.cpu != null ? node.cpu + '% allocated' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.cpu != null ? t('nodeDetail.percentAllocated', { p: node.cpu }) : '—' }}</p>
               <p v-if="node.usedCpu != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatCpu(node.usedCpu) }} / {{ formatCpu(node.allocCpu) }}</p>
             </div>
             <div>
               <ProgressBar :value="node.memory || 0" size="lg" show-label label="Memory" />
-              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.memory != null ? node.memory + '% allocated' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.memory != null ? t('nodeDetail.percentAllocated', { p: node.memory }) : '—' }}</p>
               <p v-if="node.usedMem != null" class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ formatMem(node.usedMem) }} / {{ formatMem(node.allocMem) }}</p>
             </div>
             <div>
               <ProgressBar :value="node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) : 0" size="lg" show-label label="Pods" />
-              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) + '% used' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? t('nodeDetail.percentUsed', { p: Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) }) : '—' }}</p>
               <p class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ node.podCount ?? 0 }} / {{ node.podCapacity ?? '—' }}</p>
             </div>
           </div>
@@ -156,7 +156,7 @@ async function handleDrain() {
             <!-- Pods 指标独立于 metrics，始终展示 -->
             <div>
               <ProgressBar :value="node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) : 0" size="lg" show-label label="Pods" />
-              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) + '% used' : '—' }}</p>
+              <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.podCapacity ? t('nodeDetail.percentUsed', { p: Math.min(100, Math.round(((node.podCount ?? 0) / node.podCapacity) * 100)) }) : '—' }}</p>
               <p class="font-mono text-xs text-on-surface-variant/70 -mt-1">{{ node.podCount ?? 0 }} / {{ node.podCapacity ?? '—' }}</p>
             </div>
           </div>
@@ -165,14 +165,14 @@ async function handleDrain() {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">checklist</span>
-            <span class="text-body-sm font-semibold">Conditions</span>
+            <span class="text-body-sm font-semibold">{{ t('nodeDetail.conditions') }}</span>
           </div>
           <table class="w-full text-left">
             <thead>
               <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Status</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Last Transition</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.type') }}</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.status') }}</th>
+                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('nodeDetail.lastTransition') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant/15">
@@ -184,7 +184,7 @@ async function handleDrain() {
                     <span class="text-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
                   </span>
                 </td>
-                <td class="px-md py-2 text-xs text-on-surface-variant">{{ node.age }} ago</td>
+                <td class="px-md py-2 text-xs text-on-surface-variant">{{ t('nodeDetail.ago', { age: node.age }) }}</td>
               </tr>
             </tbody>
           </table>
@@ -195,28 +195,28 @@ async function handleDrain() {
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">info</span>
-            <span class="text-body-sm font-semibold">System Info</span>
+            <span class="text-body-sm font-semibold">{{ t('nodeDetail.systemInfo') }}</span>
           </div>
           <div class="px-md py-sm space-y-sm">
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">OS</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kernel</span><span class="font-mono text-xs">{{ node.kernel }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Kubelet</span><span class="font-mono text-xs">{{ node.version }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Container Runtime</span><span class="font-mono text-xs">{{ node.containerRuntimeShort || node.containerRuntime || '—' }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Architecture</span><span class="text-body-sm font-medium">{{ node.arch || '—' }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">OS Type</span><span class="text-body-sm font-medium capitalize">{{ node.osType || '—' }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Role</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ node.roles }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Internal IP</span><span class="font-mono text-xs text-primary">{{ node.ip }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">External IP</span><span class="font-mono text-xs text-primary">{{ node.externalIp || '—' }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Pod CIDR</span><span class="font-mono text-xs">{{ node.podCIDR || '—' }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Age</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Pods</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
-            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">Schedulable</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? 'No' : 'Yes' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.os') }}</span><span class="text-body-sm font-medium">{{ node.os }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.kernel') }}</span><span class="font-mono text-xs">{{ node.kernel }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.kubelet') }}</span><span class="font-mono text-xs">{{ node.version }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.containerRuntime') }}</span><span class="font-mono text-xs">{{ node.containerRuntimeShort || node.containerRuntime || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.architecture') }}</span><span class="text-body-sm font-medium">{{ node.arch || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.osType') }}</span><span class="text-body-sm font-medium capitalize">{{ node.osType || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('common.role') }}</span><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant">{{ node.roles }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.internalIp') }}</span><span class="font-mono text-xs text-primary">{{ node.ip }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.externalIp') }}</span><span class="font-mono text-xs text-primary">{{ node.externalIp || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.podCidr') }}</span><span class="font-mono text-xs">{{ node.podCIDR || '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('common.age') }}</span><span class="text-body-sm font-medium">{{ node.age }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.pods') }}</span><span class="text-body-sm font-semibold text-primary">{{ nodePods.length }}</span></div>
+            <div class="flex justify-between"><span class="text-xs text-on-surface-variant">{{ t('nodeDetail.schedulable') }}</span><span :class="isCordoned ? 'text-error' : 'text-primary'" class="text-body-sm font-semibold">{{ isCordoned ? t('common.no') : t('common.yes') }}</span></div>
           </div>
         </div>
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">block</span>
-            <span class="text-body-sm font-semibold">Taints</span>
+            <span class="text-body-sm font-semibold">{{ t('nodeDetail.taints') }}</span>
             <span class="text-xs text-on-surface-variant ml-auto">{{ node.taintCount ?? 0 }}</span>
           </div>
           <div v-if="node.taints && node.taints.length" class="px-md py-sm space-y-sm">
@@ -226,7 +226,7 @@ async function handleDrain() {
             </div>
           </div>
           <div v-else class="px-md py-sm text-xs text-on-surface-variant flex items-center gap-xs">
-            <span class="material-symbols-outlined text-base">check_circle</span> No taints
+            <span class="material-symbols-outlined text-base">check_circle</span> {{ t('nodeDetail.noTaints') }}
           </div>
         </div>
       </div>
@@ -237,7 +237,7 @@ async function handleDrain() {
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
-          <span class="text-body-sm font-semibold">Pods on this Node</span>
+          <span class="text-body-sm font-semibold">{{ t('nodeDetail.podsOnNode') }}</span>
           <span class="text-xs text-on-surface-variant ml-auto">{{ nodePods.length }}</span>
         </div>
         <div v-if="nodePods.length" class="p-sm flex flex-col gap-xs max-h-[60vh] overflow-y-auto">
@@ -245,7 +245,7 @@ async function handleDrain() {
         </div>
         <div v-else class="py-md text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-2xl">search_off</span>
-          <p class="text-body-sm mt-xs">No pods running on this node</p>
+          <p class="text-body-sm mt-xs">{{ t('nodeDetail.noPodsRunning') }}</p>
         </div>
       </div>
     </div>
@@ -259,29 +259,29 @@ async function handleDrain() {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xl">
     <span class="material-symbols-outlined text-2xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface font-bold mt-md">Node Not Found</h2>
-    <p class="text-body-sm text-on-surface-variant mt-xs">Node "{{ route.params.name }}" not found</p>
-    <button @click="$router.push('/nodes')" class="mt-md px-lg py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">Back to Nodes</button>
+    <h2 class="text-headline-md text-on-surface font-bold mt-md">{{ t('nodeDetail.nodeNotFound') }}</h2>
+    <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('nodeDetail.notFound', { name: route.params.name }) }}</p>
+    <button @click="$router.push('/nodes')" class="mt-md px-lg py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">{{ t('nodeDetail.backToNodes') }}</button>
   </div>
 
   <!-- Cordon Modal -->
-  <Modal v-model="showCordonModal" title="Cordon Node" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to cordon <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-on-surface-variant mt-sm">No new pods will be scheduled on this node. Existing pods are not affected.</p>
+  <Modal v-model="showCordonModal" :title="t('nodeDetail.cordonNode')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('nodeDetail.cordonConfirm', { name: route.params.name }) }}</p>
+    <p class="text-body-sm text-on-surface-variant mt-sm">{{ t('nodeDetail.cordonWarning') }}</p>
     <template #actions>
-      <button @click="showCordonModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleCordon" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Cordon</button>
+      <button @click="showCordonModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleCordon" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('nodeDetail.cordon') }}</button>
     </template>
   </Modal>
 
   <!-- Drain Modal -->
-  <Modal v-model="showDrainModal" title="Drain Node" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to drain <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">All pods will be evicted from this node. This will cordone the node and gracefully terminate all pods.</p>
-    <p class="text-body-sm text-on-surface-variant mt-sm">{{ nodePods.length }} pods will be affected.</p>
+  <Modal v-model="showDrainModal" :title="t('nodeDetail.drainNode')" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('nodeDetail.drainConfirm', { name: route.params.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('nodeDetail.drainWarning') }}</p>
+    <p class="text-body-sm text-on-surface-variant mt-sm">{{ t('nodeDetail.drainPodsAffected', { count: nodePods.length }) }}</p>
     <template #actions>
-      <button @click="showDrainModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDrain" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Drain</button>
+      <button @click="showDrainModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDrain" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('nodeDetail.drain') }}</button>
     </template>
   </Modal>
 </template>

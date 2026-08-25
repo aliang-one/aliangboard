@@ -14,9 +14,10 @@ export function parseBody(text) {
 }
 
 export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthorized } = {}) {
-  // 当前会话的认证 header（供 stream/blob/ws 等非 request 形态复用，避免再写一份取 token 逻辑）
+  // 当前会话的认证 header（供 stream/blob/ws 等非 request 形态复用，避免再写一份取 token 逻辑）。
+  // 一并携带 Accept-Language：服务端消息表按此取语（无头默认 zh）。
   function authHeaders() {
-    return resolveAuth() || {}
+    return { 'accept-language': i18n.global.locale.value, ...(resolveAuth() || {}) }
   }
 
   // 常规 JSON 请求：返回已解析 body；非 2xx 抛带 .status/.details 的 Error；401 触发 onUnauthorized。

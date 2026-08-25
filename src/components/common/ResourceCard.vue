@@ -10,7 +10,10 @@
  * P4 重构为 catalog 驱动渲染器。
  */
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getCardSpec, getPath } from '@/data/resourceCatalog'
+
+const { t } = useI18n()
 
 const props = defineProps({
   resource: { type: Object, required: true },
@@ -43,7 +46,7 @@ function relTime(ts) {
   const diff = Date.now() - new Date(ts).getTime()
   if (diff < 0 || isNaN(diff)) return '—'
   const s = Math.floor(diff / 1000)
-  if (s < 60) return 'just now'
+  if (s < 60) return t('component.resourceCard.justNow')
   const m = Math.floor(s / 60)
   if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
@@ -58,14 +61,14 @@ function relTime(ts) {
     <!-- Header: icon + kind badge + name -->
     <div class="flex items-center gap-sm mb-md">
       <span class="material-symbols-outlined text-xl text-on-surface-variant">{{ spec.icon }}</span>
-      <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ resource?.kind || 'Unknown' }}</span>
+      <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ resource?.kind || t('component.resourceCard.unknownKind') }}</span>
       <span class="font-bold text-sm text-on-surface truncate flex-1 min-w-0" :title="resource?.metadata?.name">{{ resource?.metadata?.name || '—' }}</span>
     </div>
 
     <!-- Body: attribute grid (2-col: label left / value right) -->
     <div v-if="attrs.length" class="grid grid-cols-[auto_1fr] gap-x-md gap-y-xs items-center">
       <template v-for="attr in attrs" :key="attr.key">
-        <span class="text-xs text-on-surface-variant whitespace-nowrap">{{ attr.label }}</span>
+        <span class="text-xs text-on-surface-variant whitespace-nowrap">{{ attr.labelKey ? t(attr.labelKey) : attr.label }}</span>
 
         <!-- text -->
         <span v-if="attr.type === 'text'" class="text-sm text-on-surface text-right truncate">{{ attr.value }}</span>
@@ -88,6 +91,6 @@ function relTime(ts) {
       </template>
     </div>
 
-    <p v-else class="text-xs text-on-surface-variant/50 py-sm text-center">No attributes</p>
+    <p v-else class="text-xs text-on-surface-variant/50 py-sm text-center">{{ t('component.resourceCard.noAttributes') }}</p>
   </div>
 </template>

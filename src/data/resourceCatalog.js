@@ -16,57 +16,57 @@ export const RESOURCE_CATALOG = {
   Pod: {
     icon: 'podcasts',
     attributes: [
-      { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-      { key: 'status', path: 'status.phase', type: 'badge', label: 'Status', badgeMap: { Running: 'ok', Pending: 'warn', Failed: 'err', Succeeded: 'ok' } },
-      { key: 'node', path: 'spec.nodeName', type: 'text', label: 'Node' },
-      { key: 'podIP', path: 'status.podIP', type: 'code', label: 'Pod IP' },
-      { key: 'images', path: 'spec.containers', type: 'chips', extract: 'image', label: 'Images' },
-      { key: 'restarts', path: 'status.containerStatuses', type: 'text', extract: 'restartCount', reduce: 'sum', label: 'Restarts' },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+      { key: 'status', path: 'status.phase', type: 'badge', labelKey: 'common.status', label: 'Status', badgeMap: { Running: 'ok', Pending: 'warn', Failed: 'err', Succeeded: 'ok' } },
+      { key: 'node', path: 'spec.nodeName', type: 'text', labelKey: 'component.resourceCard.node', label: 'Node' },
+      { key: 'podIP', path: 'status.podIP', type: 'code', labelKey: 'component.resourceCard.podIP', label: 'Pod IP' },
+      { key: 'images', path: 'spec.containers', type: 'chips', extract: 'image', labelKey: 'component.resourceCard.images', label: 'Images' },
+      { key: 'restarts', path: 'status.containerStatuses', type: 'text', extract: 'restartCount', reduce: 'sum', labelKey: 'component.resourceCard.restarts', label: 'Restarts' },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
   Deployment: {
     icon: 'deployed_code',
     attributes: [
-      { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-      { key: 'replicas', path: 'spec.replicas', type: 'text', label: 'Desired' },
-      { key: 'ready', path: 'status.readyReplicas', type: 'text', label: 'Ready' },
-      { key: 'updated', path: 'status.updatedReplicas', type: 'text', label: 'Updated' },
-      { key: 'images', path: 'spec.template.spec.containers', type: 'chips', extract: 'image', label: 'Images' },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+      { key: 'replicas', path: 'spec.replicas', type: 'text', labelKey: 'component.resourceCard.desired', label: 'Desired' },
+      { key: 'ready', path: 'status.readyReplicas', type: 'text', labelKey: 'component.resourceCard.ready', label: 'Ready' },
+      { key: 'updated', path: 'status.updatedReplicas', type: 'text', labelKey: 'component.resourceCard.updated', label: 'Updated' },
+      { key: 'images', path: 'spec.template.spec.containers', type: 'chips', extract: 'image', labelKey: 'component.resourceCard.images', label: 'Images' },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
   Service: {
     icon: 'hub',
     attributes: [
-      { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-      { key: 'type', path: 'spec.type', type: 'badge', label: 'Type' },
-      { key: 'clusterIP', path: 'spec.clusterIP', type: 'code', label: 'Cluster IP' },
-      { key: 'ports', path: 'spec.ports', type: 'chips', extract: 'port', label: 'Ports' },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+      { key: 'type', path: 'spec.type', type: 'badge', labelKey: 'common.type', label: 'Type' },
+      { key: 'clusterIP', path: 'spec.clusterIP', type: 'code', labelKey: 'component.resourceCard.clusterIP', label: 'Cluster IP' },
+      { key: 'ports', path: 'spec.ports', type: 'chips', extract: 'port', labelKey: 'component.resourceCard.ports', label: 'Ports' },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
   Namespace: {
     icon: 'folder',
     attributes: [
-      { key: 'status', path: 'status.phase', type: 'badge', label: 'Status', badgeMap: { Active: 'ok', Terminating: 'warn' } },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'status', path: 'status.phase', type: 'badge', labelKey: 'common.status', label: 'Status', badgeMap: { Active: 'ok', Terminating: 'warn' } },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
   Ingress: {
     icon: 'dns',
     attributes: [
-      { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-      { key: 'hosts', path: 'spec.rules', type: 'chips', extract: 'host', label: 'Hosts' },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+      { key: 'hosts', path: 'spec.rules', type: 'chips', extract: 'host', labelKey: 'component.resourceCard.hosts', label: 'Hosts' },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
   ConfigMap: {
     icon: 'description',
     attributes: [
-      { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-      { key: 'keys', path: 'data', type: 'chips', extract: 'key', label: 'Data Keys' },
-      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+      { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+      { key: 'keys', path: 'data', type: 'chips', extract: 'key', labelKey: 'component.resourceCard.dataKeys', label: 'Data Keys' },
+      { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
     ],
   },
 }
@@ -77,9 +77,9 @@ export const RESOURCE_CATALOG = {
 export const FALLBACK_SPEC = {
   icon: 'extension',
   attributes: [
-    { key: 'kind', path: 'kind', type: 'text', label: 'Kind' },
-    { key: 'namespace', path: 'metadata.namespace', type: 'text', label: 'Namespace' },
-    { key: 'age', path: 'metadata.creationTimestamp', type: 'age', label: 'Age' },
+    { key: 'kind', path: 'kind', type: 'text', labelKey: 'component.resourceCard.kind', label: 'Kind' },
+    { key: 'namespace', path: 'metadata.namespace', type: 'text', labelKey: 'common.namespace', label: 'Namespace' },
+    { key: 'age', path: 'metadata.creationTimestamp', type: 'age', labelKey: 'common.age', label: 'Age' },
   ],
 }
 

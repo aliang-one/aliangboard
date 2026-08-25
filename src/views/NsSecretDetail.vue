@@ -29,6 +29,13 @@ const secret = computed(() => secretDetail.data.value)
 const yaml = computed(() => store.generateYAML('secret', secret.value))
 
 const activeTab = ref('data')
+const tabs = computed(() => [
+  { key: 'data', label: t('ns.secretDetail.tabData') },
+  { key: 'references', label: t('ns.secretDetail.tabReferences') },
+  { key: 'annotations', label: t('ns.secretDetail.tabAnnotations') },
+  { key: 'labels', label: t('ns.secretDetail.tabLabels') },
+  { key: 'yaml', label: t('ns.secretDetail.tabYaml') },
+])
 const showDeleteModal = ref(false)
 const showAddKeyModal = ref(false)
 const newKey = ref('')
@@ -199,24 +206,24 @@ const refCount = computed(() =>
             <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium border" :class="typeBadge.color">
               <span class="material-symbols-outlined text-xs align-middle mr-1">{{ typeBadge.icon }}</span>{{ secret.type }}
             </span>
-            <span class="text-body-sm text-on-surface-variant">{{ secret.keys }} keys</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ secret.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ $t('ns.secretDetail.keysCount', { n: secret.keys }) }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ $t('ns.secretDetail.ageLabel', { age: secret.age }) }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ $t('common.delete') }}
         </button>
       </div>
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['data', 'references', 'annotations', 'labels', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
-        :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
-        <span v-if="tab === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
+      <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
+        class="px-xl py-3 border-b-2 text-body-md font-medium transition-colors"
+        :class="activeTab === tab.key ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
+        {{ tab.label }}
+        <span v-if="tab.key === 'references'" class="ml-xs px-1.5 py-0 rounded-full bg-primary-container/20 text-primary text-label-caps">{{ refCount }}</span>
       </button>
     </div>
 
@@ -238,7 +245,7 @@ const refCount = computed(() =>
             <!-- Basic Auth -->
             <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs" v-html="t('secret.templateBasicAuth', { username: decode(secret.value?.data?.username) || '—' } )"></p>
             <!-- Git Token -->
-            <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">Key: <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
+            <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">{{ $t('ns.secretDetail.gitTokenKey') }} <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
             <!-- AWS -->
             <p v-else-if="secretTemplateId === 'aws'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateAws') }}</p>
             <!-- DB -->
@@ -247,9 +254,9 @@ const refCount = computed(() =>
         </div>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Data Keys ({{ dataEntries.length }})</h3>
+          <h3 class="text-headline-sm">{{ $t('ns.secretDetail.dataKeysCount', { n: dataEntries.length }) }}</h3>
           <button @click="showAddKeyModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Key
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('common.addKey') }}
           </button>
         </div>
         <div class="divide-y divide-outline-variant/30">
@@ -257,7 +264,7 @@ const refCount = computed(() =>
             <div class="flex items-center justify-between mb-sm">
               <div class="flex items-center gap-sm">
                 <span class="font-mono text-code-sm text-primary font-semibold">{{ key }}</span>
-                <button @click="toggleReveal(key)" class="p-xs text-on-surface-variant hover:text-primary rounded-lg" :title="revealedKeys.has(key) ? 'Hide' : 'Reveal'">
+                <button @click="toggleReveal(key)" class="p-xs text-on-surface-variant hover:text-primary rounded-lg" :title="revealedKeys.has(key) ? $t('ns.secretDetail.hide') : $t('ns.secretDetail.reveal')">
                   <span class="material-symbols-outlined text-lg">{{ revealedKeys.has(key) ? 'visibility_off' : 'visibility' }}</span>
                 </button>
               </div>
@@ -273,8 +280,8 @@ const refCount = computed(() =>
             <div v-if="editingKey === key" class="flex gap-sm">
               <input v-model="editValue" type="text" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
               <div class="flex gap-xs">
-                <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
-                <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+                <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
+                <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm" :class="revealedKeys.has(key) ? 'text-on-surface' : 'text-on-surface-variant'">
@@ -283,7 +290,7 @@ const refCount = computed(() =>
           </div>
           <div v-if="!dataEntries.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">key</span>
-            <p class="mt-sm">No data keys</p>
+            <p class="mt-sm">{{ $t('ns.secretDetail.noDataKeys') }}</p>
           </div>
         </div>
       </div>
@@ -298,9 +305,9 @@ const refCount = computed(() =>
     <div v-if="activeTab === 'annotations'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Annotations ({{ allAnnotations.length }})</h3>
+          <h3 class="text-headline-sm">{{ $t('ns.secretDetail.annotationsCount', { n: allAnnotations.length }) }}</h3>
           <button @click="showAddAnnModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Annotation
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.secretDetail.addAnnotation') }}
           </button>
         </div>
         <div class="divide-y divide-outline-variant/30">
@@ -315,15 +322,15 @@ const refCount = computed(() =>
             <div v-if="editingAnn === key" class="flex gap-sm">
               <textarea v-model="editAnnValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[60px] resize-y focus:ring-2 focus:ring-primary"></textarea>
               <div class="flex flex-col gap-xs">
-                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
-                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+                <button @click="saveEditAnn" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
+                <button @click="editingAnn = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap break-all">{{ val }}</div>
           </div>
           <div v-if="!allAnnotations.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">label</span>
-            <p class="mt-sm">No annotations</p>
+            <p class="mt-sm">{{ $t('ns.secretDetail.noAnnotations') }}</p>
           </div>
         </div>
       </div>
@@ -333,9 +340,9 @@ const refCount = computed(() =>
     <div v-if="activeTab === 'labels'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Labels ({{ allLabels.length }})</h3>
+          <h3 class="text-headline-sm">{{ $t('ns.secretDetail.labelsCount', { n: allLabels.length }) }}</h3>
           <button @click="showAddLabelModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Label
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.secretDetail.addLabel') }}
           </button>
         </div>
         <div class="divide-y divide-outline-variant/30">
@@ -350,15 +357,15 @@ const refCount = computed(() =>
             <div v-if="editingLabel === key" class="flex gap-sm">
               <input v-model="editLabelValue" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
               <div class="flex gap-xs">
-                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">Save</button>
-                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">Cancel</button>
+                <button @click="saveEditLabel" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
+                <button @click="editingLabel = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
             </div>
             <div v-else class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm text-on-surface-variant break-all">{{ val }}</div>
           </div>
           <div v-if="!allLabels.length" class="px-lg py-xl text-center text-on-surface-variant">
             <span class="material-symbols-outlined text-3xl">label_off</span>
-            <p class="mt-sm">No labels</p>
+            <p class="mt-sm">{{ $t('ns.secretDetail.noLabels') }}</p>
           </div>
         </div>
       </div>
@@ -371,67 +378,67 @@ const refCount = computed(() =>
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">Secret Not Found</h2>
-    <button @click="router.push({ name: 'NsSecrets', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Secrets</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ $t('common.notFound', { name: 'Secret' }) }}</h2>
+    <button @click="router.push({ name: 'NsSecrets', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('common.backTo', { name: 'Secrets' }) }}</button>
   </div>
 
-  <Modal v-model="showDeleteModal" title="Delete Secret" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete secret <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Pods using this Secret will fail to start. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('common.deleteTitle', { name: 'Secret' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="$t('ns.secretDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.secretDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showAddKeyModal" title="Add Data Key" width="max-w-lg">
+  <Modal v-model="showAddKeyModal" :title="$t('ns.secretDetail.addDataKeyTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Key Name</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.keyName') }}</label>
         <input v-model="newKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="SECRET_KEY" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.value') }}</label>
         <input v-model="newValue" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="secret value..." />
       </div>
     </div>
     <template #actions>
-      <button @click="showAddKeyModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addKey" :disabled="!newKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddKeyModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addKey" :disabled="!newKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showAddAnnModal" title="Add Annotation" width="max-w-lg">
+  <Modal v-model="showAddAnnModal" :title="$t('ns.secretDetail.addAnnotationTitle')" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Annotation Key</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.annotationKey') }}</label>
         <input v-model="newAnnKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="kubectl.kubernetes.io/last-applied-configuration" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.value') }}</label>
         <textarea v-model="newAnnValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-20 resize-y focus:ring-2 focus:ring-primary" placeholder="{}"></textarea>
       </div>
     </div>
     <template #actions>
-      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddAnnModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addAnnotation" :disabled="!newAnnKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 
-  <Modal v-model="showAddLabelModal" title="Add Label" width="max-w-md">
+  <Modal v-model="showAddLabelModal" :title="$t('ns.secretDetail.addLabelTitle')" width="max-w-md">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Label Key</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.labelKey') }}</label>
         <input v-model="newLabelKey" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="app.kubernetes.io/name" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Value</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.value') }}</label>
         <input v-model="newLabelValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
       </div>
     </div>
     <template #actions>
-      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Add</button>
+      <button @click="showAddLabelModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="addLabel" :disabled="!newLabelKey" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ $t('common.add') }}</button>
     </template>
   </Modal>
 </template>
