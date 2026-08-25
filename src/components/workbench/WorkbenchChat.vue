@@ -1,5 +1,5 @@
 <script setup>
-// 可复用 AI 聊天组件(从 WorkbenchProjectChat 提取):工作台项目的 agent 聊天。
+// 可复用 AI 聊天组件(源自已删除的 WorkbenchProjectChat,2026-08-25 随 AI 控制台清理):工作台项目的 agent 聊天。
 // props: projectId / projectName。无路由依赖,适合侧栏嵌入。
 // → POST /api/workbench/conversations { projectId, message, references } → { id, status:'running' }
 // → 每 2s GET /api/workbench/conversations/:id → 更新 turns/trace

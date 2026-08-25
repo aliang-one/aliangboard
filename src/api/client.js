@@ -221,8 +221,6 @@ export const workbenchApi = {
   // 集群台账（cluster-context repo，每集群一份）
   getLedger: clusterId => platformHttp.request(`/api/workbench/ledger?clusterId=${encodeURIComponent(clusterId)}`),
   bootstrapLedger: clusterId => platformHttp.request('/api/workbench/ledger/bootstrap', { method: 'POST', body: JSON.stringify({ clusterId }) }),
-  // 项目 agent 聊天（W4b）：{ projectId, message?, resume? } → { status:'done'|'pending_approval', content, trace, ... }
-  chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
   // 台账蒸馏(D2,自我学习):{ clusterId } → { proposed, current, summary, stats }
   distill: clusterId => platformHttp.request('/api/workbench/distill', { method: 'POST', body: JSON.stringify({ clusterId }) }),
   applyDistill: (clusterId, learnings) => platformHttp.request('/api/workbench/distill/apply', { method: 'POST', body: JSON.stringify({ clusterId, learnings }) }),
@@ -288,10 +286,6 @@ export const adminApi = {
     active: (params = {}) => platformHttp.request(`/api/admin/audit-log/active?${new URLSearchParams(params)}`),
     list: (params = {}) => platformHttp.request(`/api/admin/audit-log?${new URLSearchParams(params)}`),
     verify: () => platformHttp.request('/api/admin/audit-log/verify'),
-  },
-  // Agent 聊天(第二阶段切片 4):{ message, apiKeyId, history } → { content, steps, denied, truncated?, trace[] }
-  agent: {
-    chat: payload => platformHttp.request('/api/agent/chat', { method: 'POST', body: JSON.stringify(payload) }),
   },
   // LLM 配置(baseURL/apiKey/model 存 DB;GET 不回传 key)
   llmConfig: {

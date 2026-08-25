@@ -54,7 +54,7 @@ const platformAdminNav = [
   { icon: 'group', labelKey: 'nav.userManagement', route: '/admin/users' },
   { icon: 'cloud', labelKey: 'nav.clusterManagement', route: '/admin/clusters' },
   { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
-  { icon: 'smart_toy', labelKey: 'nav.aiConsole', route: '/admin/agent' },
+  { icon: 'tune', labelKey: 'nav.aiBehavior', route: '/admin/ai-behavior' },
   { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
   { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
 ]

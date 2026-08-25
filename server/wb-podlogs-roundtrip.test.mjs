@@ -90,7 +90,7 @@ test('wb_get_pod_logs:工具结果进 LLM 消息的是真实日志,不是 [objec
   }
 })
 
-test('/api/agent/chat @-mention 注入:进 LLM 的是资源 body,不是 {status,headers,body} 信封', { timeout: 60000 }, async () => {
+test('conversations @-mention 注入:进 LLM 的是资源 body,不是 {status,headers,body} 信封', { timeout: 60000 }, async () => {
   const [K8S_PORT, LLM_PORT, GW_PORT] = [28000 + Math.floor(Math.random() * 4000), 32000 + Math.floor(Math.random() * 3000), 36000 + Math.floor(Math.random() * 3000)]
   const DIR = mkdtempSync(join(tmpdir(), 'wb-refs-'))
   const k8s = createServer((req, res) => {
@@ -131,11 +131,20 @@ test('/api/agent/chat @-mention 注入:进 LLM 的是资源 body,不是 {status,
     const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user:\n    token: d\n`
     const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
     const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't2', clusterId: cr.cluster?.id || cr.id }) })).json()
-    const reply = await (await fetch(`${BASE}/api/agent/chat`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '看这个 pod', references: [{ kind: 'pods', namespace: 'ns1', name: 'p1' }] }) })).json()
-    assert.equal(reply.status, 'done', `对话应完成: ${JSON.stringify(reply).slice(0, 120)}`)
-    const userMsg = llmMsgs.filter(m => m.role === 'user').map(m => String(m.content || '')).join('\n')
-    assert.ok(userMsg.includes('"kind": "Pod"'), `@-ref 注入应含资源 body: ${userMsg.slice(0, 200)}`)
-    assert.ok(!userMsg.includes('"headers"') && !userMsg.includes('"status": 200'), `不得注入 {status,headers,body} 信封: ${userMsg.slice(0, 200)}`)
+    // 2026-08-25 随 /api/agent/chat 端点清理,从 legacy 内联路径迁到 conversations API:
+    // @-ref 经 refreshSystem 注入 system 消息(每轮重拉),断言任意消息含资源 body 且无信封。
+    const cv = await (await fetch(`${BASE}/api/workbench/conversations`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '看这个 pod', references: [{ kind: 'pods', namespace: 'ns1', name: 'p1' }] }) })).json()
+    assert.ok(cv.id, `对话应创建: ${JSON.stringify(cv).slice(0, 120)}`)
+    let status = 'running'
+    for (let i = 0; i < 60 && (status === 'running' || status === 'paused'); i++) {
+      await new Promise(r => setTimeout(r, 400))
+      const c = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
+      status = c.conversation?.status || c.status || status
+    }
+    assert.equal(status, 'done', `对话应完成: ${status}`)
+    const allMsgs = llmMsgs.map(m => String(m.content || '')).join('\n')
+    assert.ok(allMsgs.includes('"kind": "Pod"'), `@-ref 注入应含资源 body: ${allMsgs.slice(0, 200)}`)
+    assert.ok(!allMsgs.includes('"headers"') && !allMsgs.includes('"status": 200'), `不得注入 {status,headers,body} 信封: ${allMsgs.slice(0, 200)}`)
   } finally {
     gw.kill('SIGKILL'); k8s.close(); llm.close()
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)

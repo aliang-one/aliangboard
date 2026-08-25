@@ -442,7 +442,6 @@
     "clusters": "Clusters",
     "userManagement": "User Management",
     "apiKeys": "API Keys",
-    "aiConsole": "AI Console",
     "llmConfig": "LLM Config",
     "aiBehavior": "AI Behavior",
     "auditTrail": "Audit",

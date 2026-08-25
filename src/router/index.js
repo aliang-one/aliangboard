@@ -489,12 +489,6 @@ const routes = [
         meta: { titleKey: 'nav.apiKeys', icon: 'vpn_key', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
-        path: 'admin/agent',
-        name: 'AdminAgentConsole',
-        component: () => import('@/views/admin/AgentConsole.vue'),
-        meta: { titleKey: 'nav.aiConsole', icon: 'smart_toy', scope: 'global', requireAdmin: true, requiresCluster: false }
-      },
-      {
         path: 'admin/llm-config',
         name: 'AdminLlmConfig',
         component: () => import('@/views/admin/LlmConfig.vue'),

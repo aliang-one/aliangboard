@@ -23,8 +23,7 @@ import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
-import { createWorkbenchSchema, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted } from './workbench-projects.mjs'
-import { k8sSystemPrompt } from './k8s-prompt.mjs'
+import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted } from './workbench-projects.mjs'
 import { KIND_API_PATH } from './kind-paths.mjs'
 import { REFS_CTX_HEADER } from './refs-context.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
@@ -1071,118 +1070,6 @@ async function handle(req, res) {
     return mcpHandler(req, res)
   }
 
-  // === Agent 聊天(第二阶段切片 3+3b:写操作走 checkpoint/resume 人审,agent 用调用者选的 API key)===
-  // 请求:{ apiKeyId, message?, history?, resume? };resume = { runContext, queue, denied, steps, toolCallId, approved }
-  // 响应:{ status:'pending_approval', runContext, pending, queue, denied, steps, trace } 或
-  //       { status:'done', content, steps, denied, truncated?, trace }
-  if (url.pathname === '/api/agent/chat' && req.method === 'POST') {
-    const ps = requirePlatform(req, res); if (!ps) return
-    try {
-      const input = await readBody(req)
-      const resuming = !!input.resume
-      if (!resuming && !input.message) return sendJson(res, 400, { message: msg(req, 'api.missingMessage') })
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: msg(req, 'api.llmNotConfigured') })
-      const llmClient = createLlmClient(cfg)
-
-      // 项目模式(W4b):workbench-only agent,历史走服务端 workbench_history(不进 git repo)。
-      if (input.projectId) {
-        const proj = getProject(db, input.projectId)
-        if (!proj) return sendJson(res, 404, { message: msg(req, 'api.projectNotFound') })
-        if (proj.ownerId !== ps.userId && ps.role !== 'admin') return sendJson(res, 403, { message: msg(req, 'api.noProjectAccess') })
-        const repo = join(WORKBENCH_DIR, proj.clusterId, 'projects', proj.id)
-        const ledgerRepo = join(WORKBENCH_DIR, proj.clusterId, 'cluster-context')
-        const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(proj.clusterId)
-        const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
-        const workbench = {
-          readLedger: async () => {
-            let out = ''
-            try { out += await wbReadFile(ledgerRepo, 'INDEX.md') } catch {}
-            try { const l = await wbReadFile(ledgerRepo, 'learnings.md'); if (l && l.trim()) out += '\n\n# Learnings（团队知识/踩坑）\n' + l } catch {}
-            return out.trim() || msg(req, 'api.ledgerNotBootstrapped')
-          },
-          readFile: (p) => wbReadFile(repo, p),
-          writeFile: (p, c) => wbWriteFile(repo, p, c),
-          readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
-          applyManifests: async (yaml) => { if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply')); return applyYamlPartial(k8sSession, yaml) },
-          appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
-          bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
-        }
-        const { run } = createAgentRunner({
-          llmClient, workbench,
-          // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
-          // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
-          disabledTools: getWorkbenchAiConfig(db).disabledTools,
-        })
-        const trace = []
-        let out
-        if (resuming) {
-          const r = input.resume || {}
-          out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
-        } else {
-          const history = recentHistory(db, proj.id)
-          const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
-
-          // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
-          let messageContent = String(input.message)
-          if (Array.isArray(input.references) && input.references.length && k8sSession) {
-            const blocks = []
-            for (const ref of input.references) {
-              const pathFn = KIND_API_PATH[ref.kind]
-              const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-              if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
-              try {
-                const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-                // requestKubernetes 返回 {status,headers,body};资源在 body(与 routes/workbench-conversations.mjs
-                // buildRefsContext 同语义。旧版整信封 stringify 给 agent——带 Headers 噪音,2026-08-16 修对话路由时漏了这份内联拷贝)
-                const body = res?.body
-                if (body == null) { blocks.push(`${label}: (空响应)`); continue }
-                blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
-              } catch (e) {
-                blocks.push(`${label}: (not found)`)
-              }
-            }
-            messageContent = `Referenced resources:\n${blocks.join('\n\n')}\n\n${messageContent}`
-          }
-
-          out = await run({ system, history: [...history, { role: 'user', content: messageContent }], onStep: e => trace.push(e) })
-          if (out.status !== 'pending_approval') { appendHistory(db, proj.id, 'user', messageContent); appendHistory(db, proj.id, 'assistant', out.content || '') }
-        }
-        if (out.status === 'pending_approval') return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
-        return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
-      }
-
-      // K8s 模式(原):apiKeyId 必填,agent 用所选 key 的 SA + tier
-      if (!input.apiKeyId) return sendJson(res, 400, { message: msg(req, 'api.missingApiKeyIdOrProjectId') })
-      const keyRow = listKeys(db).find(k => k.id === input.apiKeyId && !k.revokedAt)
-      if (!keyRow) return sendJson(res, 404, { message: msg(req, 'api.apiKeyNotFoundOrRevoked') })
-      const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
-      if (!cluster) return sendJson(res, 404, { message: msg(req, 'api.clusterNotFound') })
-      const { run } = createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster })
-      const trace = []
-      let out
-      if (resuming) {
-        const r = input.resume || {}
-        // 续跑:客户端回传对话状态(runContext/queue)+ 对某 pending 写工具的人审决策;execTool 仍走 callTool 全链(RBAC 兜底)
-        out = await run({
-          resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved },
-          onStep: e => trace.push(e),
-        })
-      } else {
-        const history = Array.isArray(input.history) ? input.history : []
-        const system = k8sSystemPrompt(keyRow.tier)
-        out = await run({
-          system,
-          history: [...history, { role: 'user', content: String(input.message) }],
-          onStep: e => trace.push(e), // 回传工具调用 trace 供 UI 展示
-        })
-      }
-      if (out.status === 'pending_approval') {
-        return sendJson(res, 200, { status: 'pending_approval', runContext: out.messages, pending: out.pending, queue: out.queue, denied: out.denied, steps: out.steps, trace })
-      }
-      return sendJson(res, 200, { status: 'done', content: out.content, steps: out.steps, denied: out.denied, truncated: out.truncated, trace })
-    } catch (e) { return sendJson(res, e.status || 500, { message: e?.message || msg(req, 'api.agentFailed') }) }
-  }
 
   // ====== 工作台:有状态对话(P5)——5 端点 + 后台执行(detached Promise) ======
 
