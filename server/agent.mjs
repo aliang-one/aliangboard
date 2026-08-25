@@ -101,18 +101,18 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         if (needsApproval(name) && !resumeApproved) {
           denied.push({ name, args })
           messages.push({ role: 'tool', tool_call_id: id, content: `用户拒绝了该操作(${name})` })
-          onStep?.({ type: 'denied', name, args })
+          onStep?.({ type: 'denied', name, args, ts: Date.now() })
           continue
         }
 
         // 执行前发 tool_start(UI 出"正在跑哪个工具"的 running 态;工具执行是串行 await,
         // 同一时刻至多一个 start 未配对。消费方(workbench-agent)不持久化此瞬态事件)
-        onStep?.({ type: 'tool_start', name, args })
+        onStep?.({ type: 'tool_start', name, args, ts: Date.now() })
         let result
         try { result = await execTool(name, args) }
         catch (e) { result = formatToolError(e) }
         messages.push({ role: 'tool', tool_call_id: id, content: clampToolContent(result) })
-        onStep?.({ type: 'tool', name, args, result })
+        onStep?.({ type: 'tool', name, args, result, ts: Date.now() })
       }
 
       // 2) 队列空 → 下一轮 chat(受 maxSteps 约束)
@@ -129,7 +129,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       }
       const assistant = await chat(messages, toolDefs, (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
       messages.push(assistant)
-      onStep?.({ type: 'assistant', message: assistant })
+      onStep?.({ type: 'assistant', message: assistant, ts: Date.now() })
       const toolCalls = assistant.tool_calls || []
       if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated }   // 终答
       queue = [...toolCalls]
