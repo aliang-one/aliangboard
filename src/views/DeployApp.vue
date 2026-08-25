@@ -12,6 +12,8 @@ import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
+import { dump as yamlDump } from 'js-yaml'
+import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -203,9 +205,9 @@ function addEnvCMKey() { form.value.envCMKeys.push({ name: '', cmName: '', key: 
 function removeEnvCMKey(idx) { form.value.envCMKeys.splice(idx, 1) }
 function addEnvSecretKey() { form.value.envSecretKeys.push({ name: '', secretName: '', key: '' }) }
 function removeEnvSecretKey(idx) { form.value.envSecretKeys.splice(idx, 1) }
-function addExtraContainer() { form.value.extraContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function addExtraContainer() { form.value.extraContainers.push(makeSubContainer()) }
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
-function addInitContainer() { form.value.initContainers.push({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' }) }
+function addInitContainer() { form.value.initContainers.push(makeSubContainer()) }
 function removeInitContainer(idx) { form.value.initContainers.splice(idx, 1) }
 
 // 「完整编辑」弹窗:editing 指向目标槽位;确认 Object.assign 写回同槽(数组身份不变,
@@ -458,23 +460,29 @@ const previewYAML = computed(() => {
     return name
   }
 
-  // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
-  const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || derivedContainerName(c.image, `sidecar-${idx + 1}`)}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
-    (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
-  ).filter(Boolean).join('\n')
-
-  // 初始容器（init）
-  const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || derivedContainerName(c.image, `init-${idx + 1}`)}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
-    (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
-  ).filter(Boolean).join('\n')
+  // 子容器 YAML:buildSubContainerSpec → js-yaml dump(默认引号启发式实测覆盖 YAML 1.1
+  // 危险值集;lineWidth:-1 禁折行)→ 每行前缀 6 空格(对齐列表项 6/属性 8 缩进)。
+  // 丢弃旧手拼(env value 带引号/换行会踩 yamlScalar 系列坑);mountLines 仅主容器继续用。
+  // 原生 sidecar 归位:发到 initContainers 尾部(挂载 target 仍按 extraContainers 原索引)。
+  const DUMP_OPTS = { indent: 2, lineWidth: -1 }
+  const subYaml = (c, target, fallback) => !c.image ? null :
+    yamlDump([buildSubContainerSpec(c, { fallbackName: fallback, mounts: mountsForTarget(f.volumeMounts, target) })], DUMP_OPTS)
+      .trimEnd().split('\n').map(l => '      ' + l).join('\n')
+  const plainSidecars = f.extraContainers.filter(c => !c.nativeSidecar)
+  const nativeSidecars = f.extraContainers.filter(c => c.nativeSidecar)
+  const extraContainersYaml = plainSidecars
+    .map((c) => {
+      const idx = f.extraContainers.indexOf(c)
+      return subYaml(c, `sidecar:${idx}`, derivedContainerName(c.image, `sidecar-${idx + 1}`))
+    })
+    .filter(Boolean).join('\n')
+  const initContainersYaml = [...f.initContainers, ...nativeSidecars]
+    .map((c) => {
+      const isInit = f.initContainers.includes(c)
+      const idx = isInit ? f.initContainers.indexOf(c) : f.extraContainers.indexOf(c)
+      return subYaml(c, isInit ? `init:${idx}` : `sidecar:${idx}`, derivedContainerName(c.image, `${isInit ? 'init' : 'sidecar'}-${idx + 1}`))
+    })
+    .filter(Boolean).join('\n')
 
   // pod 级 volumes（按 name 去重；configMap/secret 可带 items 键映射）
   const volDefs = new Map()
@@ -725,7 +733,7 @@ function validate() {
   })
   // init/sidecar 字段校验与弹窗单源(logic/containerValidation):image 必填/名 DNS-1123/
   // 资源 req≤lim/显式名查重(主容器有效名 + 其他容器显式名,按下标排除自身)。
-  // 空行整体跳过(isEmptyEnvRow,与 YAML 生成一致)。替代旧 missing-image 两条。
+  // 空行整体跳过(isSubContainerEmpty,与 YAML 生成一致)。替代旧 missing-image 两条。
   const mainName = f.containerName || f.name
   const initNames = f.initContainers.map(c => c.name).filter(Boolean)
   const sideNames = f.extraContainers.map(c => c.name).filter(Boolean)
@@ -738,7 +746,7 @@ function validate() {
     return names
   }
   const pushContainerErrs = (list, kind, labelKey) => list.forEach((c, i) => {
-    if (isEmptyEnvRow(c, ['name', 'image', 'command', 'args'])) return
+    if (isSubContainerEmpty(c)) return
     const label = `${t(labelKey)} ${c.name || '#' + (i + 1)}`
     for (const e of validateContainerFields(c, othersFor(kind, i)))
       errs.push({ step: 1, msg: `${label}: ${t(e.msgKey, e.params)}` })
@@ -1150,8 +1158,13 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm">
-                <div class="flex items-center justify-between mb-xs">
+                <div class="flex items-center gap-sm justify-between mb-xs">
                   <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('init', idx)"
+                    class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70 transition-colors"
+                    :title="$t('deploy.editContainerExpand')">
+                    {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                  </button>
                   <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
                     @click="openContainerEditor('init', idx)"
                     class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
@@ -1189,8 +1202,13 @@ async function handleDeploy() {
             </div>
             <div class="flex flex-col gap-sm">
               <div v-for="(c, idx) in form.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm">
-                <div class="flex items-center justify-between mb-xs">
+                <div class="flex items-center gap-sm justify-between mb-xs">
                   <span class="text-xs text-on-surface-variant font-mono">{{ $t('deploy.containerBadge', { n: idx + 1 }) }}</span>
+                  <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('sidecar', idx)"
+                    class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70 transition-colors"
+                    :title="$t('deploy.editContainerExpand')">
+                    {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                  </button>
                   <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
                     @click="openContainerEditor('sidecar', idx)"
                     class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
@@ -1221,7 +1239,7 @@ async function handleDeploy() {
         </div>
 
         <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
-          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames"
+          :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames" :namespace="form.namespace"
           @update:model-value="closeContainerEditor" @confirm="onContainerEdited" />
 
         <!-- 高级设置（默认折叠）-->

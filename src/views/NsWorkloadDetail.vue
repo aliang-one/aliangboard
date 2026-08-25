@@ -17,6 +17,8 @@ import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
+import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
+import { validateContainerFields } from '@/logic/containerValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -34,6 +36,7 @@ import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } fr
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
+import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -846,11 +849,6 @@ function scToForm(sc) {
   if (sc.capabilities) { f.addCaps = (sc.capabilities.add || []).join(','); f.dropCaps = (sc.capabilities.drop || []).join(',') }
   return f
 }
-// init/sidecar 容器 → 表单
-function containerToForm(c) {
-  return { name: c.name || '', image: c.image || '', command: joinCommandTokens(c.command || []), args: joinArgLines(c.args || []),
-    cpuReq: c.resources?.requests?.cpu || '', cpuLim: c.resources?.limits?.cpu || '', memReq: c.resources?.requests?.memory || '', memLim: c.resources?.limits?.memory || '' }
-}
 // 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
 function mergeVolumes(tplSpec, c0) {
   const byKey = new Map()
@@ -872,7 +870,13 @@ function mergeVolumes(tplSpec, c0) {
     })
   }
   ;(c0.volumeMounts || []).forEach(m => push('main', m))
-  ;(tplSpec.initContainers || []).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)))
+  // 挂载 target 须与 openEdit 分流后的索引对齐:非 Always init → init:<过滤后序>;Always(原生 sidecar)→ sidecar:<plain sidecar 之后追加序>
+  let initFilteredIdx = 0
+  let nativeOrdinal = Math.max(0, (tplSpec.containers || []).length - 1)
+  ;(tplSpec.initContainers || []).forEach(c => {
+    if (c.restartPolicy === 'Always') (c.volumeMounts || []).forEach(m => push(`sidecar:${nativeOrdinal++}`, m))
+    else { const i = initFilteredIdx++; (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)) }
+  })
   ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
   // 只定义未挂载的卷也保留（挂到主容器占位）
   volDefByName.forEach((d, name) => {
@@ -898,8 +902,31 @@ function addVolumeMount() {
 }
 // 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
+
+// 编辑面子容器「完整编辑」共享弹窗(与创建面 DeployApp 同款;嵌套于编辑 Modal 之上)
+const editing = ref(null)
+const editingListKey = computed(() => (editing.value?.kind === 'sidecar' ? 'extraContainers' : 'initContainers'))
+const editingContainer = computed(() => (editing.value ? editForm.value[editingListKey.value][editing.value.index] : {}))
+const editingOtherNames = computed(() => {
+  const f = editForm.value, cur = editing.value
+  if (!cur) return []
+  const names = []
+  const main = workload.value?.name
+  if (main) names.push(main)
+  ;(f.initContainers || []).forEach((c, i) => { if (c.name && !(cur.kind === 'init' && i === cur.index)) names.push(c.name) })
+  ;(f.extraContainers || []).forEach((c, i) => { if (c.name && !(cur.kind === 'sidecar' && i === cur.index)) names.push(c.name) })
+  return names
+})
+function openContainerEditor(kind, index) { editing.value = { kind, index } }
+function onContainerEdited(payload) {
+  if (!editing.value) return
+  Object.assign(editForm.value[editingListKey.value][editing.value.index], payload)
+  editing.value = null
+}
+
 function openEdit() {
   if (!workload.value) return
+  // 子容器全量反解(单源);原生 sidecar(restartPolicy Always)归 extraContainers。
   const raw = workload.value?.raw || {}
   const tplSpec = raw.spec?.template?.spec || raw.spec?.jobTemplate?.spec?.template?.spec || {}
   const c0 = tplSpec.containers?.[0] || {}
@@ -935,8 +962,11 @@ function openEdit() {
     securityContext: scToForm(c0.securityContext),
     lifecycle: { postStart: joinCommandTokens(c0.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(c0.lifecycle?.preStop?.exec?.command || []) },
     // 多容器
-    initContainers: (tplSpec.initContainers || []).map(containerToForm),
-    extraContainers: (tplSpec.containers || []).slice(1).map(containerToForm),
+    initContainers: (tplSpec.initContainers || []).filter(c => c.restartPolicy !== 'Always').map(c => mapSubContainer(c)),
+    extraContainers: [
+      ...(tplSpec.containers || []).slice(1).map(c => mapSubContainer(c)),
+      ...(tplSpec.initContainers || []).filter(c => c.restartPolicy === 'Always').map(c => mapSubContainer(c)),
+    ],
     // 调度（pod spec）
     nodeSelectors: Object.entries(tplSpec.nodeSelector || {}).map(([key, value]) => ({ key, value: String(value) })),
     tolerations: (tplSpec.tolerations || []).map(t => ({ key: t.key || '', operator: t.operator || 'Equal', value: t.value || '', effect: t.effect || '' })),
@@ -988,16 +1018,6 @@ function mountObjs(target, f) {
   const ms = (f.volumeMounts || []).filter(v => v.target === target && v.name && v.mountPath).map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; if (m.readOnly) o.readOnly = true; return o })
   return ms.length ? ms : null
 }
-function buildSubContainer(c, target, f) {
-  const o = { name: c.name || (c.image || '').split(':')[0] || 'container', image: c.image || '' }
-  const cmd = splitCommandTokens(c.command), args = splitArgLines(c.args)
-  if (cmd.length) o.command = cmd
-  if (args.length) o.args = args
-  o.resources = buildResources(c.cpuReq, c.cpuLim, c.memReq, c.memLim)
-  const m = mountObjs(target, f)
-  if (m) o.volumeMounts = m
-  return o
-}
 // 保存前校验：返回错误描述数组（空=通过）
 function validateEdit() {
   const f = editForm.value, errs = []
@@ -1013,8 +1033,24 @@ function validateEdit() {
       if (v.type === 'secret' && !v.secretName) errs.push(t('workload.validation.volumeMissingSecret', { name: v.name || '#' + (i + 1) }))
     }
   })
-  ;(f.initContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.initMissingImage', { name: c.name || '#' + (i + 1) })) })
-  ;(f.extraContainers || []).forEach((c, i) => { if (!c.image) errs.push(t('workload.validation.sidecarMissingImage', { name: c.name || '#' + (i + 1) })) })
+  // 子容器校验接入单源(containerValidation):空行判定统一 isSubContainerEmpty——
+  // 仅配了高级字段(无 image)的行也须校验(与创建面一致),不再「image 空即跳过」。
+  const mainName = workload.value?.name || ''
+  const subOthers = (kind, selfIdx) => {
+    const initNames = (f.initContainers || []).map(c => c.name).filter(Boolean)
+    const sideNames = (f.extraContainers || []).map(c => c.name).filter(Boolean)
+    const out = mainName ? [mainName] : []
+    if (kind === 'init') out.push(...initNames.filter((_, i) => i !== selfIdx), ...sideNames)
+    else out.push(...initNames, ...sideNames.filter((_, i) => i !== selfIdx))
+    return out
+  }
+  const pushSubErrs = (list, kind, labelKey) => list.forEach((c, i) => {
+    if (isSubContainerEmpty(c)) return
+    for (const e of validateContainerFields(c, subOthers(kind, i)))
+      errs.push(`${t(labelKey)} ${c.name || '#' + (i + 1)}: ${t(e.msgKey, e.params)}`)
+  })
+  pushSubErrs(f.initContainers || [], 'init', 'workload.edit.initContainers')
+  pushSubErrs(f.extraContainers || [], 'sidecar', 'workload.edit.sidecarContainers')
   ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(t('workload.validation.portMissing', { idx: i + 1 })) })
   ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(t('workload.validation.envMissingKey', { idx: i + 1 })) })
   ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(t('workload.validation.envCmMissing', { name: e.name || '—' })) })
@@ -1072,10 +1108,19 @@ async function saveEdit() {
       if (ps.length) lc.postStart = { exec: { command: ps } }
       if (pst.length) lc.preStop = { exec: { command: pst } }
       c0.lifecycle = Object.keys(lc).length ? lc : null
-      // 多容器：重建 containers = [主, ...sidecar]，initContainers（按原索引传 target，各自挂卷）
-      spec.containers = [c0, ...(f.extraContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `sidecar:${idx}`, f) : null).filter(Boolean)]
-      const inits = (f.initContainers || []).map((c, idx) => c.image ? buildSubContainer(c, `init:${idx}`, f) : null).filter(Boolean)
-      spec.initContainers = inits.length ? inits : null
+      // 多容器重建(单源 buildSubContainerSpec;nullAbsent=true 走 merge-patch 删除语义):
+      // 普通 sidecar 进 containers;原生 sidecar(sidecar 且 nativeSidecar)进 initContainers 尾部;
+      // 挂载 target 按「原数组索引」定位(native 行占用 extraContainers 索引,不可按过滤后序枚举)。
+      const sidecars = f.extraContainers || []
+      spec.containers = [c0, ...sidecars.map((c, idx) => (!c.image || c.nativeSidecar) ? null :
+        buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true })).filter(Boolean)]
+      const rebuiltInits = [
+        ...(f.initContainers || []).map((c, idx) => c.image ?
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `init:${idx}`), nullAbsent: true }) : null),
+        ...sidecars.map((c, idx) => (c.image && c.nativeSidecar) ?
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true }) : null),
+      ].filter(Boolean)
+      spec.initContainers = rebuiltInits.length ? rebuiltInits : null
       // 卷（按 name 去重；configMap/secret 带 items）
       const volDefs = new Map()
       ;(f.volumeMounts || []).filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
@@ -2051,25 +2096,68 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512" /></div>
           </div>
-          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
-          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
-            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
-            <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
-            <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
-            <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
+          <div v-for="(c, idx) in editForm.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
+            <div class="flex items-center gap-sm justify-between mb-xs">
+              <div class="flex items-center gap-sm">
+                <span class="text-xs text-on-surface-variant font-mono">#{{ idx + 1 }}</span>
+                <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('init', idx)"
+                  class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70">
+                  {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                </button>
+              </div>
+              <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                @click="openContainerEditor('init', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                <span class="material-symbols-outlined text-base">open_in_full</span>
+              </button>
+            </div>
+            <!-- 8 字段格(与创建面卡片同构,新键名绑定) -->
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.namePlaceholder')" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.imagePlaceholder')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" placeholder="sh -c" />
+              <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs">
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+            </div>
+            <button @click="editForm.initContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.sidecarContainers') }}</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addSidecar') }}</button></div>
-          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
-            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
-            <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
-            <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
-            <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.sidecarContainers') }}</span><button @click="editForm.extraContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addSidecar') }}</button></div>
+          <div v-for="(c, idx) in editForm.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
+            <div class="flex items-center gap-sm justify-between mb-xs">
+              <div class="flex items-center gap-sm">
+                <span class="text-xs text-on-surface-variant font-mono">#{{ idx + 1 }}</span>
+                <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('sidecar', idx)"
+                  class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70">
+                  {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                </button>
+              </div>
+              <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                @click="openContainerEditor('sidecar', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                <span class="material-symbols-outlined text-base">open_in_full</span>
+              </button>
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.namePlaceholder')" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.imagePlaceholder')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" placeholder="sh -c" />
+              <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs">
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+            </div>
+            <button @click="editForm.extraContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
         </section>
 
@@ -2213,6 +2301,10 @@ function podStatusBorder(s) {
       <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.edit.save') }}</button>
     </template>
   </Modal>
+
+  <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
+    :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames" :namespace="String(route.params.namespace || '')"
+    @update:model-value="editing = null" @confirm="onContainerEdited" />
 
   <Modal v-model="showMetaModal" :title="$t('workload.modals.metaTitle')" width="max-w-2xl">
     <div class="flex flex-col gap-md">

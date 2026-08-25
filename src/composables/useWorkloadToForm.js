@@ -1,10 +1,11 @@
 // 反向映射:K8s workload 对象 → DeployApp 向导表单(best-effort)。
 // 纯函数,不引 Vue,可被 scripts/test.mjs 零依赖运行器测试。
-// 仅映射向导已建模字段;多容器:主容器完整 + 其余进 extraContainers(窄)、init 进 initContainers(窄);
+// 仅映射向导已建模字段;多容器:主容器完整 + 其余/子容器全量反解(mapSubContainer,与编辑面单源);
 // 复杂 affinity/自定义 strategy/未知 volume 类型等不映射或降级。
 // command/args 的文本切分约定见 src/utils/containerTokens.js:command 空格 join,args 每条一行。
 import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { SYSTEM_ANNOTATIONS } from '../utils/systemMeta.js'
+import { mapSubContainer } from '../logic/subContainer.js'
 
 function podSpecOf(obj, kind) {
   if (kind === 'CronJob') return obj?.spec?.jobTemplate?.spec?.template?.spec
@@ -45,24 +46,6 @@ function mapMainContainer(c) {
     readiness: mapProbe(c?.readinessProbe),
     startup: mapProbe(c?.startupProbe),
   }
-}
-
-function mapSidecar(c) {
-  const r = c?.resources || {}
-  return {
-    name: c?.name || '',
-    image: c?.image || '',
-    command: joinCommandTokens(c?.command),
-    args: joinArgLines(c?.args),
-    cpuRequest: r.requests?.cpu || '100m',
-    cpuLimit: r.limits?.cpu || '250m',
-    memoryRequest: r.requests?.memory || '128Mi',
-    memoryLimit: r.limits?.memory || '256Mi',
-  }
-}
-
-function mapInit(c) {
-  return mapSidecar(c)
 }
 
 function mapPairs(map) {
@@ -119,8 +102,8 @@ export function workloadToForm(obj, kind) {
 
   if (containers[0]) Object.assign(out, mapMainContainer(containers[0]))
   else { out.image = ''; out.containerName = ''; out.envVars = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
-  out.extraContainers = containers.slice(1).map(mapSidecar)
-  out.initContainers = (pod.initContainers || []).map(mapInit)
+  out.extraContainers = containers.slice(1).map(mapSubContainer)
+  out.initContainers = (pod.initContainers || []).map(mapSubContainer)
   out.nodeSelectors = Object.entries(pod.nodeSelector || {}).map(([k, v]) => ({ key: k, value: String(v) }))
   out.tolerations = (pod.tolerations || []).map(tl => ({
     key: tl.key || '',

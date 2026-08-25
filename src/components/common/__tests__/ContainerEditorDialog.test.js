@@ -6,6 +6,7 @@ import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
+import { makeSubContainer } from '@/logic/subContainer'
 
 const C = () => ({ name: '', image: '', command: '', args: '', cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi' })
 
@@ -15,7 +16,7 @@ afterEach(() => { wrapper?.unmount(); document.body.innerHTML = '' })
 function mountDialog(props = {}) {
   wrapper = mount(ContainerEditorDialog, {
     props: { modelValue: true, container: C(), kind: 'init', index: 0, otherNames: [], ...props },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n], stubs: { EnvSourceField: true } },
   })
   return wrapper
 }
@@ -30,7 +31,8 @@ test('打开:回显字段;合法容器确认可点,点击 emit confirm(完整副
   expect($('ced-image-input').value).toBe('busybox')
   expect($('ced-confirm-btn').disabled).toBe(false)
   $('ced-confirm-btn').click()
-  expect(wrapper.emitted('confirm')[0][0]).toEqual({ ...C(), name: 'my-init', image: 'busybox' })
+  // 泛化后 draft = makeSubContainer 全字段与传入容器混入(同键覆盖)→ confirm payload 全字段
+  expect(wrapper.emitted('confirm')[0][0]).toEqual({ ...makeSubContainer(), ...C(), name: 'my-init', image: 'busybox' })
   expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([false])
 })
 
@@ -80,4 +82,91 @@ test('自动命名预览:image 清洗基名;与现有名冲突显示去重注释
   wrapper.unmount()                                    // 先卸载,避免两个 teleport 残留串查询
   mountDialog({ container: { ...C(), image: 'nginx' }, otherNames: ['nginx'] })
   expect($('ced-auto-name-preview').textContent).toContain(i18n.global.t('deploy.containerFv.autoNameDedupeNote', { name: 'nginx' }))
+})
+
+test('全字段:env/ports/探针/原生开关在 draft 中编辑并随 confirm 完整发出', async () => {
+  mountDialog({ container: { ...makeSubContainer(), name: 'sc', image: 'nginx' }, kind: 'sidecar', namespace: 'default' })
+  // 展开 env 节并加一行
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
+  key0.value = 'K'; key0.dispatchEvent(new Event('input'))
+  await nextTick()
+  // 端口节加一行
+  $('ced-ports-section').querySelector('button[data-testid="ced-ports-toggle"]').click()
+  await nextTick()
+  $('ced-ports-add').click()
+  await nextTick()
+  const port0 = $('ced-ports-section').querySelector('[data-testid="ced-port-0"]')
+  port0.value = '9090'; port0.dispatchEvent(new Event('input'))
+  await nextTick()
+  // 原生开关(仅 sidecar 渲染)
+  expect($('ced-native-toggle')).toBeTruthy()
+  $('ced-native-toggle').click()
+  await nextTick()
+  $('ced-confirm-btn').click()
+  const payload = wrapper.emitted('confirm')[0][0]
+  expect(payload.envVars).toEqual([{ key: 'K', value: '' }])
+  expect(payload.ports).toEqual([{ containerPort: 9090, protocol: 'TCP' }])   // v-model 对 type=number 自动数值化(buildSpec Number() 兼容)
+  expect(payload.nativeSidecar).toBe(true)
+})
+
+test('取消丢弃高级编辑:env 行/探针开关/勾选不泄漏进父容器对象', async () => {
+  const parent = { ...makeSubContainer(), name: 'sc', image: 'nginx' }
+  mountDialog({ container: parent })
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  $('ced-probes-section').querySelector('button[data-testid="ced-probes-toggle"]').click()
+  await nextTick()
+  $('ced-probe-enable-liveness').click()
+  await nextTick()
+  $('ced-cancel-btn').click()
+  expect(parent.envVars).toEqual([])
+  expect(parent.liveness.enabled).toBe(false)
+  // 确认路径仍完整写回:
+  wrapper.unmount()                                    // 先卸载,避免两个 teleport 残留串查询
+  mountDialog({ container: parent })
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
+  key0.value = 'K'; key0.dispatchEvent(new Event('input'))
+  await nextTick()
+  $('ced-confirm-btn').click()
+  expect(wrapper.emitted('confirm')[0][0].envVars).toEqual([{ key: 'K', value: '' }])
+})
+
+test('init 容器不渲染原生 sidecar 开关', async () => {
+  mountDialog({ container: { ...makeSubContainer(), image: 'nginx' }, kind: 'init' })
+  expect($('ced-native-toggle')).toBeNull()
+})
+
+test('新校验:env 缺 key 残值行 blur 显错;探针 enabled 缺端口显错;确认禁用', async () => {
+  mountDialog({ container: { ...makeSubContainer(), image: 'nginx' } })
+  $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
+  await nextTick()
+  $('ced-env-add').click()
+  await nextTick()
+  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
+  const val0 = $('ced-env-section').querySelector('[data-testid="ced-env-val-0"]')
+  val0.value = 'v'; val0.dispatchEvent(new Event('input'))   // 有 value 无 key → 非残行
+  await nextTick()
+  key0.dispatchEvent(new Event('blur'))
+  await nextTick()
+  expect($('ced-env-error').textContent).toContain(i18n.global.t('deploy.containerFv.envMissingKey', { idx: 1 }))
+  $('ced-probes-section').querySelector('button[data-testid="ced-probes-toggle"]').click()
+  await nextTick()
+  $('ced-probe-enable-liveness').click()
+  await nextTick()
+  // makeSubContainer 探针默认 port=8080(合法)→ 清空端口再 blur 触发缺端口错误(brief 原文默认值下无错,最小适配保断言强度)
+  const lp = $('ced-probes-section').querySelector('[data-testid="ced-liveness-port"]')
+  lp.value = ''; lp.dispatchEvent(new Event('input')); lp.dispatchEvent(new Event('blur'))
+  await nextTick()
+  expect($('ced-liveness-error').textContent).toContain(i18n.global.t('deploy.containerFv.probePortRequired', { probe: 'liveness' }))
+  expect($('ced-confirm-btn').disabled).toBe(true)
 })
