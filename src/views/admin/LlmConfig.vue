@@ -8,7 +8,7 @@ import { notify } from '@/composables/useToast'
 
 const { t } = useI18n()
 const status = ref(null)       // GET 回的当前有效配置 + 各字段来源
-const form = ref({ baseURL: '', model: '', apiKey: '' })
+const form = ref({ baseURL: '', model: '', apiKey: '', temperature: '', maxTokens: '' })
 const saving = ref(false)
 const testing = ref(false)
 const testResult = ref(null)   // { ok, reply? | message? }
@@ -31,6 +31,8 @@ async function load() {
     form.value.baseURL = s.baseURL || ''
     form.value.model = s.model || ''
     form.value.apiKey = ''
+    form.value.temperature = s.temperature || ''
+    form.value.maxTokens = s.maxTokens || ''
   } catch (e) {
     notify('error', e.message || t('admin.llm.loadFailed'))
   } finally {
@@ -42,7 +44,7 @@ onMounted(load)
 async function save() {
   saving.value = true
   try {
-    const payload = { baseURL: form.value.baseURL.trim(), model: form.value.model.trim() }
+    const payload = { baseURL: form.value.baseURL.trim(), model: form.value.model.trim(), temperature: form.value.temperature.trim(), maxTokens: form.value.maxTokens.trim() }
     if (form.value.apiKey) payload.apiKey = form.value.apiKey  // 留空不传 = 不修改
     await adminApi.llmConfig.save(payload)
     notify('success', t('common.saved'))
@@ -132,6 +134,13 @@ async function testConn() {
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">model</label>
           <input v-model="form.model" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="deepseek-chat" />
         </div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.temperatureLabel') }}</label>
+          <input v-model="form.temperature" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="0.2" />
+        </div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.maxTokensLabel') }}</label>
+          <input v-model="form.maxTokens" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8192" />
+        </div>
+        <p class="text-body-xs text-on-surface-variant">{{ $t('admin.llm.paramsHint') }}</p>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">API Key</label>
           <input v-model="form.apiKey" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.llm.apiKeyPlaceholder')" />
           <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.llm.apiKeyHint') }}</p>

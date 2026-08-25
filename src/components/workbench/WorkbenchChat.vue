@@ -11,6 +11,7 @@ import { useI18n } from 'vue-i18n'
 import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
+import AiConfigPanel from './AiConfigPanel.vue'
 import { applyStreamEvent } from './conv-stream'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
@@ -34,6 +35,7 @@ const errorBanner = ref('')
 const scrollEl = ref(null)
 const taEl = ref(null)
 const pendingApproval = ref(null)
+const showAiConfig = ref(false)
 // I(2026-08-17 审计):已决策(approve/deny)的审批 id——SSE 重连/轮询重放旧审批时跳过,
 // 否则已 deny 的审批会重弹,再点 approve 语义混乱。跨组件实例不持久(服务端 CAS 兜底)。
 const decidedApprovals = new Set()
@@ -792,6 +794,13 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           </button>
         </div>
 
+        <!-- AI 配置透明面板入口(2026-08-25):恒可见——有对话时面板显示该对话烘焙的 system -->
+        <div class="flex justify-end mt-xs">
+          <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-sm">tune</span>{{ t('workbench.chat.aiConfig.open') }}
+          </button>
+        </div>
+
         <!-- @-mention dropdown -->
         <div v-if="searchOpen" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-30">
           <template v-if="kindHints.length">
@@ -849,5 +858,6 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ t('workbench.chat.approve') }}</button>
       </template>
     </Modal>
+    <AiConfigPanel v-model="showAiConfig" :conversation-id="conversationId" />
   </section>
 </template>

@@ -8,15 +8,19 @@
 import { fetch as defaultFetch } from 'undici'
 
 export function createLlmClient({
-  baseURL, apiKey, model, fetch = defaultFetch,
+  baseURL, apiKey, model, temperature, maxTokens, fetch = defaultFetch,
   timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 120000,
   idleMs = Number(process.env.LLM_STREAM_IDLE_MS) || 180000,
 }) {
   if (!baseURL || !model) throw new Error('LLM 客户端缺 baseURL / model')
   const endpoint = baseURL.replace(/\/$/, '') + '/chat/completions'
+  // 模型参数(admin 可配,空 = 不带、用模型默认;2026-08-25 AI 定制设计)
+  const extras = {}
+  if (temperature !== undefined && temperature !== null && temperature !== '') extras.temperature = Number(temperature)
+  if (maxTokens !== undefined && maxTokens !== null && maxTokens !== '') extras.max_tokens = Number(maxTokens)
   // chat({messages, tools?, toolChoice?}) → assistant message {role, content, tool_calls?}
   async function chat({ messages, tools, toolChoice } = {}) {
-    const body = { model, messages }
+    const body = { model, messages, ...extras }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -36,7 +40,7 @@ export function createLlmClient({
   // chatStream:流式版 chat。逐 chunk 解 OpenAI 兼容 SSE;content 累积并回调 onDelta;
   // tool_calls 按 index 合并分片。返回结构与 chat 一致。
   async function chatStream({ messages, tools, toolChoice } = {}, { onDelta, onReasoning } = {}) {
-    const body = { model, messages, stream: true }
+    const body = { model, messages, stream: true, ...extras }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
     // 空闲超时:每读到数据就重 arm;总时长不限。思考再久(深调查/长文)只要仍产 chunk 就活着。
     const ac = new AbortController()

@@ -501,6 +501,12 @@ const routes = [
         meta: { titleKey: 'nav.llmConfig', icon: 'neurology', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
+        path: 'admin/ai-behavior',
+        name: 'AdminAiBehavior',
+        component: () => import('@/views/admin/AiBehaviorConfig.vue'),
+        meta: { titleKey: 'nav.aiBehavior', icon: 'tune', scope: 'global', requireAdmin: true, requiresCluster: false }
+      },
+      {
         path: 'admin/audit-trail',
         name: 'AdminAuditTrail',
         component: () => import('@/views/admin/AuditTrail.vue'),

@@ -8,6 +8,9 @@ import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
+import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from '../workbench-ai-config.mjs'
+import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
+import { registry } from '../tool-registry.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -24,6 +27,7 @@ export function createAdminRoutes(deps) {
     if (url.pathname === '/api/admin/llm-config' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const dbBase = getSetting('llm.baseURL'), dbKey = getSetting('llm.apiKey'), dbModel = getSetting('llm.model')
+      const dbTemp = getSetting('llm.temperature'), dbMax = getSetting('llm.maxTokens')
       const src = (db, env) => db ? 'db' : (env ? 'env' : 'none')
       sendJson(res, 200, {
         baseURL: dbBase || process.env.LLM_BASE_URL || '',
@@ -32,6 +36,8 @@ export function createAdminRoutes(deps) {
         modelSource: src(dbModel, process.env.LLM_MODEL),
         hasApiKey: !!(dbKey || process.env.LLM_API_KEY),
         apiKeySource: src(dbKey, process.env.LLM_API_KEY),
+        temperature: dbTemp || '',
+        maxTokens: dbMax || '',
       })
       return true
     }
@@ -39,9 +45,16 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
+        // 校验 temperature/maxTokens(2026-08-25 AI 定制设计)
+        const t = input.temperature === '' || input.temperature == null ? '' : Number(input.temperature)
+        if (t !== '' && (!Number.isFinite(t) || t < 0 || t > 2)) { sendJson(res, 400, { message: msg(req, 'admin.llmBadTemperature') }); return true }
+        const m = input.maxTokens === '' || input.maxTokens == null ? '' : Number(input.maxTokens)
+        if (m !== '' && (!Number.isInteger(m) || m < 1 || m > 200000)) { sendJson(res, 400, { message: msg(req, 'admin.llmBadMaxTokens') }); return true }
         setSetting('llm.baseURL', input.baseURL || '')
         setSetting('llm.model', input.model || '')
         if (typeof input.apiKey === 'string' && input.apiKey) setSetting('llm.apiKey', input.apiKey) // 留空 = 不修改
+        setSetting('llm.temperature', t === '' ? '' : String(t))
+        setSetting('llm.maxTokens', m === '' ? '' : String(m))
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }
@@ -129,6 +142,35 @@ export function createAdminRoutes(deps) {
         sendJson(res, 200, { ok: true, limitMb: mb })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+    // ====== 工作台 AI 行为配置(2026-08-25):追加指令 + 工具收紧;预览=服务端实际拼装,所见即所发 ======
+    if (url.pathname === '/api/admin/workbench-ai-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const cfg = getWorkbenchAiConfig(db)
+      sendJson(res, 200, {
+        additionalInstructions: cfg.additionalInstructions,
+        disabledTools: cfg.disabledTools,
+        toolCatalog: registry.workbenchTools(),
+        effectivePreview: buildWorkbenchSystemPrompt(cfg),
+      })
+      return true
+    }
+    if (url.pathname === '/api/admin/workbench-ai-config' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const v = validateDisabledTools(input.disabledTools)
+        if (!v.ok) {
+          const message = v.detail.type === 'unknown'
+            ? `${msg(req, 'admin.aiToolUnknown')}: ${v.detail.name}`
+            : msg(req, 'admin.aiToolsNotArray')
+          sendJson(res, 400, { message }); return true
+        }
+        setSetting('workbench.disabledTools', JSON.stringify(v.value))
+        setSetting('workbench.additionalInstructions', clampInstructions(input.additionalInstructions))
+        sendJson(res, 200, { ok: true })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }
     }
 
     // ====== 集群管理 ======

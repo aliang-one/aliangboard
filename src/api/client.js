@@ -246,6 +246,8 @@ export const workbenchApi = {
     // 悬浮入口:跨项目活跃对话原料(running/paused + 24h 内终态;未读判定在前端)
     active: () => platformHttp.request('/api/workbench/conversations/active'),
   },
+  // AI 配置透明面板(2026-08-25):只读——生效提示词/工具清单/追加指令/model(不含连接配置)
+  aiConfig: () => platformHttp.request('/api/workbench/ai-config'),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===
@@ -312,6 +314,11 @@ export const adminApi = {
   podfileConfig: {
     get: () => platformHttp.request('/api/admin/podfile-config'),
     update: limitMb => platformHttp.request('/api/admin/podfile-config', { method: 'PUT', body: JSON.stringify({ limitMb }) }),
+  },
+  // 工作台 AI 行为配置(2026-08-25):GET → {additionalInstructions, disabledTools, toolCatalog, effectivePreview};PUT ← 同名字段 → {ok}
+  workbenchAiConfig: {
+    get: () => platformHttp.request('/api/admin/workbench-ai-config'),
+    save: payload => platformHttp.request('/api/admin/workbench-ai-config', { method: 'PUT', body: JSON.stringify(payload) }),
   },
 }
 

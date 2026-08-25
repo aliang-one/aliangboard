@@ -1,7 +1,9 @@
 // SP3: 工作台对话 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // 7 端点 + buildRefsContext 辅助逐字搬迁,仅依赖引用改走 deps 注入。
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
-import { WORKBENCH_SYSTEM_PROMPT } from '../workbench-prompt.mjs'
+import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
+import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
+import { registry } from '../tool-registry.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -64,6 +66,20 @@ export function createWorkbenchConvRoutes(deps) {
   // 注:原 index.mjs 各分支用 `return sendJson(...)` 早退 + 终结响应;此处等价改为
   // `sendJson(...); return true`(sendJson 已 res.end,只需告知 dispatcher 已处理)。
   async function handle(req, res, url) {
+    // GET /api/workbench/ai-config — 透明面板数据源(登录即可,2026-08-25 设计):
+    // 生效提示词/工具清单/追加指令/model。刻意不回 baseURL/apiKey(连接配置仅 admin 可见)。
+    if (url.pathname === '/api/workbench/ai-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const cfg = getWorkbenchAiConfig(db)
+      const disabled = new Set(cfg.disabledTools)
+      sendJson(res, 200, {
+        effectivePrompt: buildWorkbenchSystemPrompt(cfg),
+        tools: registry.workbenchTools().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
+        additionalInstructions: cfg.additionalInstructions,
+        model: getLlmConfig().model,
+      })
+      return true
+    }
     // POST /api/workbench/conversations — 创建对话 + 后台执行(detached)
     if (url.pathname === '/api/workbench/conversations' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -74,14 +90,16 @@ export function createWorkbenchConvRoutes(deps) {
         if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
 
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
         const { resources: fetchedResources } = await buildRefsContext(project, input.references)
 
-        const system = WORKBENCH_SYSTEM_PROMPT
+        // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
+        // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
+        const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
@@ -138,7 +156,7 @@ export function createWorkbenchConvRoutes(deps) {
         //    content/reasoning/trace/steps/pendingApproval 不复位的话:上轮答案/思考残留会让
         //    启动抢救(salvageInterrupted)在本轮中断时把上轮内容补录成"新消息"(跨轮污染)。
         updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
         sendJson(res, 200, { status: 'running', references: fetchedResources })
@@ -166,7 +184,7 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, conv.projectId, id)
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
         updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
         sendJson(res, 200, { status: 'running' })
         return true
@@ -195,6 +213,7 @@ export function createWorkbenchConvRoutes(deps) {
         pendingApproval: conv.pendingApproval, trace: conv.trace,
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+        system: conv.system, // 透明面板:本对话创建时烘焙的提示词(逐对话审计)
         // 出参剥掉历史版本烤进 user content 的 refsCtx 前缀(库内原文不动,agent/摘要不受
         // 影响)——旧数据免迁移,刷新后不再把引用资源 JSON 当消息正文显示。
         messages: listMessages(db, id).map(m => m.role === 'user' ? { ...m, content: stripRefsContext(m.content) } : m),
@@ -316,7 +335,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true
@@ -330,7 +349,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true

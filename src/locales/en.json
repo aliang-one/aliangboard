@@ -444,6 +444,7 @@
     "apiKeys": "API Keys",
     "aiConsole": "AI Console",
     "llmConfig": "LLM Config",
+    "aiBehavior": "AI Behavior",
     "auditTrail": "Audit",
     "settings": "Settings",
     "deploy": "Deploy",
@@ -2791,7 +2792,25 @@
       "exQwenLabel": "Qwen (Bailian):",
       "exOllamaLabel": "Ollama (local):",
       "exOllamaKeyHint": "API Key can be anything",
-      "exOpenAILabel": "OpenAI:"
+      "exOpenAILabel": "OpenAI:",
+      "temperatureLabel": "temperature (blank = model default)",
+      "maxTokensLabel": "max tokens (blank = model default)",
+      "paramsHint": "Optional params; when blank, the request omits these fields."
+    },
+    "aiBehavior": {
+      "title": "AI Behavior Config",
+      "subtitle": "Customize the workbench AI assistant: additional instructions and tool restrictions. Safety boundaries (approvals, read-only first) are built in and cannot be changed. Changes apply to new conversations (tool disabling takes effect immediately).",
+      "instructionsLabel": "Additional Instructions (appended to system prompt)",
+      "instructionsPlaceholder": "e.g. For production namespace changes, first list affected workloads before executing",
+      "instructionsHint": "Max 4000 characters; leave blank to not append.",
+      "toolsTitle": "Tool Toggles (disable only; approval rules cannot be turned off)",
+      "readGroup": "Read-only Tools (no approval required)",
+      "writeGroup": "Human Approval Required",
+      "approvalBadge": "Approval",
+      "allDisabledWarn": "All tools disabled: AI will degrade to plain text Q&A (save allowed, at your own risk).",
+      "previewTitle": "Effective Preview (actual system prompt sent to new conversations)",
+      "previewHint": "Fixed methodology section is not configurable; tool docs auto-generate with toggles; end is additional instructions.",
+      "loadFailed": "Failed to load AI behavior config"
     },
     "apiKeys": {
       "title": "API Keys Management",
@@ -3299,7 +3318,21 @@
         "failed": "Failed",
         "cancelled": "Cancelled"
       },
-      "loadFailed": "Failed to load conversation. Check your network and try again."
+      "loadFailed": "Failed to load conversation. Check your network and try again.",
+      "aiConfig": {
+        "open": "View AI config",
+        "title": "AI config (read-only)",
+        "promptTitle": "System prompt",
+        "promptConvNote": "Current: prompt in effect when this conversation was created (per-conversation audit)",
+        "promptGlobalNote": "Current: global effective config (new conversations will use)",
+        "toolsTitle": "Tool list",
+        "instructionsTitle": "Admin additional instructions",
+        "none": "(none)",
+        "modelTitle": "Model",
+        "disabledBadge": "Disabled",
+        "approvalBadge": "Approval required",
+        "retry": "Retry"
+      }
     },
     "shell": {
       "title": "Workbench",

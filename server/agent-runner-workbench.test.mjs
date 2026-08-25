@@ -251,3 +251,12 @@ test('createAgentRunner 透传 maxSteps:循环不终答按给定上限截断', a
   assert.equal(out.truncated, true)
   assert.equal(out.steps, 3, '按透传的 maxSteps=3 截断(默认是 8)')
 })
+
+// Task 3: 工具禁用接入 offering(2026-08-25)
+test('工作台 runner:disabledTools 从 offering 消失,其余保留', () => {
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([fin('ok')]) }
+  const { toolDefs } = createAgentRunner({ llmClient, workbench: wb, disabledTools: ['read_ledger'] })
+  assert.ok(!toolDefs.some(t => t.function.name === 'read_ledger'), 'disabled 不进 offering')
+  assert.ok(toolDefs.some(t => t.function.name === 'read_project_file'), '其余保留')
+})
