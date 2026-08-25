@@ -12,6 +12,7 @@ import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
+import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
@@ -720,8 +721,26 @@ function validate() {
     if (v.type === 'configMap' && !v.cmName) errs.push({ step: 2, msg: t('deploy.volumeMissingConfigMap', { name: w }) })
     if (v.type === 'secret' && !v.secretName) errs.push({ step: 2, msg: t('deploy.volumeMissingSecret', { name: w }) })
   })
-  f.initContainers.forEach((c, i) => { if (!isEmptyEnvRow(c, ['name', 'image', 'command', 'args']) && !c.image) errs.push({ step: 1, msg: t('deploy.initContainerMissingImage', { name: c.name || '#' + (i + 1) }) }) })
-  f.extraContainers.forEach((c, i) => { if (!isEmptyEnvRow(c, ['name', 'image', 'command', 'args']) && !c.image) errs.push({ step: 1, msg: t('deploy.sidecarMissingImage', { name: c.name || '#' + (i + 1) }) }) })
+  // init/sidecar 字段校验与弹窗单源(logic/containerValidation):image 必填/名 DNS-1123/
+  // 资源 req≤lim/显式名查重(主容器有效名 + 其他容器显式名,按下标排除自身)。
+  // 空行整体跳过(isEmptyEnvRow,与 YAML 生成一致)。替代旧 missing-image 两条。
+  const mainName = f.containerName || f.name
+  const initNames = f.initContainers.map(c => c.name).filter(Boolean)
+  const sideNames = f.extraContainers.map(c => c.name).filter(Boolean)
+  const othersFor = (kind, idx) => {
+    const names = mainName ? [mainName] : []
+    if (kind === 'init') names.push(...initNames.filter((_, i) => i !== idx), ...sideNames)
+    else names.push(...initNames, ...sideNames.filter((_, i) => i !== idx))
+    return names
+  }
+  const pushContainerErrs = (list, kind, labelKey) => list.forEach((c, i) => {
+    if (isEmptyEnvRow(c, ['name', 'image', 'command', 'args'])) return
+    const label = `${t(labelKey)} ${c.name || '#' + (i + 1)}`
+    for (const e of validateContainerFields(c, othersFor(kind, i)))
+      errs.push({ step: 1, msg: `${label}: ${t(e.msgKey, e.params)}` })
+  })
+  pushContainerErrs(f.initContainers, 'init', 'deploy.initContainers')
+  pushContainerErrs(f.extraContainers, 'sidecar', 'deploy.sidecarContainers')
   f.ports.forEach((p, i) => { if (!isEmptyEnvRow(p, ['containerPort']) && !p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
   f.envVars.forEach((e, i) => { if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
   f.envCMKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
