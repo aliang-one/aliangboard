@@ -405,7 +405,10 @@ async function pollOnce(id) {
         if (agentTurn.trace[i]?.type === 'tool_start') trailing.unshift(agentTurn.trace[i])
         else break
       }
-      agentTurn.trace = [...trace, ...trailing]
+      // 闪变修复(2026-08-25):trace 对齐与下方 content 同守卫(!es)——SSE 活跃时 live trace 是
+      // 权威(当前轮、瘦身事件),conv.trace 是全对话累积(全量形状),10s 看门狗无条件覆写会让
+      // 交错渲染的数据集每 10s 整体跳变 → 内容周期性消失/复现。SSE 不在(降级轮询)才用 DB 对齐。
+      if (!es) agentTurn.trace = [...trace, ...trailing]
       agentTurn.steps = conv.steps ?? agentTurn.steps
       // R3(2026-08-19):SSE 不在(降级轮询/无 EventSource)时回放 conv 级检查点——
       // 服务端每 200 字落库的 content/reasoning 是此路径唯一可见进度,不回放则用户看着

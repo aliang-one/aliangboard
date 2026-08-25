@@ -35,12 +35,14 @@ export function applyStreamEvent(state, evt) {
     }
     case 'snapshot':
       // 服务端 gap 补齐(断线重连/晚连时一键吃齐此前 delta/step):整体替换而非追加,
-      // 避免与连接恢复后到达的增量重复拼接(落库 trace 不含 tool_start,snapshot 天然无残留)
+      // 避免与连接恢复后到达的增量重复拼接(落库 trace 不含 tool_start,snapshot 天然无残留)。
+      // 闪变修复(2026-08-25):空值不覆写——服务端检查点 <200 字未落时 conv.content=''(或跨轮
+      // 旧值),snapshot 会把正在流出的文本打空,下个 delta 又长回来 → 周期性消失/复现。
       return {
         ...state,
-        content: evt.content ?? state.content,
-        reasoning: evt.reasoning ?? state.reasoning,
-        trace: evt.trace ?? state.trace,
+        content: evt.content || state.content,
+        reasoning: evt.reasoning || state.reasoning,
+        trace: (Array.isArray(evt.trace) && evt.trace.length) ? evt.trace : state.trace,
         steps: evt.steps ?? state.steps,
       }
     case 'approval':
