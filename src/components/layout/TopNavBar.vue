@@ -139,8 +139,8 @@ async function logout() {
 
 <template>
   <header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface h-16 border-b border-outline-variant shrink-0">
-    <div class="flex items-center gap-lg flex-1">
-      <div class="relative max-w-md w-full">
+    <div class="flex items-center gap-lg flex-1 min-w-0">
+      <div class="relative max-w-md w-full min-w-0">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
         <input
           v-model="searchQuery"
@@ -163,7 +163,7 @@ async function logout() {
       </div>
 
       <!-- 集群切换 -->
-      <div class="relative">
+      <div class="relative shrink-0">
         <button
           @click="showClusterDropdown = !showClusterDropdown"
           class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
@@ -174,7 +174,7 @@ async function logout() {
           <span class="material-symbols-outlined text-lg">hub</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[180px]">
             <span class="text-xs text-on-surface-variant opacity-70">CLUSTER</span>
-            <span class="text-body-sm font-semibold truncate">{{ currentClusterObj?.name || '—' }}</span>
+            <span class="text-body-sm font-semibold truncate" :title="currentClusterObj?.name">{{ currentClusterObj?.name || '—' }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
@@ -209,7 +209,7 @@ async function logout() {
                 <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.map(r => $t(r)).join('；') || $t('clusterHealth.healthy')) : c.status"></span>
                 <div class="min-w-0">
                   <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
-                  <p class="text-xs text-on-surface-variant">{{ c.version }} · {{ c.distribution }}</p>
+                  <p class="text-xs text-on-surface-variant truncate">{{ c.version }} · {{ c.distribution }}</p>
                 </div>
               </div>
               <div class="flex items-center gap-xs shrink-0">
@@ -222,7 +222,7 @@ async function logout() {
       </div>
 
       <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
-      <div class="relative">
+      <div class="relative shrink-0">
         <button
           @click="showNsDropdown = !showNsDropdown"
           class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
@@ -235,7 +235,7 @@ async function logout() {
           <span class="material-symbols-outlined text-lg">folder_open</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[160px]">
             <span class="text-xs text-on-surface-variant opacity-70">NAMESPACE</span>
-            <span class="text-body-sm font-semibold truncate">{{ currentNs || $t('nav.notSelected') }}</span>
+            <span class="text-body-sm font-semibold truncate" :title="currentNs">{{ currentNs || $t('nav.notSelected') }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
@@ -276,7 +276,7 @@ async function logout() {
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
       <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" :title="$t('nav.logout')">
         <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ (authStore.user?.displayName || authStore.user?.username || 'U').charAt(0).toUpperCase() }}</div>
-        <span class="text-body-sm font-semibold">{{ authStore.user?.displayName || authStore.user?.username || 'User' }}</span>
+        <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="authStore.user?.displayName || authStore.user?.username">{{ authStore.user?.displayName || authStore.user?.username || 'User' }}</span>
         <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
         <span class="material-symbols-outlined text-on-surface-variant text-body-sm">logout</span>
       </button>
