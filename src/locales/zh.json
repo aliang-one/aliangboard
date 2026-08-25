@@ -866,6 +866,7 @@
       "batchDeleteWarning": "由 Deployment/StatefulSet 等控制器管理的 Pod，删除后会被自动重建",
       "batchDeleted": "已删除 {n} 个 Pod",
       "batchPartial": "成功 {ok} 个，失败 {fail} 个：{names}",
+      "batchMoreNames": "…等 {n} 个",
       "deleteFailed": "删除 Pod 失败",
       "createdPod": "已创建 Pod {name}",
       "createFailed": "创建 Pod 失败",

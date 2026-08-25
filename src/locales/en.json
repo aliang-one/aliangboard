@@ -866,6 +866,7 @@
       "batchDeleteWarning": "Pods managed by controllers (Deployment/StatefulSet, etc.) will be recreated automatically after deletion",
       "batchDeleted": "Deleted {n} pods",
       "batchPartial": "{ok} succeeded, {fail} failed: {names}",
+      "batchMoreNames": "… {n} more",
       "deleteFailed": "Failed to delete Pod",
       "createdPod": "Created Pod {name}",
       "createFailed": "Failed to create Pod",

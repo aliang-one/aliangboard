@@ -105,7 +105,7 @@ const batchTargets = computed(() => nsPods.value.filter(p => selectedNames.value
 const batchNamesPreview = computed(() => {
   const names = batchTargets.value.map(p => p.name)
   const head = names.slice(0, 10).join(', ')
-  return names.length > 10 ? `${head} …` : head
+  return names.length > 10 ? `${head} ${t('ns.pods.batchMoreNames', { n: names.length - 10 })}` : head
 })
 function onCardClick(p) {
   if (batchMode.value) { toggleSelect(p.name); return }
@@ -122,7 +122,9 @@ async function handleBatchDelete() {
     exitBatch()
   } else {
     // 部分失败：保留失败项选中便于重试；不退出批量模式
-    notify('error', t('ns.pods.batchPartial', { ok: okNames.length, fail: failedNames.length, names: failedNames.join(', ') }))
+    notify('error', t('ns.pods.batchPartial', { ok: okNames.length, fail: failedNames.length, names: failedNames.length > 5
+      ? `${failedNames.slice(0, 5).join(', ')} ${t('ns.pods.batchMoreNames', { n: failedNames.length - 5 })}`
+      : failedNames.join(', ') }))
     selectedNames.value = new Set(failedNames)
     showBatchModal.value = false
   }
