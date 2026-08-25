@@ -21,6 +21,8 @@ const props = defineProps({
   // 端点上下文的就绪标记（null=不展示，取 Pod 自身健康度；true/false 展示 Ready/Not Ready）
   ready: { default: null },
   showDelete: { type: Boolean, default: false },
+  // 批量选择模式:行1 渲染 checkbox 视觉(pointer-events-none,点击统一走卡片 @click)
+  selectable: { type: Boolean, default: false },
   showLifecycle: { type: Boolean, default: true },
   // 集群级上下文（如 Node 详情）下展示命名空间；命名空间级页面无需开启
   showNamespace: { type: Boolean, default: false },
@@ -76,6 +78,7 @@ function openLogs() {
   >
     <!-- 行1：健康度点 + 名称 + 状态 + 容器数 + 端点就绪 + 健康标签 + 年龄 + 删除 -->
     <div class="flex items-center gap-sm">
+      <span v-if="selectable" data-test="batch-checkbox" class="material-symbols-outlined text-base text-primary select-none pointer-events-none shrink-0">{{ selected ? 'check_box' : 'check_box_outline_blank' }}</span>
       <span class="w-2 h-2 rounded-full shrink-0" :class="[health.dot, pod.status === 'Running' ? 'animate-pulse-status' : '']"></span>
       <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0" :title="pod.name">{{ nameDisp.base }}<span class="text-on-surface-variant/40 font-normal">{{ nameDisp.suffix }}</span></span>
       <StatusChip :status="pod.status" size="sm" />

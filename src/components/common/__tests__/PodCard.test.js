@@ -39,3 +39,18 @@ test('showLogs=false 隐藏日志按钮', () => {
   const w = mountCard({ showLogs: false })
   expect(w.find('[data-testid="podcard-logs"]').exists()).toBe(false)
 })
+
+test('批量模式:selectable 渲染 checkbox 视觉,selected 切换图标,点击卡片仍 emit click', async () => {
+  const w1 = mountCard({ selectable: true, selected: false })
+  const cb1 = w1.find('[data-test="batch-checkbox"]')
+  expect(cb1.exists()).toBe(true)
+  expect(cb1.text()).toBe('check_box_outline_blank')
+  await cb1.trigger('click')
+  expect(w1.emitted('click')).toBeTruthy()  // checkbox 不拦截,冒泡到卡片
+
+  const w2 = mountCard({ selectable: true, selected: true })
+  expect(w2.find('[data-test="batch-checkbox"]').text()).toBe('check_box')
+
+  const w3 = mountCard({ selectable: false })
+  expect(w3.find('[data-test="batch-checkbox"]').exists()).toBe(false)
+})
