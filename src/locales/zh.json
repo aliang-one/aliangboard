@@ -262,7 +262,20 @@
       "fRegistryEmail": "邮箱",
       "fTlsCrt": "证书 (tls.crt)",
       "fTlsKey": "私钥 (tls.key)",
-      "fSshKey": "SSH 私钥"
+      "fSshKey": "SSH 私钥",
+      "titleConfigMap": "创建 ConfigMap",
+      "titleSecret": "创建 Secret",
+      "tabData": "数据",
+      "tabAnnotations": "注解",
+      "tabLabels": "标签",
+      "tabYaml": "YAML",
+      "nameLabel": "名称",
+      "typeLabel": "类型",
+      "invalidName": "名称需符合 K8s 规则：小写字母数字与 - .",
+      "duplicateKey": "键重复",
+      "base64Hint": "值将以 base64 编码存储",
+      "emptyKeys": "还没有数据键,点左侧添加",
+      "addKey": "添加键"
     },
     "copyWorkload": {
       "title": "复制工作负载",

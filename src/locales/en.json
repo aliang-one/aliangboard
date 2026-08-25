@@ -262,7 +262,20 @@
       "fRegistryEmail": "Email",
       "fTlsCrt": "Certificate (tls.crt)",
       "fTlsKey": "Private key (tls.key)",
-      "fSshKey": "SSH private key"
+      "fSshKey": "SSH private key",
+      "titleConfigMap": "Create ConfigMap",
+      "titleSecret": "Create Secret",
+      "tabData": "Data",
+      "tabAnnotations": "Annotations",
+      "tabLabels": "Labels",
+      "tabYaml": "YAML",
+      "nameLabel": "Name",
+      "typeLabel": "Type",
+      "invalidName": "Name must be a valid K8s name: lowercase alphanumerics with - .",
+      "duplicateKey": "Duplicate key",
+      "base64Hint": "Values will be stored base64-encoded",
+      "emptyKeys": "No data keys yet — add one on the left",
+      "addKey": "Add Key"
     },
     "copyWorkload": {
       "title": "Copy Workload",
