@@ -97,6 +97,23 @@ function rowsInvalid(rows) {
 }
 const metaValid = computed(() => !rowsInvalid(labels.value) && !rowsInvalid(annotations.value))
 
+// 数据键合法性（configmap/Secret data 键 K8s 规则）：非空键重复或非法即 true。
+// 重复键会被 Object.fromEntries 静默折叠丢值,须提交前拦截。
+const DATA_KEY_RE = /^[-._a-zA-Z0-9]+$/
+const dataKeyErrors = computed(() => {
+  const seen = new Set()
+  let dup = false
+  let invalid = false
+  for (const k of freeKeys.value) {
+    if (!k.key) continue
+    if (seen.has(k.key)) dup = true
+    seen.add(k.key)
+    if (!DATA_KEY_RE.test(k.key)) invalid = true
+  }
+  return { dup, invalid }
+})
+const dataKeysInvalid = computed(() => dataKeyErrors.value.dup || dataKeyErrors.value.invalid)
+
 // 有效键（空 key 行过滤在 Modal 侧——Task 3 审查移交契约）
 const validKeys = computed(() => freeKeys.value.filter((k) => k.key))
 const keyObj = computed(() => Object.fromEntries(validKeys.value.map((k) => [k.key, k.value])))
@@ -109,7 +126,7 @@ const dataComplete = computed(() => {
 })
 
 const canCreate = computed(() =>
-  yamlMode.value === 'edit' ? yamlValid.value : nameValid.value && metaValid.value && dataComplete.value,
+  yamlMode.value === 'edit' ? yamlValid.value : nameValid.value && metaValid.value && dataComplete.value && !dataKeysInvalid.value,
 )
 
 // ---- YAML tab ----
@@ -250,6 +267,12 @@ function cancel() {
         <!-- 纯 YAML 编辑模式：表单面板整体置灰锁交互 -->
         <div :class="yamlMode === 'edit' ? 'opacity-50 pointer-events-none' : ''">
           <div v-if="activeTab === 'data'" data-testid="ccm-panel-data">
+            <!-- 数据键重复/非法行内错误（重复键会被 Object.fromEntries 静默折叠丢值） -->
+            <p v-if="dataKeysInvalid" data-testid="ccm-datakeys-error" class="text-body-sm text-error mb-xs">
+              <template v-if="dataKeyErrors.dup">{{ t('component.createConfigModal.duplicateKey') }}</template>
+              <template v-if="dataKeyErrors.dup && dataKeyErrors.invalid"> · </template>
+              <template v-if="dataKeyErrors.invalid">{{ t('component.createConfigModal.invalidDataKey') }}</template>
+            </p>
             <DataKeysEditor v-model="freeKeys" :secret="isSecret" :fixed-fields="fixedFields" />
           </div>
           <div v-else-if="activeTab === 'annotations'" data-testid="ccm-panel-annotations">

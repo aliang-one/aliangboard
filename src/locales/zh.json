@@ -273,6 +273,7 @@
       "typeLabel": "类型",
       "invalidName": "名称需符合 K8s 规则：小写字母数字与 - .",
       "duplicateKey": "键重复",
+      "invalidDataKey": "数据键名只能包含字母数字与 - . _",
       "base64Hint": "值将以 base64 编码存储",
       "emptyKeys": "还没有数据键,点左侧添加",
       "addKey": "添加键",

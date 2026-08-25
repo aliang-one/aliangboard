@@ -151,6 +151,38 @@ test('空 key 行不进 payload；重复 meta key 禁用创建', async () => {
   expect(w2.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
 })
 
+test('数据键重复 → 创建禁用 + ccm-datakeys-error 出现;修正后恢复可提交', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-name"]').setValue('dup-key')
+  await w
+    .findComponent({ name: 'DataKeysEditor' })
+    .vm.$emit('update:modelValue', [{ key: 'a', value: '1' }, { key: 'a', value: '2' }])
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
+  expect(w.find('[data-testid="ccm-datakeys-error"]').exists()).toBe(true)
+  expect(w.find('[data-testid="ccm-datakeys-error"]').text()).toContain('键重复')
+  // 修正重复后恢复可提交
+  await w
+    .findComponent({ name: 'DataKeysEditor' })
+    .vm.$emit('update:modelValue', [{ key: 'a', value: '1' }, { key: 'b', value: '2' }])
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeUndefined()
+  expect(w.find('[data-testid="ccm-datakeys-error"]').exists()).toBe(false)
+})
+
+test('数据键非法(含空格) → 创建禁用 + 错误行出现;修正后恢复可提交', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-name"]').setValue('bad-key')
+  await w
+    .findComponent({ name: 'DataKeysEditor' })
+    .vm.$emit('update:modelValue', [{ key: 'a b', value: '1' }])
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
+  expect(w.find('[data-testid="ccm-datakeys-error"]').exists()).toBe(true)
+  expect(w.find('[data-testid="ccm-datakeys-error"]').text()).toContain('数据键名只能包含字母数字与 - . _')
+  // 修正非法键后恢复可提交
+  await w.findComponent({ name: 'DataKeysEditor' }).vm.$emit('update:modelValue', [{ key: 'a-b', value: '1' }])
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeUndefined()
+  expect(w.find('[data-testid="ccm-datakeys-error"]').exists()).toBe(false)
+})
+
 test('关闭后重开 → freeKeys 重置为单空行（无跨会话键值残留）', async () => {
   // configmap 场景：无 secretTypeId 切换路径,重开是唯一重置入口
   const w = mountModal('configmap')

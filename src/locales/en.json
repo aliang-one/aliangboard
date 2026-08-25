@@ -273,6 +273,7 @@
       "typeLabel": "Type",
       "invalidName": "Name must be a valid K8s name: lowercase alphanumerics with - .",
       "duplicateKey": "Duplicate key",
+      "invalidDataKey": "Data keys may only contain alphanumerics with - . _",
       "base64Hint": "Values will be stored base64-encoded",
       "emptyKeys": "No data keys yet — add one on the left",
       "addKey": "Add Key",
