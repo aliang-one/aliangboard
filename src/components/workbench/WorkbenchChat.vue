@@ -736,11 +736,6 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </div>
         <p class="text-body-xs text-on-surface-variant/60 mt-lg flex items-center gap-xs">
           <span class="material-symbols-outlined text-sm">alternate_email</span>{{ t('workbench.chat.atMentionHint') }}
-          <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')"
-            class="ml-auto text-on-surface-variant hover:text-primary flex items-center gap-xs">
-            <span class="material-symbols-outlined text-base">tune</span>
-            <span class="text-body-xs">{{ t('workbench.chat.aiConfig.open') }}</span>
-          </button>
         </p>
       </div>
 
@@ -796,6 +791,13 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           </button>
           <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
+          </button>
+        </div>
+
+        <!-- AI 配置透明面板入口(2026-08-25):恒可见——有对话时面板显示该对话烘焙的 system -->
+        <div class="flex justify-end mt-xs">
+          <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-sm">tune</span>{{ t('workbench.chat.aiConfig.open') }}
           </button>
         </div>
 
