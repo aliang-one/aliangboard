@@ -11,6 +11,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { yamlScalar } from '@/composables/useYaml'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,6 +48,16 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 // Create ConfigMap
 const showCreateModal = ref(false)
 const createForm = ref({ name: '', keys: [{ key: '', value: '' }] })
+const createTab = ref('form')  // 'form' | 'yaml'
+
+const createYaml = computed(() => {
+  const f = createForm.value
+  const data = {}
+  f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  const lines = ['apiVersion: v1', 'kind: ConfigMap', 'metadata:', `  name: ${f.name || 'my-cm'}`, `  namespace: ${route.params.namespace}`, 'data:']
+  Object.entries(data).forEach(([k, v]) => lines.push(`  ${k}: ${yamlScalar(v)}`))
+  return lines.join('\n')
+})
 
 function resetCreate() {
   createForm.value = { name: '', keys: [{ key: '', value: '' }] }
@@ -175,8 +186,13 @@ function goDetail(row) {
   </section>
 
   <!-- Create ConfigMap Modal -->
-  <Modal v-model="showCreateModal" :title="t('ns.configmaps.createTitle')" width="max-w-lg">
-    <div class="flex flex-col gap-md">
+  <Modal v-model="showCreateModal" :title="t('ns.configmaps.createTitle')" fullscreen>
+    <div class="flex items-center gap-md border-b border-outline-variant mb-md">
+      <button v-for="tb in [{ k: 'form', l: t('ns.configmaps.tabForm') }, { k: 'yaml', l: t('ns.configmaps.tabYaml') }]" :key="tb.k" @click="createTab = tb.k"
+        class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
+        :class="createTab === tb.k ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">{{ tb.l }}</button>
+    </div>
+    <div v-show="createTab === 'form'" class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.configmaps.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-config" />
@@ -195,6 +211,7 @@ function goDetail(row) {
         </div>
       </div>
     </div>
+    <pre v-show="createTab === 'yaml'" class="font-mono text-xs whitespace-pre-wrap text-on-surface bg-surface-container-low rounded-lg p-md">{{ createYaml }}</pre>
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
       <button @click="handleCreate" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>

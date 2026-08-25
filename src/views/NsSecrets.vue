@@ -11,6 +11,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import { yamlScalar } from '@/composables/useYaml'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,6 +66,35 @@ const createForm = ref({
   tlsCrt: '', tlsKey: '',
   sshKey: '',
 })
+const createTab = ref('form')  // 'form' | 'yaml'
+
+// 表单 → stringData 映射(创建与 YAML 预览共用,防两处漂移)
+function createSecretData(f) {
+  let data = {}
+  if (f.type === 'Opaque') {
+    f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  } else if (f.type === 'kubernetes.io/basic-auth') {
+    data = { username: f.username, password: f.password }
+  } else if (f.type === 'kubernetes.io/dockerconfigjson') {
+    let auth = ''
+    try { auth = btoa(`${f.registryUser}:${f.registryPassword}`) } catch (e) { auth = `${f.registryUser}:${f.registryPassword}` }
+    const cfg = { auths: { [f.registry]: { username: f.registryUser, password: f.registryPassword, email: f.registryEmail, auth } } }
+    data = { '.dockerconfigjson': JSON.stringify(cfg) }
+  } else if (f.type === 'kubernetes.io/tls') {
+    data = { 'tls.crt': f.tlsCrt, 'tls.key': f.tlsKey }
+  } else if (f.type === 'kubernetes.io/ssh-auth') {
+    data = { 'ssh-privatekey': f.sshKey }
+  }
+  return data
+}
+
+const createYaml = computed(() => {
+  const f = createForm.value
+  const data = createSecretData(f)
+  const lines = ['apiVersion: v1', 'kind: Secret', 'metadata:', `  name: ${f.name || 'my-secret'}`, `  namespace: ${route.params.namespace}`, `type: ${f.type}`, 'stringData:']
+  Object.entries(data).forEach(([k, v]) => lines.push(`  ${k}: ${yamlScalar(v)}`))
+  return lines.join('\n')
+})
 
 function resetCreate() {
   createForm.value = {
@@ -98,21 +128,7 @@ const canCreateSecret = computed(() => {
 
 async function handleCreate() {
   const f = createForm.value
-  let data = {}
-  if (f.type === 'Opaque') {
-    f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
-  } else if (f.type === 'kubernetes.io/basic-auth') {
-    data = { username: f.username, password: f.password }
-  } else if (f.type === 'kubernetes.io/dockerconfigjson') {
-    let auth = ''
-    try { auth = btoa(`${f.registryUser}:${f.registryPassword}`) } catch (e) { auth = `${f.registryUser}:${f.registryPassword}` }
-    const cfg = { auths: { [f.registry]: { username: f.registryUser, password: f.registryPassword, email: f.registryEmail, auth } } }
-    data = { '.dockerconfigjson': JSON.stringify(cfg) }
-  } else if (f.type === 'kubernetes.io/tls') {
-    data = { 'tls.crt': f.tlsCrt, 'tls.key': f.tlsKey }
-  } else if (f.type === 'kubernetes.io/ssh-auth') {
-    data = { 'ssh-privatekey': f.sshKey }
-  }
+  const data = createSecretData(f)
   const r = await store.addSecret({
     name: f.name,
     namespace: route.params.namespace,
@@ -243,8 +259,13 @@ function goDetail(row) {
   </section>
 
   <!-- Create Secret Modal -->
-  <Modal v-model="showCreateModal" :title="t('ns.secrets.createTitle')" width="max-w-lg">
-    <div class="flex flex-col gap-md">
+  <Modal v-model="showCreateModal" :title="t('ns.secrets.createTitle')" fullscreen>
+    <div class="flex items-center gap-md border-b border-outline-variant mb-md">
+      <button v-for="tb in [{ k: 'form', l: t('ns.secrets.tabForm') }, { k: 'yaml', l: t('ns.secrets.tabYaml') }]" :key="tb.k" @click="createTab = tb.k"
+        class="px-md py-sm text-body-sm font-medium border-b-2 -mb-px transition-colors"
+        :class="createTab === tb.k ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'">{{ tb.l }}</button>
+    </div>
+    <div v-show="createTab === 'form'" class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.secrets.nameLabel') }}</label>
         <input v-model="createForm.name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary" placeholder="my-secret" />
@@ -331,6 +352,7 @@ function goDetail(row) {
         </div>
       </div>
     </div>
+    <pre v-show="createTab === 'yaml'" class="font-mono text-xs whitespace-pre-wrap text-on-surface bg-surface-container-low rounded-lg p-md">{{ createYaml }}</pre>
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
       <button @click="handleCreate" :disabled="!canCreateSecret" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
