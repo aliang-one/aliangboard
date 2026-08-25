@@ -77,10 +77,10 @@ describe('NsServiceDetail 删除须尊重 {ok}:失败不跳列表', () => {
     const w = mount(NsServiceDetail, { global: { mocks: { $t: k => k }, stubs } })
     await flushPromises()
     // 打开 ⋮ 菜单里的 Delete Service → 确认框出现
-    await w.findAll('button.menu-item').find(b => b.text() === 'Delete Service').trigger('click')
+    await w.findAll('button.menu-item').find(b => b.text() === 'common.deleteTitle').trigger('click')
     expect(w.find('.modal').exists()).toBe(true)
     // 点确认删除
-    await w.findAll('button').find(b => b.text() === 'Delete').trigger('click')
+    await w.findAll('button').find(b => b.text() === 'common.delete').trigger('click')
     await flushPromises()
     expect(deleteService).toHaveBeenCalledWith('svc-a', 'anydoor')
     expect(pushSpy).not.toHaveBeenCalled()
@@ -91,8 +91,8 @@ describe('NsServiceDetail 删除须尊重 {ok}:失败不跳列表', () => {
     deleteResult = { ok: true }
     const w = mount(NsServiceDetail, { global: { mocks: { $t: k => k }, stubs } })
     await flushPromises()
-    await w.findAll('button.menu-item').find(b => b.text() === 'Delete Service').trigger('click')
-    await w.findAll('button').find(b => b.text() === 'Delete').trigger('click')
+    await w.findAll('button.menu-item').find(b => b.text() === 'common.deleteTitle').trigger('click')
+    await w.findAll('button').find(b => b.text() === 'common.delete').trigger('click')
     await flushPromises()
     expect(pushSpy).toHaveBeenCalledWith({ name: 'NsServices', params: { namespace: 'anydoor' } })
   })

@@ -61,17 +61,17 @@ function handleDiscard() {
       <div class="flex items-center gap-sm">
         <span class="material-symbols-outlined text-primary text-lg">description</span>
         <span class="text-label-caps text-on-surface-variant">YAML</span>
-        <span v-if="readonly" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant">READ ONLY</span>
-        <span v-if="isEditing" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">EDITING</span>
+        <span v-if="readonly" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant">{{ $t('component.yaml.readOnly') }}</span>
+        <span v-if="isEditing" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">{{ $t('common.editing') }}</span>
       </div>
       <div class="flex items-center gap-sm">
         <button v-if="!readonly && !isEditing" @click="startEdit" class="flex items-center gap-xs px-sm py-xs text-body-sm text-primary font-medium hover:bg-primary-container/10 rounded-lg transition-colors">
-          <span class="material-symbols-outlined text-base">edit</span> Edit
+          <span class="material-symbols-outlined text-base">edit</span> {{ $t('common.edit') }}
         </button>
-        <button @click="copy" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Copy">
+        <button @click="copy" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" :title="$t('common.copy')">
           <span class="material-symbols-outlined text-lg">content_copy</span>
         </button>
-        <button @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" title="Download">
+        <button @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" :title="$t('common.download')">
           <span class="material-symbols-outlined text-lg">download</span>
         </button>
       </div>
@@ -80,11 +80,11 @@ function handleDiscard() {
     <!-- Diff Mode -->
     <div v-if="diffMode" class="grid grid-cols-2 divide-x divide-outline-variant">
       <div>
-        <div class="px-md py-xs bg-surface-container text-label-caps text-on-surface-variant text-center border-b border-outline-variant">LIVE</div>
+        <div class="px-md py-xs bg-surface-container text-label-caps text-on-surface-variant text-center border-b border-outline-variant">{{ $t('component.yaml.live') }}</div>
         <CodeViewer :code="originalValue" lang="yaml" :max-height="height" />
       </div>
       <div>
-        <div class="px-md py-xs bg-primary-container/10 text-label-caps text-primary text-center border-b border-outline-variant">EDITABLE</div>
+        <div class="px-md py-xs bg-primary-container/10 text-label-caps text-primary text-center border-b border-outline-variant">{{ $t('component.yaml.editable') }}</div>
         <textarea v-model="editableContent" class="w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
       </div>
     </div>
@@ -99,8 +99,8 @@ function handleDiscard() {
 
     <!-- Action Bar（编辑且有改动时）-->
     <div v-if="isEditing && hasChanges" class="flex justify-end gap-sm px-md py-sm bg-surface-container-low border-t border-outline-variant">
-      <button @click="handleDiscard" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">Discard</button>
-      <button @click="handleSave" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all">Apply Changes</button>
+      <button @click="handleDiscard" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">{{ $t('common.discard') }}</button>
+      <button @click="handleSave" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all">{{ $t('common.applyChanges') }}</button>
     </div>
   </div>
 </template>

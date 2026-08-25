@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -12,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
@@ -83,8 +85,8 @@ const limitSections = computed(() => {
   const l = lr.value
   return [
     {
-      title: 'Default Limits',
-      description: 'Resource limits applied to containers that do not specify their own limits',
+      title: t('ns.limitRangeDetail.defaultLimits'),
+      description: t('ns.limitRangeDetail.descDefaultLimits'),
       icon: 'layers',
       colorClass: 'bg-primary-container/10 text-primary border-primary/20',
       items: [
@@ -93,8 +95,8 @@ const limitSections = computed(() => {
       ],
     },
     {
-      title: 'Default Requests',
-      description: 'Resource requests applied to containers that do not specify their own requests',
+      title: t('ns.limitRangeDetail.defaultRequests'),
+      description: t('ns.limitRangeDetail.descDefaultRequests'),
       icon: 'input',
       colorClass: 'bg-secondary-container/10 text-secondary border-secondary/20',
       items: [
@@ -103,8 +105,8 @@ const limitSections = computed(() => {
       ],
     },
     {
-      title: 'Max Limits',
-      description: 'Maximum resource limits that can be set on containers',
+      title: t('ns.limitRangeDetail.maxLimits'),
+      description: t('ns.limitRangeDetail.descMaxLimits'),
       icon: 'arrow_upward',
       colorClass: 'bg-tertiary-container/10 text-tertiary border-tertiary/20',
       items: [
@@ -113,8 +115,8 @@ const limitSections = computed(() => {
       ],
     },
     {
-      title: 'Min Limits',
-      description: 'Minimum resource limits that can be set on containers',
+      title: t('ns.limitRangeDetail.minLimits'),
+      description: t('ns.limitRangeDetail.descMinLimits'),
       icon: 'arrow_downward',
       colorClass: 'bg-surface-container text-on-surface-variant border-outline-variant',
       items: [
@@ -143,17 +145,17 @@ const limitSections = computed(() => {
           <h1 class="text-display-lg text-on-surface">{{ lr.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
             <span class="px-2.5 py-0.5 bg-secondary-container/10 text-secondary text-label-caps rounded-full font-medium">LimitRange</span>
-            <span class="text-body-sm text-on-surface-variant">Type: Container</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ lr.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.type') }}: Container</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ lr.age }}</span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="openEditModal" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors">
-          <span class="material-symbols-outlined">edit</span> Edit
+          <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -194,15 +196,15 @@ const limitSections = computed(() => {
   </div>
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">LimitRange Not Found</h2>
-    <button @click="router.push({ name: 'NsLimitRanges', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to LimitRanges</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'LimitRange' }) }}</h2>
+    <button @click="router.push({ name: 'NsLimitRanges', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'LimitRanges' }) }}</button>
   </div>
 
   <!-- Edit Modal -->
-  <Modal v-model="showEditModal" title="Edit LimitRange" width="max-w-lg">
+  <Modal v-model="showEditModal" :title="t('common.editTitle', { name: 'LimitRange' })" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Default Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.limitRangeDetail.defaultLimits') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
@@ -215,7 +217,7 @@ const limitSections = computed(() => {
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Default Requests</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.limitRangeDetail.defaultRequests') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
@@ -228,7 +230,7 @@ const limitSections = computed(() => {
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Max Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.limitRangeDetail.maxLimits') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
@@ -241,7 +243,7 @@ const limitSections = computed(() => {
         </div>
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Min Limits</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.limitRangeDetail.minLimits') }}</label>
         <div class="grid grid-cols-2 gap-md">
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">CPU</label>
@@ -255,18 +257,18 @@ const limitSections = computed(() => {
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save Changes</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.saveChanges') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete LimitRange" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete LimitRange <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">Removing a LimitRange removes default resource constraints for containers. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('common.deleteTitle', { name: 'LimitRange' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('common.confirmDelete', { type: 'LimitRange', name: route.params.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.limitRangeDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>

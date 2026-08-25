@@ -133,26 +133,26 @@ function submitDelete() {
         <div>
           <div class="flex items-center gap-xs text-on-surface-variant mb-xs">
             <span class="material-symbols-outlined text-base">folder_open</span>
-            <span class="text-xs uppercase tracking-wider">Namespace Explorer</span>
+            <span class="text-xs uppercase tracking-wider">{{ t('ns.namespaces.explorer') }}</span>
           </div>
-          <h2 class="text-headline-md text-on-surface font-bold">Namespaces</h2>
-          <p class="text-on-surface-variant text-body-sm mt-xs">Browse and manage Kubernetes namespaces.</p>
+          <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.namespaces.title') }}</h2>
+          <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.namespaces.subtitle') }}</p>
         </div>
         <div class="flex gap-sm">
           <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? 'Syncing…' : 'Sync' }}
+            <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.namespaces.syncing') : t('common.sync') }}
           </button>
           <button
             class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity"
             @click="openCreate"
           >
-            <span class="material-symbols-outlined text-base">add</span> New Namespace
+            <span class="material-symbols-outlined text-base">add</span> {{ t('ns.namespaces.new') }}
           </button>
         </div>
       </div>
     </div>
 
-    <EmptyState v-if="!namespaces.length" icon="folder_open" title="No namespaces" description="No namespaces in the cluster." />
+    <EmptyState v-if="!namespaces.length" icon="folder_open" :title="t('ns.namespaces.emptyTitle')" :description="t('ns.namespaces.emptyDescription')" />
     <DataTable v-else :headers="headers" :rows="paginated" column-key="namespaces" @row-click="(row) => router.push(`/namespaces/${row.name}`)">
       <template #name="{ row }">
         <div class="flex items-center gap-md">
@@ -181,13 +181,13 @@ function submitDelete() {
           >
             <span class="material-symbols-outlined text-lg">login</span>
           </button>
-          <button @click.stop="router.push(`/namespaces/${row.name}`)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" title="View">
+          <button @click.stop="router.push(`/namespaces/${row.name}`)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="t('ns.namespaces.view')">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
           <button
             class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
             :class="{ 'opacity-40 cursor-not-allowed': isProtected(row.name) }"
-            :title="isProtected(row.name) ? t('ns.namespaces.systemNamespace') : 'Delete'"
+            :title="isProtected(row.name) ? t('ns.namespaces.systemNamespace') : t('common.delete')"
             :disabled="isProtected(row.name)"
             @click.stop="openDelete(row)"
           >

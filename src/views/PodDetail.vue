@@ -64,13 +64,13 @@ const termMode = ref('exec')
 const selectedContainer = ref('')
 watch(pod, (p) => { if (p && !selectedContainer.value) selectedContainer.value = (p.containers?.[0] || 'main') }, { immediate: true })
 
-const tabs = [
-  { key: 'logs', label: 'Logs', icon: 'terminal' },
-  { key: 'files', label: 'Files', icon: 'folder' },
+const tabs = computed(() => [
+  { key: 'logs', label: t('podDetail.tabLogs'), icon: 'terminal' },
+  { key: 'files', label: t('podDetail.tabFiles'), icon: 'folder' },
   { key: 'yaml', label: 'YAML', icon: 'description' },
-  { key: 'terminal', label: 'Terminal', icon: 'keyboard' },
-  { key: 'events', label: 'Events', icon: 'event_note' },
-]
+  { key: 'terminal', label: t('podDetail.tabTerminal'), icon: 'keyboard' },
+  { key: 'events', label: t('podDetail.tabEvents'), icon: 'event_note' },
+])
 
 // 资源用量百分比：优先用远端数值字段，缺失时回退解析 "used/total" 字符串（兼容 mock）
 function pctFromRatio(str) {
@@ -228,7 +228,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         ]" />
         <div class="flex items-center gap-3 mt-2">
           <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status"></div>
-          <h2 class="text-display-lg">Pod: {{ pod.name }}</h2>
+          <h2 class="text-display-lg">{{ $t('podDetail.pod', { name: pod.name }) }}</h2>
           <StatusChip :status="pod.status" />
         </div>
       </div>
@@ -240,15 +240,15 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         </button>
         <button @click="exportPod" :title="$t('podDetail.exportRealYaml')" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined">download</span>
-          <span class="font-medium text-body-md">Export</span>
+          <span class="font-medium text-body-md">{{ $t('common.export') }}</span>
         </button>
         <button @click="askDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-error">delete</span>
-          <span class="font-medium text-body-md">Delete</span>
+          <span class="font-medium text-body-md">{{ $t('common.delete') }}</span>
         </button>
         <button @click="askRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">refresh</span>
-          <span class="font-medium text-body-md">Restart</span>
+          <span class="font-medium text-body-md">{{ $t('common.restart') }}</span>
         </button>
       </div>
     </div>
@@ -287,7 +287,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
         <div v-if="activeTab === 'terminal'" class="flex-1 flex flex-col min-h-0">
           <div class="bg-surface-container-highest/50 px-md py-2 flex items-center gap-md border-b border-outline-variant shrink-0">
             <div class="flex items-center gap-xs">
-              <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
+              <span class="text-body-sm text-on-surface-variant font-medium">{{ $t('podDetail.container') }}</span>
               <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
                 <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
               </select>
@@ -331,29 +331,29 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
       <aside class="col-span-12 lg:col-span-3 flex flex-col gap-gutter">
         <!-- Resource Utilization -->
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">Resource Utilization</h3>
+          <h3 class="text-headline-sm mb-md">{{ $t('podDetail.resourceUtilization') }}</h3>
           <div class="space-y-md">
-            <ProgressBar :value="cpuPct || 0" show-label label="CPU Usage" />
+            <ProgressBar :value="cpuPct || 0" show-label :label="$t('podDetail.cpuUsage')" />
             <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.cpu || '—' }}</p>
-            <ProgressBar :value="memPct || 0" show-label label="Memory Usage" />
+            <ProgressBar :value="memPct || 0" show-label :label="$t('podDetail.memoryUsage')" />
             <p class="font-mono text-code-sm text-on-surface-variant -mt-2">{{ pod.memory || '—' }}</p>
           </div>
         </div>
 
         <!-- Metadata -->
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">Metadata</h3>
+          <h3 class="text-headline-sm mb-md">{{ $t('podDetail.metadata') }}</h3>
           <div class="space-y-lg">
             <div>
-              <h4 class="text-label-caps text-on-surface-variant mb-2">LABELS</h4>
+              <h4 class="text-label-caps text-on-surface-variant mb-2">{{ $t('podDetail.labels') }}</h4>
               <LabelChips :labels="pod.labels || {}" />
             </div>
             <div>
-              <h4 class="text-label-caps text-on-surface-variant mb-2">ANNOTATIONS</h4>
+              <h4 class="text-label-caps text-on-surface-variant mb-2">{{ $t('podDetail.annotations') }}</h4>
               <AnnotationList :annotations="pod.annotations || {}" />
             </div>
             <div>
-              <h4 class="text-label-caps text-on-surface-variant mb-2">OWNER REFERENCES</h4>
+              <h4 class="text-label-caps text-on-surface-variant mb-2">{{ $t('podDetail.ownerReferences') }}</h4>
               <ResourceTopology :namespace="pod.namespace" kind="Pod" :name="pod.name" api-version="v1" />
             </div>
           </div>
@@ -361,14 +361,14 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
 
         <!-- Node Info -->
         <div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-card">
-          <h3 class="text-headline-sm mb-md">Node Placement</h3>
+          <h3 class="text-headline-sm mb-md">{{ $t('podDetail.nodePlacement') }}</h3>
           <div class="flex items-center gap-3">
             <div class="p-2 bg-secondary/10 text-secondary rounded">
               <span class="material-symbols-outlined">dns</span>
             </div>
             <div>
-              <p class="text-body-md font-semibold">{{ pod.node || 'Unscheduled' }}</p>
-              <p class="text-body-sm text-on-surface-variant">{{ pod.ip || 'No IP assigned' }}</p>
+              <p class="text-body-md font-semibold">{{ pod.node || $t('podDetail.unscheduled') }}</p>
+              <p class="text-body-sm text-on-surface-variant">{{ pod.ip || $t('podDetail.noIpAssigned') }}</p>
             </div>
           </div>
         </div>

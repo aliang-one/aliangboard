@@ -404,11 +404,11 @@ async function confirmDeletePort() {
 // === 头部 ⋮ 操作菜单 ===
 function actionItems() {
   const items = [
-    { label: 'Port Forward', icon: 'cable', action: () => { showPortForward.value = true } },
+    { label: t('ns.svcDetail.portForward'), icon: 'cable', action: () => { showPortForward.value = true } },
     { label: t('ns.svcDetail.viewEditYaml'), icon: 'description', action: openYaml },
   ]
   items.push({ label: t('ns.svcDetail.exportYaml'), icon: 'download', action: exportSvc })
-  items.push({ label: 'Delete Service', icon: 'delete', danger: true, disabled: !canDelete.value, action: () => { showDeleteModal.value = true } })
+  items.push({ label: t('common.deleteTitle', { name: 'Service' }), icon: 'delete', danger: true, disabled: !canDelete.value, action: () => { showDeleteModal.value = true } })
   return items
 }
 
@@ -445,9 +445,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
             <span v-if="!isExternalName" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium"
               :class="endpointsHealthy ? 'bg-primary-container/10 text-primary' : 'bg-error-container/10 text-error'">
               <span class="w-1.5 h-1.5 rounded-full" :class="endpointsHealthy ? 'bg-primary' : 'bg-error'"></span>
-              {{ readyCount }}/{{ totalCount }} ready
+              {{ $t('ns.svcDetail.readyCount', { ready: readyCount, total: totalCount }) }}
             </span>
-            <span class="text-xs text-on-surface-variant">Age {{ svc.age }}</span>
+            <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.ageLabel', { age: svc.age }) }}</span>
             <span class="text-xs text-on-surface-variant">ns: <span class="text-primary font-medium">{{ svc.namespace }}</span></span>
           </div>
         </div>
@@ -455,7 +455,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <div class="flex items-center gap-xs shrink-0">
         <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? t('ns.svcDetail.noUpdatePermission') : ''"
           class="flex items-center gap-xs px-2.5 py-1 bg-primary text-on-primary font-semibold rounded-lg text-xs hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
-          <span class="material-symbols-outlined text-sm">edit</span> Edit
+          <span class="material-symbols-outlined text-sm">edit</span> {{ $t('common.edit') }}
         </button>
         <DropdownMenu :items="actionItems()" />
       </div>
@@ -469,28 +469,28 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div class="rounded-lg overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">cable</span>
-            <span class="text-body-sm font-semibold">Connection</span>
+            <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.connection') }}</span>
           </div>
           <div class="p-sm grid grid-cols-2 gap-xs">
             <div v-if="isExternalName" class="col-span-2 p-sm rounded-md bg-surface-container-low">
-              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">External Name (CNAME)</p>
+              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.externalNameCname') }}</p>
               <p class="font-mono text-xs text-primary font-semibold break-all">{{ svc.externalName || '—' }}</p>
             </div>
             <template v-else>
               <div class="p-sm rounded-md bg-surface-container-low">
-                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">Cluster IP</p>
+                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.clusterIp') }}</p>
                 <p class="font-mono text-xs text-primary font-semibold">{{ svc.clusterIP }}</p>
                 <p v-if="svc.clusterIPs?.length > 1" class="font-mono text-[11px] text-on-surface-variant mt-0.5">{{ svc.clusterIPs.join(', ') }}</p>
               </div>
               <div class="p-sm rounded-md bg-surface-container-low">
-                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">External IP</p>
+                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.externalIp') }}</p>
                 <div v-if="svc.externalIP && svc.externalIP !== '-'" class="flex flex-wrap gap-1">
                   <span v-for="ip in svc.externalIP.split(',')" :key="ip" class="font-mono text-xs text-primary font-semibold">{{ ip }}</span>
                 </div>
                 <p v-else class="font-mono text-xs text-on-surface-variant">—</p>
               </div>
               <div v-if="svc.lbIngress?.length" class="col-span-2 p-sm rounded-md bg-surface-container-low">
-                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">LoadBalancer Ingress</p>
+                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.lbIngress') }}</p>
                 <div class="flex flex-wrap gap-1">
                   <span v-for="(lb, i) in svc.lbIngress" :key="i" class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-container/10 text-primary text-[11px] rounded-full border border-primary/20 font-mono">
                     <span class="material-symbols-outlined text-xs">cloud_done</span>{{ lb.ip || lb.hostname }}
@@ -498,11 +498,11 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 </div>
               </div>
               <div class="p-sm rounded-md bg-surface-container-low">
-                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">Session Affinity</p>
+                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.sessionAffinity') }}</p>
                 <p class="text-xs font-semibold text-on-surface">{{ svc.sessionAffinity }}<span v-if="svc.sessionAffinityTimeout" class="text-on-surface-variant font-normal"> · {{ svc.sessionAffinityTimeout }}s</span></p>
               </div>
               <div class="p-sm rounded-md bg-surface-container-low">
-                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">IP Family</p>
+                <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.ipFamily') }}</p>
                 <p class="text-xs font-semibold text-on-surface">{{ svc.ipFamilyPolicy || (svc.ipFamilies?.length ? svc.ipFamilies.join('/') : 'IPv4') }}</p>
               </div>
             </template>
@@ -514,7 +514,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center justify-between">
             <div class="flex items-center gap-xs min-w-0">
               <span class="material-symbols-outlined text-primary text-base">swap_horiz</span>
-              <span class="text-body-sm font-semibold">Service Ports</span>
+              <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.servicePorts') }}</span>
               <span class="text-[11px] text-on-surface-variant/60 truncate" :title="$t('ns.svcDetail.backendPodsTitle', { ports: epPorts.map(p => p.port).join(' / ') || '—' })">{{ $t('ns.svcDetail.clientPort') }}<span v-if="hasNodePort"> · {{ $t('ns.svcDetail.nodePortExternal') }}</span></span>
             </div>
             <div class="flex items-center gap-xs shrink-0">
@@ -527,11 +527,11 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="bg-surface-container-low border-b border-outline-variant">
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Name</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Port</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Target</th>
-                <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Node Port</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">Protocol</th>
+                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('common.name') }}</th>
+                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.port') }}</th>
+                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.target') }}</th>
+                <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.nodePortLabel') }}</th>
+                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.protocol') }}</th>
                 <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">{{ $t('ns.svcDetail.operations') }}</th>
               </tr>
             </thead>
@@ -555,9 +555,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center justify-between">
             <div class="flex items-center gap-xs">
               <span class="material-symbols-outlined text-primary text-base">hub</span>
-              <span class="text-body-sm font-semibold">Endpoints</span>
+              <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.endpoints') }}</span>
             </div>
-            <span v-if="!isExternalName" class="text-xs font-medium" :class="endpointsHealthy ? 'text-primary' : 'text-error'">{{ readyCount }}/{{ totalCount }} ready</span>
+            <span v-if="!isExternalName" class="text-xs font-medium" :class="endpointsHealthy ? 'text-primary' : 'text-error'">{{ $t('ns.svcDetail.readyCount', { ready: readyCount, total: totalCount }) }}</span>
           </div>
           <!-- 提示：后端 Pod = 实际接收流量的进程；其端口对应 Service 的 targetPort，与 Service port 不同 -->
           <div v-if="!isExternalName" class="px-sm py-1 bg-surface-container-low/40 text-[11px] text-on-surface-variant/70 flex items-center gap-xs border-b border-outline-variant/30">
@@ -582,7 +582,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="item.ready ? 'bg-primary' : 'bg-tertiary-fixed'"></span>
                 <span class="font-mono text-xs text-on-surface-variant">{{ item.ip }}</span>
                 <span class="text-[11px] text-on-surface-variant/50">{{ $t('ns.svcDetail.unboundPodHint') }}</span>
-                <span class="ml-auto text-[11px] font-medium" :class="item.ready ? 'text-primary' : 'text-tertiary-container'">{{ item.ready ? 'Ready' : 'Not Ready' }}</span>
+                <span class="ml-auto text-[11px] font-medium" :class="item.ready ? 'text-primary' : 'text-tertiary-container'">{{ item.ready ? $t('ns.svcDetail.readyLabel') : $t('ns.svcDetail.notReadyLabel') }}</span>
               </div>
             </template>
           </div>
@@ -601,7 +601,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div class="rounded-lg overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">filter_alt</span>
-            <span class="text-body-sm font-semibold">Selector</span>
+            <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.selector') }}</span>
             <button v-if="canMutate && !isExternalName" @click="openAddBackend" class="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" :title="$t('ns.svcDetail.addBackendHint')">
               <span class="material-symbols-outlined text-sm">add</span>{{ $t('ns.svcDetail.addBackend') }}
             </button>
@@ -634,23 +634,23 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div v-if="!isExternalName" class="rounded-lg overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">alt_route</span>
-            <span class="text-body-sm font-semibold">Traffic Policy</span>
+            <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.trafficPolicy') }}</span>
           </div>
           <div class="px-sm py-xs">
             <div class="flex justify-between items-center py-1 border-b border-outline-variant/30">
-              <span class="text-xs text-on-surface-variant">External</span>
+              <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.trafficExternal') }}</span>
               <span class="text-xs font-semibold text-on-surface">{{ svc.externalTrafficPolicy || $t('ns.svcDetail.defaultCluster') }}</span>
             </div>
             <div class="flex justify-between items-center py-1 border-b border-outline-variant/30">
-              <span class="text-xs text-on-surface-variant">Internal</span>
+              <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.trafficInternal') }}</span>
               <span class="text-xs font-semibold text-on-surface">{{ svc.internalTrafficPolicy || 'Cluster' }}</span>
             </div>
             <div v-if="svc.healthCheckNodePort" class="flex justify-between items-center py-1 border-b border-outline-variant/30">
-              <span class="text-xs text-on-surface-variant">Health Node Port</span>
+              <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.healthNodePort') }}</span>
               <span class="font-mono text-xs text-on-surface">{{ svc.healthCheckNodePort }}</span>
             </div>
             <div v-if="svc.publishNotReadyAddresses" class="flex justify-between items-center py-1">
-              <span class="text-xs text-on-surface-variant">Publish Not Ready</span>
+              <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.publishNotReady') }}</span>
               <span class="text-xs text-tertiary-container font-semibold">true</span>
             </div>
           </div>
@@ -660,18 +660,18 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
         <div class="rounded-lg overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">sell</span>
-            <span class="text-body-sm font-semibold">Metadata</span>
+            <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.metadata') }}</span>
           </div>
           <div class="px-sm py-xs flex flex-col gap-xs">
             <div>
-              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">Labels</p>
+              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.labels') }}</p>
               <div v-if="Object.keys(svc.labels || {}).length" class="flex flex-wrap gap-1">
                 <span v-for="(val, key) in svc.labels" :key="key" class="px-1.5 py-0.5 bg-surface-container rounded text-[11px] border border-outline-variant font-mono">{{ key }}: {{ val }}</span>
               </div>
               <p v-else class="text-xs text-on-surface-variant italic">—</p>
             </div>
             <div>
-              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">Annotations</p>
+              <p class="text-[10px] text-on-surface-variant/50 uppercase tracking-wide mb-0.5">{{ $t('ns.svcDetail.annotations') }}</p>
               <div v-if="Object.keys(svc.annotations || {}).length" class="bg-surface-container p-xs rounded border border-outline-variant font-mono text-[11px] text-on-surface-variant max-h-32 overflow-y-auto">
                 <div v-for="(val, key) in svc.annotations" :key="key" class="truncate" :title="`${key}: ${val}`">{{ key }}</div>
               </div>
@@ -685,7 +685,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center justify-between">
             <div class="flex items-center gap-xs">
               <span class="material-symbols-outlined text-primary text-base">event_note</span>
-              <span class="text-body-sm font-semibold">Events</span>
+              <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.events') }}</span>
             </div>
             <span class="text-xs text-on-surface-variant">{{ svcEvents.length }}</span>
           </div>
@@ -714,9 +714,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">Service Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">Service "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsServices', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Services</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ $t('common.notFound', { name: 'Service' }) }}</h2>
+    <p class="text-body-md text-on-surface-variant mt-sm">{{ $t('ns.svcDetail.notFoundDetail', { name: route.params.name, ns: route.params.namespace }) }}</p>
+    <button @click="router.push({ name: 'NsServices', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('common.backTo', { name: 'Services' }) }}</button>
   </div>
 
   <!-- 统一 Edit 弹窗 -->
@@ -725,7 +725,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <!-- Service Type:ClusterIP/NodePort/LoadBalancer 三者可互转;ExternalName 与其他类型
            K8s 禁止互转(保存必 422)——按当前实际类型锁定不可达选项,提示走重建。 -->
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Service Type</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.serviceTypeLabel') }}</label>
         <div class="flex flex-wrap gap-xs">
           <button v-for="st in ['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName']" :key="st" type="button"
             :disabled="(st === 'ExternalName') !== (svc?.type === 'ExternalName')"
@@ -740,7 +740,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
 
       <!-- ExternalName 目标 -->
       <div v-if="editForm.type === 'ExternalName'">
-        <label class="text-label-caps text-on-surface-variant block mb-xs">External Name</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.externalNameLabel') }}</label>
         <input v-model="editForm.externalName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.svcDetail.externalNamePlaceholder')" />
         <p class="text-xs text-on-surface-variant/60 mt-xs">{{ $t('ns.svcDetail.externalNameHint') }}</p>
       </div>
@@ -748,9 +748,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <!-- Ports（结构化）-->
       <div v-else>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Ports</label>
+          <label class="text-label-caps text-on-surface-variant">{{ $t('ns.svcDetail.portsLabel') }}</label>
           <button @click="addPortRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
-            <span class="material-symbols-outlined text-sm">add</span> Add Port
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.svcDetail.addPort') }}
           </button>
         </div>
         <div class="flex flex-col gap-xs">
@@ -773,9 +773,9 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <!-- Selector -->
       <div>
         <div class="flex items-center justify-between mb-xs">
-          <label class="text-label-caps text-on-surface-variant">Selector</label>
+          <label class="text-label-caps text-on-surface-variant">{{ $t('ns.svcDetail.selector') }}</label>
           <button @click="addSelectorRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
-            <span class="material-symbols-outlined text-sm">add</span> Add
+            <span class="material-symbols-outlined text-sm">add</span> {{ $t('common.add') }}
           </button>
         </div>
         <div class="flex flex-col gap-xs">
@@ -794,14 +794,14 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <!-- Session Affinity -->
       <div class="grid grid-cols-2 gap-md items-end">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Session Affinity</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.sessionAffinity') }}</label>
           <select v-model="editForm.sessionAffinity" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary">
             <option value="None">{{ $t('ns.svcDetail.sessionNoneOption') }}</option>
             <option value="ClientIP">{{ $t('ns.svcDetail.sessionClientIpOption') }}</option>
           </select>
         </div>
         <div v-if="editForm.sessionAffinity === 'ClientIP'">
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Timeout (s)</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.timeoutSeconds') }}</label>
           <input v-model.number="editForm.sessionAffinityTimeout" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
         </div>
       </div>
@@ -809,7 +809,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <!-- Traffic Policy -->
       <div class="grid grid-cols-2 gap-md">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">External Traffic</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.externalTraffic') }}</label>
           <select v-model="editForm.externalTrafficPolicy" :disabled="editForm.type !== 'NodePort' && editForm.type !== 'LoadBalancer'" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary disabled:opacity-50">
             <option value="">{{ $t('ns.svcDetail.defaultTrafficOption') }}</option>
             <option value="Cluster">Cluster</option>
@@ -817,7 +817,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           </select>
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Internal Traffic</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.svcDetail.internalTraffic') }}</label>
           <select v-model="editForm.internalTrafficPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm focus:ring-2 focus:ring-primary">
             <option value="Cluster">Cluster</option>
             <option value="Local">Local</option>
@@ -826,33 +826,33 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
     </div>
     <template #actions>
-      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">Save</button>
+      <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.save') }}</button>
     </template>
   </Modal>
 
   <!-- YAML 弹窗 -->
-  <Modal v-model="showYamlModal" title="Service YAML" width="max-w-4xl">
+  <Modal v-model="showYamlModal" :title="$t('ns.svcDetail.yamlTitle')" width="max-w-4xl">
     <p v-if="yamlLoading" class="text-body-sm text-on-surface-variant">{{ $t('ns.svcDetail.loadYaml') }}</p>
     <YamlEditor v-else :model-value="svcYaml" :readonly="false" height="60vh" @save="onYamlSave" />
     <template #actions>
-      <button @click="showYamlModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Close</button>
+      <button @click="showYamlModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.close') }}</button>
     </template>
   </Modal>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete Service" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete service <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">This will disrupt traffic to the backend pods. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="$t('common.deleteTitle', { name: 'Service' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant" v-html="$t('ns.svcDetail.deleteConfirm', { name: route.params.name })"></p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.svcDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- 删除端口确认 -->
   <Modal v-model="showDeletePortModal" :title="$t('ns.svcDetail.deletePortTitle')" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant" v-if="deletePortTarget">{{ $t('ns.svcDetail.deletePortQuestion') }} <span class="font-mono font-semibold text-on-surface">{{ deletePortTarget.port }}</span><span class="text-on-surface-variant"> → target {{ deletePortTarget.targetPort }} / {{ deletePortTarget.protocol }}</span>？</p>
+    <p class="text-body-md text-on-surface-variant" v-if="deletePortTarget">{{ $t('ns.svcDetail.deletePortQuestion') }} <span class="font-mono font-semibold text-on-surface">{{ deletePortTarget.port }}</span> <span class="text-on-surface-variant">{{ $t('ns.svcDetail.deletePortTargetSuffix', { port: deletePortTarget.targetPort, protocol: deletePortTarget.protocol }) }}</span></p>
     <p class="text-body-sm text-error mt-sm">{{ $t('ns.svcDetail.deletePortWarning') }}</p>
     <template #actions>
       <button @click="showDeletePortModal = false; deletePortIdx = -1" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>

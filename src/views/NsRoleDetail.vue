@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -12,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
+const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
@@ -143,14 +145,14 @@ const scopeBadge = computed(() => {
             <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="scopeBadge.color">
               {{ scopeBadge.label }}
             </span>
-            <span v-if="role.namespace" class="text-body-sm text-on-surface-variant">Namespace: <span class="text-primary font-medium">{{ role.namespace }}</span></span>
-            <span class="text-body-sm text-on-surface-variant">Bindings: <span class="font-mono font-bold text-on-surface">{{ role.bindings }}</span></span>
+            <span v-if="role.namespace" class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium">{{ role.namespace }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.bindings') }}: <span class="font-mono font-bold text-on-surface">{{ role.bindings }}</span></span>
           </div>
         </div>
       </div>
       <div class="flex gap-sm">
         <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
-          <span class="material-symbols-outlined">delete</span> Delete
+          <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
@@ -168,26 +170,26 @@ const scopeBadge = computed(() => {
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Role Details</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('ns.roleDetail.roleDetails') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Name</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('common.name') }}</p>
               <p class="font-mono text-code-sm text-on-surface font-semibold">{{ role.name }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Scope</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleDetail.scope') }}</p>
               <div class="flex items-center gap-sm">
                 <span class="material-symbols-outlined text-lg" :class="role.scope === 'Cluster' ? 'text-primary' : 'text-secondary'">{{ role.scope === 'Cluster' ? 'public' : 'lock' }}</span>
                 <span class="text-body-md font-semibold" :class="role.scope === 'Cluster' ? 'text-primary' : 'text-on-surface'">{{ role.scope === 'Cluster' ? 'Cluster' : 'Namespace' }}</span>
               </div>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Namespace</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('common.namespace') }}</p>
               <p v-if="role.namespace" class="font-mono text-code-sm text-primary">{{ role.namespace }}</p>
-              <p v-else class="text-body-sm text-on-surface-variant">Cluster-wide (all namespaces)</p>
+              <p v-else class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.clusterWide') }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
-              <p class="text-label-caps text-on-surface-variant mb-xs">Bindings</p>
+              <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleDetail.bindings') }}</p>
               <p class="font-mono text-code-sm text-primary font-semibold">{{ role.bindings }}</p>
             </div>
           </div>
@@ -196,22 +198,22 @@ const scopeBadge = computed(() => {
 
       <div class="lg:col-span-4">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Summary</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('ns.roleDetail.summary') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Kind</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.kindLabel') }}</span>
               <span class="text-body-md font-semibold text-on-surface">{{ role.scope === 'Cluster' ? 'ClusterRole' : 'Role' }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Rules</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.rulesLabel') }}</span>
               <span class="text-body-md font-semibold text-primary">{{ defaultRules.length }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">RoleBindings</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.roleBindingsLabel') }}</span>
               <span class="text-body-md font-semibold text-on-surface">{{ roleBindings.length }}</span>
             </div>
             <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">API Version</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.apiVersionLabel') }}</span>
               <span class="text-body-sm font-mono text-on-surface-variant">rbac.authorization.k8s.io/v1</span>
             </div>
           </div>
@@ -223,18 +225,18 @@ const scopeBadge = computed(() => {
     <div v-if="activeTab === 'rules'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">Policy Rules ({{ defaultRules.length }})</h3>
+          <h3 class="text-headline-sm">{{ t('ns.roleDetail.policyRulesCount', { count: defaultRules.length }) }}</h3>
           <button @click="openAddRule" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> Add Rule
+            <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.roleDetail.addRule') }}
           </button>
         </div>
         <table v-if="defaultRules.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">API Groups</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Resources</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Verbs</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">Actions</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.apiGroupsLabel') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.resourcesLabel') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.verbsLabel') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -275,7 +277,7 @@ const scopeBadge = computed(() => {
         </table>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">admin_panel_settings</span>
-          <p class="mt-sm">No policy rules defined</p>
+          <p class="mt-sm">{{ t('ns.roleDetail.noPolicyRules') }}</p>
         </div>
       </div>
     </div>
@@ -284,16 +286,16 @@ const scopeBadge = computed(() => {
     <div v-if="activeTab === 'bindings'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">RoleBindings ({{ roleBindings.length }})</h3>
+          <h3 class="text-headline-sm">{{ t('ns.roleDetail.roleBindingsCount', { count: roleBindings.length }) }}</h3>
         </div>
         <table v-if="roleBindings.length" class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Name</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Namespace</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Role Kind</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Subjects</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">Age</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.name') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.namespace') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.roleKind') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.subjects') }}</th>
+              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.age') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-outline-variant/30">
@@ -321,7 +323,7 @@ const scopeBadge = computed(() => {
         </table>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">link_off</span>
-          <p class="mt-sm">No RoleBindings reference this role</p>
+          <p class="mt-sm">{{ t('ns.roleDetail.noRoleBindings') }}</p>
         </div>
       </div>
     </div>
@@ -335,40 +337,40 @@ const scopeBadge = computed(() => {
   <!-- Not Found -->
   <div v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">Role Not Found</h2>
-    <p class="text-body-md text-on-surface-variant mt-sm">Role "{{ route.params.name }}" not found in namespace "{{ route.params.namespace }}"</p>
-    <button @click="router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'Role' }) }}</h2>
+    <p class="text-body-md text-on-surface-variant mt-sm">{{ t('ns.roleDetail.notFoundMsg', { name: route.params.name, namespace: route.params.namespace }) }}</p>
+    <button @click="router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'RBAC' }) }}</button>
   </div>
 
   <!-- Delete Modal -->
-  <Modal v-model="showDeleteModal" title="Delete Role" width="max-w-md">
-    <p class="text-body-md text-on-surface-variant">Are you sure you want to delete <span class="text-on-surface font-semibold">{{ role?.scope === 'Cluster' ? 'ClusterRole' : 'Role' }}</span> <span class="text-on-surface font-semibold">{{ route.params.name }}</span>?</p>
-    <p class="text-body-sm text-error mt-sm">All RoleBindings referencing this role will become invalid. This action cannot be undone.</p>
+  <Modal v-model="showDeleteModal" :title="t('common.deleteTitle', { name: 'Role' })" width="max-w-md">
+    <p class="text-body-md text-on-surface-variant">{{ t('common.confirmDelete', { type: role?.scope === 'Cluster' ? 'ClusterRole' : 'Role', name: route.params.name }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.roleDetail.deleteWarning') }}</p>
     <template #actions>
-      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">Delete</button>
+      <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 
   <!-- Edit Rule Modal -->
-  <Modal v-model="showEditRuleModal" :title="editingRuleIndex === -1 ? 'Add Rule' : 'Edit Rule'" width="max-w-lg">
+  <Modal v-model="showEditRuleModal" :title="editingRuleIndex === -1 ? t('common.addTitle', { name: 'Rule' }) : t('common.editTitle', { name: 'Rule' })" width="max-w-lg">
     <div class="flex flex-col gap-md">
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">API Groups (comma-separated)</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleDetail.apiGroupsHint') }}</label>
         <input v-model="editForm.apiGroups" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder='e.g. "", apps, batch' />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Resources (comma-separated)</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleDetail.resourcesHint') }}</label>
         <input v-model="editForm.resources" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="e.g. pods, deployments, secrets" />
       </div>
       <div>
-        <label class="text-label-caps text-on-surface-variant block mb-xs">Verbs (comma-separated)</label>
+        <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.roleDetail.verbsHint') }}</label>
         <input v-model="editForm.verbs" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="e.g. get, list, watch, create, delete" />
       </div>
     </div>
     <template #actions>
-      <button @click="showEditRuleModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
-      <button @click="saveRuleEdit" :disabled="!editForm.verbs && !editForm.resources" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">Save</button>
+      <button @click="showEditRuleModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="saveRuleEdit" :disabled="!editForm.verbs && !editForm.resources" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.save') }}</button>
     </template>
   </Modal>
 </template>
