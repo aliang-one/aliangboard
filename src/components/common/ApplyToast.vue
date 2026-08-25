@@ -1,5 +1,6 @@
 <script setup>
 import { useToast } from '@/composables/useToast'
+import { Z } from '@/styles/zScale'
 
 const { toast, dismissToast } = useToast()
 </script>
@@ -8,7 +9,8 @@ const { toast, dismissToast } = useToast()
   <Transition name="toast">
     <div
       v-if="toast"
-      class="fixed top-lg right-lg z-[100] flex items-center gap-md px-lg py-md rounded-xl shadow-lg border max-w-md animate-fade-in"
+      class="fixed top-lg right-lg flex items-center gap-md px-lg py-md rounded-xl shadow-lg border max-w-md animate-fade-in"
+      :style="{ zIndex: Z.toast }"
       :class="toast.type === 'error'
         ? 'bg-error-container/95 border-error/40 text-on-error-container'
         : 'bg-surface-container-high border-outline-variant text-on-surface'"

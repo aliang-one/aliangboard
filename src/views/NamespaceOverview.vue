@@ -5,6 +5,7 @@ import { computed, ref, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { Z } from '@/styles/zScale'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 import { workloadCounts, isWorkloadTransitioning } from '@/logic/workloadTransition'
@@ -383,7 +384,7 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
 
     <!-- hover 富信息卡片 -->
     <Teleport to="body">
-      <div v-if="hover" class="fixed z-[100] w-80 rounded-xl bg-surface-container-lowest border border-outline-variant shadow-2xl overflow-hidden animate-fade-in" :style="{ top: hover.top + 'px', right: hover.right + 'px' }" @mouseenter="onPopoverEnter" @mouseleave="onLeaveAssoc">
+      <div v-if="hover" class="fixed w-80 rounded-xl bg-surface-container-lowest border border-outline-variant shadow-2xl overflow-hidden animate-fade-in" :style="{ top: hover.top + 'px', right: hover.right + 'px', zIndex: Z.modal }" @mouseenter="onPopoverEnter" @mouseleave="onLeaveAssoc">
         <div class="px-md py-1.5 border-b border-outline-variant/40" :class="hover.type === 'svc' ? 'bg-primary/5' : 'bg-secondary/5'">
           <span class="material-symbols-outlined text-base" :class="hover.type === 'svc' ? 'text-primary' : 'text-secondary'">{{ hover.type === 'svc' ? 'hub' : 'alt_route' }}</span>
           <span class="text-body-sm font-semibold text-on-surface">{{ hover.type === 'svc' ? t('ns.namespaceOverview.relatedService') : t('ns.namespaceOverview.relatedIngress') }}</span>

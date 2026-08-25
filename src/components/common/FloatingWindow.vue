@@ -2,12 +2,13 @@
 // 通用浮动窗口壳:标题栏拖拽/最大化/最小化/关闭/z-index 置顶。从 TerminalWindow 抽取,
 // 终端与文件浏览窗口共用。双击语义留给内容方(终端标题双击=改名);title/title-actions 插槽自定义。
 import { ref, computed, onUnmounted } from 'vue'
+import { Z } from '@/styles/zScale'
 
 const props = defineProps({
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
   icon: { type: String, default: 'window' },
-  zIndex: { type: Number, default: 60 },
+  zIndex: { type: Number, default: Z.windowBase },
   width: { type: String, default: '720px' },
   height: { type: String, default: '460px' },
   cascadeIndex: { type: Number, default: 0 },
@@ -44,7 +45,8 @@ onUnmounted(() => { document.removeEventListener('mousemove', onDragMove); docum
 
 // 最大化 = 铺满「应用内容区」而非整个视口:避让应用骨架——左侧栏 260px(SideNavBar w-[260px])
 // + 顶部导航 64px(TopNavBar h-16,sticky z-50;旧写法 top:8px 让窗口标题栏钻到导航栏下面被压住)
-// + 底部任务栏 32px(TerminalTaskbar)。zIndex 由调用方给(终端/文件窗口基座 60+,恒高于顶栏 50)。
+// + 底部任务栏 32px(TerminalTaskbar)。zIndex 由调用方给(终端/文件窗口窗口带
+// Z.windowBase..Z.windowMax,恒高于顶栏 Z.nav、恒低于模态框 Z.modal——见 zScale)。
 const winStyle = computed(() => isMax.value
   ? { left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: props.zIndex }
   : { left: pos.value.x + 'px', top: pos.value.y + 'px', width: props.width, height: props.height, zIndex: props.zIndex })

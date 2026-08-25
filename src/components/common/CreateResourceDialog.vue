@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { Z } from '@/styles/zScale'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { extractContainerPorts } from '@/composables/usePorts'
 import PortSelect from '@/components/common/PortSelect.vue'
@@ -81,7 +82,7 @@ function handleCreate() {
 <template>
   <Teleport to="body">
     <transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 z-[100] flex items-center justify-center">
+      <div v-if="modelValue" class="fixed inset-0 flex items-center justify-center" :style="{ zIndex: Z.modal }">
         <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="close"></div>
         <div class="relative bg-surface-container-lowest rounded-xl border border-outline-variant shadow-dropdown w-full max-w-2xl max-h-[85vh] flex flex-col z-10 animate-slide-up">
           <!-- Header -->

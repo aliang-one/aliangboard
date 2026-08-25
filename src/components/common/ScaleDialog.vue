@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useEscClose } from '@/composables/useEscClose'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 
@@ -31,7 +32,7 @@ function decrement() { if (replicas.value > 0) replicas.value-- }
 </script>
 
 <template>
-  <div class="fixed inset-0 z-[100] flex items-center justify-center">
+  <div class="fixed inset-0 flex items-center justify-center" :style="{ zIndex: Z.modal }">
     <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="emit('close')"></div>
     <div class="relative bg-surface-container-lowest rounded-xl border border-outline-variant shadow-dropdown w-full max-w-sm z-10 p-lg">
       <div class="flex items-center gap-md mb-lg">

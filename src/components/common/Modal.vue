@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useEscClose } from '@/composables/useEscClose'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 
@@ -31,7 +32,7 @@ function confirm() {
 <template>
   <Teleport to="body">
     <transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 z-[100] flex items-center justify-center">
+      <div v-if="modelValue" class="fixed inset-0 flex items-center justify-center" :style="{ zIndex: Z.modal }">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="close"></div>
         <!-- Dialog -->

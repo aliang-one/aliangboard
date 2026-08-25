@@ -10,6 +10,7 @@ import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore } from '@/stores/transfers'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { getSession } from '@/api/client'
+import { Z } from '@/styles/zScale'
 
 // 终端窗口懒加载：xterm + addons（~400KB）仅在 allTerminals 非空（用户开了终端）时才加载，
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
@@ -55,7 +56,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <SideNavBar />
     <div class="flex-1 flex flex-col min-w-0 ml-[260px]">
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
-      <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary z-[60] animate-pulse"></div>
+      <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase }"></div>
       <TopNavBar />
       <!-- 集群健康横幅：Critical / Disconnected -->
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"

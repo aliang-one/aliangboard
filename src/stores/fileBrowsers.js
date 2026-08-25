@@ -3,10 +3,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { fileBrowserApi } from '@/api/client'
+import { createWindowZAllocator } from '@/styles/zScale'
 
 export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   const browsers = ref([])   // [{id, name, namespace, podName, container, status, zIndex, createdAt}]
-  let nextZ = 60             // 与终端同一层级:内容之上、模态框(z-100)之下
+  // 与终端同一窗口带(Z.windowBase..Z.windowMax,模态框 Z.modal 之下);越界自动 renumber——见 zScale
+  const zAlloc = createWindowZAllocator()
+  const takeZ = () => zAlloc.nextZ(browsers.value.filter(b => b.status === 'open'))
 
   async function persistCreate(b) { try { await fileBrowserApi.create(b) } catch { /* 离线静默 */ } }
   async function persistUpdate(id, patch) { try { await fileBrowserApi.update(id, patch) } catch { /* noop */ } }
@@ -17,7 +20,7 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
       const res = await fileBrowserApi.list()
       const loaded = (res?.browsers || []).map(b => ({ ...b, status: 'minimized', zIndex: 0 }))  // 刷新后全最小化
       browsers.value = loaded
-      if (loaded.length) nextZ = 100 + loaded.length
+      // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
     } catch { /* 离线静默 */ }
   }
 
@@ -27,7 +30,7 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
       b.namespace === namespace && b.podName === podName && (b.container || '') === (container || ''))
     if (existing) {
       existing.status = 'open'
-      existing.zIndex = ++nextZ
+      existing.zIndex = takeZ()
       persistUpdate(existing.id, { status: 'open' })
       return existing
     }
@@ -35,7 +38,7 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
       id: `fb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       name: `${podName}/${container || 'main'}`,
       namespace, podName, container: container || '',
-      status: 'open', zIndex: ++nextZ, createdAt: Date.now(),
+      status: 'open', zIndex: takeZ(), createdAt: Date.now(),
     }
     browsers.value.push(b)
     persistCreate(b)
@@ -52,11 +55,11 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   }
   function restoreBrowser(id) {
     const b = browsers.value.find(b => b.id === id)
-    if (b) { b.status = 'open'; b.zIndex = ++nextZ; persistUpdate(id, { status: 'open' }) }
+    if (b) { b.status = 'open'; b.zIndex = takeZ(); persistUpdate(id, { status: 'open' }) }
   }
   function focusBrowser(id) {
     const b = browsers.value.find(b => b.id === id)
-    if (b) b.zIndex = ++nextZ
+    if (b) b.zIndex = takeZ()
   }
 
   return { browsers, loadPersisted, openBrowser, closeBrowser, minimizeBrowser, restoreBrowser, focusBrowser }

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { terminalApi, getSessionToken } from '@/api/client'
+import { createWindowZAllocator } from '@/styles/zScale'
 
 // 终端会话管理：多终端、重命名、最小化到任务栏、持久化（刷新不丢）。
 // 每个终端 = 一个 {id, name, pod, container, command} 元数据 + 运行时的 InteractiveTerminal 组件实例。
@@ -8,7 +9,10 @@ import { terminalApi, getSessionToken } from '@/api/client'
 export const useTerminalStore = defineStore('terminals', () => {
   const terminals = ref([])  // [{id, name, namespace, podName, container, command, status, zIndex, createdAt}]
   // status: 'open'(浮动窗口) | 'minimized'(任务栏) | 'external'(在新浏览器标签页打开)
-  let nextZ = 60  // 终端窗口浮于内容之上、模态框（z-100）之下
+  // 终端窗口恒在窗口带内(Z.windowBase..Z.windowMax,模态框 Z.modal 之下);
+  // 越界自动 renumber 回带内——见 zScale。
+  const zAlloc = createWindowZAllocator()
+  const takeZ = () => zAlloc.nextZ(terminals.value.filter(t => t.status === 'open'))
   const popupWins = new Map()  // id → window 引用（用于 focus / 检测关闭）
   let pollTimer = null
 
@@ -38,7 +42,7 @@ export const useTerminalStore = defineStore('terminals', () => {
       const res = await terminalApi.list()
       const loaded = (res?.terminals || []).map(t => ({ ...t, status: 'minimized', zIndex: 0 })) // 刷新后全最小化
       terminals.value = loaded
-      if (loaded.length) nextZ = 100 + loaded.length
+      // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
     } catch { /* 离线模式静默 */ }
   }
 
@@ -48,7 +52,7 @@ export const useTerminalStore = defineStore('terminals', () => {
       t.namespace === namespace && t.podName === podName && (t.container || '') === (container || ''))
     if (existing) {
       existing.status = 'open'
-      existing.zIndex = ++nextZ
+      existing.zIndex = takeZ()
       persistUpdate(existing.id, { status: 'open' })
       return existing
     }
@@ -59,7 +63,7 @@ export const useTerminalStore = defineStore('terminals', () => {
       container: container || '',
       command: command || 'sh',
       status: 'open',
-      zIndex: ++nextZ,
+      zIndex: takeZ(),
       createdAt: Date.now(),
     }
     terminals.value.push(term)
@@ -85,7 +89,7 @@ export const useTerminalStore = defineStore('terminals', () => {
   // 恢复
   function restoreTerminal(id) {
     const t = terminals.value.find(t => t.id === id)
-    if (t) { t.status = 'open'; t.zIndex = ++nextZ; persistUpdate(id, { status: 'open' }) }
+    if (t) { t.status = 'open'; t.zIndex = takeZ(); persistUpdate(id, { status: 'open' }) }
   }
 
   // 重命名
@@ -97,7 +101,7 @@ export const useTerminalStore = defineStore('terminals', () => {
   // 聚焦（置顶）
   function focusTerminal(id) {
     const t = terminals.value.find(t => t.id === id)
-    if (t) t.zIndex = ++nextZ
+    if (t) t.zIndex = takeZ()
   }
 
   // 在新浏览器标签页打开：关闭浮动窗口 + 标记 external + 打开独立路由页
