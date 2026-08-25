@@ -23,6 +23,7 @@ export function useLogViewer({ namespace, podName, container }) {
   const logSince = ref('')       // ''=不限；否则 sinceSeconds 字符串
   const logPrevious = ref(false) // --previous（崩溃前容器日志）
   const streamError = ref('')    // 流中断/拉取失败（横幅）
+  const totalAppended = ref(0)   // 单调累计追加行数（缓冲打满后 length 恒定，自动滚动改监听此值）
   let stream = null
 
   function logPath(follow) {
@@ -42,7 +43,9 @@ export function useLogViewer({ namespace, podName, container }) {
     try {
       const text = await api.k8s(logPath(false))
       lines.value = String(text || '').split('\n').filter(Boolean).map(parseLogLine)
+      totalAppended.value += lines.value.length
     } catch (e) {
+      streamError.value = e?.message || i18n.global.t('component.logViewer.loadFailed')
       lines.value = [{ timestamp: new Date().toISOString(), level: 'ERROR', message: e?.message || i18n.global.t('component.logViewer.loadFailed') }]
     }
   }
@@ -53,7 +56,7 @@ export function useLogViewer({ namespace, podName, container }) {
     lines.value = []
     streamError.value = ''
     stream = k8sStream(logPath(true), {
-      onMessage: line => pushCapped(lines.value, parseLogLine(line), MAX_LOG_BUFFER),
+      onMessage: line => { pushCapped(lines.value, parseLogLine(line), MAX_LOG_BUFFER); totalAppended.value++ },
       onError: e => {
         streamError.value = e?.message || i18n.global.t('component.logViewer.streamInterrupted')
         pushCapped(lines.value, { timestamp: new Date().toISOString(), level: 'ERROR', message: streamError.value }, MAX_LOG_BUFFER)
@@ -79,7 +82,7 @@ export function useLogViewer({ namespace, podName, container }) {
     onMounted(() => (followLog.value && !logPrevious.value ? startFollow() : loadRemoteLogs()))
     onUnmounted(stopFollow)
   }
-  return { lines, followLog, logLines, logSince, logPrevious, streamError, startFollow, stopFollow, loadRemoteLogs, restart }
+  return { lines, followLog, logLines, logSince, logPrevious, streamError, totalAppended, startFollow, stopFollow, loadRemoteLogs, restart }
 }
 
 // 在新浏览器标签页打开独立日志页：同 ns+pod+container 复用同一标签页（具名 target 聚焦），换容器另开。

@@ -27,7 +27,7 @@ if (!container.value && props.containers.length) container.value = props.contain
 watch(() => props.containers, cs => { if (!cs.includes(container.value)) container.value = cs[0] || '' })
 
 // 解构保持模板自动解包（viewer.lines 嵌套 ref 不会解包）
-const { lines, followLog, logLines, logSince, logPrevious, streamError, restart } = useLogViewer({
+const { lines, followLog, logLines, logSince, logPrevious, streamError, totalAppended, restart } = useLogViewer({
   namespace: toRef(props, 'namespace'),
   podName: toRef(props, 'podName'),
   container,
@@ -65,10 +65,14 @@ function onScroll() {
   if (isNearBottom(el)) { following.value = true; pausedNew.value = 0 }
   else following.value = false
 }
-watch(() => lines.value.length, async (n, o = 0) => {
-  if (n <= o) return
-  if (following.value) { await nextTick(); const el = scrollEl.value; if (el) el.scrollTop = el.scrollHeight }
-  else pausedNew.value += n - o
+// 监听单调累计追加数（缓冲打满后 lines.length 恒定在 cap，length watch 会静默失效）
+let lastAppended = 0
+watch(() => totalAppended.value, n => {
+  const delta = n - lastAppended
+  lastAppended = n
+  if (!delta) return
+  if (following.value) { nextTick(() => { const el = scrollEl.value; if (el) el.scrollTop = el.scrollHeight }) }
+  else pausedNew.value += delta
 })
 function backToBottom() {
   const el = scrollEl.value
@@ -100,7 +104,7 @@ async function copyLogs() {
   <div class="relative flex flex-col min-h-0 h-full">
     <!-- 错误横幅：流中断/拉取失败 -->
     <div v-if="streamError" data-testid="log-error-banner" class="flex items-center gap-xs px-md py-1 bg-error/10 text-error text-body-xs border-b border-error/30 shrink-0">
-      <span class="material-symbols-outlined text-sm">error</span>{{ t('component.logViewer.streamInterrupted') }}
+      <span class="material-symbols-outlined text-sm">error</span>{{ followLog ? t('component.logViewer.streamInterrupted') : t('component.logViewer.loadFailed') }}
       <button @click="restart" class="ml-auto underline">{{ t('component.logViewer.retry') }}</button>
     </div>
 

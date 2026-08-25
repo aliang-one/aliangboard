@@ -78,6 +78,30 @@ test('previous 勾选：follow 自动关闭并改走静态拉取', async () => {
   expect(w.text()).toContain('app started')   // 静态三行渲染
 })
 
+test('缓冲打满(cap)后 follow 自动滚动仍持续工作', async () => {
+  const w = mountBody()
+  const el = w.find('[data-testid="log-scroll"]').element
+  Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true })
+  // 推满并超过 MAX_LOG_BUFFER:长度恒定在 cap,滚动必须仍跟随
+  const { MAX_LOG_BUFFER } = await import('@/composables/useLogViewer')
+  for (let i = 0; i < MAX_LOG_BUFFER + 10; i++) streamHandlers.onMessage(`2026-01-01T00:00:00Z msg-${i}`)
+  await w.vm.$nextTick()
+  await new Promise(r => setTimeout(r, 0))   // nextTick 滚动
+  expect(el.scrollTop).toBe(1000)
+  expect(w.find('[data-testid="back-to-bottom"]').exists()).toBe(false)  // following 未丢失
+})
+
+test('静态拉取失败显示 loadFailed 横幅（previous 模式）', async () => {
+  const w = mountBody()
+  const { api } = await import('@/api/client')
+  api.k8s.mockRejectedValueOnce(new Error('boom'))
+  await w.find('[data-testid="log-previous"]').setValue(true)
+  await w.vm.$nextTick()
+  await new Promise(r => setTimeout(r, 0))
+  expect(w.find('[data-testid="log-error-banner"]').exists()).toBe(true)
+})
+
 test('上滚暂停跟随：出现回到底部按钮，点击恢复', async () => {
   const w = mountBody()
   const el = w.find('[data-testid="log-scroll"]').element
