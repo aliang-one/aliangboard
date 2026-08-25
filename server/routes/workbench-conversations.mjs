@@ -3,6 +3,7 @@
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
+import { registry } from '../tool-registry.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -65,6 +66,20 @@ export function createWorkbenchConvRoutes(deps) {
   // 注:原 index.mjs 各分支用 `return sendJson(...)` 早退 + 终结响应;此处等价改为
   // `sendJson(...); return true`(sendJson 已 res.end,只需告知 dispatcher 已处理)。
   async function handle(req, res, url) {
+    // GET /api/workbench/ai-config — 透明面板数据源(登录即可,2026-08-25 设计):
+    // 生效提示词/工具清单/追加指令/model。刻意不回 baseURL/apiKey(连接配置仅 admin 可见)。
+    if (url.pathname === '/api/workbench/ai-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const cfg = getWorkbenchAiConfig(db)
+      const disabled = new Set(cfg.disabledTools)
+      sendJson(res, 200, {
+        effectivePrompt: buildWorkbenchSystemPrompt(cfg),
+        tools: registry.workbenchTools().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
+        additionalInstructions: cfg.additionalInstructions,
+        model: getLlmConfig().model,
+      })
+      return true
+    }
     // POST /api/workbench/conversations — 创建对话 + 后台执行(detached)
     if (url.pathname === '/api/workbench/conversations' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -198,6 +213,7 @@ export function createWorkbenchConvRoutes(deps) {
         pendingApproval: conv.pendingApproval, trace: conv.trace,
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+        system: conv.system, // 透明面板:本对话创建时烘焙的提示词(逐对话审计)
         // 出参剥掉历史版本烤进 user content 的 refsCtx 前缀(库内原文不动,agent/摘要不受
         // 影响)——旧数据免迁移,刷新后不再把引用资源 JSON 当消息正文显示。
         messages: listMessages(db, id).map(m => m.role === 'user' ? { ...m, content: stripRefsContext(m.content) } : m),
