@@ -74,7 +74,7 @@ export function createWorkbenchConvRoutes(deps) {
         if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
 
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
@@ -138,7 +138,7 @@ export function createWorkbenchConvRoutes(deps) {
         //    content/reasoning/trace/steps/pendingApproval 不复位的话:上轮答案/思考残留会让
         //    启动抢救(salvageInterrupted)在本轮中断时把上轮内容补录成"新消息"(跨轮污染)。
         updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
         sendJson(res, 200, { status: 'running', references: fetchedResources })
@@ -166,7 +166,7 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, conv.projectId, id)
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
         updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }) // detached
         sendJson(res, 200, { status: 'running' })
         return true
@@ -316,7 +316,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true
@@ -330,7 +330,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }) // detached — 不 await
       sendJson(res, 200, { status: 'running' })
       return true

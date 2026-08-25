@@ -165,6 +165,8 @@ function getLlmConfig() {
     baseURL: getSetting('llm.baseURL') || process.env.LLM_BASE_URL || '',
     apiKey: getSetting('llm.apiKey') || process.env.LLM_API_KEY || '',
     model: getSetting('llm.model') || process.env.LLM_MODEL || '',
+    temperature: getSetting('llm.temperature') || '',
+    maxTokens: getSetting('llm.maxTokens') || '',
   }
 }
 // scrypt 密码：格式 saltHex:hashHex:N:r:p
@@ -1080,7 +1082,7 @@ async function handle(req, res) {
       if (!resuming && !input.message) return sendJson(res, 400, { message: msg(req, 'api.missingMessage') })
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) return sendJson(res, 503, { message: msg(req, 'api.llmNotConfigured') })
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
 
       // 项目模式(W4b):workbench-only agent,历史走服务端 workbench_history(不进 git repo)。
       if (input.projectId) {
@@ -2093,7 +2095,7 @@ if (distillInterval > 0) {
     try {
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) return // 未配 LLM,跳过本次
-      const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+      const llmClient = createLlmClient(cfg)
       const since = Date.now() - 7 * 86400000 // 近 7 天有 audit 或有项目的集群
       const rows = db.prepare(`SELECT DISTINCT clusterId FROM (
         SELECT clusterId FROM audit_log WHERE clusterId IS NOT NULL AND ts > ?

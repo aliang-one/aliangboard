@@ -220,7 +220,7 @@ export function createWorkbenchProjectRoutes(deps) {
         if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: msg(req, 'wbp.llmNotConfiguredDistill') }); return true }
-        const llmClient = createLlmClient({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, model: cfg.model })
+        const llmClient = createLlmClient(cfg)
         const ledgerRepo = join(WORKBENCH_DIR, cluster.id, 'cluster-context')
         const out = await runDistill({ llmClient, db, clusterId: cluster.id, ledgerRepo, clusterName: cluster.name })
         setLastDistill(db, cluster.id, out.stats) // 手动蒸馏也落水位:调度器不会立刻重跑同料(pending 不写——手动结果就地审阅,原行为)

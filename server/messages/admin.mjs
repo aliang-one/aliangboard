@@ -2,6 +2,8 @@
 export const TABLE = {
   'admin.saveFailed': { zh: '保存失败', en: 'Failed to save' },
   'admin.presenceNumeric': { zh: 'maxItems / windowMin 必须为数字', en: 'maxItems / windowMin must be numbers' },
+  'admin.llmBadTemperature': { zh: 'temperature 必须为 0-2 的数字', en: 'temperature must be a number between 0 and 2' },
+  'admin.llmBadMaxTokens': { zh: 'maxTokens 必须为 1-200000 的整数', en: 'maxTokens must be an integer between 1 and 200000' },
   'admin.llmTestFillFirst': { zh: '先填 baseURL + model(保存、或在上方填入后测试)', en: 'Fill in baseURL + model first (save it, or fill in above and test)' },
   'admin.llmTestConnectFailed': { zh: '连接失败', en: 'Connection failed' },
   'admin.llmProbeFillFirst': { zh: '先填 baseURL + model', en: 'Fill in baseURL + model first' },

@@ -182,3 +182,17 @@ test('probeReasoningSupport: 慢模型总限超时 → 按已见字段给结论,
   assert.equal(r.timedOut, true)
   assert.equal(r.supported, false, '超时未见任何 token → 判不支持(附 timedOut 供 UI 提示)')
 })
+
+// 2026-08-25: temperature/maxTokens 透传(空串/undefined 不带,用模型默认)
+test('chat: temperature/maxTokens 有值才进 body(空串/undefined 不带)', async () => {
+  const ok = { choices: [{ message: { role: 'assistant', content: 'hi' } }] }
+  const cap1 = {}
+  const c1 = createLlmClient({ baseURL: 'http://x/v1', model: 'm', temperature: 0.2, maxTokens: 4096, fetch: mockFetch({ text: ok }, cap1) })
+  await c1.chat({ messages: [] })
+  assert.equal(cap1.body.temperature, 0.2)
+  assert.equal(cap1.body.max_tokens, 4096)
+  const cap2 = {}
+  const c2 = createLlmClient({ baseURL: 'http://x/v1', model: 'm', temperature: '', fetch: mockFetch({ text: ok }, cap2) })
+  await c2.chat({ messages: [] })
+  assert.ok(!('temperature' in cap2.body) && !('max_tokens' in cap2.body), '空串不带')
+})
