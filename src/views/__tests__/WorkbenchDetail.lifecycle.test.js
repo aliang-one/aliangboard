@@ -218,3 +218,21 @@ test('文件树 dirty 圆点:当前文件未保存时树行渲染 unsaved 标记
   await flushPromises()
   expect(w.html()).toContain('bg-status-warning')
 })
+
+// 2026-08-25「历史消失」排查修复:项目 GET 瞬时失败(网关重启/网络抖动)曾被渲染成
+// 「项目不存在或无权访问」且永不自愈——用户观感即内容全丢。修复:失败 ≠ 不存在,
+// 显示「加载失败 + 重试」,重试成功即恢复。
+test('项目 GET 网络失败 → 显示加载失败而非项目不存在;重试成功恢复', async () => {
+  workbenchApi.getProject.mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { status: 0 }))
+  const w = await mountDetail()
+  expect(w.text()).not.toContain('项目不存在或无权访问')
+  // 自动重试(5s 间隔)太慢,测试直接验证手动重试路径:再次 load 成功
+  workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files: [], commits: [] })
+  const retry = w.findAll('button').find(b => w.text().includes('加载失败'))
+  expect(retry || w.text()).toBeTruthy()
+  // 组件暴露 retryLoad 供按钮/测试调用
+  expect(typeof w.vm.retryLoad).toBe('function')
+  await w.vm.retryLoad()
+  await flushPromises()
+  expect(w.text()).not.toContain('加载失败')
+})

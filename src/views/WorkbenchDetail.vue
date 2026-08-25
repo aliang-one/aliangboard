@@ -1,7 +1,7 @@
 <script setup>
 // 工作台项目详情:Agent / Edit 双模式。
 // Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { workbenchApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -60,7 +60,9 @@ function beforeUnloadGuard(e) {
   if (mode.value === 'edit' && dirty.value) { e.preventDefault(); e.returnValue = '' }
 }
 onMounted(() => window.addEventListener('beforeunload', beforeUnloadGuard))
-onUnmounted(() => window.removeEventListener('beforeunload', beforeUnloadGuard))
+const unmountedFlag = ref(false)
+const unmounted = unmountedFlag
+onUnmounted(() => { unmountedFlag.value = true; window.removeEventListener('beforeunload', beforeUnloadGuard) })
 
 // 挂到后台:对话是服务端 detached 执行,前端直接走人——回当前 ns 总览(分层拓扑),
 // 状态交给悬浮按钮(ChatPresence)。无集群会话则回集群选择页。
@@ -115,6 +117,7 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
 
 async function load() {
   loading.value = true
+  loadError.value = false
   try {
     const res = await workbenchApi.getProject(id)
     project.value = res.project
@@ -123,9 +126,32 @@ async function load() {
     files.value = res.files || []
     commits.value = res.commits || []
     lastReconcile.value = res.lastReconcile || null
-  } catch (e) { notify('error', e.message || t('workbench.detail.loadFailed')) }
+  } catch (e) {
+    // 瞬时失败(网关重启/网络抖动)≠ 项目不存在——后者只在明确 404/403 时由 project 为 null 表达。
+    // 此前这里只 toast,页面落到「项目不存在」假象且永不自愈(2026-08-25「历史消失」排查)。
+    if (e?.status === 404 || e?.status === 403) project.value = null
+    else loadError.value = true
+    notify('error', e.message || t('workbench.detail.loadFailed'))
+  }
   finally { loading.value = false }
 }
+// 手动/自动重试:失败态下 5s 自动重试(≤6 次),网关回来即恢复,无需用户手动刷新。
+const loadError = ref(false)
+let loadRetries = 0
+function scheduleLoadRetry() {
+  if (loadRetries >= 6) return
+  loadRetries++
+  setTimeout(async () => {
+    if (loadError.value && !unmounted.value) { await load(); loadConversations() }
+  }, 5000)
+}
+watch(loadError, err => { if (err) scheduleLoadRetry() })
+async function retryLoad() {
+  loadRetries = 0
+  await load()
+  if (project.value) loadConversations()
+}
+defineExpose({ retryLoad })
 async function loadConversations() {
   try {
     const r = await workbenchApi.conversations.list(id)
@@ -229,6 +255,13 @@ const treeRows = computed(() => {
 
 <template>
   <div v-if="loading" class="p-md text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
+
+  <!-- 瞬时加载失败(网关重启/网络抖动):≠ 项目不存在。自动重试中;也可手动重试。 -->
+  <div v-else-if="loadError" class="p-md flex flex-col items-center gap-sm text-on-surface-variant">
+    <span class="material-symbols-outlined text-status-warning">cloud_off</span>
+    <p class="text-body-sm">{{ t('workbench.detail.loadErrorHint') }}</p>
+    <button class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" @click="retryLoad">{{ t('workbench.detail.loadRetry') }}</button>
+  </div>
 
   <section v-else-if="project" class="animate-fade-in h-full flex flex-col min-h-0">
     <!-- Header -->

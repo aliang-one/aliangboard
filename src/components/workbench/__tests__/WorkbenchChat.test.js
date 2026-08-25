@@ -677,3 +677,25 @@ test('新数据不触发兜底:任一 assistant 消息自带 trace → 各轮维
   expect(html).toContain('wb_describe_resource')
   expect(html).not.toContain('wb_top')   // 对话级兜底不注入(消息自带 trace)
 })
+
+test('加载失败空态下发消息被拦:不创建幻影轮、不调 append/create(历史不被顶掉)', async () => {
+  // 场景:网关抖动 → loadConversation 三次退避全失败(banner + turns 空)。
+  // 此前直接 send 会创建新对话/续接,本地 turns 只剩本轮——观感即"历史全消失"。
+  api.conversations.get.mockRejectedValue(new Error('net down'))
+  const w = await mountChat({ conversationId: 'conv-loadfail' })
+  await flushPromises()
+  await flushPromises()
+  await new Promise(r => setTimeout(r, 50)) // 退避链(500ms 首次已过)
+  expect(w.html()).toContain('加载失败')
+  // 输入并发送
+  const input = w.find('textarea') || w.find('input')
+  await input.setValue('新消息')
+  const sendBtn = w.findAll('button').find(b => b.text() === 'send' || b.attributes('aria-label') === 'send')
+  if (sendBtn) await sendBtn.trigger('click')
+  else await input.trigger('keydown.enter')
+  await flushPromises()
+  expect(api.conversations.create).not.toHaveBeenCalled()
+  expect(api.conversations.append).not.toHaveBeenCalled()
+  // 无幻影 user turn
+  expect(w.html()).not.toContain('新消息')
+})

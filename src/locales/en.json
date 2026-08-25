@@ -3149,6 +3149,8 @@
       "noCommits": "No commits",
       "unsavedChangesWarning": "Unsaved changes to current file will be lost, continue?",
       "loadFailed": "Failed to load",
+      "loadErrorHint": "Failed to load project (gateway may be restarting or network blip), retrying automatically…",
+      "loadRetry": "Retry now",
       "readFailed": "Failed to read",
       "saveSuccess": "Saved (not committed)",
       "saveFailed": "Failed to save",
