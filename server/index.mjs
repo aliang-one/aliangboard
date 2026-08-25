@@ -1124,7 +1124,11 @@ async function handle(req, res) {
               if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
               try {
                 const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
-                blocks.push(`${label}:\n${JSON.stringify(res, null, 2)}`)
+                // requestKubernetes 返回 {status,headers,body};资源在 body(与 routes/workbench-conversations.mjs
+                // buildRefsContext 同语义。旧版整信封 stringify 给 agent——带 Headers 噪音,2026-08-16 修对话路由时漏了这份内联拷贝)
+                const body = res?.body
+                if (body == null) { blocks.push(`${label}: (空响应)`); continue }
+                blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
               } catch (e) {
                 blocks.push(`${label}: (not found)`)
               }
