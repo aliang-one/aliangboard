@@ -729,8 +729,10 @@ function validate() {
   const sideNames = f.extraContainers.map(c => c.name).filter(Boolean)
   const othersFor = (kind, idx) => {
     const names = mainName ? [mainName] : []
-    if (kind === 'init') names.push(...initNames.filter((_, i) => i !== idx), ...sideNames)
-    else names.push(...initNames, ...sideNames.filter((_, i) => i !== idx))
+    // 按原列表下标排除自身:压缩数组(initNames/sideNames)索引与 idx 错位,
+    // 空名行夹中间时会误把自身名留在 others 里(nameDuplicate 撞自己)。
+    if (kind === 'init') names.push(...f.initContainers.filter((c, i) => i !== idx && c.name).map(c => c.name), ...sideNames)
+    else names.push(...initNames, ...f.extraContainers.filter((c, i) => i !== idx && c.name).map(c => c.name))
     return names
   }
   const pushContainerErrs = (list, kind, labelKey) => list.forEach((c, i) => {

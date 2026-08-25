@@ -47,7 +47,7 @@ test('缺镜像 → 带标签的 imageRequired', async () => {
 test('name 非 DNS-1123 → namePattern;两个同名显式容器 → 双方各报 nameDuplicate', async () => {
   const errs = await validateWith({
     initContainers: [{ ...C(), name: 'Bad_Name' }],
-    extraContainers: [{ ...C(), name: 'dup' }, { ...C('busybox'), name: 'dup' }],
+    extraContainers: [{ ...C(), name: 'dup' }, { ...C(), name: 'dup' }],
   })
   expect(errs.some(e => e.msg.includes(i18n.global.t('deploy.containerFv.namePattern')))).toBe(true)
   const dups = errs.filter(e => e.msg.includes(i18n.global.t('deploy.containerFv.nameDuplicate', { name: 'dup' })))
@@ -62,10 +62,24 @@ test('显式名撞主容器有效名 → nameDuplicate', async () => {
 test('req > lim → cpu/memory OverLimit;合法容器不报 step-1 容器错', async () => {
   const errs = await validateWith({
     initContainers: [{ ...C(), cpuRequest: '1', cpuLimit: '500m' }],
-    extraContainers: [{ ...C('busybox'), memoryRequest: '1Gi', memoryLimit: '512Mi' }],
+    extraContainers: [{ ...C(), memoryRequest: '1Gi', memoryLimit: '512Mi' }],
   })
   expect(errs.some(e => e.msg.includes(i18n.global.t('deploy.containerFv.cpuOverLimit', { req: '1', lim: '500m' })))).toBe(true)
   expect(errs.some(e => e.msg.includes(i18n.global.t('deploy.containerFv.memoryOverLimit', { req: '1Gi', lim: '512Mi' })))).toBe(true)
-  const clean = await validateWith({ initContainers: [{ ...C('busybox'), name: 'ok-init' }] })
+  const clean = await validateWith({ initContainers: [{ ...C(), name: 'ok-init' }] })
   expect(clean).toEqual([])
+})
+
+// 回归:空名行夹中间时,othersFor 须按原列表下标排除自身——
+// 压缩数组索引错位曾致唯一显式名误报 nameDuplicate(撞自己)。
+test('空名行夹中间 → 前后两个不同显式名互不误报、也不误报撞自己', async () => {
+  const errs = await validateWith({
+    initContainers: [
+      { ...C(), name: 'x' },
+      { ...C(), name: '', image: 'busybox' },
+      { ...C(), name: 'y' },
+    ],
+  })
+  expect(errs.filter(e => e.msg.includes(i18n.global.t('deploy.containerFv.nameDuplicate', { name: 'y' })))).toEqual([])
+  expect(errs.filter(e => e.msg.includes(i18n.global.t('deploy.containerFv.nameDuplicate', { name: 'x' })))).toEqual([])
 })
