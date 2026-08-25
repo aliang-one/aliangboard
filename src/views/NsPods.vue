@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { exportYaml, api } from '@/api/client'
+import { summarizeResults } from '@/utils/batchDelete'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import PodCard from '@/components/common/PodCard.vue'
@@ -84,6 +85,49 @@ async function handleDelete() {
   }
 }
 
+// === 批量删除（卡片选择模式；选中集跨分页/筛选保留） ===
+const batchMode = ref(false)
+const selectedNames = ref(new Set())
+const showBatchModal = ref(false)
+function toggleSelect(name) {
+  const s = selectedNames.value
+  if (s.has(name)) s.delete(name)
+  else s.add(name)
+}
+function enterBatch() { batchMode.value = true }
+function exitBatch() { batchMode.value = false; selectedNames.value = new Set() }
+function selectAllFiltered() {
+  selectedNames.value = new Set(filtered.value.map(p => p.name))
+}
+function clearSelection() { selectedNames.value = new Set() }
+// 删除目标 = 当前列表中仍存在的选中项（选中后列表刷新/被删的自动失效）
+const batchTargets = computed(() => nsPods.value.filter(p => selectedNames.value.has(p.name)))
+const batchNamesPreview = computed(() => {
+  const names = batchTargets.value.map(p => p.name)
+  const head = names.slice(0, 10).join(', ')
+  return names.length > 10 ? `${head} …` : head
+})
+function onCardClick(p) {
+  if (batchMode.value) { toggleSelect(p.name); return }
+  router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })
+}
+async function handleBatchDelete() {
+  const targets = batchTargets.value
+  if (!targets.length) return
+  const results = await Promise.allSettled(targets.map(p => store.deletePod(p.name, route.params.namespace)))
+  const { okNames, failedNames } = summarizeResults(results, targets)
+  if (!failedNames.length) {
+    notify('success', t('ns.pods.batchDeleted', { n: okNames.length }))
+    showBatchModal.value = false
+    exitBatch()
+  } else {
+    // 部分失败：保留失败项选中便于重试；不退出批量模式
+    notify('error', t('ns.pods.batchPartial', { ok: okNames.length, fail: failedNames.length, names: failedNames.join(', ') }))
+    selectedNames.value = new Set(failedNames)
+    showBatchModal.value = false
+  }
+}
+
 // 创建 Pod（真实 API：POST 最小 Pod manifest + invalidate；P2-B 前 store.addPod 纯本地 push → 静默无效）
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -126,6 +170,16 @@ async function handleCreate() {
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
+        <button v-if="!batchMode" @click="enterBatch"
+          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container transition-colors"
+          :title="t('ns.pods.batchEnter')">
+          <span class="material-symbols-outlined">delete_sweep</span> {{ t('ns.pods.batchEnter') }}
+        </button>
+        <button v-else @click="exitBatch"
+          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border bg-primary-container/20 text-primary border-primary transition-colors"
+          :title="t('ns.pods.batchExit')">
+          <span class="material-symbols-outlined">close</span> {{ t('ns.pods.batchExit') }}
+        </button>
         <button @click="toggleLive"
           class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border transition-colors"
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
@@ -157,6 +211,15 @@ async function handleCreate() {
         <option v-for="n in nodeOptions" :key="n" :value="n">{{ n }}</option>
       </select>
       <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.results', { n: filtered.length }) }}</span>
+      <template v-if="batchMode">
+        <span class="text-body-sm font-semibold text-primary">{{ t('ns.pods.batchSelected', { n: batchTargets.length }) }}</span>
+        <button @click="selectAllFiltered" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchSelectAll') }}</button>
+        <button @click="clearSelection" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchClear') }}</button>
+        <button @click="showBatchModal = true" :disabled="!batchTargets.length"
+          class="flex items-center gap-xs px-sm py-xs text-body-sm font-semibold bg-error text-on-error rounded-lg hover:opacity-90 disabled:opacity-40">
+          <span class="material-symbols-outlined text-base">delete</span>{{ t('ns.pods.batchDeleteAction') }}
+        </button>
+      </template>
     </div>
 
     <!-- Pods Table -->
@@ -164,7 +227,8 @@ async function handleCreate() {
       <div v-if="filtered.length" class="p-sm flex flex-col gap-xs">
         <PodCard
           v-for="p in paginated" :key="p.name" :pod="p" show-delete
-          @click="(pod) => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: pod.name } })"
+          :selectable="batchMode" :selected="batchMode && selectedNames.has(p.name)"
+          @click="onCardClick"
           @delete="confirmDelete"
         >
           <template #actions>
@@ -221,6 +285,16 @@ async function handleCreate() {
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
       <button @click="handleCreate" :disabled="!createForm.name || !createForm.image" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
+    </template>
+  </Modal>
+
+  <!-- 批量删除确认 -->
+  <Modal v-model="showBatchModal" :title="t('ns.pods.batchDeleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface">{{ t('ns.pods.batchDeleteConfirm', { n: batchTargets.length, names: batchNamesPreview }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ t('ns.pods.batchDeleteWarning') }}</p>
+    <template #actions>
+      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
     </template>
   </Modal>
 </template>
