@@ -1,9 +1,22 @@
-import { test, expect } from 'vitest'
+import { test, expect, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ToolTrace from '../ToolTrace.vue'
 
-const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { workbench: { chat: { toolDenied: '已拒绝' } } } } })
+const i18n = createI18n({
+  legacy: false,
+  locale: 'zh',
+  messages: {
+    zh: {
+      workbench: {
+        chat: { toolDenied: '已拒绝' },
+        toolCall: { title: '工具调用详情' }
+      }
+    }
+  }
+})
+
+afterEach(() => { document.body.innerHTML = '' })
 
 test('ToolTrace: 每事件一颗 chip，含 name', () => {
   const trace = [
@@ -17,13 +30,19 @@ test('ToolTrace: 每事件一颗 chip，含 name', () => {
   expect(w.text()).toContain('get_pod_logs')
 })
 
-test('ToolTrace: 点 chip 展开 result，再点收起', async () => {
-  const w = mount(ToolTrace, { props: { trace: [{ type: 'tool', name: 'foo', result: 'hello-result' }] }, global: { plugins: [i18n] } })
-  expect(w.text()).not.toContain('hello-result')
-  await w.find('button').trigger('click')
-  expect(w.text()).toContain('hello-result')
-  await w.find('button').trigger('click')
-  expect(w.text()).not.toContain('hello-result')
+test('ToolTrace: 点 chip 打开详情 Modal(不再就地展开)', async () => {
+  const trace = [{ type: 'tool', name: 'wb_get_pod_logs', args: { pod: 'p1' }, result: { logs: 'hello-log' }, ts: 1756100000000 }]
+  const w = mount(ToolTrace, { props: { trace }, global: { plugins: [i18n] } })
+  await w.findAll('button').find(b => b.text().includes('wb_get_pod_logs')).trigger('click')
+  // Modal 渲染到 document.body(Teleport)
+  const bodyText = document.body.innerHTML
+  expect(bodyText).toContain(i18n.global.t('workbench.toolCall.title'))
+  expect(bodyText).toContain('"pod": "p1"')
+  expect(bodyText).toContain('hello-log')
+  // Modal 内的 pre[data-testid="tc-result"] 存在
+  expect(document.querySelector('pre[data-testid="tc-result"]')).toBeTruthy()
+  // 旧的就地展开 pre 不存在
+  expect(w.html()).not.toContain('<pre class="font-mono text-body-xs bg-[#0b1c30] text-[#cfe3ff] border border-outline-variant/30 rounded-lg p-sm max-h-48')
 })
 
 test('ToolTrace: 空 trace 不渲染', () => {
@@ -42,13 +61,15 @@ test('ToolTrace: wb_top result 渲染用量百分比,≥80% 带 ⚠', async () =
   }]
   const w = mount(ToolTrace, { props: { trace }, global: { plugins: [i18n] } })
   await w.find('button').trigger('click')
-  const text = w.text()
-  expect(text).toContain('nginx-1/app')
-  expect(text).toContain('cpu 90% ⚠')
-  expect(text).toContain('mem 87% ⚠')
+  const bodyText = document.body.innerHTML
+  expect(bodyText).toContain('nginx-1/app')
+  expect(bodyText).toContain('cpu 90% ⚠')
+  expect(bodyText).toContain('mem 87% ⚠')
   // 无 limit 的容器:不出现百分比(不给假数)
-  expect(text).toContain('side-1/s')
-  expect(text).not.toContain('cpu null')
+  expect(bodyText).toContain('side-1/s')
+  expect(bodyText).not.toContain('cpu null')
+  // Modal 内的 pre[data-testid="tc-result"] 存在
+  expect(document.querySelector('pre[data-testid="tc-result"]')).toBeTruthy()
 })
 
 // dev27: tool_start running 态 chip(spinner,无 ✓;summary 不计瞬态)

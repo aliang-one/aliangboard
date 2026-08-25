@@ -1,19 +1,21 @@
 <script setup>
-// 工具调用紧凑 chips：每个 tool/denied 事件一颗；点开就地展开 result（Cursor 风格工具行）。
+// 工具调用紧凑 chips：每个 tool/denied 事件一颗；点开打开详情 Modal（替代就地展开）。
 // 结果智能格式化:pod_logs 直接显示文本;describe/list 提取关键字段摘要;其他走 JSON。
 // 多工具(>5)时折叠为摘要行,点开展开。
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fmtResult } from '@/utils/toolResultFormat'
+import ToolCallModal from './ToolCallModal.vue'
 
 const props = defineProps({ trace: { type: Array, default: () => [] } })
 const { t } = useI18n()
 
-const expanded = ref(null)
+const selected = ref(null)   // 当前详情 Modal 展示的事件;chips 点击打开(替代就地展开)
+const showDetail = ref(false)
 const showAll = ref(false)
 const COLLAPSE_THRESHOLD = 5
 
-function toggle(i) { expanded.value = expanded.value === i ? null : i }
+function openDetail(ev) { selected.value = ev; showDetail.value = true }
 
 // 只展示工具类事件:assistant 轮(LLM 思考回合,无 name)曾渲染成无名 chip +
 // 摘要里计为 "N× unknown"——用户无法解读,直接滤掉
@@ -37,15 +39,13 @@ const summary = computed(() => {
 <template>
   <div v-if="toolTrace.length" class="flex flex-col gap-xs">
     <div class="flex flex-wrap gap-sm items-center">
-      <button v-for="(ev, i) in visibleTrace" :key="i" type="button" @click="toggle(i)"
+      <button v-for="(ev, i) in visibleTrace" :key="i" type="button" @click="openDetail(ev)"
         class="flex items-center gap-xs text-body-xs font-mono px-sm py-0.5 rounded-full border transition-colors"
         :class="ev.type === 'denied'
           ? 'border-status-warning/30 text-status-warning bg-status-warning/5'
           : ev.type === 'tool_start'
             ? 'border-status-running/40 text-status-running bg-status-running/5'
-            : expanded === i
-              ? 'border-primary/40 text-primary bg-primary/5'
-              : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
+            : 'border-outline-variant text-on-surface hover:bg-surface-container-low'">
         <span class="material-symbols-outlined text-sm" :class="ev.type === 'tool_start' ? 'animate-spin' : ''">{{ ev.type === 'denied' ? 'block' : ev.type === 'tool_start' ? 'progress_activity' : 'play_arrow' }}</span>
         <span class="font-semibold">{{ ev.name }}</span>
         <span v-if="ev.type === 'denied'">{{ t('workbench.chat.toolDenied') }}</span>
@@ -59,7 +59,6 @@ const summary = computed(() => {
       </button>
       <span v-if="needsCollapse && !showAll" class="text-body-xs text-on-surface-variant/70 truncate ml-xs">{{ summary }}</span>
     </div>
-    <pre v-if="expanded !== null && fmtResult(trace[expanded])"
-      class="font-mono text-body-xs bg-[#0b1c30] text-[#cfe3ff] border border-outline-variant/30 rounded-lg p-sm max-h-48 overflow-y-auto whitespace-pre-wrap break-all leading-[18px]">{{ fmtResult(trace[expanded]) }}</pre>
+    <ToolCallModal v-model="showDetail" :event="selected" />
   </div>
 </template>
