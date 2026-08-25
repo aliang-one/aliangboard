@@ -156,3 +156,57 @@ export function isSubContainerEmpty(c) {
   if (c.securityContext?.enabled) return false
   return true
 }
+
+// 探针 spec → 表单(镜像 NsWorkloadDetail 原 probeToForm;defaults 取 PROBE_DEFAULTS 对应键)
+function probeToForm(p, k) {
+  const d = PROBE_DEFAULTS[k]
+  if (!p) return { ...d }
+  const type = p.httpGet ? 'http' : p.tcpSocket ? 'tcp' : 'exec'
+  return {
+    enabled: true, type,
+    httpPath: p.httpGet?.path ?? d.httpPath,
+    port: p.httpGet?.port ?? p.tcpSocket?.port ?? d.port,
+    execCommand: joinCommandTokens(p.exec?.command || []),
+    initialDelaySeconds: p.initialDelaySeconds ?? d.initialDelaySeconds,
+    periodSeconds: p.periodSeconds ?? d.periodSeconds,
+    timeoutSeconds: p.timeoutSeconds ?? d.timeoutSeconds,
+    failureThreshold: p.failureThreshold ?? d.failureThreshold,
+    successThreshold: p.successThreshold ?? d.successThreshold,
+  }
+}
+
+function scToForm(sc) {
+  if (!sc) return makeSubContainer().securityContext
+  return {
+    enabled: true, privileged: !!sc.privileged,
+    runAsUser: sc.runAsUser != null ? String(sc.runAsUser) : '', runAsGroup: sc.runAsGroup != null ? String(sc.runAsGroup) : '',
+    runAsNonPrivileged: !!sc.runAsNonRoot, readOnlyRootFilesystem: !!sc.readOnlyRootFilesystem,
+    addCaps: (sc.capabilities?.add || []).join(','), dropCaps: (sc.capabilities?.drop || []).join(','),
+  }
+}
+
+// K8s 容器 spec → 表单(全量反解,复制回填与编辑回填共用)。
+// 资源缺省回 ''(不补默认值):无 resources 的容器复制/编辑后重建不应凭空长出资源。
+export function mapSubContainer(spec = {}) {
+  const r = spec.resources || {}
+  return {
+    name: spec.name || '', image: spec.image || '',
+    command: joinCommandTokens(spec.command || []), args: joinArgLines(spec.args || []),
+    cpuRequest: r.requests?.cpu || '', cpuLimit: r.limits?.cpu || '',
+    memoryRequest: r.requests?.memory || '', memoryLimit: r.limits?.memory || '',
+    workingDir: spec.workingDir || '', pullPolicy: spec.imagePullPolicy || '',
+    stdin: !!spec.stdin, tty: !!spec.tty,
+    envVars: (spec.env || []).filter(e => e.value !== undefined && !e.valueFrom).map(e => ({ key: e.name, value: String(e.value ?? '') })),
+    envFromConfigMap: spec.envFrom?.find(e => e.configMapRef)?.configMapRef?.name || '',
+    envFromSecret: spec.envFrom?.find(e => e.secretRef)?.secretRef?.name || '',
+    envCMKeys: (spec.env || []).filter(e => e.valueFrom?.configMapKeyRef).map(e => ({ name: e.name, cmName: e.valueFrom.configMapKeyRef.name, key: e.valueFrom.configMapKeyRef.key })),
+    envSecretKeys: (spec.env || []).filter(e => e.valueFrom?.secretKeyRef).map(e => ({ name: e.name, secretName: e.valueFrom.secretKeyRef.name, key: e.valueFrom.secretKeyRef.key })),
+    ports: (spec.ports || []).map(p => ({ containerPort: p.containerPort, protocol: p.protocol || 'TCP' })),
+    liveness: probeToForm(spec.livenessProbe, 'liveness'),
+    readiness: probeToForm(spec.readinessProbe, 'readiness'),
+    startup: probeToForm(spec.startupProbe, 'startup'),
+    lifecycle: { postStart: joinCommandTokens(spec.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(spec.lifecycle?.preStop?.exec?.command || []) },
+    securityContext: scToForm(spec.securityContext),
+    nativeSidecar: spec.restartPolicy === 'Always',
+  }
+}
