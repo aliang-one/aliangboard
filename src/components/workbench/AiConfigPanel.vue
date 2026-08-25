@@ -32,8 +32,8 @@ watch(() => props.modelValue, v => { if (v) load() }, { immediate: true })
 </script>
 
 <template>
-  <Modal :model-value="modelValue" :title="t('workbench.chat.aiConfig.title')" @update:model-value="emit('update:modelValue', $event)">
-    <div class="min-w-[32rem] max-w-[48rem] max-h-[70vh] overflow-y-auto flex flex-col gap-md text-body-sm">
+  <Modal :model-value="modelValue" :title="t('workbench.chat.aiConfig.title')" width="max-w-3xl" @update:model-value="emit('update:modelValue', $event)">
+    <div class="max-h-[70vh] overflow-y-auto flex flex-col gap-md text-body-sm">
       <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
       <div v-else-if="loadError" class="flex flex-col items-center gap-md py-xl text-center">
         <p class="text-status-error text-body-sm">{{ loadError }}</p>
@@ -52,7 +52,7 @@ watch(() => props.modelValue, v => { if (v) load() }, { immediate: true })
               <span class="font-mono">{{ tool.name }}</span>
               <span v-if="tool.requiresApproval" class="px-1.5 py-0.5 rounded text-body-xs font-semibold bg-status-warning/10 text-status-warning">{{ t('workbench.chat.aiConfig.approvalBadge') }}</span>
               <span v-if="!tool.enabled" class="px-1.5 py-0.5 rounded text-body-xs font-semibold bg-surface-container-highest text-on-surface-variant">{{ t('workbench.chat.aiConfig.disabledBadge') }}</span>
-              <span class="text-body-xs text-on-surface-variant truncate">{{ tool.description }}</span>
+              <span class="text-body-xs text-on-surface-variant flex-1 min-w-0 break-words">{{ tool.description }}</span>
             </div>
           </div>
         </div>
