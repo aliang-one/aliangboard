@@ -122,6 +122,7 @@
       "terminalDisabled": "Pod 未运行，无法打开终端",
       "filesTitle": "文件浏览",
       "filesDisabled": "Pod 未运行，无法浏览文件",
+      "logsTitle": "查看日志",
       "deleteTitle": "删除 Pod（控制器会重建并重新拉镜像）",
       "restartsTitle": "重启 {n} 次",
       "lifecycleScheduled": "调度",

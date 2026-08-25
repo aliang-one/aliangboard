@@ -122,6 +122,7 @@
       "terminalDisabled": "Pod not running, cannot open terminal",
       "filesTitle": "File browser",
       "filesDisabled": "Pod not running, cannot browse files",
+      "logsTitle": "View logs",
       "deleteTitle": "Delete Pod (controller will recreate and re-pull image)",
       "restartsTitle": "Restarted {n} times",
       "lifecycleScheduled": "Scheduled",
