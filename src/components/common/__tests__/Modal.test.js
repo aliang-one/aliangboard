@@ -31,3 +31,24 @@ test('Modal: 关闭态不渲染 overlay', () => {
   expect(document.querySelector('body div.fixed.inset-0')).toBe(null)
   wrapper.unmount()
 })
+
+test('Modal: fullscreen 态铺满视口+分区滚动;非 fullscreen 原布局不变', () => {
+  const w = mount(Modal, {
+    props: { modelValue: true, title: 't', fullscreen: true },
+    global: { plugins: [i18n] },
+    slots: { default: '<p>x</p>', actions: '<button>a</button>' },
+  })
+  const overlay = document.querySelector('body div.fixed.inset-0')
+  const dialog = overlay.querySelector('div.relative')
+  expect(dialog.className).toContain('w-screen')
+  expect(dialog.className).toContain('h-screen')
+  expect(dialog.className).toContain('rounded-none')
+  expect(dialog.querySelector('div.flex-1.overflow-y-auto')).toBeTruthy()  // 内容区独立滚动
+  w.unmount()
+
+  const w2 = mount(Modal, { props: { modelValue: true, title: 't' }, global: { plugins: [i18n] } })
+  const dialog2 = document.querySelector('body div.fixed.inset-0 div.relative')
+  expect(dialog2.className).toContain('max-h-[90vh]')
+  expect(dialog2.className).toContain('rounded-xl')
+  w2.unmount()
+})
