@@ -30,3 +30,18 @@ test('未知工具对象结果:JSON pretty 兜底', () => {
 test('result null:空串', () => {
   expect(fmtResult({ name: 'wb_get_pod_logs', result: null })).toBe('')
 })
+
+import { applyLegacyTs } from '@/utils/toolResultFormat'
+
+test('applyLegacyTs:无 ts 的历史事件用轮次时刻兜底,已有 ts 不动', () => {
+  const evts = [{ type: 'tool', name: 'a' }, { type: 'tool', name: 'b', ts: 111 }]
+  const out = applyLegacyTs(evts, 1756100000000)
+  expect(out[0].ts).toBe(1756100000000)
+  expect(out[1].ts).toBe(111)          // 已有 ts 保留
+  expect(evts[0].ts).toBe(1756100000000) // 原数组就地补(重建路径每次 JSON.parse 新数组,安全)
+})
+
+test('applyLegacyTs:空数组/空兜底安全', () => {
+  expect(applyLegacyTs([], 1)).toEqual([])
+  expect(applyLegacyTs([{ type: 'tool', name: 'a' }], null)[0].ts).toBeUndefined()
+})

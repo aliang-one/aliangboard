@@ -115,3 +115,12 @@ export function fmtTop(r) {
   }
   return L.join('\n')
 }
+
+// 历史事件时间戳兜底:2026-08-25 之前的事件没记 ts(详情 Modal 显示 —)。
+// 用该轮 assistant 消息的 createdAt(轮次完成时刻)作为近似时间就地补上;已有 ts 不动。
+// 重建路径每次 JSON.parse 出新数组,就地改写安全。
+export function applyLegacyTs(events, fallbackTs) {
+  if (!Array.isArray(events) || !fallbackTs) return events || []
+  for (const ev of events) if (ev && typeof ev === 'object' && ev.ts == null) ev.ts = fallbackTs
+  return events
+}

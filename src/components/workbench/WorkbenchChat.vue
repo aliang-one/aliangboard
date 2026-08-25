@@ -12,6 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import { applyStreamEvent } from './conv-stream'
+import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
 import { isNearBottomCalc } from '@/logic/chatScroll'
 import { getDraft, setDraft } from '@/logic/chatDrafts'
@@ -341,7 +342,7 @@ async function pollOnce(id) {
             turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs) })
           } else {
             // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
-            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace: tryParseTrace(m.trace), steps: 0 })
+            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace: applyLegacyTs(tryParseTrace(m.trace), m.createdAt), steps: 0, _createdAt: m.createdAt })
           }
         }
         // running/paused 且末条非 assistant-thinking:补 thinking turn(页面刷新续接运行中对话;
@@ -356,7 +357,10 @@ async function pollOnce(id) {
         const asstTurns = turns.value.filter(x => x.role === 'assistant' && x.status === 'done')
         if (asstTurns.length && asstTurns.every(x => !(x.trace || []).length)) {
           const convTrace = tryParseTrace(conv.trace).filter(e => e.type === 'tool' || e.type === 'denied')
-          if (convTrace.length) asstTurns[asstTurns.length - 1].trace = convTrace
+          if (convTrace.length) {
+            const lastAsst = asstTurns[asstTurns.length - 1]
+            lastAsst.trace = applyLegacyTs(convTrace, lastAsst._createdAt || null)
+          }
         }
       } else {
         // 旧单轮数据 fallback(无 messages 数组):user from conv.userMessage + agent thinking。

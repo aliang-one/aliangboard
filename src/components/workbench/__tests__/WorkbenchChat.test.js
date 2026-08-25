@@ -638,9 +638,9 @@ test('存量对话兜底:消息级 trace 全空但对话级 trace 有工具事�
     recap: '',
     messages: [
       { role: 'user', content: '看看 pod', refs: null, trace: null },
-      { role: 'assistant', content: '查到了', refs: null, trace: '[]' },
+      { role: 'assistant', content: '查到了', refs: null, trace: '[]', createdAt: 1756000000000 },
       { role: 'user', content: '看日志', refs: null, trace: null },
-      { role: 'assistant', content: '日志如上', refs: null, trace: '[]' },
+      { role: 'assistant', content: '日志如上', refs: null, trace: '[]', createdAt: 1756100000000 },
     ],
   })
   const w = await mountChat({ conversationId: 'conv-legacy' })
@@ -650,6 +650,12 @@ test('存量对话兜底:消息级 trace 全空但对话级 trace 有工具事�
   // 兜底后末轮 turn 带工具事件 → ToolTrace 渲染出工具名;修复前全不可见
   expect(html).toContain('wb_get_pod_logs')
   expect(html).toContain('wb_list_resources')
+  // 历史事件时间兜底:点开一个工具 chip → 详情 Modal 头部显示轮次时刻(2025-08-25 epoch,含年份)
+  const chip = w.findAll('button').find(b => b.text().includes('wb_get_pod_logs'))
+  await chip.trigger('click')
+  await flushPromises()
+  // 本文件 Modal 被 stub(无 Teleport)→ 详情内容渲染在组件树内,查 w.html()
+  expect(w.html()).toMatch(/2025/)
 })
 
 test('新数据不触发兜底:任一 assistant 消息自带 trace → 各轮维持自己的 trace', async () => {
