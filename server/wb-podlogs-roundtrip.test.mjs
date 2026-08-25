@@ -81,3 +81,55 @@ test('wb_get_pod_logs:工具结果进 LLM 消息的是真实日志,不是 [objec
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
   }
 })
+
+test('/api/agent/chat @-mention 注入:进 LLM 的是资源 body,不是 {status,headers,body} 信封', { timeout: 60000 }, async () => {
+  const [K8S_PORT, LLM_PORT, GW_PORT] = [28000 + Math.floor(Math.random() * 4000), 32000 + Math.floor(Math.random() * 3000), 36000 + Math.floor(Math.random() * 3000)]
+  const DIR = mkdtempSync(join(tmpdir(), 'wb-refs-'))
+  const k8s = createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname
+    if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31","gitVersion":"v1.31.4"}') }
+    if (p === '/api/v1/namespaces/ns1/pods/p1') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ kind: 'Pod', metadata: { name: 'p1', namespace: 'ns1' } })) }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end(`{"kind":"Status","message":"not found: ${p}"}`)
+  })
+  const llmMsgs = []
+  const llm = createServer((req, res) => {
+    let body = ''; req.on('data', c => body += c); req.on('end', () => {
+      const { messages = [], stream } = JSON.parse(body || '{}')
+      llmMsgs.push(...messages)
+      if (stream) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: '收到' } }] })}\n\n`)
+        res.write('data: [DONE]\n\n'); return res.end()
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '收到' } }] }))
+    })
+  })
+  await new Promise(r => k8s.listen(K8S_PORT, '127.0.0.1', r))
+  await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
+  const gw = spawn(process.execPath, ['server/index.mjs'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(GW_PORT), ALIANG_DB: join(DIR, 'wb.db'), ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+  const BASE = `http://127.0.0.1:${GW_PORT}`
+  try {
+    let up = false
+    for (let i = 0; i < 60 && !up; i++) { try { await fetch(`${BASE}/api/auth/login`, { method: 'POST', body: '{}' }); up = true } catch { await new Promise(r => setTimeout(r, 300)) } }
+    assert.ok(up, '网关未启动')
+    const lr = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+    const H = { 'content-type': 'application/json', 'x-platform-token': lr.token }
+    await fetch(`${BASE}/api/admin/llm-config`, { method: 'PUT', headers: H, body: JSON.stringify({ baseURL: `http://127.0.0.1:${LLM_PORT}`, model: 'mock-1' }) })
+    const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user:\n    token: d\n`
+    const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
+    const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't2', clusterId: cr.cluster?.id || cr.id }) })).json()
+    const reply = await (await fetch(`${BASE}/api/agent/chat`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '看这个 pod', references: [{ kind: 'pods', namespace: 'ns1', name: 'p1' }] }) })).json()
+    assert.equal(reply.status, 'done', `对话应完成: ${JSON.stringify(reply).slice(0, 120)}`)
+    const userMsg = llmMsgs.filter(m => m.role === 'user').map(m => String(m.content || '')).join('\n')
+    assert.ok(userMsg.includes('"kind": "Pod"'), `@-ref 注入应含资源 body: ${userMsg.slice(0, 200)}`)
+    assert.ok(!userMsg.includes('"headers"') && !userMsg.includes('"status": 200'), `不得注入 {status,headers,body} 信封: ${userMsg.slice(0, 200)}`)
+  } finally {
+    gw.kill('SIGKILL'); k8s.close(); llm.close()
+    setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
+  }
+})
