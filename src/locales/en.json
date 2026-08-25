@@ -3160,6 +3160,10 @@
     "ephemeralBadge": "Lost on refresh",
     "ephemeralHint": "Image has no tmux — this terminal won't survive refresh"
   },
+  "logPopup": {
+    "title": "Logs · {pod}/{container}",
+    "closeWindow": "Close window"
+  },
   "storageclass": {
     "editModalTitle": "Edit StorageClass (mutable fields only)",
     "setDefaultLabel": "Set as default StorageClass",

@@ -34,6 +34,13 @@ const routes = [
     meta: { title: 'Terminal' }
   },
   {
+    // 独立日志页（新浏览器标签页打开），不走 AppLayout（无侧栏/顶栏，全屏日志）
+    path: '/log-popup',
+    name: 'LogPopup',
+    component: () => import('@/views/LogPopup.vue'),
+    meta: { title: 'Logs' }
+  },
+  {
     path: '/',
     component: AppLayout,
     redirect: '/cluster',
@@ -511,7 +518,7 @@ router.beforeEach(async (to) => {
   const store = useClusterStore()
   const authStore = useAuthStore()
   authStore.init()
-  if (to.name === 'TerminalPopup') return
+  if (['TerminalPopup', 'LogPopup'].includes(to.name)) return
 
   const isPublic = to.name === 'Login' || to.name === 'SelectCluster'
 

@@ -3160,6 +3160,10 @@
     "ephemeralBadge": "刷新不保留",
     "ephemeralHint": "该镜像内无 tmux,终端不会在刷新后保留"
   },
+  "logPopup": {
+    "title": "日志 · {pod}/{container}",
+    "closeWindow": "关闭窗口"
+  },
   "storageclass": {
     "editModalTitle": "编辑 StorageClass（仅可变字段）",
     "setDefaultLabel": "设为默认 StorageClass",
