@@ -16,7 +16,7 @@ import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
-import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty } from '@/logic/subContainer'
+import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -35,6 +35,7 @@ import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } fr
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
+import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -890,11 +891,31 @@ function addVolumeMount() {
 }
 // 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
+
+// 编辑面子容器「完整编辑」共享弹窗(与创建面 DeployApp 同款;嵌套于编辑 Modal 之上)
+const editing = ref(null)
+const editingListKey = computed(() => (editing.value?.kind === 'sidecar' ? 'extraContainers' : 'initContainers'))
+const editingContainer = computed(() => (editing.value ? editForm.value[editingListKey.value][editing.value.index] : {}))
+const editingOtherNames = computed(() => {
+  const f = editForm.value, cur = editing.value
+  if (!cur) return []
+  const names = []
+  const main = workload.value?.name
+  if (main) names.push(main)
+  ;(f.initContainers || []).forEach((c, i) => { if (c.name && !(cur.kind === 'init' && i === cur.index)) names.push(c.name) })
+  ;(f.extraContainers || []).forEach((c, i) => { if (c.name && !(cur.kind === 'sidecar' && i === cur.index)) names.push(c.name) })
+  return names
+})
+function openContainerEditor(kind, index) { editing.value = { kind, index } }
+function onContainerEdited(payload) {
+  if (!editing.value) return
+  Object.assign(editForm.value[editingListKey.value][editing.value.index], payload)
+  editing.value = null
+}
+
 function openEdit() {
   if (!workload.value) return
   // 子容器全量反解(单源);原生 sidecar(restartPolicy Always)归 extraContainers。
-  // 过渡兼容:Task 10 前行内模板仍读 cpuReq 系旧键——同时挂别名,Task 10 (d) 删。
-  const withLegacyKeys = c => ({ ...c, cpuReq: c.cpuRequest, cpuLim: c.cpuLimit, memReq: c.memoryRequest, memLim: c.memoryLimit })
   const raw = workload.value?.raw || {}
   const tplSpec = raw.spec?.template?.spec || raw.spec?.jobTemplate?.spec?.template?.spec || {}
   const c0 = tplSpec.containers?.[0] || {}
@@ -930,10 +951,10 @@ function openEdit() {
     securityContext: scToForm(c0.securityContext),
     lifecycle: { postStart: joinCommandTokens(c0.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(c0.lifecycle?.preStop?.exec?.command || []) },
     // 多容器
-    initContainers: (tplSpec.initContainers || []).filter(c => c.restartPolicy !== 'Always').map(c => withLegacyKeys(mapSubContainer(c))),
+    initContainers: (tplSpec.initContainers || []).filter(c => c.restartPolicy !== 'Always').map(c => mapSubContainer(c)),
     extraContainers: [
-      ...(tplSpec.containers || []).slice(1).map(c => withLegacyKeys(mapSubContainer(c))),
-      ...(tplSpec.initContainers || []).filter(c => c.restartPolicy === 'Always').map(c => withLegacyKeys(mapSubContainer(c))),
+      ...(tplSpec.containers || []).slice(1).map(c => mapSubContainer(c)),
+      ...(tplSpec.initContainers || []).filter(c => c.restartPolicy === 'Always').map(c => mapSubContainer(c)),
     ],
     // 调度（pod spec）
     nodeSelectors: Object.entries(tplSpec.nodeSelector || {}).map(([key, value]) => ({ key, value: String(value) })),
@@ -2033,25 +2054,68 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512" /></div>
           </div>
-          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
-          <div v-for="(c, i) in editForm.initContainers" :key="'ic'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
-            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
-            <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
-            <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
-            <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.initContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+          <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
+          <div v-for="(c, idx) in editForm.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
+            <div class="flex items-center gap-sm justify-between mb-xs">
+              <div class="flex items-center gap-sm">
+                <span class="text-xs text-on-surface-variant font-mono">#{{ idx + 1 }}</span>
+                <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('init', idx)"
+                  class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70">
+                  {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                </button>
+              </div>
+              <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                @click="openContainerEditor('init', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                <span class="material-symbols-outlined text-base">open_in_full</span>
+              </button>
+            </div>
+            <!-- 8 字段格(与创建面卡片同构,新键名绑定) -->
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.namePlaceholder')" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.imagePlaceholder')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" placeholder="sh -c" />
+              <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs">
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+            </div>
+            <button @click="editForm.initContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
-          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.sidecarContainers') }}</span><button @click="editForm.extraContainers.push({ name: '', image: '', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addSidecar') }}</button></div>
-          <div v-for="(c, i) in editForm.extraContainers" :key="'ec'+i" class="rounded-lg border border-outline-variant/60 p-sm bg-surface-container-low/30 grid grid-cols-3 gap-xs">
-            <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.namePlaceholder')" />
-            <input v-model="c.image" class="col-span-2 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.imagePlaceholder')" />
-            <input v-model="c.command" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" />
-            <textarea v-model="c.args" rows="2" class="col-span-3 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" />
-            <ResourceInput v-model="c.cpuReq" kind="cpu" placeholder="cpuReq" />
-            <ResourceInput v-model="c.cpuLim" kind="cpu" placeholder="cpuLim" />
-            <div class="flex gap-xs items-stretch"><ResourceInput v-model="c.memReq" kind="memory" placeholder="memReq" class="flex-1 min-w-0" /><button @click="editForm.extraContainers.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.sidecarContainers') }}</span><button @click="editForm.extraContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addSidecar') }}</button></div>
+          <div v-for="(c, idx) in editForm.extraContainers" :key="'ec'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
+            <div class="flex items-center gap-sm justify-between mb-xs">
+              <div class="flex items-center gap-sm">
+                <span class="text-xs text-on-surface-variant font-mono">#{{ idx + 1 }}</span>
+                <button v-if="advancedCount(c)" type="button" data-testid="ced-advanced-badge" @click="openContainerEditor('sidecar', idx)"
+                  class="px-xs py-0.5 rounded-full bg-secondary-container/40 text-on-surface-variant text-xs hover:bg-secondary-container/70">
+                  {{ $t('deploy.ced.advancedBadge', { n: advancedCount(c) }) }}
+                </button>
+              </div>
+              <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
+                @click="openContainerEditor('sidecar', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                <span class="material-symbols-outlined text-base">open_in_full</span>
+              </button>
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.namePlaceholder')" />
+              <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" :placeholder="$t('workload.edit.imagePlaceholder')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs mb-xs">
+              <input v-model="c.command" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono" placeholder="sh -c" />
+              <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
+            </div>
+            <div class="grid grid-cols-2 gap-xs">
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+            </div>
+            <button @click="editForm.extraContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
         </section>
 
@@ -2195,6 +2259,10 @@ function podStatusBorder(s) {
       <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.edit.save') }}</button>
     </template>
   </Modal>
+
+  <ContainerEditorDialog v-if="editing" :model-value="true" :container="editingContainer"
+    :kind="editing.kind" :index="editing.index" :other-names="editingOtherNames" :namespace="String(route.params.namespace || '')"
+    @update:model-value="editing = null" @confirm="onContainerEdited" />
 
   <Modal v-model="showMetaModal" :title="$t('workload.modals.metaTitle')" width="max-w-2xl">
     <div class="flex flex-col gap-md">

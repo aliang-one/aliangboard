@@ -87,19 +87,50 @@ test('编辑 Modal 打开后 init/sidecar 行内表单渲染已有行(锁定现�
       securityContext: {}, lifecycle: { postStart: '', preStop: '' },
       serviceAccountName: '', priorityClassName: '', imagePullSecrets: '',
       strategy: 'RollingUpdate', maxSurge: '25%', maxUnavailable: '25%', revisionHistoryLimit: 10,
-      initContainers: [{ name: 'i0', image: 'busybox', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' }],
-      extraContainers: [{ name: 's0', image: 'nginx', command: '', args: '', cpuReq: '', cpuLim: '', memReq: '', memLim: '' }],
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }],
+      extraContainers: [{ ...makeSubContainer(), name: 's0', image: 'nginx' }],
     },
     showEditModal: true,
   })
   await flushPromises()
-  // Modal teleport 到 body:断言行内表单真实渲染(input value 含注入行数据)
+  // Modal teleport 到 body:断言卡片表单真实渲染(input value 含注入行数据)+ 卡片结构(badge/expand 按钮)
   const values = [...document.body.querySelectorAll('input, textarea')].map(el => el.value)
   expect(values).toContain('i0')
   expect(values).toContain('busybox')
   expect(values).toContain('s0')
+  expect(document.body.querySelector('[data-testid="ced-advanced-badge"]')).toBeTruthy()      // init 卡片带高级字段 badge
+  expect(document.body.querySelector('[data-testid="init-expand-btn"]')).toBeTruthy()
+  expect(document.body.querySelector('[data-testid="sidecar-expand-btn"]')).toBeTruthy()
   w.unmount()
   document.body.innerHTML = ''
+})
+
+const $$ = sel => document.body.querySelector(sel)
+
+test('编辑面子容器卡片:badge + 点开共享弹窗(嵌套于编辑 Modal 之上)', async () => {
+  const w = mountDetailB()
+  await flushPromises()
+  await w.vm.openEdit()   // 填全量表单骨架(探针/安全上下文等模板触达键),再注入子容器
+  await w.setData({
+    editForm: { ...w.vm.editForm,
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }] },
+    showEditModal: true,
+  })
+  await flushPromises()
+  const badge = document.body.querySelector('[data-testid="ced-advanced-badge"]')
+  expect(badge).toBeTruthy()
+  expect(badge.textContent).toContain('1')
+  badge.click()
+  await flushPromises()
+  expect($$('[data-testid="ced-name-input"]').value).toBe('i0')       // 共享弹窗回显(在编辑 Modal 之上)
+  // 确认写回同槽:
+  const nameInput = $$('[data-testid="ced-name-input"]')
+  nameInput.value = 'renamed'; nameInput.dispatchEvent(new Event('input'))
+  $$('[data-testid="ced-confirm-btn"]').click()
+  await flushPromises()
+  expect(w.vm.editForm.initContainers[0].name).toBe('renamed')
+  expect(w.vm.editForm.initContainers[0].envVars[0].key).toBe('K')    // 未写回字段不丢
+  w.unmount(); document.body.innerHTML = ''
 })
 
 test('saveEdit 重建:普通 sidecar 进 containers,原生进 initContainers 尾部(带 Always),挂载按原索引', async () => {
