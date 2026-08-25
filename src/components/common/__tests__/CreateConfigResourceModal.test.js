@@ -2,15 +2,22 @@ import { test, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 
-const addConfigMap = vi.fn(async () => ({ ok: true }))
-const addSecret = vi.fn(async () => ({ ok: true }))
-vi.mock('@/stores/cluster', () => ({
-  useClusterStore: () => ({
-    addConfigMap,
-    addSecret,
-    generateYAML: vi.fn(() => ''),
+// vi.mock 工厂被提升,具名引用须用 vi.hoisted 提到顶部
+const fns = vi.hoisted(() => {
+  const generateYAML = vi.fn((type, r) => {
+    const kind = type === 'configmap' ? 'ConfigMap' : 'Secret'
+    return `apiVersion: v1\nkind: ${kind}\nmetadata:\n  name: ${r.name}\n  namespace: ${r.namespace}\ndata: ${JSON.stringify(r.data)}`
+  })
+  return {
+    addConfigMap: vi.fn(async () => ({ ok: true })),
+    addSecret: vi.fn(async () => ({ ok: true })),
     applyResourceYaml: vi.fn(async () => ({ ok: true })),
-  }),
+    generateYAML,
+  }
+})
+const { addConfigMap, addSecret, applyResourceYaml, generateYAML } = fns
+vi.mock('@/stores/cluster', () => ({
+  useClusterStore: () => fns,
 }))
 
 import CreateConfigResourceModal from '@/components/common/CreateConfigResourceModal.vue'
@@ -49,8 +56,11 @@ function mountModal(kind, props = {}) {
 beforeEach(() => {
   addConfigMap.mockClear()
   addSecret.mockClear()
+  applyResourceYaml.mockClear()
+  generateYAML.mockClear()
   addConfigMap.mockResolvedValue({ ok: true })
   addSecret.mockResolvedValue({ ok: true })
+  applyResourceYaml.mockResolvedValue({ ok: true })
 })
 
 test('configmap: name+数据键+labels → addConfigMap 收到完整 payload,emit created + 关弹窗', async () => {
@@ -167,11 +177,8 @@ test('secret Opaque 重开 → freeKeys 重置为单空行', async () => {
   expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: '', value: '' }])
 })
 
-test('secret 类型切换重置 freeKeys；yaml tab 按钮禁用', async () => {
+test('secret 类型切换重置 freeKeys', async () => {
   const w = mountModal('secret')
-  // yaml 占位 tab 禁用
-  const yamlBtn = w.find('[data-testid="ccm-tab-yaml"]')
-  expect(yamlBtn.attributes('disabled')).toBeDefined()
   // Opaque 自由键 → 切 tls → stub 收到 fixedFields 且 modelValue 重置为 fields 初始化
   await w.find('[data-testid="ccm-type"]').setValue('kubernetes.io/tls')
   const dk = w.findComponent({ name: 'DataKeysEditor' })
@@ -182,4 +189,32 @@ test('secret 类型切换重置 freeKeys；yaml tab 按钮禁用', async () => {
   // 切回 Opaque → 重置为单空行
   await w.find('[data-testid="ccm-type"]').setValue('Opaque')
   expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: '', value: '' }])
+})
+
+test('YAML tab 预览:派生自 payload(含 labels)', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-name"]').setValue('cm3')
+  await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
+  const pre = w.find('[data-testid="ccm-yaml-preview"]')
+  expect(pre.text()).toContain('kind: ConfigMap')
+  expect(pre.text()).toContain('name: cm3')
+})
+
+test('切换纯 YAML 编辑:填合法 ConfigMap YAML → applyResourceYaml 提交', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
+  await w.find('[data-testid="ccm-yaml-switch"]').trigger('click')
+  await w.find('[data-testid="ccm-yaml-input"]').setValue('apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: y1\n  namespace: default\ndata:\n  k: v')
+  await w.find('[data-testid="ccm-create"]').trigger('click')
+  expect(applyResourceYaml).toHaveBeenCalled()
+  expect(addConfigMap).not.toHaveBeenCalled()
+})
+
+test('纯 YAML kind 不对 → 创建禁用 + 错误提示', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
+  await w.find('[data-testid="ccm-yaml-switch"]').trigger('click')
+  await w.find('[data-testid="ccm-yaml-input"]').setValue('apiVersion: v1\nkind: Service\nmetadata:\n  name: s\n  namespace: default')
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
+  expect(w.find('[data-testid="ccm-yaml-error"]').exists()).toBe(true)
 })

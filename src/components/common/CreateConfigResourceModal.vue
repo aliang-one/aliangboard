@@ -1,15 +1,17 @@
 <script setup>
-// ConfigMap/Secret 富创建弹窗骨架（Task 6）：
+// ConfigMap/Secret 富创建弹窗（Task 6 骨架 + Task 7 YAML tab）：
 // - kind 二态：configmap / secret（secret 又分 Opaque 自由键 + 4 固定字段类型）
-// - 四 tab：数据 / 注解 / 标签 / YAML（YAML 为 Task 7 占位,按钮禁用）
+// - 四 tab：数据 / 注解 / 标签 / YAML（实时派生预览 + 纯 YAML 编辑模式）
 // - freeKeys 唯一数据源：自由键与固定字段都经 DataKeysEditor v-model
 // - {ok} 契约提交：r.ok === false 时 Modal 不关（store 已 toast）
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { load as yamlLoad } from 'js-yaml'
 import Modal from './Modal.vue'
 import DataKeysEditor from './DataKeysEditor.vue'
 import KeyValueRowsEditor from './KeyValueRowsEditor.vue'
 import { SECRET_TYPES, buildSecretData, secretFieldsComplete } from '@/utils/secretTemplates'
+import { encodeSecretData } from '@/composables/useResourceMappers'
 import { useClusterStore } from '@/stores/cluster'
 
 const props = defineProps({
@@ -30,6 +32,9 @@ const freeKeys = ref([{ key: '', value: '' }])
 const labels = ref([])
 const annotations = ref([])
 const activeTab = ref('data')
+// YAML tab 两态：preview（实时派生预览）/ edit（纯 YAML 手编）
+const yamlMode = ref('preview')
+const rawYaml = ref('')
 
 const isSecret = computed(() => props.kind === 'secret')
 const currentType = computed(
@@ -60,6 +65,7 @@ watch(
       labels.value = []
       annotations.value = []
       activeTab.value = 'data'
+      yamlMode.value = 'preview'
       // secretTypeId 同值赋值不触发 watch(secretTypeId)（如上次已是 Opaque 或 configmap），
       // 必须显式重置，否则上次填的键值残留跨会话
       resetTypeData()
@@ -102,7 +108,55 @@ const dataComplete = computed(() => {
   return validKeys.value.length > 0
 })
 
-const canCreate = computed(() => nameValid.value && metaValid.value && dataComplete.value)
+const canCreate = computed(() =>
+  yamlMode.value === 'edit' ? yamlValid.value : nameValid.value && metaValid.value && dataComplete.value,
+)
+
+// ---- YAML tab ----
+// 预览=提交体：secret data 与 makeCrud beforeSave 同路 encodeSecretData
+const derivedYaml = computed(() => {
+  const p = payload.value
+  return store.generateYAML(isSecret.value ? 'secret' : 'configmap', {
+    ...p,
+    data: isSecret.value ? encodeSecretData(p.data) : p.data,
+  })
+})
+
+// edit 模式校验：可解析 + kind 与弹窗 kind 一致
+const yamlErrorKey = computed(() => {
+  if (yamlMode.value !== 'edit') return ''
+  let o
+  try {
+    o = yamlLoad(rawYaml.value)
+  } catch {
+    return 'component.createConfigModal.yamlParseError'
+  }
+  if (!o || typeof o !== 'object' || o.kind !== (isSecret.value ? 'Secret' : 'ConfigMap')) {
+    return 'component.createConfigModal.yamlKindError'
+  }
+  return ''
+})
+const yamlValid = computed(() => yamlMode.value === 'edit' && !yamlErrorKey.value)
+
+function switchToEdit() {
+  rawYaml.value = derivedYaml.value // 当前派生值快照,后续表单改动不再跟随
+  yamlMode.value = 'edit'
+}
+function backToForm() {
+  if (!window.confirm(t('component.createConfigModal.discardConfirm'))) return
+  yamlMode.value = 'preview'
+}
+
+// 复制（照 YamlEditor.vue copy 的 clipboard 逻辑,附成功/失败回显）
+const copyState = ref('') // '' | 'ok' | 'fail'
+async function copyYaml() {
+  try {
+    await navigator?.clipboard?.writeText(derivedYaml.value)
+    copyState.value = 'ok'
+  } catch {
+    copyState.value = 'fail'
+  }
+}
 
 // ---- payload 组装 ----
 function rowsToObj(rows) {
@@ -140,7 +194,9 @@ async function submit() {
   submitting.value = true
   let r
   try {
-    r = props.kind === 'configmap' ? await store.addConfigMap(payload.value) : await store.addSecret(payload.value)
+    r = yamlMode.value === 'edit'
+      ? await store.applyResourceYaml(rawYaml.value)
+      : props.kind === 'configmap' ? await store.addConfigMap(payload.value) : await store.addSecret(payload.value)
   } finally {
     submitting.value = false
   }
@@ -178,8 +234,8 @@ function cancel() {
       <!-- tab 条 -->
       <div class="flex gap-xs border-b border-outline-variant" role="tablist">
         <button v-for="tab in ['data', 'annotations', 'labels', 'yaml']" :key="tab" type="button" role="tab"
-          :data-testid="`ccm-tab-${tab}`" :disabled="tab === 'yaml'"
-          :title="tab === 'yaml' ? t('component.createConfigModal.tabYaml') : undefined"
+          :data-testid="`ccm-tab-${tab}`"
+          :disabled="yamlMode === 'edit' && tab !== 'yaml'"
           @click="activeTab = tab"
           class="px-md py-sm text-body-sm font-medium rounded-t-lg transition-colors"
           :class="activeTab === tab
@@ -191,16 +247,55 @@ function cancel() {
 
       <!-- tab 内容（固定高度内滚） -->
       <div class="max-h-[55vh] overflow-y-auto">
-        <div v-if="activeTab === 'data'" data-testid="ccm-panel-data">
-          <DataKeysEditor v-model="freeKeys" :secret="isSecret" :fixed-fields="fixedFields" />
+        <!-- 纯 YAML 编辑模式：表单面板整体置灰锁交互 -->
+        <div :class="yamlMode === 'edit' ? 'opacity-50 pointer-events-none' : ''">
+          <div v-if="activeTab === 'data'" data-testid="ccm-panel-data">
+            <DataKeysEditor v-model="freeKeys" :secret="isSecret" :fixed-fields="fixedFields" />
+          </div>
+          <div v-else-if="activeTab === 'annotations'" data-testid="ccm-panel-annotations">
+            <KeyValueRowsEditor v-model="annotations" multiline />
+          </div>
+          <div v-else-if="activeTab === 'labels'" data-testid="ccm-panel-labels">
+            <KeyValueRowsEditor v-model="labels" />
+          </div>
         </div>
-        <div v-else-if="activeTab === 'annotations'" data-testid="ccm-panel-annotations">
-          <KeyValueRowsEditor v-model="annotations" multiline />
+
+        <!-- YAML tab -->
+        <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm">
+          <!-- 预览模式：实时派生（表单继续可改,computed 实时反映） -->
+          <template v-if="yamlMode === 'preview'">
+            <div class="flex items-center justify-between">
+              <button type="button" data-testid="ccm-yaml-switch" @click="switchToEdit"
+                class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+                {{ t('component.createConfigModal.switchToYamlEdit') }}
+              </button>
+              <button type="button" data-testid="ccm-yaml-copy" @click="copyYaml"
+                class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+                {{ t('common.copy') }}
+              </button>
+            </div>
+            <p v-if="copyState" class="text-body-sm" :class="copyState === 'ok' ? 'text-primary' : 'text-error'">
+              {{ t(copyState === 'ok' ? 'common.copySuccess' : 'common.copyFailed') }}
+            </p>
+            <pre data-testid="ccm-yaml-preview"
+              class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono whitespace-pre-wrap">{{ derivedYaml }}</pre>
+          </template>
+
+          <!-- 纯 YAML 编辑模式 -->
+          <template v-else>
+            <div class="flex items-center justify-between">
+              <button type="button" data-testid="ccm-yaml-back" @click="backToForm"
+                class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+                {{ t('component.createConfigModal.backToForm') }}
+              </button>
+            </div>
+            <p v-if="yamlErrorKey" data-testid="ccm-yaml-error" class="text-body-sm text-error">
+              {{ t(yamlErrorKey) }}
+            </p>
+            <textarea v-model="rawYaml" data-testid="ccm-yaml-input" rows="14" spellcheck="false"
+              class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono" />
+          </template>
         </div>
-        <div v-else-if="activeTab === 'labels'" data-testid="ccm-panel-labels">
-          <KeyValueRowsEditor v-model="labels" />
-        </div>
-        <!-- YAML tab:Task 7 实现 -->
       </div>
     </div>
 
