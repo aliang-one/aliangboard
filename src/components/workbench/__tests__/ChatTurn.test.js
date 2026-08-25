@@ -53,3 +53,22 @@ test('ChatTurn: reasoning 折叠区渲染,thinking 时展开/done 后收起', as
   const w2 = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '答案', reasoning: '推理过程', trace: [], steps: 1 } }, global: { plugins: [i18n] } })
   expect(w2.find('details').attributes('open')).toBeUndefined()
 })
+
+// 2026-08-25 工具内联时间线:agent 轮里 chips 总览(ToolTrace)与时间线(ToolTimeline)并存;
+// 时间线行点击进 ToolCallModal 详情。
+test('agent 轮:chips 总览与时间线并存,时间线行可开详情 Modal', async () => {
+  const turn = { _id: 1, role: 'assistant', status: 'done', content: '终答', reasoning: '', steps: 1,
+    trace: [{ type: 'tool', name: 'wb_get_pod_logs', args: { pod: 'p1' }, result: { logs: 'log-line-1' }, ts: 1756100000000 }] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [i18n] } })
+  // chips 总览仍在
+  expect(w.findAll('button').some(b => b.text().includes('wb_get_pod_logs'))).toBe(true)
+  // 时间线行存在且含预览
+  const row = w.find('[data-testid="tool-tl-row"]')
+  expect(row.exists()).toBe(true)
+  expect(row.text()).toContain('log-line-1')
+  await row.trigger('click')
+  await flushPromises()
+  // 本文件 i18n 极简(标题渲染为键名)→ 断言 modal 实质内容而非本地化标题
+  expect(document.querySelector('[data-testid="tc-args"]')?.textContent).toContain('"pod": "p1"')
+  expect(document.querySelector('[data-testid="tc-result"]')?.textContent).toContain('log-line-1')
+})
