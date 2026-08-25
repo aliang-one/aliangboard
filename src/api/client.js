@@ -270,6 +270,7 @@ export const adminApi = {
     list: (force = false) => platformHttp.request('/api/admin/clusters' + (force ? '?refresh=1' : '')),
     create: payload => platformHttp.request('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    namespaces: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}/namespaces`),
   },
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),

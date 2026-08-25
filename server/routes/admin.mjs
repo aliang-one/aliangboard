@@ -195,6 +195,21 @@ export function createAdminRoutes(deps) {
       sendJson(res, 200, { ok: true })
       return true
     }
+    // 按 key 绑定集群拉真实 ns 列表(ns allowlist 下拉候选):用集群表行内凭据,非浏览器会话集群——
+    // 多集群下 key 绑 A 而浏览器连 B 时,候选绝不能取 B 的。只回名字、字典序;ns 数量小 limit=500 不分页。
+    if (req.method === 'GET' && url.pathname.match(/^\/api\/admin\/clusters\/[^/]+\/namespaces$/)) {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = decodeURIComponent(url.pathname.split('/')[4])
+      const row = deps.getCluster ? deps.getCluster(id) : null
+      if (!row) { sendJson(res, 404, { message: '集群不存在' }); return true }
+      try {
+        const ctx = deps.buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure })
+        const { body } = await deps.requestKubernetes(ctx, '/api/v1/namespaces?limit=500')
+        const namespaces = (body?.items || []).map(it => it?.metadata?.name).filter(Boolean).sort()
+        sendJson(res, 200, { namespaces })
+      } catch (e) { sendJson(res, 502, { message: `拉取 namespace 列表失败: ${e?.message || '未知错误'}` }) }
+      return true
+    }
 
     // ====== API Keys 管理(T13:签发/列表/吊销,逻辑见 ./auth-keys.mjs)======
     if (url.pathname === '/api/admin/apikeys' && req.method === 'GET') {
