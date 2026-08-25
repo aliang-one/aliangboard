@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
+import { usePodBatchDelete } from '@/composables/usePodBatchDelete'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
@@ -123,6 +124,16 @@ const filteredPods = computed(() => {
   if (f === 'All') return managedPods.value
   if (f === 'Other') return managedPods.value.filter(p => !['Running', 'Pending', 'Failed'].includes(p.status))
   return managedPods.value.filter(p => p.status === f)
+})
+// Pods tab 批量删除(逻辑在 usePodBatchDelete;universe=本工作负载管理的 Pod)
+const {
+  batchMode, selectedNames, showBatchModal, enterBatch, exitBatch,
+  selectAllCandidates, clearSelection, batchTargets, batchNamesPreview, onCardClick, handleBatchDelete,
+} = usePodBatchDelete({
+  universe: managedPods,
+  candidates: filteredPods,
+  getNamespace: () => route.params.namespace,
+  onOpen: goPodDetail,
 })
 function goPodDetail(p) {
   router.push({ name: 'NsPodDetail', params: { namespace: p.namespace || route.params.namespace, name: p.name } })
@@ -1843,6 +1854,26 @@ function podStatusBorder(s) {
           :class="podFilter === f.k ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:bg-surface-container'">
           {{ f.l }}<span class="font-mono opacity-70">{{ f.k === 'All' ? managedPods.length : (podStatusCounts[f.k] || 0) }}</span>
         </button>
+        <span class="w-px h-4 bg-outline-variant/60"></span>
+        <button v-if="!batchMode" @click="enterBatch"
+          class="inline-flex items-center gap-1 px-sm py-1 rounded-full text-xs font-medium border bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container transition-colors"
+          :title="$t('ns.pods.batchEnter')">
+          <span class="material-symbols-outlined text-sm">delete_sweep</span> {{ $t('ns.pods.batchEnter') }}
+        </button>
+        <template v-else>
+          <button @click="exitBatch"
+            class="inline-flex items-center gap-1 px-sm py-1 rounded-full text-xs font-medium border bg-primary-container/20 text-primary border-primary transition-colors"
+            :title="$t('ns.pods.batchExit')">
+            <span class="material-symbols-outlined text-sm">close</span> {{ $t('ns.pods.batchExit') }}
+          </button>
+          <span class="text-xs font-semibold text-primary">{{ $t('ns.pods.batchSelected', { n: batchTargets.length }) }}</span>
+          <button @click="selectAllCandidates" class="px-sm py-xs text-xs border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ $t('ns.pods.batchSelectAll') }}</button>
+          <button @click="clearSelection" class="px-sm py-xs text-xs border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ $t('ns.pods.batchClear') }}</button>
+          <button @click="showBatchModal = true" :disabled="!batchTargets.length"
+            class="inline-flex items-center gap-1 px-sm py-xs text-xs font-semibold bg-error text-on-error rounded-lg hover:opacity-90 disabled:opacity-40">
+            <span class="material-symbols-outlined text-sm">delete</span>{{ $t('ns.pods.batchDeleteAction') }}
+          </button>
+        </template>
       </div>
 
       <!-- Pod 卡片网格（复用共享 PodCard，与 Overview/Service 同组件）-->
@@ -1850,7 +1881,8 @@ function podStatusBorder(s) {
         <PodCard v-for="p in filteredPods" :key="p.name"
           :pod="p" :name-base="workload?.name"
           :show-terminal="false" show-delete
-          @click="goPodDetail" @delete="confirmDeletePod($event)">
+          :selectable="batchMode" :selected="batchMode && selectedNames.has(p.name)"
+          @click="onCardClick" @delete="confirmDeletePod($event)">
           <template #actions>
             <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
               <span class="material-symbols-outlined text-sm">terminal</span>
@@ -1927,6 +1959,16 @@ function podStatusBorder(s) {
   </div>
 
   <!-- ====== Modals ====== -->
+  <!-- Pods tab 批量删除确认 -->
+  <Modal v-model="showBatchModal" :title="$t('ns.pods.batchDeleteTitle')" width="max-w-md">
+    <p class="text-body-md text-on-surface">{{ $t('ns.pods.batchDeleteConfirm', { n: batchTargets.length, names: batchNamesPreview }) }}</p>
+    <p class="text-body-sm text-error mt-sm">{{ $t('ns.pods.batchDeleteWarning') }}</p>
+    <template #actions>
+      <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
+      <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
+    </template>
+  </Modal>
+
   <Modal v-model="showDeleteModal" :title="$t('workload.modals.deleteTitle')" width="max-w-md">
     <p class="text-body-md">{{ $t('workload.modals.deleteConfirm', { name: route.params.name }) }}</p>
     <template #actions>
