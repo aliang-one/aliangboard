@@ -622,3 +622,52 @@ test('cancelled 状态:状态栏显示"已取消"', async () => {
   await flushPromises()
   expect(w.html()).toContain('已取消')
 })
+
+test('存量对话兜底:消息级 trace 全空但对话级 trace 有工具事件 → 挂到最后一个 assistant turn 可见', async () => {
+  // 2026-08-25 修复前的存量数据形态:assistant 消息 trace 恒 "[]"(写入端 bug),对话级 trace 完整。
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-legacy',
+    status: 'done',
+    trace: JSON.stringify([
+      { type: 'tool', name: 'wb_list_resources', args: { kind: 'pods' }, result: { kind: 'pods' } },
+      { type: 'assistant', message: { role: 'assistant', content: '查到了' } },
+      { type: 'tool', name: 'wb_get_pod_logs', args: { namespace: 'ns1', pod: 'p1' }, result: { logs: 'x' } },
+      { type: 'assistant', message: { role: 'assistant', content: '日志如上' } },
+    ]),
+    steps: 2,
+    recap: '',
+    messages: [
+      { role: 'user', content: '看看 pod', refs: null, trace: null },
+      { role: 'assistant', content: '查到了', refs: null, trace: '[]' },
+      { role: 'user', content: '看日志', refs: null, trace: null },
+      { role: 'assistant', content: '日志如上', refs: null, trace: '[]' },
+    ],
+  })
+  const w = await mountChat({ conversationId: 'conv-legacy' })
+  await flushPromises()
+  await flushPromises()
+  const html = w.html()
+  // 兜底后末轮 turn 带工具事件 → ToolTrace 渲染出工具名;修复前全不可见
+  expect(html).toContain('wb_get_pod_logs')
+  expect(html).toContain('wb_list_resources')
+})
+
+test('新数据不触发兜底:任一 assistant 消息自带 trace → 各轮维持自己的 trace', async () => {
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-new-data',
+    status: 'done',
+    trace: JSON.stringify([{ type: 'tool', name: 'wb_top', args: {}, result: {} }]),
+    steps: 1,
+    recap: '',
+    messages: [
+      { role: 'user', content: 'q', refs: null, trace: null },
+      { role: 'assistant', content: 'a', refs: null, trace: '[{"type":"tool","name":"wb_describe_resource","args":{},"result":{}}]' },
+    ],
+  })
+  const w = await mountChat({ conversationId: 'conv-new-data' })
+  await flushPromises()
+  await flushPromises()
+  const html = w.html()
+  expect(html).toContain('wb_describe_resource')
+  expect(html).not.toContain('wb_top')   // 对话级兜底不注入(消息自带 trace)
+})
