@@ -11,6 +11,7 @@ import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
+import { sanitizeImageToName } from '@/utils/containerNames'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { recordTagUsage } from '@/composables/useTagHistory'
@@ -411,15 +412,18 @@ const previewYAML = computed(() => {
     }).join('\n')
   }
 
-  // init/sidecar 自动派生容器名:image 前缀清洗成 DNS-1123(K8s 容器名 ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$,
-  // registry 前缀/大写/下划线/点会被拒),洗后为空用 fallback;与已用名撞车追加 -2/-3 去重。
+  // init/sidecar 自动派生容器名:image 前缀清洗成 DNS-1123(纯变换单源 utils/containerNames,
+  // 弹窗「自动命名预览」共用);与已用名撞车追加 -2/-3 去重。
+  // 播种 = 主容器有效名 + 全部显式名(2026-08-25 修复:原只播主容器名,
+  // 派生名可能与显式名撞车被 K8s 硬拒)。
   // 用户显式填写的 name 不经此函数(原样透传,不做静默改写)。
-  const usedContainerNames = new Set([f.containerName || f.name])
+  const usedContainerNames = new Set([
+    f.containerName || f.name,
+    ...f.initContainers.map(c => c.name).filter(Boolean),
+    ...f.extraContainers.map(c => c.name).filter(Boolean),
+  ])
   function derivedContainerName(image, fallback) {
-    let s = String(image || '').split('/').pop().split(':')[0]
-      .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '')
-      .slice(0, 63).replace(/-+$/, '')
-    if (!s) s = fallback
+    const s = sanitizeImageToName(image) || fallback
     let name = s, n = 1
     while (usedContainerNames.has(name)) name = `${s}-${++n}`
     usedContainerNames.add(name)
