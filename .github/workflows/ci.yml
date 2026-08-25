@@ -1,0 +1,38 @@
+name: ci
+
+# 质量门禁：类型/语法 + i18n 六项检查 + 服务端与前端全量测试。
+# node 必须用 25（node:sqlite 硬依赖，勿降 22，与 Dockerfile 基线一致）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck（node --check 全 js/mjs）
+        run: npm run typecheck
+
+      - name: i18n 六项检查（残存中文/键对齐/引用键/动态键/重复键/值级语法）
+        run: npm run i18n:check
+
+      - name: Tests（server + unit）
+        run: npm test
