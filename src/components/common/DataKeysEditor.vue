@@ -30,8 +30,12 @@ const entries = computed(() => (Array.isArray(props.modelValue) ? props.modelVal
 const selected = computed(() => entries.value[selectedIdx.value] || null)
 
 watch(entries, (list) => {
+  // 只钳制删除后的选中越界；不重置 editing——编辑中的 draft 不得被父回灌的
+  // modelValue 引用级变化（如 updateKey 改键名）静默丢弃（契约：Save 前
+  // 父组件更新 modelValue 不得覆盖 draft）。被编辑条目被删除时由
+  // removeKey 显式退出编辑。saveEdit 按当前 selectedIdx 索引写回，
+  // 键名在编辑期间被改名也能写到正确条目。
   if (selectedIdx.value >= list.length) selectedIdx.value = Math.max(0, list.length - 1)
-  editing.value = false
 })
 
 function toggleReveal(token) {

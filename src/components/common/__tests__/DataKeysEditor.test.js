@@ -88,6 +88,21 @@ test('固定字段模式:secret 单行 input 掩码可切换', async () => {
   expect(w.find('input[type="text"]').exists()).toBe(true)
 })
 
+test('编辑会话不被 modelValue 回灌静默丢弃:编辑中改键名→draft 保留,Save 写到新键名条目', async () => {
+  const w = mountEditor({ modelValue: [{ key: 'app.yml', value: 'old' }] })
+  await w.find('[data-testid="dk-edit"]').trigger('click')
+  await w.find('textarea').setValue('draft-value')
+  // 编辑中在左栏改键名 → updateKey emit → 宿主回灌 modelValue（引用级变化）
+  await w.findAll('input')[0].setValue('renamed.yml')
+  // watch 不得重置 editing：textarea 仍在且 draft 未丢
+  expect(w.find('textarea').exists()).toBe(true)
+  expect(w.vm.editing).toBe(true)
+  expect(w.vm.draft).toBe('draft-value')
+  await w.find('[data-testid="dk-save"]').trigger('click')
+  // Save 按当前索引写回：新键名条目的值为 draft 值
+  expect(w.emitted('update:modelValue').at(-1)[0]).toEqual([{ key: 'renamed.yml', value: 'draft-value' }])
+})
+
 test('空态:无键显示引导文案', () => {
   const w = mountEditor()
   expect(w.find('[data-testid="dk-empty"]').exists()).toBe(true)
