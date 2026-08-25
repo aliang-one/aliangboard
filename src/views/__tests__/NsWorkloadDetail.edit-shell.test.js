@@ -10,6 +10,8 @@ import { test, expect, vi } from 'vitest'
 // 文件级捕获桩:saveEdit 会先 store.updateWorkload(Deployment 级)再 store.applyWorkloadTemplate(pod 模板)。
 // 两者均捕获,captured.at(-1) 即 applyWorkloadTemplate 的 tpl(其 .spec 为 pod spec)。
 const captured = vi.hoisted(() => [])
+// 可变 fixture 容器:Fix round 2 起个别用例需注入多容器 pod spec,经 state.demoWorkload 可整体替换/复原
+const state = vi.hoisted(() => ({ demoWorkload: null }))
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
@@ -33,9 +35,10 @@ const demoWorkload = {
     },
   },
 }
+state.demoWorkload = demoWorkload
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true),
-  fetchWorkloads: vi.fn(async () => [demoWorkload]), fetchPods: vi.fn(async () => []),
+  fetchWorkloads: vi.fn(async () => [state.demoWorkload]), fetchPods: vi.fn(async () => []),
   updateWorkload: vi.fn((name, ns, updates) => captured.push(updates)),
   applyWorkloadTemplate: vi.fn(async (name, ns, tpl) => captured.push(tpl)),
   invalidateAllClusterQueries: vi.fn(async () => {}),
@@ -128,4 +131,53 @@ test('saveEdit 重建:普通 sidecar 进 containers,原生进 initContainers 尾
   expect(pod.containers.find(c => c.name === 'plain').volumeMounts).toEqual([{ name: 'v1', mountPath: '/a' }])
   expect(pod.initContainers.find(c => c.name === 'native').volumeMounts).toEqual([{ name: 'v2', mountPath: '/b' }])
   expect(pod.initContainers.find(c => c.name === 'i0').volumeMounts).toEqual([{ name: 'v3', mountPath: '/c' }])
+})
+
+// Fix round 2:openEdit 分流原生 sidecar(Always)后,mergeVolumes 的挂载 tag 须按分流后索引回填
+test('原生 sidecar 挂载往返:回填 tag 分流正确,重建不丢挂载', async () => {
+  const orig = state.demoWorkload
+  state.demoWorkload = {
+    ...orig,
+    name: 'demo-deploy', namespace: 'default', type: 'Deployment', image: 'nginx:1', replicas: '1/1', labels: { app: 'demo' },
+    raw: {
+      metadata: { name: 'demo-deploy', namespace: 'default', labels: { app: 'demo' } },
+      spec: {
+        replicas: 1, selector: { matchLabels: { app: 'demo' } },
+        template: {
+          metadata: { labels: { app: 'demo' } },
+          spec: {
+            volumes: [
+              { name: 'vol-init', emptyDir: {} }, { name: 'vol-native', emptyDir: {} }, { name: 'vol-plain', emptyDir: {} },
+            ],
+            initContainers: [
+              { name: 'init-plain', image: 'busybox:1', volumeMounts: [{ name: 'vol-init', mountPath: '/i' }] },
+              { name: 'nat-side', image: 'envoy:1', restartPolicy: 'Always', volumeMounts: [{ name: 'vol-native', mountPath: '/n' }] },
+            ],
+            containers: [
+              { name: 'main', image: 'nginx:1' },
+              { name: 'plain-sc', image: 'sidecar:1', volumeMounts: [{ name: 'vol-plain', mountPath: '/p' }] },
+            ],
+          },
+        },
+      },
+    },
+  }
+  try {
+    const w = mountDetail()
+    await flushPromises()
+    await w.vm.openEdit()
+    const tags = w.vm.editForm.volumeMounts.map(v => v.target).sort()
+    expect(tags).toEqual(['init:0', 'sidecar:0', 'sidecar:1'])
+    await w.vm.saveEdit()
+    await flushPromises()
+    const spec = capturedSpec()
+    const pod = spec.template?.spec || spec
+    expect(pod.containers.map(c => c.name)).toEqual(['main', 'plain-sc'])
+    expect(pod.containers[1].volumeMounts?.[0]?.name).toBe('vol-plain')
+    expect(pod.initContainers.map(c => c.name)).toEqual(['init-plain', 'nat-side'])
+    expect(pod.initContainers.find(c => c.restartPolicy === 'Always').volumeMounts?.[0]?.name).toBe('vol-native')
+    expect(pod.initContainers.find(c => !c.restartPolicy).volumeMounts?.[0]?.name).toBe('vol-init')
+  } finally {
+    state.demoWorkload = orig
+  }
 })

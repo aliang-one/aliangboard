@@ -858,7 +858,13 @@ function mergeVolumes(tplSpec, c0) {
     })
   }
   ;(c0.volumeMounts || []).forEach(m => push('main', m))
-  ;(tplSpec.initContainers || []).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)))
+  // 挂载 target 须与 openEdit 分流后的索引对齐:非 Always init → init:<过滤后序>;Always(原生 sidecar)→ sidecar:<plain sidecar 之后追加序>
+  let initFilteredIdx = 0
+  let nativeOrdinal = Math.max(0, (tplSpec.containers || []).length - 1)
+  ;(tplSpec.initContainers || []).forEach(c => {
+    if (c.restartPolicy === 'Always') (c.volumeMounts || []).forEach(m => push(`sidecar:${nativeOrdinal++}`, m))
+    else { const i = initFilteredIdx++; (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)) }
+  })
   ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
   // 只定义未挂载的卷也保留（挂到主容器占位）
   volDefByName.forEach((d, name) => {
