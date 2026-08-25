@@ -3414,7 +3414,6 @@
     "switchToSelect": "Dropdown",
     "loading": "Loading…",
     "loadFailed": "Failed to load namespace list",
-    "emptyList": "No namespaces in cluster",
     "allAdded": "All cluster namespaces already added",
     "noCluster": "No cluster selected, type manually",
     "updated": "ns allowlist updated (cluster RBAC for new namespaces provisioned)",

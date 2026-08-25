@@ -11,7 +11,7 @@ export function useClusterNamespaces(fetchNs = adminApi.clusters.namespaces) {
   async function load(clusterId) {
     const my = ++seq
     if (!clusterId) { list.value = []; error.value = null; loading.value = false; return }
-    loading.value = true; error.value = null
+    loading.value = true; error.value = null; list.value = []  // 起手即清:loading 期不显示上一集群候选
     try {
       const res = await fetchNs(clusterId)
       if (my !== seq) return
