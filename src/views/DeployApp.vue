@@ -12,6 +12,8 @@ import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
+import { dump as yamlDump } from 'js-yaml'
+import { buildSubContainerSpec, mountsForTarget } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -458,23 +460,29 @@ const previewYAML = computed(() => {
     return name
   }
 
-  // 额外工作容器（sidecar）—— 保留原索引，便于按 target 挂卷
-  const extraContainersYaml = f.extraContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || derivedContainerName(c.image, `sidecar-${idx + 1}`)}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
-    (mountLines(`sidecar:${idx}`) ? '\n' + mountLines(`sidecar:${idx}`) : '')
-  ).filter(Boolean).join('\n')
-
-  // 初始容器（init）
-  const initContainersYaml = f.initContainers.map((c, idx) => !c.image ? null :
-    `      - name: ${c.name || derivedContainerName(c.image, `init-${idx + 1}`)}\n        image: ${c.image}` +
-    (splitCommandTokens(c.command).length ? `\n        command: [${splitCommandTokens(c.command).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    (splitArgLines(c.args).length ? `\n        args: [${splitArgLines(c.args).map(x => JSON.stringify(x)).join(', ')}]` : '') +
-    `\n        resources:\n          requests:\n            cpu: ${c.cpuRequest}\n            memory: ${c.memoryRequest}\n          limits:\n            cpu: ${c.cpuLimit}\n            memory: ${c.memoryLimit}` +
-    (mountLines(`init:${idx}`) ? '\n' + mountLines(`init:${idx}`) : '')
-  ).filter(Boolean).join('\n')
+  // 子容器 YAML:buildSubContainerSpec → js-yaml dump(默认引号启发式实测覆盖 YAML 1.1
+  // 危险值集;lineWidth:-1 禁折行)→ 每行前缀 6 空格(对齐列表项 6/属性 8 缩进)。
+  // 丢弃旧手拼(env value 带引号/换行会踩 yamlScalar 系列坑);mountLines 仅主容器继续用。
+  // 原生 sidecar 归位:发到 initContainers 尾部(挂载 target 仍按 extraContainers 原索引)。
+  const DUMP_OPTS = { indent: 2, lineWidth: -1 }
+  const subYaml = (c, target, fallback) => !c.image ? null :
+    yamlDump([buildSubContainerSpec(c, { fallbackName: fallback, mounts: mountsForTarget(f.volumeMounts, target) })], DUMP_OPTS)
+      .trimEnd().split('\n').map(l => '      ' + l).join('\n')
+  const plainSidecars = f.extraContainers.filter(c => !c.nativeSidecar)
+  const nativeSidecars = f.extraContainers.filter(c => c.nativeSidecar)
+  const extraContainersYaml = plainSidecars
+    .map((c) => {
+      const idx = f.extraContainers.indexOf(c)
+      return subYaml(c, `sidecar:${idx}`, derivedContainerName(c.image, `sidecar-${idx + 1}`))
+    })
+    .filter(Boolean).join('\n')
+  const initContainersYaml = [...f.initContainers, ...nativeSidecars]
+    .map((c) => {
+      const isInit = f.initContainers.includes(c)
+      const idx = isInit ? f.initContainers.indexOf(c) : f.extraContainers.indexOf(c)
+      return subYaml(c, isInit ? `init:${idx}` : `sidecar:${idx}`, derivedContainerName(c.image, `${isInit ? 'init' : 'sidecar'}-${idx + 1}`))
+    })
+    .filter(Boolean).join('\n')
 
   // pod 级 volumes（按 name 去重；configMap/secret 可带 items 键映射）
   const volDefs = new Map()
