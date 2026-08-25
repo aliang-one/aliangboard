@@ -351,6 +351,13 @@ async function pollOnce(id) {
         if ((conv.status === 'running' || conv.status === 'paused') && !(last && last.role === 'assistant' && last.status === 'thinking')) {
           turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
         }
+        // 存量对话兜底(2026-08-25 修复前的数据):assistant 消息级 trace 全空但对话级 trace 有工具事件
+        // → 全部挂到最后一个 assistant turn(轮次边界无从划分,集中在末轮展示胜于全不可见)。
+        const asstTurns = turns.value.filter(x => x.role === 'assistant' && x.status === 'done')
+        if (asstTurns.length && asstTurns.every(x => !(x.trace || []).length)) {
+          const convTrace = tryParseTrace(conv.trace).filter(e => e.type === 'tool' || e.type === 'denied')
+          if (convTrace.length) asstTurns[asstTurns.length - 1].trace = convTrace
+        }
       } else {
         // 旧单轮数据 fallback(无 messages 数组):user from conv.userMessage + agent thinking。
         if (conv.userMessage) turns.value.push({ _id: ++turnSeq, role: 'user', content: conv.userMessage })

@@ -76,6 +76,13 @@ test('wb_get_pod_logs:工具结果进 LLM 消息的是真实日志,不是 [objec
     const toolMsg = llmRounds.flatMap(m => m.filter(x => x.role === 'tool')).map(x => String(x.content || '')).join('\n')
     assert.ok(toolMsg.includes('password authentication failed'), `工具结果应含真实日志,实际:${toolMsg.slice(0, 200)}`)
     assert.ok(!toolMsg.includes('[object Object]'), '工具结果不得出现 [object Object]')
+    // 消息级 trace 持久化(2026-08-25「聊天结束后看不到工具调用」根因:写入端用 out.trace——
+    // runner 返回里根本没有该字段,恒落 "[]";对话级 trace 一直是好的,前端重建却吃消息级)。
+    const conv = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
+    const asst = (conv.messages || []).filter(m => m.role === 'assistant').pop()
+    const msgTrace = typeof asst?.trace === 'string' ? JSON.parse(asst.trace) : asst?.trace
+    assert.ok(Array.isArray(msgTrace) && msgTrace.some(e => e.type === 'tool' && e.name === 'wb_get_pod_logs'),
+      `assistant 消息 trace 须含本轮工具事件,实际:${String(asst?.trace).slice(0, 120)}`)
   } finally {
     gw.kill('SIGKILL'); k8s.close(); llm.close()
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
