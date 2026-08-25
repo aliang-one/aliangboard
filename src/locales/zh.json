@@ -3294,6 +3294,20 @@
       "ledger": "台账",
       "disk": "主机磁盘",
       "diskFree": "可用"
+    },
+    "toolCall": {
+      "title": "工具调用详情",
+      "args": "参数",
+      "result": "结果",
+      "summaryTab": "摘要",
+      "rawTab": "原始",
+      "noArgs": "(无参数)",
+      "denied": "用户拒绝了该操作",
+      "running": "执行中…",
+      "noTs": "—",
+      "copied": "已复制",
+      "copyFailed": "复制失败,请手动选择复制",
+      "truncated": "结果超过 64KB,已截断显示(完整内容可复制)"
     }
   },
   "workloadDetail": {
