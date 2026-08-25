@@ -253,6 +253,17 @@
       "optionalSuffix": " (optional)",
       "serviceEmptyHint": "No workload in this namespace exposes container ports; you can type directly"
     },
+    "createConfigModal": {
+      "fUsername": "Username",
+      "fPassword": "Password",
+      "fRegistry": "Registry",
+      "fRegistryUser": "Username",
+      "fRegistryPassword": "Password",
+      "fRegistryEmail": "Email",
+      "fTlsCrt": "Certificate (tls.crt)",
+      "fTlsKey": "Private key (tls.key)",
+      "fSshKey": "SSH private key"
+    },
     "copyWorkload": {
       "title": "Copy Workload",
       "sourceNamespace": "Source namespace",

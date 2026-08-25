@@ -253,6 +253,17 @@
       "optionalSuffix": "（可选）",
       "serviceEmptyHint": "当前命名空间暂无工作负载暴露容器端口，可直接输入"
     },
+    "createConfigModal": {
+      "fUsername": "用户名",
+      "fPassword": "密码",
+      "fRegistry": "Registry 地址",
+      "fRegistryUser": "用户名",
+      "fRegistryPassword": "密码",
+      "fRegistryEmail": "邮箱",
+      "fTlsCrt": "证书 (tls.crt)",
+      "fTlsKey": "私钥 (tls.key)",
+      "fSshKey": "SSH 私钥"
+    },
     "copyWorkload": {
       "title": "复制工作负载",
       "sourceNamespace": "源命名空间",
