@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 	import { useI18n } from 'vue-i18n'
 import { dump as yamlDump } from 'js-yaml'
@@ -12,10 +12,11 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import ResourceTopology from '@/components/common/ResourceTopology.vue'
 import FileBrowserBody from '@/components/common/FileBrowserBody.vue'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
+import LogViewerBody from '@/components/common/LogViewerBody.vue'
 import LabelChips from '@/components/common/LabelChips.vue'
 import AnnotationList from '@/components/common/AnnotationList.vue'
 import EventList from '@/components/common/EventList.vue'
-import { api, k8sStream, podDebugApi, exportYaml } from '@/api/client'
+import { podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
@@ -70,103 +71,6 @@ const tabs = [
   { key: 'terminal', label: 'Terminal', icon: 'keyboard' },
   { key: 'events', label: 'Events', icon: 'event_note' },
 ]
-
-function levelColor(level) {
-  const map = { INFO: 'text-primary-container', WARN: 'text-tertiary-fixed-dim', ERROR: 'text-error' }
-  return map[level] || 'text-outline-variant'
-}
-
-// === 日志下载 / 复制 ===
-function formatLogs() {
-  return allLogs.value.map(l => `${l.timestamp} [${l.level}] ${l.message}`).join('\n')
-}
-function downloadLogs() {
-  const blob = new Blob([formatLogs()], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${pod.value?.name || 'pod'}-logs.txt`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-async function copyLogs() {
-  try {
-    await navigator.clipboard.writeText(formatLogs())
-  } catch (e) { /* clipboard unavailable silently */ }
-}
-
-// === 日志实时流（Follow）===
-const followLog = ref(true)
-const liveLogs = ref([])
-let logStream = null    // t('podDetail.realLogStream') handle, abort on stopFollow
-// 日志查询选项（kubectl logs 语义：--tail / --since / --previous）
-const logLines = ref(500)
-const logSince = ref('')            // t('podDetail.emptyString') = no time limit; otherwise sinceSeconds
-const logPrevious = ref(false)      // t('podDetail.previousFlag'): --previous shows logs from previous (crashed) container
-const lineOptions = [100, 500, 1000, 5000]
-const sinceOptions = [
-  { label: t('podDetail.sinceAll'), value: '' },
-  { label: t('podDetail.since5min'), value: '300' },
-  { label: t('podDetail.since15min'), value: '900' },
-  { label: t('podDetail.since1hour'), value: '3600' },
-  { label: t('podDetail.since6hours'), value: '21600' },
-]
-function logQuery(follow = false) {
-  const container = selectedContainer.value || pod.value.containers?.[0]
-  const query = new URLSearchParams({ timestamps: 'true', tailLines: String(logLines.value) })
-  if (container) query.set('container', container)
-  if (logPrevious.value) query.set('previous', 'true')            // --previous
-  if (logSince.value) query.set('sinceSeconds', String(logSince.value)) // --since
-  if (follow) query.set('follow', 'true')
-  return query
-}
-function parseLogLine(line) {
-  const match = String(line).match(/^(\S+)\s(.*)$/)
-  const timestamp = match?.[1] || ''
-  const message = match?.[2] || line
-  const level = /\berror\b/i.test(message) ? 'ERROR' : /\bwarn(?:ing)?\b/i.test(message) ? 'WARN' : 'INFO'
-  return { timestamp, level, message }
-}
-function pushParsed(line) {
-  liveLogs.value.push(parseLogLine(line))
-  if (liveLogs.value.length > 300) liveLogs.value.splice(0, liveLogs.value.length - 300)
-}
-async function loadRemoteLogs() {
-  if (!pod.value) return
-  try {
-    const text = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery()}`)
-    liveLogs.value = String(text || '').split('\n').filter(Boolean).map(parseLogLine)
-  } catch (error) {
-    liveLogs.value = [{ timestamp: new Date().toISOString(), level: 'ERROR', message: error.message || t('podDetail.logReadFailed') }]
-  }
-}
-function startFollow() {
-  if (!pod.value) return
-  stopFollow()
-  // 真流式：log?follow=true，逐行增量追加（Gateway 已对 follow 请求 pipe 透传）
-  const path = `/api/v1/namespaces/${encodeURIComponent(pod.value.namespace)}/pods/${encodeURIComponent(pod.value.name)}/log?${logQuery(true)}`
-  liveLogs.value = []
-  logStream = k8sStream(path, {
-    onMessage: pushParsed,
-    onError: e => { liveLogs.value.push({ timestamp: new Date().toISOString(), level: 'ERROR', message: e.message || t('podDetail.logStreamInterrupted') }) },
-  })
-}
-function stopFollow() {
-  if (logStream) { logStream.abort(); logStream = null }
-}
-watch(followLog, (v) => { v ? startFollow() : stopFollow() })
-// 切换容器时，重新拉取该容器日志（follow 开则重启流）
-watch(selectedContainer, () => {
-  if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
-})
-// 切换 tail / since / previous 时重启流或重拉；previous 为崩溃前静态日志，开启时关闭 follow
-watch([logLines, logSince, logPrevious], () => {
-  if (logPrevious.value) followLog.value = false
-  if (followLog.value && !logPrevious.value) startFollow(); else loadRemoteLogs()
-})
-onMounted(() => { if (followLog.value) startFollow(); else loadRemoteLogs() })
-onUnmounted(stopFollow)
-const allLogs = computed(() => liveLogs.value)
 
 // 资源用量百分比：优先用远端数值字段，缺失时回退解析 "used/total" 字符串（兼容 mock）
 function pctFromRatio(str) {
@@ -368,53 +272,9 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           </button>
         </div>
 
-        <!-- Logs View -->
-        <div v-if="activeTab === 'logs'" class="flex-1 flex flex-col">
-          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center justify-between border-b border-outline-variant">
-            <div class="flex flex-wrap items-center gap-md">
-              <div class="flex items-center gap-xs">
-                <span class="text-body-sm text-on-surface-variant font-medium">Container:</span>
-                <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
-                  <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
-                </select>
-              </div>
-              <div class="flex items-center gap-xs">
-                <span class="text-body-sm text-on-surface-variant font-medium">Lines:</span>
-                <select v-model="logLines" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
-                  <option v-for="n in lineOptions" :key="n" :value="n">{{ n }}</option>
-                </select>
-              </div>
-              <div class="flex items-center gap-xs">
-                <span class="text-body-sm text-on-surface-variant font-medium">Since:</span>
-                <select v-model="logSince" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
-                  <option v-for="o in sinceOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-                </select>
-              </div>
-              <label class="flex items-center gap-1 cursor-pointer select-none" :class="logPrevious ? 'text-tertiary-container font-medium' : 'text-on-surface-variant'" :title="$t('podDetail.previousLogHint')">
-                <input v-model="logPrevious" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
-                <span class="text-body-sm font-medium">Previous</span>
-              </label>
-              <div class="flex items-center gap-2">
-                <input v-model="followLog" type="checkbox" :disabled="logPrevious" class="rounded text-primary focus:ring-primary h-4 w-4" />
-                <span class="text-body-sm" :class="logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant'">Follow</span>
-                <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full" :title="$t('podDetail.liveStreamHint')">
-                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ $t('podDetail.liveStreamText') }}
-                </span>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button @click="downloadLogs" :title="$t('podDetail.downloadLogs')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">download</span></button>
-              <button @click="copyLogs" :title="$t('podDetail.copyLogs')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
-            </div>
-          </div>
-          <div class="flex-1 bg-code-surface p-md font-mono text-code-sm code-scroll overflow-y-auto max-h-[600px]">
-            <div class="space-y-1">
-              <p v-for="(log, idx) in allLogs" :key="idx" class="text-outline-variant">
-                {{ log.timestamp }} <span :class="levelColor(log.level)">[{{ log.level }}]</span> {{ log.message }}
-              </p>
-              <div class="w-1.5 h-4 bg-primary inline-block animate-pulse ml-1 align-middle"></div>
-            </div>
-          </div>
+        <!-- Logs View（共享 LogViewerBody：与 LogPopup 新标签页同源）-->
+        <div v-if="activeTab === 'logs'" class="flex-1 flex flex-col min-h-0">
+          <LogViewerBody :namespace="pod.namespace" :pod-name="pod.name" :containers="containers" v-model:container="selectedContainer" class="flex-1 min-h-0" />
         </div>
 
         <!-- YAML View（真实 Pod 对象只读 YAML）-->

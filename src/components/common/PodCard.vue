@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import StatusChip from './StatusChip.vue'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
+import { openLogTab } from '@/composables/useLogViewer'
 import { imgBase, imgTag, podCpuPct, podMemPct, podHealth, podCardClass, podNameDisplay, podConditions, condChip, podContainers, podReason } from '@/composables/usePod'
 
 const { t } = useI18n()
@@ -23,9 +24,10 @@ const props = defineProps({
   showLifecycle: { type: Boolean, default: true },
   // 集群级上下文（如 Node 详情）下展示命名空间；命名空间级页面无需开启
   showNamespace: { type: Boolean, default: false },
-  // 快速入口：终端（exec）/ 文件浏览；点击导航到 PodDetail 对应 tab
+  // 快速入口：终端（exec）/ 文件浏览 / 日志（新标签页）；点击导航到 PodDetail 对应 tab
   showTerminal: { type: Boolean, default: true },
   showFiles: { type: Boolean, default: true },
+  showLogs: { type: Boolean, default: true },
 })
 const emit = defineEmits(['click', 'delete'])
 
@@ -58,6 +60,12 @@ function openTerm() {
   const container = (c && (c.name || c)) || 'main'
   termStore.openTerminal({ namespace: pod.value.namespace, podName: pod.value.name, container })
 }
+// 日志：新浏览器标签页打开独立日志页（具名 target 去重复用）。不受 canExec 限制——
+// CrashLoopBackOff/Pending 看 previous 日志是刚需，K8s log API 对未运行容器返回错误由日志页内横幅呈现。
+function openLogs() {
+  const c = containers.value?.[0]
+  openLogTab({ namespace: pod.value.namespace, podName: pod.value.name, container: (c && (c.name || c)) || 'main' })
+}
 </script>
 
 <template>
@@ -79,6 +87,7 @@ function openTerm() {
       <slot name="actions" />
       <button v-if="showTerminal" @click.stop="openTerm" :disabled="!canExec" :title="canExec ? t('component.podCard.terminalTitle') : t('component.podCard.terminalDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">terminal</span></button>
       <button v-if="showFiles" @click.stop="openFiles" :disabled="!canExec" :title="canExec ? t('component.podCard.filesTitle') : t('component.podCard.filesDisabled')" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant/50"><span class="material-symbols-outlined text-sm">folder_open</span></button>
+      <button v-if="showLogs" @click.stop="openLogs" :title="t('component.podCard.logsTitle')" data-testid="podcard-logs" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0"><span class="material-symbols-outlined text-sm">subject</span></button>
       <button v-if="showDelete" @click.stop="emit('delete', pod)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant/50 hover:text-error transition-colors shrink-0" :title="t('component.podCard.deleteTitle')"><span class="material-symbols-outlined text-sm">delete</span></button>
     </div>
 

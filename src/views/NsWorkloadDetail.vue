@@ -32,6 +32,7 @@ import PortSelect from '@/components/common/PortSelect.vue'
 import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } from '@/utils/containerTokens'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
+import { openLogTab } from '@/composables/useLogViewer'
 
 const route = useRoute()
 const router = useRouter()
@@ -545,7 +546,8 @@ function podPhaseColor(phase) {
 
 // === 快速操作：日志 / exec / 文件浏览 ===
 function viewLogs(p) {
-  router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name }, hash: '#logs' })
+  // 新浏览器标签页打开独立日志页（不再页内跳转 PodDetail#logs）
+  openLogTab({ namespace: route.params.namespace, podName: p.name, container: p.containers?.[0] || 'main' })
 }
 function openExec(p) {
   // 打开浮动终端窗口（不再跳转 PodDetail）
