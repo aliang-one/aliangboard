@@ -282,6 +282,8 @@ const _cmQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () 
 const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
+// TLS Secret 候选:当前 ns + kubernetes.io/tls 类型
+const tlsSecretNames = computed(() => (_secQ.data.value || []).filter(s => s.namespace === store.currentNamespace && s.type === 'kubernetes.io/tls').map(s => s.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {
   const targets = [{ value: 'main', label: t('deploy.mainContainer') }]
@@ -1471,7 +1473,7 @@ async function handleDeploy() {
             </div>
 
             <!-- 多 Rule 编辑器(共享 IngressRulesEditor:path 级后端双下拉 + per-host TLS) -->
-            <IngressRulesEditor v-model="form.ingressRules" :services="ingressServiceOptions" :with-tls="true" :default-service-name="virtualServiceName || undefined" />
+            <IngressRulesEditor v-model="form.ingressRules" :services="ingressServiceOptions" :secrets="tlsSecretNames" :with-tls="true" :default-service-name="virtualServiceName || undefined" />
             <p class="text-xs text-on-surface-variant mt-sm flex items-center gap-xs">
               <span class="material-symbols-outlined text-xs">info</span>{{ t('deploy.ingressRuleHint') }}
             </p>

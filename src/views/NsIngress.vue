@@ -39,6 +39,9 @@ const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
 const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
+const secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
+// TLS Secret 候选:当前 ns + kubernetes.io/tls 类型(fetchSecrets 拉的是全 ns 列表,须过滤)
+const tlsSecretNames = computed(() => (secQ.data.value || []).filter(s => s.namespace === route.params.namespace && s.type === 'kubernetes.io/tls').map(s => s.name))
 // IngressClass 下拉源走 Vue Query（集群级，真实网关类；不再用硬编码列表，避免指向集群里不存在的类）
 const icQ = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
 const allIngressClasses = computed(() => icQ.data.value || [])
@@ -272,7 +275,7 @@ async function handleDelete() {
         </div>
       </div>
       <!-- 多 host 多 path 规则（共享编辑器:per-host TLS + 行级校验内置;validation 供创建按钮禁用） -->
-      <IngressRulesEditor v-model="hosts" :services="svcOptions" :with-tls="true" @validation="v => rulesErrors = v" />
+      <IngressRulesEditor v-model="hosts" :services="svcOptions" :secrets="tlsSecretNames" :with-tls="true" @validation="v => rulesErrors = v" />
     </div>
 
     <!-- 性能调优 / 安全与其它：参数分组 -->

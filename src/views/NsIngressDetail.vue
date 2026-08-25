@@ -12,6 +12,7 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 import { flatToHosts, hostsToFlat } from '@/composables/useIngressRules'
 
 const { t } = useI18n()
@@ -44,6 +45,8 @@ const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespac
 // TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
 const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const allSecrets = computed(() => _secQ.data.value || [])
+// TLS Secret 候选:当前 ns + kubernetes.io/tls 类型
+const tlsSecretNames = computed(() => allSecrets.value.filter(s => s.namespace === route.params.namespace && s.type === 'kubernetes.io/tls').map(s => s.name))
 
 const showDeleteModal = ref(false)
 
@@ -505,10 +508,7 @@ function saveEditLabel() {
     </label>
     <div v-if="editTls">
       <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.ingressDetail.tlsSecretNameLabel') }}</label>
-      <input v-model="editTlsSecret" list="ing-tls-secrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="$t('ns.ingressDetail.tlsSecretPlaceholder')" />
-      <datalist id="ing-tls-secrets">
-        <option v-for="s in allSecrets.filter(x => x.type === 'kubernetes.io/tls')" :key="s.name" :value="s.name" />
-      </datalist>
+      <PortSelect v-model="editTlsSecret" :options="tlsSecretNames" :placeholder="$t('ns.ingressDetail.tlsSecretPlaceholder')" :empty-hint="$t('ns.ingressDetail.noTlsSecretsHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
       <p class="text-xs text-on-surface-variant mt-xs">{{ $t('ns.ingressDetail.tlsHint') }}</p>
     </div>
     <template #actions>

@@ -694,6 +694,7 @@
       "tlsHint": "TLS hosts are taken from current rules' hosts; Secret must be of type kubernetes.io/tls.",
       "tlsRowLabel": "TLS",
       "tlsRowSecretPlaceholder": "secret name (empty = <name>-tls)",
+      "noTlsSecretsHint": "No TLS Secrets in this namespace; type the name manually",
       "virtualSvcBadge": " (this wizard)"
     },
     "netpolDetail": {
