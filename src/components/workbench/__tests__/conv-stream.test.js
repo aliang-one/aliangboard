@@ -154,3 +154,28 @@ test('status failed 事件:error 含 HTML(上游网关错误体)时净化为单�
   expect(s.error).not.toContain('<')
   expect(s.error).toContain('502 Bad Gateway')
 })
+
+// 2026-08-25 交错渲染:assistant step(一轮完成)→ trace 得瘦身事件(content 平铺)+ 
+// content/reasoning 清零——已完成轮文本活在 trace,当前轮从零累积,零重复零拼接。
+import { applyStreamEvent as ase } from '../conv-stream'
+
+test('assistant step:trace 得 {type,content,ts} 瘦身事件 + content/reasoning 清零', () => {
+  let s = { status: 'thinking', content: '第一轮说了一半的话', reasoning: '思考1', trace: [], steps: 0 }
+  s = ase(s, { type: 'step', step: { type: 'assistant', message: { role: 'assistant', content: '第一轮说了一半的话', tool_calls: [{ id: 'x' }] }, ts: 1756100000000 } })
+  expect(s.trace.at(-1)).toEqual({ type: 'assistant', content: '第一轮说了一半的话', ts: 1756100000000 })
+  expect(s.content).toBe('')
+  expect(s.reasoning).toBe('')
+})
+
+test('assistant step 兼容本地瘦身形状(content 平铺)', () => {
+  let s = { status: 'thinking', content: '', reasoning: '', trace: [], steps: 0 }
+  s = ase(s, { type: 'step', step: { type: 'assistant', content: '平铺形状', ts: 1 } })
+  expect(s.trace.at(-1)?.content).toBe('平铺形状')
+})
+
+test('tool step 仍正常累积,不受 assistant 清零影响', () => {
+  let s = { status: 'thinking', content: '文本', reasoning: '', trace: [], steps: 0 }
+  s = ase(s, { type: 'step', step: { type: 'tool', name: 'wb_exec', args: {}, result: { stdout: 'ok' }, ts: 2 } })
+  expect(s.trace.at(-1).name).toBe('wb_exec')
+  expect(s.content).toBe('文本')   // tool 事件不清文本
+})

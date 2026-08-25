@@ -126,8 +126,8 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
-      // 本轮工具事件累积(tool/denied;assistant 事件与 tool_start 不入)——done 时随 assistant
-      // 消息落库,前端重建历史据此渲染 ToolTrace。对话级 appendTrace(全事件)保持不变。
+      // 本轮事件累积(tool/denied + 瘦身 assistant 文本)——done 时随 assistant 消息落库,
+      // 前端重建历史据此交错渲染(文本↔工具)。对话级 appendTrace(全事件)保持不变。
       const turnTrace = []
       const out = await run({
         system: conv.system,
@@ -135,7 +135,16 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         refreshSystem,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
-        onStep: e => { if (e.type !== 'tool_start') { appendTrace(db, convId, e); if (e.type !== 'assistant') turnTrace.push(e) } busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
+        // assistant 事件瘦身入 turnTrace({type,content,ts}——中间文本,交错渲染用;终答 content 恒等于
+        // 末个 assistant 事件,前端据此去重);对话级 appendTrace 仍存全事件。tool_start 瞬态只推流不落库。
+        onStep: e => {
+          if (e.type !== 'tool_start') {
+            appendTrace(db, convId, e)
+            if (e.type === 'assistant') turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
+            else turnTrace.push(e)
+          }
+          busEmit(convId, { type: 'step', step: e })
+        },
       })
       // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
       // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
@@ -205,7 +214,13 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out, tracker, getConversation(db, convId)?.trace)
+      // resume(审批续跑)done:整段 conv.trace 归一化后落消息级——assistant 全量形状
+      // (message.content 嵌套)瘦身为平铺,与新对话路径一致(交错渲染消费统一形状)。
+      let resumeTrace = []
+      try { resumeTrace = JSON.parse(getConversation(db, convId)?.trace || '[]') } catch { resumeTrace = [] }
+      handleAgentResult(convId, project, out, tracker, JSON.stringify(
+        resumeTrace.map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content || '', ts: e.ts } : e)
+      ))
       finalizeConvEmit(convId, out)
     } catch (err) {
       salvagePartial(convId, err, tracker)

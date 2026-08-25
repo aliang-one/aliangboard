@@ -26,6 +26,11 @@ export function applyStreamEvent(state, evt) {
         const trace = state.trace.filter(x => !(x && x.type === 'tool_start' && x.name === s.name))
         return { ...state, trace: [...trace, s] }
       }
+      // assistant 轮完成(2026-08-25 交错渲染):瘦身入 trace(content 平铺;SSE 全量形状取 message.content),
+      // 并清零 content/reasoning 累积——已完成轮文本活在 trace,当前轮从零累积,零重复零拼接。
+      if (s.type === 'assistant') {
+        return { ...state, content: '', reasoning: '', trace: [...state.trace, { type: 'assistant', content: s.message?.content ?? s.content ?? '', ts: s.ts }] }
+      }
       return { ...state, trace: [...state.trace, s] }
     }
     case 'snapshot':
