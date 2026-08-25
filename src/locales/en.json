@@ -3288,7 +3288,8 @@
         "none": "(none)",
         "modelTitle": "Model",
         "disabledBadge": "Disabled",
-        "approvalBadge": "Approval required"
+        "approvalBadge": "Approval required",
+        "retry": "Retry"
       }
     },
     "shell": {

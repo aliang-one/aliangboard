@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
-import { createWorkbenchSchema, createConversation } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createConversation, getConversation } from './workbench-projects.mjs'
 
 const U = p => new URL(p, 'http://x')
 
@@ -66,16 +66,16 @@ test('admin PUT:未知名 → 400;非数组 → 400', async () => {
   assert.equal(b.sent[0].status, 400)
 })
 
-function userHarness({ settings } = {}) {
+function userHarness({ settings, body } = {}) {
   const db = baseDb(settings)
   createWorkbenchSchema(db)
   const sent = []
   const routes = createWorkbenchConvRoutes({
     db,
     sendJson: (r, status, json) => { sent.push({ status, json }) },
-    readBody: async () => ({}),
+    readBody: async () => body || {},
     requireAdmin: (rq, rs) => ({ userId: 'u1', username: 't', role: 'user' }),
-    wbAgent: {}, getLlmConfig: () => ({ baseURL: 'http://x', apiKey: 'SECRET', model: 'm7' }),
+    wbAgent: { runConversation: () => {}, resumeConversation: () => {} }, getLlmConfig: () => ({ baseURL: 'http://x', apiKey: 'SECRET', model: 'm7' }),
     createLlmClient: () => ({}), buildCallContext: () => ({}), requestKubernetes: async () => ({}),
     busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
   })
@@ -108,4 +108,21 @@ test('GET /:id 出参含 system(逐对话审计)', async () => {
   await routes.handle({ method: 'GET' }, null, U(`/api/workbench/conversations/${conv.id}`))
   assert.equal(sent[0].status, 200)
   assert.equal(sent[0].json.system, 'SYS_PROMPT_SNAPSHOT')
+})
+
+test('POST /conversations:创建时烘焙 buildWorkbenchSystemPrompt(getWorkbenchAiConfig) 入 conv.system', async () => {
+  const { routes, sent, db } = userHarness({
+    settings: {
+      'workbench.additionalInstructions': 'SMOKE_EXTRA_MARKER',
+      'workbench.disabledTools': JSON.stringify(['wb_exec']),
+    },
+    body: { projectId: 'p1', message: 'hi' },
+  })
+  db.prepare('INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES (?,?,?,?,?)')
+    .run('p1', 'smoke-project', 'c1', 'u1', Date.now())
+  await routes.handle({ method: 'POST' }, null, U('/api/workbench/conversations'))
+  assert.equal(sent[0].status, 200)
+  const system = getConversation(db, sent[0].json.id).system
+  assert.ok(system.includes('SMOKE_EXTRA_MARKER'), '追加指令烘焙进 system')
+  assert.ok(!system.includes('**wb_exec**'), '禁用工具不出现于 system 工具清单')
 })

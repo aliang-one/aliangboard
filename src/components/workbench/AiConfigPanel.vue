@@ -13,9 +13,10 @@ const { t } = useI18n()
 const loading = ref(false)
 const data = ref(null)     // GET /api/workbench/ai-config
 const convSystem = ref('') // 有对话上下文时:该对话创建时烘焙的 system
+const loadError = ref('')  // 拉取失败:显示错误 + 重试,而非静默空白
 
 async function load() {
-  loading.value = true; data.value = null; convSystem.value = ''
+  loading.value = true; data.value = null; convSystem.value = ''; loadError.value = ''
   try {
     const [cfg, conv] = await Promise.all([
       workbenchApi.aiConfig(),
@@ -23,6 +24,8 @@ async function load() {
     ])
     data.value = cfg
     convSystem.value = conv?.system || ''
+  } catch (e) {
+    loadError.value = e?.message || String(e)
   } finally { loading.value = false }
 }
 watch(() => props.modelValue, v => { if (v) load() }, { immediate: true })
@@ -32,6 +35,10 @@ watch(() => props.modelValue, v => { if (v) load() }, { immediate: true })
   <Modal :model-value="modelValue" :title="t('workbench.chat.aiConfig.title')" @update:model-value="emit('update:modelValue', $event)">
     <div class="min-w-[32rem] max-w-[48rem] max-h-[70vh] overflow-y-auto flex flex-col gap-md text-body-sm">
       <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
+      <div v-else-if="loadError" class="flex flex-col items-center gap-md py-xl text-center">
+        <p class="text-status-error text-body-sm">{{ loadError }}</p>
+        <button type="button" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high" @click="load">{{ t('workbench.chat.aiConfig.retry') }}</button>
+      </div>
       <template v-else-if="data">
         <div>
           <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('workbench.chat.aiConfig.promptTitle') }}</p>

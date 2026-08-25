@@ -3288,7 +3288,8 @@
         "none": "(无)",
         "modelTitle": "模型",
         "disabledBadge": "已禁用",
-        "approvalBadge": "需人审"
+        "approvalBadge": "需人审",
+        "retry": "重试"
       }
     },
     "shell": {
