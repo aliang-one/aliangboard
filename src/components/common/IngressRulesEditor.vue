@@ -18,6 +18,7 @@ const props = defineProps({
   defaultBackend: { type: Object, default: () => ({ enabled: false, serviceName: '', servicePort: '' }) },
   defaultServiceName: { type: String, default: '' },
   withClearAll: { type: Boolean, default: false },
+  secrets: { type: Array, default: () => [] },  // TLS Secret 候选名(父级已按 kubernetes.io/tls + 当前 ns 过滤)
 })
 const emit = defineEmits(['update:modelValue', 'update:defaultBackend', 'validation', 'clear-all'])
 
@@ -146,7 +147,7 @@ function fieldError(hi, pi, field) { return errors.value.find(e => e.loc === `ho
         <label v-if="withTls" class="flex items-center gap-sm cursor-pointer mt-xs">
           <input type="checkbox" v-model="h.tls" class="rounded text-primary h-4 w-4" />
           <span class="text-xs">{{ t('ns.ingressDetail.tlsRowLabel') }}</span>
-          <input v-if="h.tls" v-model="h.tlsSecret" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" :placeholder="t('ns.ingressDetail.tlsRowSecretPlaceholder')" />
+          <PortSelect v-if="h.tls" v-model="h.tlsSecret" :options="secrets" :placeholder="t('ns.ingressDetail.tlsRowSecretPlaceholder')" :empty-hint="t('ns.ingressDetail.noTlsSecretsHint')" input-class="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" />
         </label>
       </div>
     </div>
