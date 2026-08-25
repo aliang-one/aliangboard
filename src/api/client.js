@@ -313,6 +313,11 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/podfile-config'),
     update: limitMb => platformHttp.request('/api/admin/podfile-config', { method: 'PUT', body: JSON.stringify({ limitMb }) }),
   },
+  // 工作台 AI 行为配置(2026-08-25):GET → {additionalInstructions, disabledTools, toolCatalog, effectivePreview};PUT ← 同名字段 → {ok}
+  workbenchAiConfig: {
+    get: () => platformHttp.request('/api/admin/workbench-ai-config'),
+    save: payload => platformHttp.request('/api/admin/workbench-ai-config', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
 }
 
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。

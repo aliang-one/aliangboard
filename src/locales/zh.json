@@ -402,6 +402,7 @@
     "apiKeys": "API Keys",
     "aiConsole": "AI 控制台",
     "llmConfig": "LLM 配置",
+    "aiBehavior": "AI 行为",
     "auditTrail": "审计",
     "settings": "设置",
     "deploy": "部署",
@@ -2749,7 +2750,25 @@
       "exQwenLabel": "Qwen(百炼):",
       "exOllamaLabel": "Ollama(本地):",
       "exOllamaKeyHint": "API Key 随意填",
-      "exOpenAILabel": "OpenAI:"
+      "exOpenAILabel": "OpenAI:",
+      "temperatureLabel": "temperature(留空=模型默认)",
+      "maxTokensLabel": "max tokens(留空=模型默认)",
+      "paramsHint": "可选参数,留空时请求不带该字段。"
+    },
+    "aiBehavior": {
+      "title": "AI 行为配置",
+      "subtitle": "定制工作台 AI 助手:追加指令、收紧工具集。安全边界(审批、只读优先)内置不可改,配置仅对新对话生效(工具禁用即时生效)。",
+      "instructionsLabel": "追加指令(拼在系统提示词末尾)",
+      "instructionsPlaceholder": "例:生产 namespace 的变更必须先列出受影响的工作负载再执行",
+      "instructionsHint": "最多 4000 字符;留空则不追加。",
+      "toolsTitle": "工具开关(只能禁用;审批规则不可关)",
+      "readGroup": "只读工具(不需审批)",
+      "writeGroup": "需人审工具",
+      "approvalBadge": "需人审",
+      "allDisabledWarn": "全部工具已禁用:AI 将退化为纯文本问答(允许保存,自知即可)。",
+      "previewTitle": "生效预览(新对话实际发送的系统提示词)",
+      "previewHint": "固定方法论段不可配置;工具文档随开关自动生成;末尾为追加指令。",
+      "loadFailed": "加载 AI 行为配置失败"
     },
     "apiKeys": {
       "title": "API Keys 管理",
