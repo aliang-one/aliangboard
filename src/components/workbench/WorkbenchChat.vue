@@ -261,12 +261,28 @@ async function loadConversation(convId) {
     if (unmounted) return
     if (convStatus.value === null) {
       errorBanner.value = t('workbench.chat.loadFailed')
+      // 后台续命重试(2026-08-25):初始 3.5s 退避全失败(网关重启窗口常超此值)后不再放弃——
+      // 每 5s 重试(≤6 次),网关回来即重建历史;期间 send 有防线不会顶掉空态。
+      scheduleLoadRevive(convId)
     } else if (convStatus.value === 'running') {
       startStreaming(convId)
     }
   } finally {
     if (!unmounted) convLoading.value = false
   }
+}
+
+// 加载失败后的后台续命重试:5s×6。成功(轮到 turns)即清 banner;组件卸载/切对话自然失效。
+let loadReviveTimer = null
+function scheduleLoadRevive(convId) {
+  let tries = 0
+  clearInterval(loadReviveTimer)
+  loadReviveTimer = setInterval(async () => {
+    if (unmounted || conversationId.value !== convId || turns.value.length) { clearInterval(loadReviveTimer); return }
+    if (++tries > 6) { clearInterval(loadReviveTimer); return }
+    await pollOnce(convId)
+    if (turns.value.length) { errorBanner.value = ''; clearInterval(loadReviveTimer) }
+  }, 5000)
 }
 
 // Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
@@ -573,6 +589,15 @@ async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
   if (!msg || sending.value) return
+  // 「历史被顶掉」防线(2026-08-25):对话存在但从未成功加载(网关抖动→loadFailed 空态)时,
+  // 直接发消息会让本地 turns 只剩本轮——观感即"历史全消失"。先补一次加载,仍失败则拦下发。
+  if (conversationId.value && !turns.value.length) {
+    await pollOnce(conversationId.value)
+    if (!turns.value.length) {
+      errorBanner.value = t('workbench.chat.loadFailed')
+      return
+    }
+  }
   const userId = ++turnSeq
   const agentId = ++turnSeq
   const refsSnapshot = refs.value.length ? [...refs.value] : null // P0(B):失败回滚用
