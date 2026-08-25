@@ -356,6 +356,9 @@
       "unknownKind": "未知",
       "noAttributes": "暂无属性",
       "justNow": "刚刚"
+    },
+    "kvRows": {
+      "add": "添加一行"
     }
   },
   "ingressController": {

@@ -356,6 +356,9 @@
       "unknownKind": "Unknown",
       "noAttributes": "No attributes",
       "justNow": "just now"
+    },
+    "kvRows": {
+      "add": "Add row"
     }
   },
   "ingressController": {
