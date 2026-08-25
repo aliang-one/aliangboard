@@ -5,6 +5,7 @@
 // busEmit/busDispose 作 factory dep 注入(与 createAgentRunner 同理,便于单测 stub)。
 import { buildHistory, appendMessage, getConversation, getProject, updateConversation, appendTrace, appendHistory } from './workbench-projects.mjs'
 import { eventsForResult } from './conv-events.mjs'
+import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
 //   db                —— node:sqlite DatabaseSync(index.mjs 顶层构造)
@@ -120,7 +121,12 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       }
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS })
+      const { run } = createAgentRunner({
+        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
+        // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
+        // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
+        disabledTools: getWorkbenchAiConfig(db).disabledTools,
+      })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
@@ -176,7 +182,12 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
-      const { run } = createAgentRunner({ llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS })
+      const { run } = createAgentRunner({
+        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
+        // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
+        // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
+        disabledTools: getWorkbenchAiConfig(db).disabledTools,
+      })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)

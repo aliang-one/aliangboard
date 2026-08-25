@@ -2,6 +2,7 @@
 // 7 端点 + buildRefsContext 辅助逐字搬迁,仅依赖引用改走 deps 注入。
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
+import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -81,7 +82,9 @@ export function createWorkbenchConvRoutes(deps) {
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
         const { resources: fetchedResources } = await buildRefsContext(project, input.references)
 
-        const system = buildWorkbenchSystemPrompt()
+        // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
+        // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
+        const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。

@@ -36,6 +36,7 @@ import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
+import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -1107,7 +1108,12 @@ async function handle(req, res) {
           appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
           bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
         }
-        const { run } = createAgentRunner({ llmClient, workbench })
+        const { run } = createAgentRunner({
+          llmClient, workbench,
+          // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
+          // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
+          disabledTools: getWorkbenchAiConfig(db).disabledTools,
+        })
         const trace = []
         let out
         if (resuming) {
@@ -1115,7 +1121,7 @@ async function handle(req, res) {
           out = await run({ resume: { messages: r.runContext, queue: r.queue, denied: r.denied, steps: r.steps, toolCallId: r.toolCallId, approved: !!r.approved }, onStep: e => trace.push(e) })
         } else {
           const history = recentHistory(db, proj.id)
-          const system = buildWorkbenchSystemPrompt()
+          const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
 
           // @-mention references 注入:fetch 每个 ref 的完整资源 → prepend context block 到 message。
           let messageContent = String(input.message)
