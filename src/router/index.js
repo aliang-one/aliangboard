@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { i18n } from '@/i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
@@ -10,7 +11,7 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue'),
-    meta: { title: 'Login' }
+    meta: { titleKey: 'route.login' }
   },
   {
     path: '/select-cluster',
@@ -31,14 +32,14 @@ const routes = [
     path: '/terminal-popup',
     name: 'TerminalPopup',
     component: () => import('@/views/TerminalPopup.vue'),
-    meta: { title: 'Terminal' }
+    meta: { titleKey: 'route.terminal' }
   },
   {
     // 独立日志页（新浏览器标签页打开），不走 AppLayout（无侧栏/顶栏，全屏日志）
     path: '/log-popup',
     name: 'LogPopup',
     component: () => import('@/views/LogPopup.vue'),
-    meta: { title: 'Logs' }
+    meta: { titleKey: 'route.logs' }
   },
   {
     path: '/',
@@ -50,7 +51,7 @@ const routes = [
         path: 'cluster',
         name: 'ClusterOverview',
         component: () => import('@/views/ClusterOverview.vue'),
-        meta: { title: 'Cluster Overview', icon: 'dashboard', scope: 'global' }
+        meta: { titleKey: 'route.clusterOverview', icon: 'dashboard', scope: 'global' }
       },
       {
         path: 'monitoring',
@@ -62,55 +63,55 @@ const routes = [
         path: 'nodes',
         name: 'Nodes',
         component: () => import('@/views/Nodes.vue'),
-        meta: { title: 'Nodes', icon: 'dns', scope: 'global' }
+        meta: { titleKey: 'nav.nodes', icon: 'dns', scope: 'global' }
       },
       {
         path: 'nodes/:name',
         name: 'NodeDetail',
         component: () => import('@/views/NodeDetail.vue'),
-        meta: { title: 'Node Detail', scope: 'global' }
+        meta: { titleKey: 'route.nodeDetail', scope: 'global' }
       },
       {
         path: 'workloads',
         name: 'Workloads',
         component: () => import('@/views/Workloads.vue'),
-        meta: { title: 'Workloads', icon: 'apps', scope: 'global' }
+        meta: { titleKey: 'nav.workloads', icon: 'apps', scope: 'global' }
       },
       {
         path: 'workloads/:type/:name',
         name: 'WorkloadDetail',
         component: () => import('@/views/WorkloadDetail.vue'),
-        meta: { title: 'Workload Detail', scope: 'global' }
+        meta: { titleKey: 'route.workloadDetail', scope: 'global' }
       },
       {
         path: 'pods/:namespace/:name',
         name: 'PodDetail',
         component: () => import('@/views/PodDetail.vue'),
-        meta: { title: 'Pod Detail', scope: 'global' }
+        meta: { titleKey: 'route.podDetail', scope: 'global' }
       },
       {
         path: 'network',
         name: 'Network',
         component: () => import('@/views/Network.vue'),
-        meta: { title: 'Network', icon: 'share', scope: 'global' }
+        meta: { titleKey: 'nav.network', icon: 'share', scope: 'global' }
       },
       {
         path: 'storage',
         name: 'Storage',
         component: () => import('@/views/Storage.vue'),
-        meta: { title: 'Storage', icon: 'storage', scope: 'global' }
+        meta: { titleKey: 'route.storage', icon: 'storage', scope: 'global' }
       },
       {
         path: 'configuration',
         name: 'Configuration',
         component: () => import('@/views/Configuration.vue'),
-        meta: { title: 'Configuration', icon: 'description', scope: 'global' }
+        meta: { titleKey: 'route.configuration', icon: 'description', scope: 'global' }
       },
       {
         path: 'rbac',
         name: 'RBAC',
         component: () => import('@/views/RBAC.vue'),
-        meta: { title: 'RBAC', icon: 'admin_panel_settings', scope: 'global' }
+        meta: { titleKey: 'route.rbac', icon: 'admin_panel_settings', scope: 'global' }
       },
       {
         path: 'rbac/can-i',
@@ -122,127 +123,127 @@ const routes = [
         path: 'deploy',
         name: 'Deploy',
         component: () => import('@/views/DeployApp.vue'),
-        meta: { title: 'Deploy', icon: 'rocket_launch', scope: 'global' }
+        meta: { titleKey: 'nav.deploy', icon: 'rocket_launch', scope: 'global' }
       },
       {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
-        meta: { title: 'Settings', icon: 'tune', scope: 'global' }
+        meta: { titleKey: 'nav.settings', icon: 'tune', scope: 'global' }
       },
       {
         path: 'clusters',
         name: 'Clusters',
         component: () => import('@/views/Clusters.vue'),
-        meta: { title: 'Clusters', icon: 'hub', scope: 'global' }
+        meta: { titleKey: 'nav.clusters', icon: 'hub', scope: 'global' }
       },
       {
         path: 'crds',
         name: 'CrdList',
         component: () => import('@/views/CrdList.vue'),
-        meta: { title: 'Custom Resource Definitions', icon: 'extension', scope: 'global' }
+        meta: { titleKey: 'nav.crds', icon: 'extension', scope: 'global' }
       },
       {
         path: 'crds/:name',
         name: 'CrdDetail',
         component: () => import('@/views/CrdDetail.vue'),
-        meta: { title: 'CRD Detail', scope: 'global' }
+        meta: { titleKey: 'route.crdDetail', scope: 'global' }
       },
       {
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => import('@/views/AuditLogs.vue'),
-        meta: { title: 'Audit Logs', icon: 'history', scope: 'global' }
+        meta: { titleKey: 'route.auditLogs', icon: 'history', scope: 'global' }
       },
       {
         path: 'priorityclasses',
         name: 'PriorityClasses',
         component: () => import('@/views/PriorityClasses.vue'),
-        meta: { title: 'PriorityClasses', icon: 'flag', scope: 'global' }
+        meta: { titleKey: 'route.priorityClasses', icon: 'flag', scope: 'global' }
       },
       {
         path: 'ingressclasses',
         name: 'IngressClasses',
         component: () => import('@/views/IngressClasses.vue'),
-        meta: { title: 'IngressClasses', icon: 'language', scope: 'global' }
+        meta: { titleKey: 'route.ingressClasses', icon: 'language', scope: 'global' }
       },
       {
         path: 'runtimeclasses',
         name: 'RuntimeClasses',
         component: () => import('@/views/RuntimeClasses.vue'),
-        meta: { title: 'RuntimeClasses', icon: 'memory', scope: 'global' }
+        meta: { titleKey: 'route.runtimeClasses', icon: 'memory', scope: 'global' }
       },
       {
         path: 'admin/apiservices',
         name: 'APIServices',
         component: () => import('@/views/ClusterResourceList.vue'),
-        meta: { title: 'APIServices', icon: 'api', scope: 'global', resource: 'apiservices' }
+        meta: { titleKey: 'route.apiServices', icon: 'api', scope: 'global', resource: 'apiservices' }
       },
       {
         path: 'admin/webhooks-mutating',
         name: 'MutatingWebhooks',
         component: () => import('@/views/ClusterResourceList.vue'),
-        meta: { title: 'Mutating Webhooks', icon: 'webhook', scope: 'global', resource: 'mutatingwebhooks' }
+        meta: { titleKey: 'route.mutatingWebhooks', icon: 'webhook', scope: 'global', resource: 'mutatingwebhooks' }
       },
       {
         path: 'admin/webhooks-validating',
         name: 'ValidatingWebhooks',
         component: () => import('@/views/ClusterResourceList.vue'),
-        meta: { title: 'Validating Webhooks', icon: 'rule', scope: 'global', resource: 'validatingwebhooks' }
+        meta: { titleKey: 'route.validatingWebhooks', icon: 'rule', scope: 'global', resource: 'validatingwebhooks' }
       },
       {
         path: 'admin/replicasets',
         name: 'ReplicaSets',
         component: () => import('@/views/ClusterResourceList.vue'),
-        meta: { title: 'ReplicaSets', icon: 'dynamic_feed', scope: 'global', resource: 'replicasets' }
+        meta: { titleKey: 'route.replicaSets', icon: 'dynamic_feed', scope: 'global', resource: 'replicasets' }
       },
       {
         path: 'admin/csinodes',
         name: 'CSINodes',
         component: () => import('@/views/ClusterResourceList.vue'),
-        meta: { title: 'CSINodes', icon: 'hard_drive', scope: 'global', resource: 'csinodes' }
+        meta: { titleKey: 'route.csiNodes', icon: 'hard_drive', scope: 'global', resource: 'csinodes' }
       },
       {
         path: 'priorityclasses/:name',
         name: 'PriorityClassDetail',
         component: () => import('@/views/PriorityClassDetail.vue'),
-        meta: { title: 'PriorityClass Detail', scope: 'global' }
+        meta: { titleKey: 'route.priorityClassDetail', scope: 'global' }
       },
       {
         path: 'pv/:name',
         name: 'PVDetail',
         component: () => import('@/views/PVDetail.vue'),
-        meta: { title: 'PersistentVolume Detail', scope: 'global' }
+        meta: { titleKey: 'route.pvDetail', scope: 'global' }
       },
       {
         path: 'storageclass/:name',
         name: 'StorageClassDetail',
         component: () => import('@/views/StorageClassDetail.vue'),
-        meta: { title: 'StorageClass Detail', scope: 'global' }
+        meta: { titleKey: 'route.storageClassDetail', scope: 'global' }
       },
       {
         path: 'clusterrole/:name',
         name: 'ClusterRoleDetail',
         component: () => import('@/views/ClusterRoleDetail.vue'),
-        meta: { title: 'ClusterRole Detail', scope: 'global' }
+        meta: { titleKey: 'route.clusterRoleDetail', scope: 'global' }
       },
       {
         path: 'clusterrolebinding/:name',
         name: 'ClusterRoleBindingDetail',
         component: () => import('@/views/ClusterRoleBindingDetail.vue'),
-        meta: { title: 'ClusterRoleBinding Detail', scope: 'global' }
+        meta: { titleKey: 'route.clusterRoleBindingDetail', scope: 'global' }
       },
       {
         path: 'namespaces',
         name: 'Namespaces',
         component: () => import('@/views/Namespaces.vue'),
-        meta: { title: 'Namespaces', icon: 'folder_open', scope: 'global' }
+        meta: { titleKey: 'nav.namespaces', icon: 'folder_open', scope: 'global' }
       },
       {
         path: 'namespaces/:name',
         name: 'NamespaceDetail',
         component: () => import('@/views/NamespaceDetail.vue'),
-        meta: { title: 'Namespace Detail', scope: 'global' }
+        meta: { titleKey: 'route.namespaceDetail', scope: 'global' }
       },
 
       // === Namespace 作用域页面 ===
@@ -250,13 +251,13 @@ const routes = [
         path: 'ns/:namespace',
         name: 'NamespaceOverview',
         component: () => import('@/views/NamespaceOverview.vue'),
-        meta: { title: 'Namespace Overview', icon: 'dashboard', scope: 'namespace' }
+        meta: { titleKey: 'route.namespaceOverview', icon: 'dashboard', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/workloads',
         name: 'NsWorkloads',
         component: () => import('@/views/NsWorkloads.vue'),
-        meta: { title: 'Workloads', icon: 'apps', scope: 'namespace' }
+        meta: { titleKey: 'nav.workloads', icon: 'apps', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/layers',
@@ -268,181 +269,181 @@ const routes = [
         path: 'ns/:namespace/workloads/:type/:name',
         name: 'NsWorkloadDetail',
         component: () => import('@/views/NsWorkloadDetail.vue'),
-        meta: { title: 'Workload Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.workloadDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/pods',
         name: 'NsPods',
         component: () => import('@/views/NsPods.vue'),
-        meta: { title: 'Pods', icon: 'layers', scope: 'namespace' }
+        meta: { titleKey: 'route.pods', icon: 'layers', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/pods/:name',
         name: 'NsPodDetail',
         component: () => import('@/views/PodDetail.vue'),
-        meta: { title: 'Pod Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.podDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/services',
         name: 'NsServices',
         component: () => import('@/views/NsServices.vue'),
-        meta: { title: 'Services', icon: 'hub', scope: 'namespace' }
+        meta: { titleKey: 'route.services', icon: 'hub', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/services/:name',
         name: 'NsServiceDetail',
         component: () => import('@/views/NsServiceDetail.vue'),
-        meta: { title: 'Service Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.serviceDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/endpoints',
         name: 'NsEndpoints',
         component: () => import('@/views/NsEndpoints.vue'),
-        meta: { title: 'Endpoints', icon: 'hub', scope: 'namespace' }
+        meta: { titleKey: 'route.endpoints', icon: 'hub', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/ingress',
         name: 'NsIngress',
         component: () => import('@/views/NsIngress.vue'),
-        meta: { title: 'Ingress', icon: 'language', scope: 'namespace' }
+        meta: { titleKey: 'route.ingress', icon: 'language', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/ingress/:name',
         name: 'NsIngressDetail',
         component: () => import('@/views/NsIngressDetail.vue'),
-        meta: { title: 'Ingress Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.ingressDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/storage',
         name: 'NsStorage',
         component: () => import('@/views/NsStorage.vue'),
-        meta: { title: 'Storage', icon: 'storage', scope: 'namespace' }
+        meta: { titleKey: 'route.storage', icon: 'storage', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/storage/pvc/:name',
         name: 'NsPVCDetail',
         component: () => import('@/views/NsPVCDetail.vue'),
-        meta: { title: 'PVC Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.pvcDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/configmaps',
         name: 'NsConfigMaps',
         component: () => import('@/views/NsConfigMaps.vue'),
-        meta: { title: 'ConfigMaps', icon: 'description', scope: 'namespace' }
+        meta: { titleKey: 'route.configMaps', icon: 'description', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/configmaps/:name',
         name: 'NsConfigMapDetail',
         component: () => import('@/views/NsConfigMapDetail.vue'),
-        meta: { title: 'ConfigMap Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.configMapDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/secrets',
         name: 'NsSecrets',
         component: () => import('@/views/NsSecrets.vue'),
-        meta: { title: 'Secrets', icon: 'key', scope: 'namespace' }
+        meta: { titleKey: 'route.secrets', icon: 'key', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/secrets/:name',
         name: 'NsSecretDetail',
         component: () => import('@/views/NsSecretDetail.vue'),
-        meta: { title: 'Secret Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.secretDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/rbac',
         name: 'NsRBAC',
         component: () => import('@/views/NsRBAC.vue'),
-        meta: { title: 'RBAC', icon: 'admin_panel_settings', scope: 'namespace' }
+        meta: { titleKey: 'route.rbac', icon: 'admin_panel_settings', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/rbac/roles/:name',
         name: 'NsRoleDetail',
         component: () => import('@/views/NsRoleDetail.vue'),
-        meta: { title: 'Role Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.roleDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/rbac/serviceaccounts/:name',
         name: 'NsServiceAccountDetail',
         component: () => import('@/views/NsServiceAccountDetail.vue'),
-        meta: { title: 'ServiceAccount Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.serviceAccountDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/rbac/rolebindings/:name',
         name: 'NsRoleBindingDetail',
         component: () => import('@/views/NsRoleBindingDetail.vue'),
-        meta: { title: 'RoleBinding Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.roleBindingDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/networkpolicies',
         name: 'NsNetworkPolicies',
         component: () => import('@/views/NsNetworkPolicies.vue'),
-        meta: { title: 'NetworkPolicies', icon: 'shield', scope: 'namespace' }
+        meta: { titleKey: 'route.networkPolicies', icon: 'shield', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/networkpolicies/:name',
         name: 'NsNetworkPolicyDetail',
         component: () => import('@/views/NsNetworkPolicyDetail.vue'),
-        meta: { title: 'NetworkPolicy Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.networkPolicyDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/hpa',
         name: 'NsHPA',
         component: () => import('@/views/NsHPA.vue'),
-        meta: { title: 'HPA', icon: 'timeline', scope: 'namespace' }
+        meta: { titleKey: 'route.hpa', icon: 'timeline', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/hpa/:name',
         name: 'NsHPADetail',
         component: () => import('@/views/NsHPADetail.vue'),
-        meta: { title: 'HPA Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.hpaDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/resourcequotas',
         name: 'NsResourceQuotas',
         component: () => import('@/views/NsResourceQuotas.vue'),
-        meta: { title: 'ResourceQuotas', icon: 'pie_chart', scope: 'namespace' }
+        meta: { titleKey: 'route.resourceQuotas', icon: 'pie_chart', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/resourcequotas/:name',
         name: 'NsResourceQuotaDetail',
         component: () => import('@/views/NsResourceQuotaDetail.vue'),
-        meta: { title: 'ResourceQuota Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.resourceQuotaDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/limitranges',
         name: 'NsLimitRanges',
         component: () => import('@/views/NsLimitRanges.vue'),
-        meta: { title: 'LimitRanges', icon: 'tune', scope: 'namespace' }
+        meta: { titleKey: 'route.limitRanges', icon: 'tune', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/limitranges/:name',
         name: 'NsLimitRangeDetail',
         component: () => import('@/views/NsLimitRangeDetail.vue'),
-        meta: { title: 'LimitRange Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.limitRangeDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/pdbs',
         name: 'NsPDBs',
         component: () => import('@/views/NsPDBs.vue'),
-        meta: { title: 'PodDisruptionBudgets', icon: 'shield', scope: 'namespace' }
+        meta: { titleKey: 'route.pdbs', icon: 'shield', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/pdbs/:name',
         name: 'NsPDBDetail',
         component: () => import('@/views/NsPDBDetail.vue'),
-        meta: { title: 'PDB Detail', scope: 'namespace' }
+        meta: { titleKey: 'route.pdbDetail', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/deploy',
         name: 'NsDeploy',
         component: () => import('@/views/DeployApp.vue'),
-        meta: { title: 'Deploy', icon: 'rocket_launch', scope: 'namespace' }
+        meta: { titleKey: 'nav.deploy', icon: 'rocket_launch', scope: 'namespace' }
       },
       {
         path: 'ns/:namespace/events',
         name: 'NsEvents',
         component: () => import('@/views/NsEvents.vue'),
-        meta: { title: 'Events', icon: 'notifications_active', scope: 'namespace' }
+        meta: { titleKey: 'nav.events', icon: 'notifications_active', scope: 'namespace' }
       },
       {
         path: 'workbench',
@@ -566,5 +567,13 @@ router.beforeEach(async (to) => {
     }
   }
 })
+
+// 统一消费 meta.titleKey → document.title。无 titleKey 的路由（redirect 等）落品牌标题。
+// 切语言时由 App.vue watch locale 调 applyRouteTitle(currentMeta) 重刷。
+export function applyRouteTitle(meta) {
+  const key = meta?.titleKey
+  document.title = key ? `${i18n.global.t(key)} · AliangBoard` : i18n.global.t('route.brandTitle')
+}
+router.afterEach((to) => applyRouteTitle(to.meta))
 
 export default router
