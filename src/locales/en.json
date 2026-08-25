@@ -3314,6 +3314,20 @@
       "ledger": "Ledger",
       "disk": "Host disk",
       "diskFree": "free"
+    },
+    "toolCall": {
+      "title": "Tool Call Detail",
+      "args": "Arguments",
+      "result": "Result",
+      "summaryTab": "Summary",
+      "rawTab": "Raw",
+      "noArgs": "(no arguments)",
+      "denied": "User denied this operation",
+      "running": "Running…",
+      "noTs": "—",
+      "copied": "Copied",
+      "copyFailed": "Copy failed, select and copy manually",
+      "truncated": "Result exceeds 64KB, truncated (copy for full content)"
     }
   },
   "workloadDetail": {
