@@ -23,7 +23,9 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
 
   // checkpoint → paused; done → done + history
   // tracker(R1):reasoning 与 content 同源同命运——终态/暂停一并落库,thinking 不再只活在 SSE。
-  function handleAgentResult(convId, project, out, tracker) {
+  // traceJson(2026-08-25):本轮工具事件序列(已 JSON 串)。此前落 out.trace——runner 返回里
+  // 根本没有该字段,恒为 "[]" → 前端重建历史时 ToolTrace 全不渲染(「聊天结束后看不到工具调用」)。
+  function handleAgentResult(convId, project, out, tracker, traceJson) {
     if (out.status === 'pending_approval') {
       const patch = {
         status: 'paused',
@@ -44,7 +46,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       if (tracker) patch.reasoning = tracker.reasoning()
       updateConversation(db, convId, patch)
       // T4:多轮核心 —— done 时追加 assistant 消息到 workbench_messages(供下一轮 buildHistory 读取)。
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? tracker.reasoning() : null, trace: JSON.stringify(out.trace || []) })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? tracker.reasoning() : null, trace: traceJson || '[]' })
       appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
       appendHistory(db, project.id, 'assistant', out.content || '')
     }
@@ -124,26 +126,29 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
+      // 本轮工具事件累积(tool/denied;assistant 事件与 tool_start 不入)——done 时随 assistant
+      // 消息落库,前端重建历史据此渲染 ToolTrace。对话级 appendTrace(全事件)保持不变。
+      const turnTrace = []
       const out = await run({
         system: conv.system,
         history,
         refreshSystem,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
-        onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
+        onStep: e => { if (e.type !== 'tool_start') { appendTrace(db, convId, e); if (e.type !== 'assistant') turnTrace.push(e) } busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
       })
       // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
       // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
       // 此前全弃,刷新后用户看着流出来的答案蒸发)。无流出内容则不追加。
       if (getConversation(db, convId)?.status === 'cancelled') {
         if (tracker && (tracker.partial() || tracker.reasoning())) {
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: getConversation(db, convId)?.trace })
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(turnTrace) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out, tracker)
+      handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace))
       finalizeConvEmit(convId, out)
     } catch (err) {
       salvagePartial(convId, err, tracker)
@@ -200,7 +205,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out, tracker)
+      handleAgentResult(convId, project, out, tracker, getConversation(db, convId)?.trace)
       finalizeConvEmit(convId, out)
     } catch (err) {
       salvagePartial(convId, err, tracker)
