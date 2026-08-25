@@ -1232,7 +1232,9 @@ async function handle(req, res) {
           if (args.previous) q.set('previous', 'true')
           if (args.timestamps) q.set('timestamps', 'true')
           const resp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(args.namespace)}/pods/${enc(args.pod)}/log?${q}`)
-          const buf = Buffer.from(typeof resp === 'string' ? resp : String(resp ?? ''), 'utf8')
+          // requestKubernetes 恒返回 {status, headers, body};/log 为 text/plain → 日志串在 resp.body。
+          // 曾误把 resp 本身当串 → String({}) = "[object Object]",agent 永远看不到真实日志(2026-08-25)。
+          const buf = Buffer.from(typeof resp?.body === 'string' ? resp.body : String(resp?.body ?? ''), 'utf8')
           const truncated = buf.length > LOG_MAX
           return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },
