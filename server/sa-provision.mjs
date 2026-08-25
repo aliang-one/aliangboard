@@ -121,3 +121,21 @@ export async function sweepStaleTierBindings({ requestFn, callCtx }, { keyId, na
   }
   return { deleted, errors }
 }
+
+// ns allowlist 移除 ns 后清残留(PATCH /namespaces best-effort 调):指定 namespaces 内三档名 Role+RoleBinding 全删。
+// SA/CRB 不动(key 仍在用);保留 ns 不动。404 容忍(残留本就可能不存在)。
+export async function sweepNsBindings({ requestFn, callCtx }, { keyId, namespaces = [] }) {
+  const paths = [...new Set(namespaces)].flatMap(ns => TIERS.flatMap(t => {
+    const role = `aliangboard-mcp-${t}-${id8(keyId)}`
+    return [
+      `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings/${enc(role)}`,
+      `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/roles/${enc(role)}`,
+    ]
+  }))
+  const deleted = [], errors = []
+  for (const p of paths) {
+    try { await requestFn(callCtx, p, { method: 'DELETE' }); deleted.push(p) }
+    catch (e) { if (e.status !== 404) errors.push({ path: p, error: e.message }) }
+  }
+  return { deleted, errors }
+}

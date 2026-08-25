@@ -73,8 +73,10 @@ function openNsEditor(k) {
 }
 async function saveNamespaces() {
   try {
-    await adminApi.apikeys.updateNamespaces(editingKey.value.id, editExtraNs.value)
-    notify('success', t('nsAllowlist.updated')); showNsModal.value = false; load()
+    const res = await adminApi.apikeys.updateNamespaces(editingKey.value.id, editExtraNs.value)
+    // BYO key 平台不代建 RBAC:成功但要提示新 ns 的 RoleBinding 需自建(与 repair 需 takeover 同立场)。
+    notify('success', res?.rbac === 'byo-self-managed' ? t('nsAllowlist.updatedByo') : t('nsAllowlist.updated'))
+    showNsModal.value = false; load()
   } catch (e) { notify('error', e.message || t('nsAllowlist.updateFailed')) }
 }
 

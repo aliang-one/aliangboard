@@ -3409,7 +3409,8 @@
     "editNs": "编辑 namespace 允许集",
     "editNsTitle": "编辑 namespace 允许集 · {prefix}…",
     "nsMeta": "SA={ns}/{name};额外 namespace 列表(始终含绑定 ns)",
-    "updated": "ns allowlist 已更新",
+    "updated": "ns allowlist 已更新(新 ns 的集群 RBAC 已同步创建)",
+    "updatedByo": "ns allowlist 已更新;该 key 为自带 SA,新 ns 的 RoleBinding 需自行创建",
     "updateFailed": "更新失败",
     "advanced": "高级:namespace 允许集(在绑定 ns 之外追加)"
   },
