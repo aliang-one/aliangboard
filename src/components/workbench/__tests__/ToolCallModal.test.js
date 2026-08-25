@@ -61,3 +61,16 @@ test('超大结果截断提示', () => {
   mountM({ type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: big } })
   expect(document.body.innerHTML).toContain(i18n.global.t('workbench.toolCall.truncated'))
 })
+
+test('超大结果 + raw tab 复制:writeText 收到未截断完整串', async () => {
+  const big = 'x'.repeat(70 * 1024)
+  const result = { logs: big }
+  mountM({ type: 'tool', name: 'wb_get_pod_logs', args: {}, result })
+  const buttons = document.querySelectorAll('button')
+  const rawTabBtn = Array.from(buttons).find(b => b.textContent.includes(i18n.global.t('workbench.toolCall.rawTab')))
+  await rawTabBtn.click()
+  const copyBtn = Array.from(buttons).find(b => b.textContent.includes(i18n.global.t('common.copy')))
+  await copyBtn.click()
+  const written = navigator.clipboard.writeText.mock.calls[0][0]
+  expect(written.length).toBe(JSON.stringify(result, null, 2).length)
+})

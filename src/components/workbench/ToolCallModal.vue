@@ -18,23 +18,20 @@ const RAW_MAX = 64 * 1024
 
 const argsJson = computed(() => props.event?.args && Object.keys(props.event.args || {}).length ? JSON.stringify(props.event.args, null, 2) : '')
 const summaryText = computed(() => props.event?.type === 'tool' ? fmtResult(props.event) : '')
-const rawText = computed(() => {
+const fullRaw = computed(() => {
   const r = props.event?.result
   if (r == null) return ''
-  const s = typeof r === 'string' ? r : JSON.stringify(r, null, 2)
-  return s.length > RAW_MAX ? s.slice(0, RAW_MAX) : s
+  return typeof r === 'string' ? r : JSON.stringify(r, null, 2)
 })
-const truncated = computed(() => {
-  const r = props.event?.result
-  if (r == null) return false
-  const s = typeof r === 'string' ? r : JSON.stringify(r, null, 2)
-  return s.length > RAW_MAX
-})
+const rawText = computed(() => fullRaw.value.length > RAW_MAX ? fullRaw.value.slice(0, RAW_MAX) : fullRaw.value)
+const truncated = computed(() => fullRaw.value.length > RAW_MAX)
 const tsText = computed(() => props.event?.ts ? new Date(props.event.ts).toLocaleString() : t('workbench.toolCall.noTs'))
 const currentText = computed(() => tab.value === 'raw' ? rawText.value : (summaryText.value || rawText.value))
 
 async function copy() {
-  try { await navigator.clipboard.writeText(currentText.value); notify('success', t('workbench.toolCall.copied')) }
+  // raw tab 复制真正完整串(展示层截断,复制不截断);summary tab 维持摘要
+  const text = tab.value === 'raw' ? fullRaw.value : currentText.value
+  try { await navigator.clipboard.writeText(text); notify('success', t('workbench.toolCall.copied')) }
   catch { notify('error', t('workbench.toolCall.copyFailed')) }
 }
 </script>
