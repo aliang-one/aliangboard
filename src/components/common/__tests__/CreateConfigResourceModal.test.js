@@ -141,6 +141,32 @@ test('空 key 行不进 payload；重复 meta key 禁用创建', async () => {
   expect(w2.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
 })
 
+test('关闭后重开 → freeKeys 重置为单空行（无跨会话键值残留）', async () => {
+  // configmap 场景：无 secretTypeId 切换路径,重开是唯一重置入口
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-name"]').setValue('cm5')
+  await w.findComponent({ name: 'DataKeysEditor' }).vm.$emit('update:modelValue', [{ key: 'old', value: 'X' }])
+  expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: 'old', value: 'X' }])
+  // 关闭 → 重开
+  await w.find('[data-testid="ccm-cancel"]').trigger('click')
+  // 父级应用 emit 后 prop 真正关闭再重开
+  await w.setProps({ modelValue: false })
+  await w.setProps({ modelValue: true })
+  expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: '', value: '' }])
+  // 重开后旧键不残留 → 无有效键,创建禁用
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
+})
+
+test('secret Opaque 重开 → freeKeys 重置为单空行', async () => {
+  const w = mountModal('secret')
+  await w.findComponent({ name: 'DataKeysEditor' }).vm.$emit('update:modelValue', [{ key: 'old', value: 'X' }])
+  await w.find('[data-testid="ccm-cancel"]').trigger('click')
+  await w.setProps({ modelValue: false })
+  await w.setProps({ modelValue: true })
+  // secretTypeId 同为 'Opaque'，同值赋值不触发 watch(secretTypeId)，须靠 resetTypeData
+  expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: '', value: '' }])
+})
+
 test('secret 类型切换重置 freeKeys；yaml tab 按钮禁用', async () => {
   const w = mountModal('secret')
   // yaml 占位 tab 禁用

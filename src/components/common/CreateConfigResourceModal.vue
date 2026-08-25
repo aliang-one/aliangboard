@@ -39,13 +39,16 @@ const fixedFields = computed(() =>
   isSecret.value && Array.isArray(currentType.value.fields) ? currentType.value.fields : null,
 )
 
-// 类型切换：固定类型 → fields 初始化；Opaque → 单空行（避免跨类型脏数据）
-watch(secretTypeId, (id) => {
-  const tp = SECRET_TYPES.find((s) => s.id === id)
+// freeKeys 按当前 secretTypeId 初始化：固定类型 → fields 数组；Opaque/configmap → 单空行
+function resetTypeData() {
+  const tp = SECRET_TYPES.find((s) => s.id === secretTypeId.value)
   freeKeys.value = Array.isArray(tp && tp.fields)
     ? tp.fields.map((f) => ({ key: f.key, value: '' }))
     : [{ key: '', value: '' }]
-})
+}
+
+// 类型切换：重置 freeKeys（避免跨类型脏数据）
+watch(secretTypeId, resetTypeData)
 
 // 弹窗打开时重置表单
 watch(
@@ -57,6 +60,9 @@ watch(
       labels.value = []
       annotations.value = []
       activeTab.value = 'data'
+      // secretTypeId 同值赋值不触发 watch(secretTypeId)（如上次已是 Opaque 或 configmap），
+      // 必须显式重置，否则上次填的键值残留跨会话
+      resetTypeData()
     }
   },
 )
