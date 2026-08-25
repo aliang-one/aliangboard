@@ -3153,6 +3153,8 @@
       "noCommits": "无提交",
       "unsavedChangesWarning": "当前文件未保存的改动会丢失,继续?",
       "loadFailed": "加载失败",
+      "loadErrorHint": "项目加载失败(网关可能正在重启或网络抖动),正在自动重试…",
+      "loadRetry": "立即重试",
       "readFailed": "读取失败",
       "saveSuccess": "已保存(未提交)",
       "saveFailed": "保存失败",
