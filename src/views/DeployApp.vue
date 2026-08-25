@@ -279,7 +279,7 @@ const stepBlockReason = computed(() => {
   }
   if (currentStep.value === 2) {
     // 存储门禁:每个卷必须来源完整+映射到有效容器的挂载路径(否则 YAML 里静默消失)
-    const e = firstVolumeMountError(f.volumeMounts, containerTargets.map(x => x.value))
+    const e = firstVolumeMountError(f.volumeMounts, containerTargets.value.map(x => x.value))
     if (e) return t(e.key, { n: e.n })
   }
   if (currentStep.value === 4) {
