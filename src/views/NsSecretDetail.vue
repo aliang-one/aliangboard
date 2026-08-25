@@ -278,8 +278,8 @@ const refCount = computed(() =>
               </div>
             </div>
             <div v-if="editingKey === key" class="flex gap-sm">
-              <input v-model="editValue" type="text" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
-              <div class="flex gap-xs">
+              <textarea v-model="editValue" class="flex-1 min-h-[80px] resize-y bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary"></textarea>
+              <div class="flex gap-xs shrink-0">
                 <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ $t('common.save') }}</button>
                 <button @click="editingKey = null" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ $t('common.cancel') }}</button>
               </div>
@@ -391,7 +391,7 @@ const refCount = computed(() =>
     </template>
   </Modal>
 
-  <Modal v-model="showAddKeyModal" :title="$t('ns.secretDetail.addDataKeyTitle')" width="max-w-lg">
+  <Modal v-model="showAddKeyModal" :title="$t('ns.secretDetail.addDataKeyTitle')" width="max-w-2xl">
     <div class="flex flex-col gap-md">
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.keyName') }}</label>
@@ -399,7 +399,7 @@ const refCount = computed(() =>
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.value') }}</label>
-        <input v-model="newValue" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" placeholder="secret value..." />
+        <textarea v-model="newValue" class="w-full min-h-[100px] resize-y bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="secret value..."></textarea>
       </div>
     </div>
     <template #actions>
