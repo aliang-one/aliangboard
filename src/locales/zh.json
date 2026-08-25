@@ -370,6 +370,15 @@
     },
     "kvRows": {
       "add": "添加一行"
+    },
+    "dataKeysEditor": {
+      "addKey": "添加键",
+      "keysCount": "{n} 个键",
+      "noKeys": "暂无键",
+      "untitled": "（未命名）",
+      "lineCount": "{n} 行",
+      "emptyHint": "暂无数据键。点击左栏「添加键」开始。",
+      "toggleMask": "显示/隐藏值"
     }
   },
   "ingressController": {

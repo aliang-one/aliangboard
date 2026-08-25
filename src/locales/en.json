@@ -370,6 +370,15 @@
     },
     "kvRows": {
       "add": "Add row"
+    },
+    "dataKeysEditor": {
+      "addKey": "Add Key",
+      "keysCount": "{n} keys",
+      "noKeys": "No keys yet",
+      "untitled": "(untitled)",
+      "lineCount": "{n} lines",
+      "emptyHint": "No data keys yet. Click \"Add Key\" in the left panel to start.",
+      "toggleMask": "Show/hide value"
     }
   },
   "ingressController": {
