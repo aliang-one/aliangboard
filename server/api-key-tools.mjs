@@ -6,6 +6,7 @@ import { authorize, PermissionDeniedError, effectiveNamespaces } from './authori
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
+import { toExecArgv } from './exec-bounds.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 
@@ -360,7 +361,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         fn: async (saCtx) => {
           if (!execFn) throw new Error('exec_pod 未启用(网关未注入 execFn)')
           if (!command) throw new Error('exec_pod 缺 command')
-          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', command, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+          // 命令形态(2026-08-25 bug):exec argv 必须数组——字符串经 client-node 编码成单个
+          // command= 参数,kubelet 把整串当二进制名 → 必败。exec_pod 契约=shell 命令 → sh -c 包装。
+          const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', toExecArgv(command), { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
           return {
             pod: a.pod, container: a.container || '', exitCode: r.status ?? null,
             stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192),
@@ -373,7 +376,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'browse_files', source, namespace: a.namespace, verb: 'get', resource: `Pod/${a.pod}/files`, summary: `pod=${a.pod} path=${(a.path || '/').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!execFn) throw new Error('browse_files 未启用')
-        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `ls -la ${safePodPath(a.path || '/')}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+        // 数组直传(不经 shell):路径含空格也原样一参,且无 sh 依赖
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', ['ls', '-la', safePodPath(a.path || '/')], { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
         return { pod: a.pod, path: a.path || '/', listing: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
       } }),
     read_file: async (keyRow, cluster, a, source) => runBoundedTool({
@@ -381,7 +385,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       fn: async (saCtx) => {
         if (!execFn) throw new Error('read_file 未启用')
         if (!a.path) throw new Error('read_file 缺 path')
-        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', `cat -- ${safePodPath(a.path)}`, { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
+        // 数组直传(不经 shell):`--` 止参防 `-` 开头路径被 cat 当选项;空格路径安全
+        const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', ['cat', '--', safePodPath(a.path)], { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
         return { pod: a.pod, path: a.path, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
       } }),
     apply_yaml: async (keyRow, cluster, a, source) => runBoundedTool({

@@ -4,6 +4,22 @@
 // 交互终端路径不传 bounds(timeoutMs/maxBytes=0)→ 无界,行为与旧版一致。
 import { Writable } from 'node:stream'
 
+// exec argv 归一(2026-08-25 exec 字符串命令 bug):K8s exec API 的 argv 必须以**数组**传。
+// client-node 用 querystring.stringify({command}) 编码——字符串只产单个 command=cat%20--%20…
+// 参数(kubelet 收到单元素 argv,整串被当二进制名 → executable not found);数组才产
+// 一词一参的重复 command= 参数。execCapture 调用方全量扫点后:人用路径(终端/tmux/PVC/podfile)
+// 均已数组,唯 AI 工具(exec_pod/read_file/browse_files/wb_exec/wb_read_pod_file)传字符串。
+// 字符串 → ['sh','-c',cmd](shell 语义,exec_pod/wb_exec 的 schema 契约);数组 → 透传;
+// 空/非命令 → 抛(防 sh -c "" 幽灵命令)。
+export function toExecArgv(command) {
+  if (Array.isArray(command)) {
+    if (!command.length) throw new Error('command 不能是空数组(exec argv)')
+    return command
+  }
+  if (typeof command === 'string' && command.trim()) return ['sh', '-c', command]
+  throw new Error(`command 必须是非空字符串或非空字符串数组(收到: ${typeof command})`)
+}
+
 // openConn(stdoutSink, stderrSink) → Promise<conn>(conn: EventEmitter,须有 close())。
 // 返回 { stdout, stderr(Buffer), timedOut, truncated }:
 //   timedOut  = 超时被中止(timeoutMs>0 且 conn 在期限内未关)→ 主动 close,已收数据保留

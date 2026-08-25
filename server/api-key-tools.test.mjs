@@ -241,7 +241,7 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   const execFn = async (saCtx, ns, pod, container, command, bounds) => { called = { ns, pod, container, command, bounds, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0, timedOut: false, truncated: false } }
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
   const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', container: 'c1', command: 'ls -la' })
-  assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.equal(called.command, 'ls -la')
+  assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.deepEqual(called.command, ['sh', '-c', 'ls -la'], 'exec 契约是 argv 数组(shell 命令→sh -c 包装)')
   assert.ok(called.authHeader?.startsWith('Bearer '), 'execFn 拿到 SA-token ctx')
   assert.equal(out.stdout, 'total 0\n')
   assert.equal(out.exitCode, 0)
@@ -285,6 +285,43 @@ test('browse_files/read_file(bounds): 同样向 execFn 传 bounds', async () => 
   await tools.callTool(k, cluster, 'read_file', { namespace: 'ns', pod: 'p1', path: '/etc/hosts' })
   assert.equal(boundsSeen.length, 2)
   for (const b of boundsSeen) assert.ok(b?.timeoutMs > 0 && b?.maxBytes > 0, 'exec 族工具都要传 bounds')
+})
+
+// --- exec 命令形态(2026-08-25 bug):exec API 的 argv 必须以数组传给 execFn ---
+// 根因:字符串命令经 client-node querystring.stringify 只产单个 command= 参数,
+// kubelet 收到单元素 argv(整串被当二进制名)→ exec 必败(executable not found)。
+// exec_pod 契约=shell 命令 → ['sh','-c',cmd];read_file/browse_files=固定动词+受控路径
+// → 数组直传(不经 shell,路径含空格也安全)。
+test('exec_pod(命令形态): execFn 收到 ["sh","-c",<command>](带引号的 shell 语法必须经 sh 解析)', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  let got = null
+  const execFn = async (_ctx, _ns, _pod, _c, command) => { got = command; return { stdout: '', stderr: '', status: 0, timedOut: false, truncated: false } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'curl -s -o /dev/null -w "%{http_code}" http://svc:80/healthz' })
+  assert.deepEqual(got, ['sh', '-c', 'curl -s -o /dev/null -w "%{http_code}" http://svc:80/healthz'])
+})
+
+test('read_file(命令形态): execFn 收到 ["cat","--",path] 数组(空格路径原样一参,不经 shell)', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  let got = null
+  const execFn = async (_ctx, _ns, _pod, _c, command) => { got = command; return { stdout: 'x', stderr: '', status: 0, timedOut: false, truncated: false } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  await tools.callTool(k, cluster, 'read_file', { namespace: 'ns', pod: 'p1', path: '/opt/my app/conf.yaml' })
+  assert.deepEqual(got, ['cat', '--', '/opt/my app/conf.yaml'])
+})
+
+test('browse_files(命令形态): execFn 收到 ["ls","-la",path] 数组(默认 /)', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  const got = []
+  const execFn = async (_ctx, _ns, _pod, _c, command) => { got.push(command); return { stdout: 'x', stderr: '', status: 0, timedOut: false, truncated: false } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
+  await tools.callTool(k, cluster, 'browse_files', { namespace: 'ns', pod: 'p1', path: '/etc' })
+  await tools.callTool(k, cluster, 'browse_files', { namespace: 'ns', pod: 'p1' })
+  assert.deepEqual(got[0], ['ls', '-la', '/etc'])
+  assert.deepEqual(got[1], ['ls', '-la', '/'], '缺 path 默认 /,仍是数组')
 })
 
 test('browse_files/read_file/apply_yaml(deny): read 档全拒(admin 档工具)', async () => {

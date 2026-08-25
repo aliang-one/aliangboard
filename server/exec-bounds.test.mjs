@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { EventEmitter } from 'node:events'
-import { runBoundedCollect } from './exec-bounds.mjs'
+import { runBoundedCollect, toExecArgv } from './exec-bounds.mjs'
 
 // fake conn:close() 记录 + 触发 close 事件;neverClose=true 模拟「close 后也不出事件」的挂死连接
 function fakeConn({ neverClose = false } = {}) {
@@ -67,4 +67,28 @@ test('runBoundedCollect: 不传 bounds(timeoutMs/maxBytes=0)→ 无界,交互路
   assert.equal(r.truncated, false)
   assert.equal(r.timedOut, false)
   assert.equal(r.stdout.length, 1000)
+})
+
+// --- toExecArgv(2026-08-25 exec 字符串命令 bug):exec API 的 argv 必须以数组传 ---
+// 根因:client-node 用 querystring.stringify({command}) 编码——字符串只产单个
+// command=cat%20--%20%2Fetc 参数(kubelet 收到单元素 argv,整串被当二进制名 →
+// executable not found in $PATH);数组才产重复 command= 参数(一词一参)。
+// toExecArgv 把字符串归一成 ['sh','-c',cmd](shell 语义,exec_pod/wb_exec 的契约),
+// execCapture 入口兜底 + 字符串调用方显式使用;数组调用方透传。
+test('toExecArgv: 字符串 → ["sh","-c",str](shell 语义包装)', () => {
+  assert.deepEqual(toExecArgv('nc -zv mysql 3306'), ['sh', '-c', 'nc -zv mysql 3306'])
+  assert.deepEqual(toExecArgv('ls'), ['sh', '-c', 'ls'])
+})
+
+test('toExecArgv: 数组 → 同一引用透传(已正确的 argv 形态不动)', () => {
+  const argv = ['cat', '--', '/etc/hosts']
+  assert.equal(toExecArgv(argv), argv)
+})
+
+test('toExecArgv: 空串/空白串/空数组/非命令类型 → 抛(防 sh -c "" 幽灵命令)', () => {
+  assert.throws(() => toExecArgv(''), /command/)
+  assert.throws(() => toExecArgv('   '), /command/)
+  assert.throws(() => toExecArgv([]), /command/)
+  assert.throws(() => toExecArgv(null), /command/)
+  assert.throws(() => toExecArgv(123), /command/)
 })

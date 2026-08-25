@@ -15,7 +15,7 @@ import { provisionSa, teardownSa, sweepStaleTierBindings } from './sa-provision.
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
-import { runBoundedCollect } from './exec-bounds.mjs'
+import { runBoundedCollect, toExecArgv } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
@@ -801,13 +801,16 @@ async function handleExec(ws, session, url) {
 }
 
 // 一次性 exec（tty=true，捕获 stdout/stderr）：用于文件浏览（ls / cat / 写入）与 AI 工具（exec_pod 等）。
-// command 以数组传入（exec 直接执行，不经 shell，无需转义路径）。
+// command 以数组传入（exec 直接执行，不经 shell，无需转义路径）；字符串兼容——归一成 ['sh','-c',cmd]
+// （2026-08-25 bug:字符串经 client-node querystring 编码成单个 command= 参数，kubelet 收到单元素
+// argv 整串被当二进制名 → 必败；AI 工具曾全部踩中，人用路径一直数组所以无恙）。
 // bounds={timeoutMs,maxBytes}（审计 P1a,2026-08-14）：AI 路径传——超时主动断连（防 tail -f 挂死
 // MCP 调用）+ 流式字节上限（防 cat 大文件先吃满内存）；交互/浏览路径不传 → 无界（行为同旧版）。
 async function execCapture(session, namespace, pod, container, command, raw = false, bounds = null) {
   const { KubeConfig, Exec } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
   const exec = new Exec(kc)
+  const argv = toExecArgv(command) // 兜底防线:字符串调用方一律 shell 语义包装,防再犯
   const stdin = new PassThrough() // 不立即 end：过早 EOF 会让本集群 kubelet 在命令执行前关闭 exec 会话
   let exitStatus = null   // 命令退出状态(client-node status 回调,execCapture 不抛于非零退出)
   let collected
@@ -817,7 +820,7 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
     collected = await runBoundedCollect({
       timeoutMs: bounds?.timeoutMs || 0,
       maxBytes: bounds?.maxBytes || 0,
-      openConn: (stdoutSink, stderrSink) => exec.exec(namespace, pod, container, command, stdoutSink, stderrSink, stdin, true, status => { exitStatus = status }),
+      openConn: (stdoutSink, stderrSink) => exec.exec(namespace, pod, container, argv, stdoutSink, stderrSink, stdin, true, status => { exitStatus = status }),
     })
   } catch (e) {
     const raw = e?.message || String(e)
@@ -1239,8 +1242,9 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error('项目绑定的集群不存在')
           if (!args.pod) throw new Error('缺 pod')
           const p = safePodPath(args.path)
-          // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差)
-          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', `cat -- ${p}`, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
+          // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', ['cat', '--', p], false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {
@@ -1404,7 +1408,7 @@ async function handle(req, res) {
           if (!args.pod) throw new Error('缺 pod')
           const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
           if (!command.trim()) throw new Error('缺 command')
-          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', command, false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return {
             pod: args.pod, container: args.container || '', exitCode: r.status ?? null,
             stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
