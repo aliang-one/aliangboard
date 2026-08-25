@@ -253,6 +253,36 @@
       "optionalSuffix": "（可选）",
       "serviceEmptyHint": "当前命名空间暂无工作负载暴露容器端口，可直接输入"
     },
+    "createConfigModal": {
+      "fUsername": "用户名",
+      "fPassword": "密码",
+      "fRegistry": "Registry 地址",
+      "fRegistryUser": "用户名",
+      "fRegistryPassword": "密码",
+      "fRegistryEmail": "邮箱",
+      "fTlsCrt": "证书 (tls.crt)",
+      "fTlsKey": "私钥 (tls.key)",
+      "fSshKey": "SSH 私钥",
+      "titleConfigMap": "创建 ConfigMap",
+      "titleSecret": "创建 Secret",
+      "tabData": "数据",
+      "tabAnnotations": "注解",
+      "tabLabels": "标签",
+      "tabYaml": "YAML",
+      "nameLabel": "名称",
+      "typeLabel": "类型",
+      "invalidName": "名称需符合 K8s 规则：小写字母数字与 - .",
+      "duplicateKey": "键重复",
+      "invalidDataKey": "数据键名只能包含字母数字与 - . _",
+      "base64Hint": "值将以 base64 编码存储",
+      "emptyKeys": "还没有数据键,点左侧添加",
+      "addKey": "添加键",
+      "switchToYamlEdit": "切换为纯 YAML 编辑",
+      "backToForm": "返回表单",
+      "yamlKindError": "YAML 解析失败或 kind 不符",
+      "yamlParseError": "YAML 解析失败",
+      "discardConfirm": "返回表单将丢弃 YAML 手动修改,继续?"
+    },
     "copyWorkload": {
       "title": "复制工作负载",
       "sourceNamespace": "源命名空间",
@@ -356,6 +386,18 @@
       "unknownKind": "未知",
       "noAttributes": "暂无属性",
       "justNow": "刚刚"
+    },
+    "kvRows": {
+      "add": "添加一行"
+    },
+    "dataKeysEditor": {
+      "addKey": "添加键",
+      "keysCount": "{n} 个键",
+      "noKeys": "暂无键",
+      "untitled": "（未命名）",
+      "lineCount": "{n} 行",
+      "emptyHint": "暂无数据键。点击左栏「添加键」开始。",
+      "toggleMask": "显示/隐藏值"
     }
   },
   "ingressController": {

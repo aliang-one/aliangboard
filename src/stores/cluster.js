@@ -1272,6 +1272,13 @@ ${dataEntries || '  {}'}`
 
     if (type === 'secret') {
       // 展示为 stringData（明文）以便直接编辑；回写时由 applyResourceYaml 重新 base64 编码
+      const fmtMap = obj => obj && Object.keys(obj).length
+        ? Object.entries(obj).map(([k, v]) => `    ${k}: ${scalar(v)}`).join('\n')
+        : ''
+      const metaExtra = [
+        fmtMap(resource.labels) && '  labels:\n' + fmtMap(resource.labels),
+        fmtMap(resource.annotations) && '  annotations:\n' + fmtMap(resource.annotations),
+      ].filter(Boolean).join('\n')
       const dataEntries = resource.data
         ? Object.entries(resource.data).map(([k, v]) => `  ${k}: ${scalar(decodeBase64(v))}`).join('\n')
         : ''
@@ -1279,7 +1286,7 @@ ${dataEntries || '  {}'}`
 kind: Secret
 metadata:
   name: ${yamlQ(name)}
-  namespace: ${yamlQ(ns)}
+  namespace: ${yamlQ(ns)}${metaExtra ? '\n' + metaExtra : ''}
 type: ${resource.type || 'Opaque'}
 stringData:
 ${dataEntries || '  {}'}`

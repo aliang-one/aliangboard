@@ -253,6 +253,36 @@
       "optionalSuffix": " (optional)",
       "serviceEmptyHint": "No workload in this namespace exposes container ports; you can type directly"
     },
+    "createConfigModal": {
+      "fUsername": "Username",
+      "fPassword": "Password",
+      "fRegistry": "Registry",
+      "fRegistryUser": "Username",
+      "fRegistryPassword": "Password",
+      "fRegistryEmail": "Email",
+      "fTlsCrt": "Certificate (tls.crt)",
+      "fTlsKey": "Private key (tls.key)",
+      "fSshKey": "SSH private key",
+      "titleConfigMap": "Create ConfigMap",
+      "titleSecret": "Create Secret",
+      "tabData": "Data",
+      "tabAnnotations": "Annotations",
+      "tabLabels": "Labels",
+      "tabYaml": "YAML",
+      "nameLabel": "Name",
+      "typeLabel": "Type",
+      "invalidName": "Name must be a valid K8s name: lowercase alphanumerics with - .",
+      "duplicateKey": "Duplicate key",
+      "invalidDataKey": "Data keys may only contain alphanumerics with - . _",
+      "base64Hint": "Values will be stored base64-encoded",
+      "emptyKeys": "No data keys yet — add one on the left",
+      "addKey": "Add Key",
+      "switchToYamlEdit": "Switch to raw YAML editing",
+      "backToForm": "Back to form",
+      "yamlKindError": "Invalid YAML or wrong kind",
+      "yamlParseError": "YAML parse error",
+      "discardConfirm": "Return to form and discard manual YAML edits?"
+    },
     "copyWorkload": {
       "title": "Copy Workload",
       "sourceNamespace": "Source namespace",
@@ -356,6 +386,18 @@
       "unknownKind": "Unknown",
       "noAttributes": "No attributes",
       "justNow": "just now"
+    },
+    "kvRows": {
+      "add": "Add row"
+    },
+    "dataKeysEditor": {
+      "addKey": "Add Key",
+      "keysCount": "{n} keys",
+      "noKeys": "No keys yet",
+      "untitled": "(untitled)",
+      "lineCount": "{n} lines",
+      "emptyHint": "No data keys yet. Click \"Add Key\" in the left panel to start.",
+      "toggleMask": "Show/hide value"
     }
   },
   "ingressController": {
