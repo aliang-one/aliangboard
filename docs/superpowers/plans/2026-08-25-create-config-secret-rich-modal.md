@@ -294,7 +294,7 @@ test('添加行并输入 → v-model 同步', async () => {
 })
 
 test('删除行 → 同步移除；初始行渲染', async () => {
-  const w = mountRows({ modelValue: [{ key: 'a', value '1' }, { key: 'b', value: '2' }] })
+  const w = mountRows({ modelValue: [{ key: 'a', value: '1' }, { key: 'b', value: '2' }] })
   await w.findAll('[data-testid="kv-del"]')[0].trigger('click')
   expect(w.emitted('update:modelValue')[0][0]).toEqual([{ key: 'b', value: '2' }])
 })
