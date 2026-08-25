@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { renderMarkdown } from '@/logic/markdown'
 import ToolTrace from './ToolTrace.vue'
 import ToolTimeline from './ToolTimeline.vue'
+import ToolRow from './ToolRow.vue'
 import ResourceCard from '@/components/common/ResourceCard.vue'
 
 const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false } })
@@ -44,6 +45,24 @@ const HIGHLIGHT_INTERVAL = 600 // thinking 期重高亮间隔
 const rendered = ref('')
 let lastRender = 0, lastHighlight = 0, renderTimer = null, highlightTimer = null
 const isStreaming = computed(() => props.turn.status === 'thinking')
+
+// ── 交错渲染(2026-08-25):trace 含 assistant 文本事件 → 文本↔工具按发生顺序交错;
+// 存量 trace(无 assistant 事件)回退旧布局(chips + 时间线 + 终答)。
+const hasInterleave = computed(() => (props.turn.trace || []).some(e => e && e.type === 'assistant'))
+// 防御:交错模式下 trace 无任何非空文本而 content 非空(数据不完整)→ 整体回退旧布局
+const interleaveUsable = computed(() => {
+  if (!hasInterleave.value) return false
+  const texts = (props.turn.trace || []).filter(e => e && e.type === 'assistant' && e.content)
+  return texts.length > 0 || !props.turn.content
+})
+const blocks = computed(() => {
+  if (!interleaveUsable.value) return []
+  return (props.turn.trace || [])
+    .map(e => e && e.type === 'assistant'
+      ? ((e.content ?? e.message?.content) ? { kind: 'text', content: e.content ?? e.message?.content } : null)
+      : { kind: 'tool', event: e })
+    .filter(Boolean)
+})
 
 function doRender(final) {
   lastRender = Date.now()
@@ -191,8 +210,20 @@ function onRootClick(e) {
     <!-- AGENT -->
     <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
-      <!-- 轮内时间线:工具按发生顺序内联展示(调用发生处),点击行进详情 Modal;顶部 chips 保留作总览 -->
-      <ToolTimeline v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
+
+      <!-- 交错流:文本↔工具行按发生顺序(中间文本+终答都在块序列里);thinking 时当前轮流式文本为末段 -->
+      <div v-if="interleaveUsable" data-testid="interleaved-flow" class="flex flex-col gap-sm">
+        <template v-for="(b, i) in blocks" :key="i">
+          <p v-if="b.kind === 'text'" class="text-body-sm whitespace-pre-wrap break-words leading-relaxed text-on-surface">{{ b.content }}</p>
+          <ToolRow v-else :event="b.event" />
+        </template>
+        <div v-if="isStreaming && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">
+          <span v-html="rendered"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>
+        </div>
+      </div>
+
+      <!-- 回退布局(存量 trace 无 assistant 文本):时间线 + 终答分列 -->
+      <ToolTimeline v-else-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
       <!-- 思考过程(reasoning_content,深思考模型):流式时展开实时滚动,终答后自动收起可回看 -->
       <details v-if="turn.reasoning" :open="isStreaming" class="group/reasoning bg-surface-container-low/60 border border-outline-variant/50 rounded-lg">
@@ -204,8 +235,8 @@ function onRootClick(e) {
         <div class="px-sm pb-sm max-h-64 overflow-y-auto text-body-xs text-on-surface-variant whitespace-pre-wrap break-words leading-relaxed border-t border-outline-variant/40 pt-xs">{{ turn.reasoning }}</div>
       </details>
 
-      <!-- thinking:①已收到流式文本 → 实时渲染增量(带光标,节流);②尚无文本也无工具 → 跳动 thinking 提示 -->
-      <div v-if="turn.status === 'thinking' && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">
+      <!-- thinking(回退布局;交错模式的流式末段在上方交错流内):①已收到流式文本 → 实时渲染;②跳动提示 -->
+      <div v-if="!interleaveUsable && turn.status === 'thinking' && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">
         <span v-html="rendered"></span><span class="inline-block w-1.5 h-4 align-text-bottom bg-primary/70 animate-pulse ml-0.5"></span>
       </div>
       <div v-else-if="turn.status === 'thinking'" class="flex items-center gap-sm">
@@ -233,8 +264,8 @@ function onRootClick(e) {
         <span class="text-body-sm text-error whitespace-pre-wrap break-words">{{ turn.error }}</span>
       </div>
 
-      <!-- done: markdown(终帧,已含节流管线) -->
-      <div v-else-if="turn.status === 'done'" class="text-body-sm text-on-surface leading-relaxed prose-chat" v-html="rendered"></div>
+      <!-- done(回退布局;交错模式终答已在块序列里,防重复):markdown 终帧 -->
+      <div v-else-if="!interleaveUsable && turn.status === 'done'" class="text-body-sm text-on-surface leading-relaxed prose-chat" v-html="rendered"></div>
     </div>
   </div>
 </template>

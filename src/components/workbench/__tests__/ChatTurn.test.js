@@ -72,3 +72,55 @@ test('agent 轮:chips 总览与时间线并存,时间线行可开详情 Modal', 
   expect(document.querySelector('[data-testid="tc-args"]')?.textContent).toContain('"pod": "p1"')
   expect(document.querySelector('[data-testid="tc-result"]')?.textContent).toContain('log-line-1')
 })
+
+// ── 交错渲染(2026-08-25):trace 含 assistant 文本 → 文本↔工具行按发生顺序;终答不重复;存量回退 ──
+test('交错模式:文本↔工具行按发生顺序交错渲染,终答(末文本块)不与 content 重复', () => {
+  const turn = { _id: 9, role: 'assistant', status: 'done', content: '最终结论', reasoning: '', steps: 2,
+    trace: [
+      { type: 'assistant', content: '我先看下日志。', ts: 1 },
+      { type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: 'FATAL line' }, ts: 2 },
+      { type: 'assistant', content: '密码认证失败,进容器确认。', ts: 3 },
+      { type: 'tool', name: 'wb_exec', args: {}, result: { stdout: 'bin etc' }, ts: 4 },
+      { type: 'assistant', content: '最终结论', ts: 5 },
+    ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [i18n] } })
+  const flow = w.find('[data-testid="interleaved-flow"]')
+  expect(flow.exists()).toBe(true)
+  const html = flow.html()
+  // 交错顺序:文本A → 工具行 → 文本B → 工具行 → 终答
+  const iA = html.indexOf('我先看下日志。')
+  const iTool1 = html.indexOf('wb_get_pod_logs')
+  const iB = html.indexOf('密码认证失败,进容器确认。')
+  const iTool2 = html.indexOf('wb_exec')
+  const iFinal = html.indexOf('最终结论')
+  expect([iA, iTool1, iB, iTool2, iFinal].every(i => i >= 0)).toBe(true)
+  expect(iA).toBeLessThan(iTool1)
+  expect(iTool1).toBeLessThan(iB)
+  expect(iB).toBeLessThan(iTool2)
+  expect(iTool2).toBeLessThan(iFinal)
+  // 终答只出现一次(交错块内),旧 done 渲染通道让位
+  expect(html.match(/最终结论/g)?.length).toBe(1)
+  // 回退布局的时间线不在
+  expect(w.find('[data-testid="tool-timeline"]').exists()).toBe(false)
+})
+
+test('交错模式:thinking 态当前轮流式文本作为流末段渲染', () => {
+  const turn = { _id: 10, role: 'assistant', status: 'thinking', content: '正在生成的回答…', reasoning: '', steps: 1,
+    trace: [
+      { type: 'assistant', content: '先看日志。', ts: 1 },
+      { type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: 'L1' }, ts: 2 },
+    ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [i18n] } })
+  const flow = w.find('[data-testid="interleaved-flow"]')
+  expect(flow.text()).toContain('先看日志。')
+  expect(flow.text()).toContain('正在生成的回答…')
+})
+
+test('存量回退:trace 无 assistant 事件 → 时间线布局,终答走原通道', () => {
+  const turn = { _id: 11, role: 'assistant', status: 'done', content: '终答', reasoning: '', steps: 1,
+    trace: [{ type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: 'L' }, ts: 1 }] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [i18n] } })
+  expect(w.find('[data-testid="interleaved-flow"]').exists()).toBe(false)
+  expect(w.find('[data-testid="tool-timeline"]').exists()).toBe(true)
+  expect(w.text()).toContain('终答')
+})
