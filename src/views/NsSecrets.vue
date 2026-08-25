@@ -105,6 +105,7 @@ function resetCreate() {
     tlsCrt: '', tlsKey: '',
     sshKey: '',
   }
+  createTab.value = 'form'
 }
 function addCreateKey() {
   createForm.value.keys.push({ key: '', value: '' })

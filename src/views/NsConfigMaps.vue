@@ -50,10 +50,15 @@ const showCreateModal = ref(false)
 const createForm = ref({ name: '', keys: [{ key: '', value: '' }] })
 const createTab = ref('form')  // 'form' | 'yaml'
 
-const createYaml = computed(() => {
-  const f = createForm.value
+function createConfigMapData(f) {
   const data = {}
   f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  return data
+}
+
+const createYaml = computed(() => {
+  const f = createForm.value
+  const data = createConfigMapData(f)
   const lines = ['apiVersion: v1', 'kind: ConfigMap', 'metadata:', `  name: ${f.name || 'my-cm'}`, `  namespace: ${route.params.namespace}`, 'data:']
   Object.entries(data).forEach(([k, v]) => lines.push(`  ${k}: ${yamlScalar(v)}`))
   return lines.join('\n')
@@ -61,6 +66,7 @@ const createYaml = computed(() => {
 
 function resetCreate() {
   createForm.value = { name: '', keys: [{ key: '', value: '' }] }
+  createTab.value = 'form'
 }
 
 function addCreateKey() {
@@ -72,8 +78,7 @@ function removeCreateKey(idx) {
 
 async function handleCreate() {
   const f = createForm.value
-  const data = {}
-  f.keys.forEach(k => { if (k.key) data[k.key] = k.value })
+  const data = createConfigMapData(f)
   const r = await store.addConfigMap({
     name: f.name,
     namespace: route.params.namespace,

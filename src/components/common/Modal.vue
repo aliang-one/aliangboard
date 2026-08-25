@@ -38,7 +38,7 @@ function confirm() {
         <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="close"></div>
         <!-- Dialog -->
         <div :class="fullscreen
-            ? 'w-screen h-screen max-w-none rounded-none flex flex-col'
+            ? 'w-full h-full max-w-none rounded-none flex flex-col'
             : [width, 'max-h-[90vh] overflow-y-auto p-lg rounded-xl']"
           class="relative w-full bg-surface-container-lowest border border-outline-variant shadow-dropdown z-10 animate-slide-up">
           <div v-if="title" class="flex justify-between items-center" :class="fullscreen ? 'shrink-0 px-lg py-md border-b border-outline-variant' : 'mb-lg'">

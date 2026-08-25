@@ -40,8 +40,8 @@ test('Modal: fullscreen 态铺满视口+分区滚动;非 fullscreen 原布局不
   })
   const overlay = document.querySelector('body div.fixed.inset-0')
   const dialog = overlay.querySelector('div.relative')
-  expect(dialog.className).toContain('w-screen')
-  expect(dialog.className).toContain('h-screen')
+  expect(dialog.className).toContain('w-full')
+  expect(dialog.className).toContain('h-full')
   expect(dialog.className).toContain('rounded-none')
   expect(dialog.querySelector('div.flex-1.overflow-y-auto')).toBeTruthy()  // 内容区独立滚动
   w.unmount()
