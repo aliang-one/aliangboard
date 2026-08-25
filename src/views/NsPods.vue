@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { exportYaml, api } from '@/api/client'
-import { summarizeResults } from '@/utils/batchDelete'
+import { usePodBatchDelete } from '@/composables/usePodBatchDelete'
 import { notify } from '@/composables/useToast'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import PodCard from '@/components/common/PodCard.vue'
@@ -85,50 +85,16 @@ async function handleDelete() {
   }
 }
 
-// === 批量删除（卡片选择模式；选中集跨分页/筛选保留） ===
-const batchMode = ref(false)
-const selectedNames = ref(new Set())
-const showBatchModal = ref(false)
-function toggleSelect(name) {
-  const s = selectedNames.value
-  if (s.has(name)) s.delete(name)
-  else s.add(name)
-}
-function enterBatch() { batchMode.value = true }
-function exitBatch() { batchMode.value = false; selectedNames.value = new Set() }
-function selectAllFiltered() {
-  selectedNames.value = new Set(filtered.value.map(p => p.name))
-}
-function clearSelection() { selectedNames.value = new Set() }
-// 删除目标 = 当前列表中仍存在的选中项（选中后列表刷新/被删的自动失效）
-const batchTargets = computed(() => nsPods.value.filter(p => selectedNames.value.has(p.name)))
-const batchNamesPreview = computed(() => {
-  const names = batchTargets.value.map(p => p.name)
-  const head = names.slice(0, 10).join(', ')
-  return names.length > 10 ? `${head} ${t('ns.pods.batchMoreNames', { n: names.length - 10 })}` : head
+// === 批量删除(卡片选择模式;逻辑在 usePodBatchDelete,选中集跨分页/筛选保留) ===
+const {
+  batchMode, selectedNames, showBatchModal, enterBatch, exitBatch,
+  selectAllCandidates, clearSelection, batchTargets, batchNamesPreview, onCardClick, handleBatchDelete,
+} = usePodBatchDelete({
+  universe: nsPods,
+  candidates: filtered,
+  getNamespace: () => route.params.namespace,
+  onOpen: p => router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } }),
 })
-function onCardClick(p) {
-  if (batchMode.value) { toggleSelect(p.name); return }
-  router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })
-}
-async function handleBatchDelete() {
-  const targets = batchTargets.value
-  if (!targets.length) return
-  const results = await Promise.allSettled(targets.map(p => store.deletePod(p.name, route.params.namespace)))
-  const { okNames, failedNames } = summarizeResults(results, targets)
-  if (!failedNames.length) {
-    notify('success', t('ns.pods.batchDeleted', { n: okNames.length }))
-    showBatchModal.value = false
-    exitBatch()
-  } else {
-    // 部分失败：保留失败项选中便于重试；不退出批量模式
-    notify('error', t('ns.pods.batchPartial', { ok: okNames.length, fail: failedNames.length, names: failedNames.length > 5
-      ? `${failedNames.slice(0, 5).join(', ')} ${t('ns.pods.batchMoreNames', { n: failedNames.length - 5 })}`
-      : failedNames.join(', ') }))
-    selectedNames.value = new Set(failedNames)
-    showBatchModal.value = false
-  }
-}
 
 // 创建 Pod（真实 API：POST 最小 Pod manifest + invalidate；P2-B 前 store.addPod 纯本地 push → 静默无效）
 const showCreateModal = ref(false)
@@ -215,7 +181,7 @@ async function handleCreate() {
       <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.results', { n: filtered.length }) }}</span>
       <template v-if="batchMode">
         <span class="text-body-sm font-semibold text-primary">{{ t('ns.pods.batchSelected', { n: batchTargets.length }) }}</span>
-        <button @click="selectAllFiltered" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchSelectAll') }}</button>
+        <button @click="selectAllCandidates" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchSelectAll') }}</button>
         <button @click="clearSelection" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchClear') }}</button>
         <button @click="showBatchModal = true" :disabled="!batchTargets.length"
           class="flex items-center gap-xs px-sm py-xs text-body-sm font-semibold bg-error text-on-error rounded-lg hover:opacity-90 disabled:opacity-40">
