@@ -128,7 +128,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 按需拉取单个工作负载并 upsert 进 workloads Query 缓存。
   // Job/CronJob 不在 fetchWorkloads 批量列表里（deployments/sts/ds）；从 Pod 详情跳转或直接链接进入
   // NsWorkloadDetail 时由 ensureWorkload 调此补齐——P2-B 前写孤儿 workloadList（无读者）→ 详情恒空白。
-  // 缓存里已有同名条目时跳过：批量列表带 attachRolloutHistory 的 revisions，单体 upsert 会覆盖丢失。
+  // 缓存里已有同名条目时跳过：避免单体 upsert 覆盖批量列表条目（历史 attachRolloutHistory 时代防 revisions 丢失;现仅防字段面回退）。
   async function fetchWorkload(type, name, ns) {
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
     if (!plural) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
@@ -641,11 +641,13 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 一键回滚到指定 revision（kubectl rollout undo --to-revision=N 语义）
   // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 workloadNotFound。
-  // revisions 来自缓存的工作负载对象（mapWorkload 从 ReplicaSets 填充），target._template 携带完整模板。
+  // 改源:revisions 不再读列表缓存对象(fetchWorkloads 已瘦身),按需 fetchWorkloadRevisions,
+  // target._template 携带完整模板,兜底走镜像 PATCH。
   async function rollbackWorkload(name, ns, revNumber) {
     const wl = await getWorkloadForEdit(name, ns)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
-    const target = (wl.revisions || []).find(r => r.rev === revNumber)
+    const revs = await fetchWorkloadRevisions(wl.type, name, ns)
+    const target = (revs || []).find(r => r.rev === revNumber)
     if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev: revNumber }))
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
     if (plural) {
@@ -660,6 +662,7 @@ export const useClusterStore = defineStore('cluster', () => {
       })
     }
     invalidateResource('workloads')
+    queryClient.invalidateQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === 'revisions' })
   }
 
   async function deletePod(name, ns) {

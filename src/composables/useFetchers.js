@@ -50,31 +50,24 @@ export async function fetchWorkloadRevisions(type, name, ns) {
   return buildRevisions(deploy, owned)
 }
 
-// 还原 Deployment 的滚动发布历史：每个 ReplicaSet 携带 deployment.kubernetes.io/revision 注解，
-// 其 pod template 即该 revision 的镜像/配置；当前 revision 取 Deployment 自身注解。
-// _template 保留完整模板，供 rollbackWorkload 执行真正的 rollout undo PATCH。
-function attachRolloutHistory(workloads, deploymentData, replicaSetData) {
-  const rsByDeploy = new Map()
-  for (const rs of (replicaSetData?.items || [])) {
-    const owner = (rs.metadata?.ownerReferences || []).find(o => o.kind === 'Deployment' && o.controller)
-    if (!owner) continue
-    const key = `${rs.metadata.namespace}/${owner.name}`
-    if (!rsByDeploy.has(key)) rsByDeploy.set(key, [])
-    rsByDeploy.get(key).push(rs)
-  }
-  const findDeploy = (name, ns) => (deploymentData?.items || []).find(d => d.metadata?.name === name && d.metadata?.namespace === ns)
-  for (const wl of workloads) {
-    if (wl.type !== 'Deployment') {
-      // StatefulSet/DaemonSet 历史走 ControllerRevision（暂未接入），仅展示当前版本
-      wl.revisions = [{ rev: 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
-      continue
-    }
-    const deploy = findDeploy(wl.name, wl.namespace)
-    const rss = rsByDeploy.get(`${wl.namespace}/${wl.name}`) || []
-    wl.revisions = buildRevisions(deploy, rss)
-  }
+// 工作负载列表(deploy+sts+ds 三类合一)。瘦身:不再拉 replicasets/回滚历史——
+// 历史仅 NsWorkloadDetail 回滚页需要,走 fetchWorkloadRevisions 按需拉(spec §5.2 第一刀)。
+export async function fetchWorkloads() {
+  const [dep, sts, ds] = await Promise.all([
+    api.k8s('/apis/apps/v1/deployments?limit=1000'),
+    api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
+    api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
+  ])
+  // watch RV 登记簿写入:三类各登记自己的 list RV,供 7 流 watch 重连续接(拆分前先加,Task 5 再瘦身)
+  recordListRv('/apis/apps/v1/deployments', dep?.metadata?.resourceVersion)
+  recordListRv('/apis/apps/v1/statefulsets', sts?.metadata?.resourceVersion)
+  recordListRv('/apis/apps/v1/daemonsets', ds?.metadata?.resourceVersion)
+  return [
+    ...((dep?.items || []).map(i => mapWorkload(i, 'Deployment'))),
+    ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
+    ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
+  ]
 }
-
 
 export async function fetchNodes() {
   const [nodeData, metricsData] = await Promise.all([
@@ -120,26 +113,6 @@ export async function fetchResourceQuota(name, ns) { const d = await api.k8s(`/a
 export async function fetchHPAs() { const d = await api.k8s('/apis/autoscaling/v2/horizontalpodautoscalers?limit=5000'); return (d?.items || []).map(mapHPA) }
 export async function fetchHPA(name, ns) { const d = await api.k8s(`/apis/autoscaling/v2/namespaces/${encodeURIComponent(ns)}/horizontalpodautoscalers/${encodeURIComponent(name)}`); return d ? mapHPA(d) : null }
 export async function fetchEndpoints() { const d = await api.k8s('/api/v1/endpoints?limit=5000'); return (d?.items || []).map(mapEndpoints) }
-// 工作负载列表（deploy+sts+ds 三类合一 + replicasets 用于回滚历史；remote 模式不含 job/cronjob，按需在详情页补）
-export async function fetchWorkloads() {
-  const [dep, sts, ds, rs] = await Promise.all([
-    api.k8s('/apis/apps/v1/deployments?limit=1000'),
-    api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
-    api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
-    api.k8s('/apis/apps/v1/replicasets?limit=5000'),
-  ])
-  const list = [
-    ...((dep?.items || []).map(i => mapWorkload(i, 'Deployment'))),
-    ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
-    ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
-  ]
-  // watch RV 登记簿写入:三类各登记自己的 list RV,供 7 流 watch 重连续接(拆分前先加,Task 5 再瘦身)
-  recordListRv('/apis/apps/v1/deployments', dep?.metadata?.resourceVersion)
-  recordListRv('/apis/apps/v1/statefulsets', sts?.metadata?.resourceVersion)
-  recordListRv('/apis/apps/v1/daemonsets', ds?.metadata?.resourceVersion)
-  attachRolloutHistory(list, dep, rs)
-  return list
-}
 export async function fetchPVCs() { const d = await api.k8s('/api/v1/persistentvolumeclaims?limit=5000'); return (d?.items || []).map(mapPVC) }
 export async function fetchPVs() { const d = await api.k8s('/api/v1/persistentvolumes'); return (d?.items || []).map(mapPV) }
 export async function fetchPV(name) { const d = await api.k8s(`/api/v1/persistentvolumes/${encodeURIComponent(name)}`); return d ? mapPV(d) : null }

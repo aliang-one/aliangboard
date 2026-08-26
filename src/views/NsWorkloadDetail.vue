@@ -3,7 +3,8 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceList } from '@/composables/useK8sQuery'
+import { useResourceList, useResourceDetail } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 import { usePodBatchDelete } from '@/composables/usePodBatchDelete'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
@@ -278,7 +279,15 @@ const replicasLabel = computed(() => {
 })
 const isCronJob = computed(() => workload.value?.type === 'CronJob')
 const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
-const revisions = computed(() => workload.value?.revisions || [])
+// 发布历史独立 query:列表已瘦身(fetchWorkloads 不再携带 revisions),按需拉(spec §5.2 第一刀)
+const TYPE_MAP = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet' }
+const queryClient = useQueryClient()
+const revisionsQuery = useResourceDetail({
+  key: ['cluster', cid, 'revisions', route.params.namespace, route.params.name],
+  fetcher: () => store.fetchWorkloadRevisions(TYPE_MAP[String(route.params.type).toLowerCase()] || workload.value?.type || 'Deployment', route.params.name, route.params.namespace),
+  options: { enabled: () => isRolloutType.value },
+})
+const revisions = computed(() => revisionsQuery.data.value || [])
 
 // 副本/滚动状态：从 Deployment/StatefulSet/DaemonSet 的 status 推导健康等级 + 新旧版本进度
 // level: healthy(绿) / updating(蓝) / warning(黄) / failed(红)，对应 status-* 设计令牌
@@ -335,6 +344,7 @@ async function handleRollback() {
   if (rollbackTarget.value == null) return
   try {
     await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
+    revisionsQuery.refetch()
     showRollbackModal.value = false
     rollbackTarget.value = null
     refreshSoon()
@@ -380,7 +390,7 @@ async function handleDeleteRev() {
   try {
     await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
     notify('success', t('workload.notify.deletedRev', { rev: rev.rev, rsName: rev.rsName }))
-    if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
+    queryClient.setQueryData(['cluster', cid.value, 'revisions', route.params.namespace, route.params.name], (old = []) => old.filter(r => r.rev !== rev.rev))
     if (expandedRev.value === rev.rev) expandedRev.value = null
   } catch (e) { notify('error', e.message || t('workload.notify.deleteFailed')) }
   showDeleteRevModal.value = false; deleteRevTarget.value = null
