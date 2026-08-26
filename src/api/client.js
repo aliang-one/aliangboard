@@ -364,16 +364,15 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
   }
 }
 
-// 流式读取 K8s 长连接（watch=true / log follow=true）：Gateway 已对这两类请求改为 pipe 透传。
-// 按行回调 onMessage（watch 为换行分隔 JSON，log 为换行分隔文本）；返回 { abort } 供调用方停止。
-// 认证 header 复用 k8sHttp.authHeaders()，错误体解析复用 parseBody（与 request 同源）。
-export function k8sStream(path, { onMessage, onError, onClose, onOpen } = {}) {
+// 共享内部:NDJSON 逐行读流(读循环/abort/认证/错误语义单一来源,k8sStream/k8sChannel 共用)。
+// url 为完整请求地址;按行回调 onMessage;返回 { abort } 供调用方停止。
+function ndjsonStream(url, { onMessage, onError, onClose, onOpen } = {}) {
   const controller = new AbortController()
   let reader = null
   let aborted = false
   ;(async () => {
     try {
-      const response = await fetch(`${k8sHttp.baseUrl}/api/k8s${path}`, { headers: k8sHttp.authHeaders(), signal: controller.signal })
+      const response = await fetch(url, { headers: k8sHttp.authHeaders(), signal: controller.signal })
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         const body = parseBody(text)
@@ -409,4 +408,17 @@ export function k8sStream(path, { onMessage, onError, onClose, onOpen } = {}) {
       try { reader?.cancel?.().catch(() => {}) } catch { /* noop */ }
     },
   }
+}
+
+// 流式读取 K8s 长连接（watch=true / log follow=true）：Gateway 已对这两类请求改为 pipe 透传。
+// 按行回调 onMessage（watch 为换行分隔 JSON，log 为换行分隔文本）；返回 { abort } 供调用方停止。
+// 认证 header 复用 k8sHttp.authHeaders()，错误体解析复用 parseBody（与 request 同源）。
+export function k8sStream(path, handlers = {}) {
+  return ndjsonStream(`${k8sHttp.baseUrl}/api/k8s${path}`, handlers)
+}
+
+// 网关根路径 NDJSON 通道(不带 /api/k8s 前缀):k8s-watch 多路复用等网关自有端点用。
+// 读循环/abort/认证与 k8sStream 完全同源(ndjsonStream),错误语义一致(err.status 附着)。
+export function k8sChannel(path, handlers = {}) {
+  return ndjsonStream(`${k8sHttp.baseUrl}${path}`, handlers)
 }
