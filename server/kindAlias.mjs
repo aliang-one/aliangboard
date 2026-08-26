@@ -1,12 +1,10 @@
 // kind 归一化单一事实源:LLM 常传 K8s Kind 自然名(Service/Pod)或 kubectl 缩写(svc/po),
 // 而各分发表只收小写复数——曾致「不支持的 kind: service」(2026-08-26 wb_get_resource 报障)。
 // 全部 kind 分发点(WB list/get、api-key list/get、@-mention 搜索)统一经此归一。
-export const CANONICAL_KINDS = [
-  'pods', 'services', 'configmaps', 'secrets', 'namespaces',
-  'deployments', 'statefulsets', 'daemonsets', 'ingresses',
-  'nodes', 'persistentvolumes', 'persistentvolumeclaims', 'storageclasses',
-  'networkpolicies', 'serviceaccounts',
-]
+// 词表本体(CANONICAL_KINDS)由 kind-paths.mjs 的 KIND_API keys 派生——加 kind 只改那张表。
+import { KIND_API } from './kind-paths.mjs'
+
+export const CANONICAL_KINDS = Object.keys(KIND_API)
 
 const ALIAS = {}
 for (const k of CANONICAL_KINDS) {
@@ -25,6 +23,9 @@ Object.assign(ALIAS, {
   deploy: 'deployments', sts: 'statefulsets', ds: 'daemonsets', ing: 'ingresses',
   no: 'nodes', pv: 'persistentvolumes', pvc: 'persistentvolumeclaims',
   sc: 'storageclasses', netpol: 'networkpolicies', sa: 'serviceaccounts',
+  // 2026-08-26 扩充 kind 的缩写
+  cj: 'cronjobs', ep: 'endpoints', rs: 'replicasets', hpa: 'horizontalpodautoscalers',
+  pdb: 'poddisruptionbudgets', quota: 'resourcequotas', limits: 'limitranges',
 })
 
 // 任意输入(复数/单数/Kind 大写/缩写)→ 规范复数键;无法识别 → null

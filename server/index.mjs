@@ -24,7 +24,7 @@ import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_M
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted } from './workbench-projects.mjs'
-import { KIND_API_PATH } from './kind-paths.mjs'
+import { listApiPath, getApiPath } from './kind-paths.mjs'
 import { REFS_CTX_HEADER } from './refs-context.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
@@ -1075,7 +1075,7 @@ function listForwards(sessionId) {
   return [...forwards.values()].filter(f => f.sessionId === sessionId).map(({ server, pf, sessionId, ...rest }) => rest)
 }
 
-// ====== T5: @-ref 漂移修复——提取的 helpers(KIND_API_PATH / withTimeout / fetchRefContext / buildK8sSession)======
+// ====== T5: @-ref 漂移修复——提取的 helpers(getApiPath / withTimeout / fetchRefContext / buildK8sSession)======
 // 原 POST 端点内联;现抽取为模块级,run/resumeConversation 也用它每轮刷新 ref context。
 function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
@@ -1084,11 +1084,12 @@ function withTimeout(p, ms, label) {
 async function fetchRefContext(references, k8sSession) {
   if (!Array.isArray(references) || !references.length || !k8sSession) return ''
   const tasks = references.map(async ref => {
-    const pathFn = KIND_API_PATH[ref.kind]
     const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-    if (!pathFn) return `${label}: (不支持的 kind)`
+    // 防御性归一:ref.kind 正常恒为前端 canonical,但库里有旧数据/手改可能 → 与工具链同源归一
+    const path = getApiPath(normalizeKind(ref.kind), ref.namespace || '', ref.name)
+    if (!path) return `${label}: (不支持的 kind)`
     try {
-      const res = await withTimeout(requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name)), 5000, `ref ${ref.kind}/${ref.name}`)
+      const res = await withTimeout(requestKubernetes(k8sSession, path), 5000, `ref ${ref.kind}/${ref.name}`)
       return `${label}:\n${JSON.stringify(res.body, null, 2)}`
     } catch { return `${label}: (not found / 已删除)` }
   })
@@ -1121,24 +1122,8 @@ async function handle(req, res) {
     const ledgerRepo = join(WORKBENCH_DIR, project.clusterId, 'cluster-context')
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
-    // K8s 调查 helper:用项目绑定的集群凭据直连(不走 API key/tier),供 WB-principal 工具用
-    const WB_K8S_LIST_PATH = {
-      pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps', secrets: '/api/v1/secrets',
-      deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
-      nodes: '/api/v1/nodes', persistentvolumes: '/api/v1/persistentvolumes', persistentvolumeclaims: '/api/v1/persistentvolumeclaims',
-      storageclasses: '/apis/storage.k8s.io/v1/storageclasses', networkpolicies: '/apis/networking.k8s.io/v1/networkpolicies',
-      serviceaccounts: '/api/v1/serviceaccounts', ingresses: '/apis/networking.k8s.io/v1/ingresses', namespaces: '/api/v1/namespaces',
-    }
-    const WB_K8S_GET_PATH = {
-      pods: (ns, name) => `/api/v1/namespaces/${ns}/pods/${name}`, services: (ns, name) => `/api/v1/namespaces/${ns}/services/${name}`,
-      deployments: (ns, name) => `/apis/apps/v1/namespaces/${ns}/deployments/${name}`, statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
-      daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`, configmaps: (ns, name) => `/api/v1/namespaces/${ns}/configmaps/${name}`,
-      secrets: (ns, name) => `/api/v1/namespaces/${ns}/secrets/${name}`, nodes: (_ns, name) => `/api/v1/nodes/${name}`,
-      persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${name}`, persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`,
-      storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${name}`, networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/networkpolicies/${name}`,
-      serviceaccounts: (ns, name) => `/api/v1/namespaces/${ns}/serviceaccounts/${name}`, ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
-      namespaces: (_ns, name) => `/api/v1/namespaces/${name}`,
-    }
+    // K8s 调查 helper:用项目绑定的集群凭据直连(不走 API key/tier),供 WB-principal 工具用。
+    // kind→路径统一从 kind-paths.mjs 派生(listApiPath/getApiPath)——本函数曾持两份私有路径表,已删。
     const enc = encodeURIComponent
     const LOG_TAIL = 200, LOG_MAX = 16384
     return {
@@ -1160,8 +1145,8 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
-          const listPath = WB_K8S_LIST_PATH[k]
-          const path = namespace && namespace !== '_' ? listPath.replace('/pods', `/namespaces/${enc(namespace)}/pods`).replace('/services', `/namespaces/${enc(namespace)}/services`).replace('/deployments', `/namespaces/${enc(namespace)}/deployments`).replace('/configmaps', `/namespaces/${enc(namespace)}/configmaps`).replace('/secrets', `/namespaces/${enc(namespace)}/secrets`).replace('/statefulsets', `/namespaces/${enc(namespace)}/statefulsets`).replace('/daemonsets', `/namespaces/${enc(namespace)}/daemonsets`).replace('/persistentvolumeclaims', `/namespaces/${enc(namespace)}/persistentvolumeclaims`).replace('/networkpolicies', `/namespaces/${enc(namespace)}/networkpolicies`).replace('/serviceaccounts', `/namespaces/${enc(namespace)}/serviceaccounts`).replace('/ingresses', `/namespaces/${enc(namespace)}/ingresses`) : listPath
+          // ns-scoped kind 给 ns 收窄;集群级 kind(nodes/PV/…)或未给 ns → 集群级列表(语义同旧 replace 链)
+          const path = listApiPath(k, namespace && namespace !== '_' ? String(namespace) : '')
           const resp = await requestKubernetes(k8sSession, path)
           const items = (resp?.body?.items || []).slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
           return { kind: k, count: resp?.body?.items?.length || 0, returned: items.length, items }
@@ -1195,8 +1180,8 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
-          const getter = WB_K8S_GET_PATH[k]
-          const resResp = await requestKubernetes(k8sSession, getter(namespace, name))
+          const getter = getApiPath(k, namespace, name)
+          const resResp = await requestKubernetes(k8sSession, getter)
           const resBody = resResp?.body
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
           let events = []
@@ -1208,8 +1193,8 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
-          const getter = WB_K8S_GET_PATH[k]
-          const resp = await requestKubernetes(k8sSession, getter(namespace, name))
+          const getter = getApiPath(k, namespace, name)
+          const resp = await requestKubernetes(k8sSession, getter)
           const body = resp?.body
           if (body?.metadata?.managedFields) delete body.metadata.managedFields
           return { resource: body }
@@ -1292,7 +1277,7 @@ async function handle(req, res) {
         // === K8s 运维(scale/restart,用项目绑定集群凭据,需人审) ===
         scale: async (namespace, kind, name, replicas) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = String(kind || '').toLowerCase()
+          const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets'].includes(k)) throw new Error(msg(req, 'api.scaleUnsupported', { k }))
           const n = Math.min(Math.max(Number(replicas) | 0, 1), 20) // 钳到 1..20
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}/scale`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { replicas: n } }) })
@@ -1300,7 +1285,7 @@ async function handle(req, res) {
         },
         restart: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = String(kind || '').toLowerCase()
+          const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.restartUnsupported', { k }))
           const ts = new Date().toISOString()
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': ts } } } } }) })
@@ -1308,7 +1293,7 @@ async function handle(req, res) {
         },
         updateImage: async (namespace, kind, name, image, container) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = String(kind || '').toLowerCase()
+          const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.updateImageUnsupported', { k }))
           if (!image) throw new Error(msg(req, 'api.imageRequired'))
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`)

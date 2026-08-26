@@ -10,6 +10,7 @@ import { toExecArgv } from './exec-bounds.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
+import { listApiPath, getApiPath } from './kind-paths.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -41,33 +42,9 @@ async function getIssuer(requestFn, callCtx) {
   return issuer
 }
 
-// core 资源 kind → 路径(骨架覆盖最常用;CRD 等走 T12+ 的通用 discovery)。
-const LIST_PATH = {
-  pods: '/api/v1/namespaces/%ns%/pods',
-  services: '/api/v1/namespaces/%ns%/services',
-  configmaps: '/api/v1/namespaces/%ns%/configmaps',
-  deployments: '/apis/apps/v1/namespaces/%ns%/deployments',
-  statefulsets: '/apis/apps/v1/namespaces/%ns%/statefulsets',
-  daemonsets: '/apis/apps/v1/namespaces/%ns%/daemonsets',
-}
-const GET_PATH = {
-  pods: (ns, name) => `/api/v1/namespaces/${enc(ns)}/pods/${enc(name)}`,
-  services: (ns, name) => `/api/v1/namespaces/${enc(ns)}/services/${enc(name)}`,
-  configmaps: (ns, name) => `/api/v1/namespaces/${enc(ns)}/configmaps/${enc(name)}`,
-  deployments: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/deployments/${enc(name)}`,
-  statefulsets: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/statefulsets/${enc(name)}`,
-  daemonsets: (ns, name) => `/apis/apps/v1/namespaces/${enc(ns)}/daemonsets/${enc(name)}`,
-  // SP3 扩展:让 agent 的 get_resource/describe_resource 也支持这些 kind
-  nodes: (_ns, name) => `/api/v1/nodes/${enc(name)}`,
-  persistentvolumes: (_ns, name) => `/api/v1/persistentvolumes/${enc(name)}`,
-  persistentvolumeclaims: (ns, name) => `/api/v1/namespaces/${enc(ns)}/persistentvolumeclaims/${enc(name)}`,
-  storageclasses: (_ns, name) => `/apis/storage.k8s.io/v1/storageclasses/${enc(name)}`,
-  networkpolicies: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${enc(ns)}/networkpolicies/${enc(name)}`,
-  serviceaccounts: (ns, name) => `/api/v1/namespaces/${enc(ns)}/serviceaccounts/${enc(name)}`,
-  ingresses: (ns, name) => `/apis/networking.k8s.io/v1/namespaces/${enc(ns)}/ingresses/${enc(name)}`,
-  secrets: (ns, name) => `/api/v1/namespaces/${enc(ns)}/secrets/${enc(name)}`,
-  namespaces: (_ns, name) => `/api/v1/namespaces/${enc(name)}`,
-}
+// kind→路径统一从 kind-paths.mjs 派生(listApiPath/getApiPath,与 WB 工具/@-mention 同源)——
+// 本文件曾持 LIST_PATH(6 kind)/GET_PATH(15 kind)两份私有表,list 词表与 get 漂移过,已删(2026-08-26)。
+// 集群级 kind(nodes/clusterroles/…)在 SA 绑 ns 的 RBAC 下 list 会 403,属预期拒绝。
 const WORKLOADS = ['deployments', 'statefulsets', 'daemonsets']
 function slimPod(p) { return { name: p.metadata?.name, phase: p.status?.phase, ready: (p.status?.containerStatuses || []).map(c => ({ name: c.name, ready: c.ready })) } }
 function slimWorkload(d) { return { name: d.metadata?.name, ready: d.status?.readyReplicas || 0, desired: d.spec?.replicas || 0, updated: d.status?.updatedReplicas || 0 } }
@@ -175,12 +152,12 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           } })
       }
       const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
-      if (!kind) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${String(a.kind)}(支持:${Object.keys(LIST_PATH).join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
-      const templ = LIST_PATH[kind]
-      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${Object.keys(LIST_PATH).join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
+      if (!kind) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
+      const templ = listApiPath(kind, a.namespace)
+      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
-          const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
+          const { body } = await requestFn(saCtx, templ)
           const all = body?.items || []
           const items = all.slice(0, LIST_MAX).map(it => kind === 'pods' ? slimPod(it) : WORKLOADS.includes(kind) ? slimWorkload(it) : { name: it.metadata?.name })
           return { kind, count: all.length, returned: items.length, items }
@@ -189,11 +166,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     get_resource: async (keyRow, cluster, a, source) => {
       const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
       if (!kind) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
-      const getter = GET_PATH[kind]
+      const getter = getApiPath(kind, a.namespace, a.name)
       if (!getter) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'get_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `kind=${kind} name=${a.name}`,
         fn: async (saCtx) => {
-          const { body } = await requestFn(saCtx, getter(a.namespace, a.name))
+          const { body } = await requestFn(saCtx, getter)
           if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
           return oversizedJson(body) || { resource: body }
         } })
@@ -226,11 +203,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     describe_resource: async (keyRow, cluster, a, source) => {
       const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
       if (!kind) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
-      const getter = GET_PATH[kind]
+      const getter = getApiPath(kind, a.namespace, a.name)
       if (!getter) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'describe_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `describe ${kind}/${a.name}`,
         fn: async (saCtx) => {
-          const { body: resBody } = await requestFn(saCtx, getter(a.namespace, a.name))
+          const { body: resBody } = await requestFn(saCtx, getter)
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
           let events = []
           try {
@@ -319,19 +296,19 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         return { undone: a.name, toRevision: Number(a.toRevision), previousImages, newImages }
       } }),
     update_image: async (keyRow, cluster, a, source) => {
-      const kind = String(a.kind || '').toLowerCase()
+      const kind = normalizeKind(a.kind) || String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'update_image', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} ${a.container}=${(a.image || '').slice(0, 40)}`,
         fn: async (saCtx) => {
           if (!WORKLOADS.includes(kind)) throw new Error(`update_image 仅支持 ${WORKLOADS.join('/')},不是 ${kind}`)
           if (!a.container) throw new Error('update_image 缺 container')
           if (!a.image) throw new Error('update_image 缺 image')
-          const getter = GET_PATH[kind]
-          const cur = (await requestFn(saCtx, getter(a.namespace, a.name))).body
+          const getter = getApiPath(kind, a.namespace, a.name)
+          const cur = (await requestFn(saCtx, getter)).body
           if (!cur) throw new Error(`${kind}/${a.name} 不存在`)
           const containers = cur?.spec?.template?.spec?.containers || []
           const targetC = containers.find(c => c.name === a.container)
           if (!targetC) throw new Error(`容器 ${a.container} 不存在于 ${kind}/${a.name}(有: ${containers.map(c => c.name).join(',')})`)
-          await requestFn(saCtx, getter(a.namespace, a.name), {
+          await requestFn(saCtx, getter, {
             method: 'PATCH', headers: { 'content-type': 'application/strategic-merge-patch+json' },
             body: JSON.stringify({ spec: { template: { spec: { containers: [{ name: a.container, image: a.image }] } } } }),
           })
@@ -339,7 +316,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     scale: async (keyRow, cluster, a, source) => {
-      const kind = String(a.kind || '').toLowerCase()
+      const kind = normalizeKind(a.kind) || String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'scale', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name} → ${a.replicas}`,
         fn: async (saCtx) => {
           if (!SCALE_KINDS.includes(kind)) throw new Error(`scale 仅支持 ${SCALE_KINDS.join('/')},不是 ${kind}`)
@@ -350,7 +327,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     restart: async (keyRow, cluster, a, source) => {
-      const kind = String(a.kind || '').toLowerCase()
+      const kind = normalizeKind(a.kind) || String(a.kind || '').toLowerCase()
       return runBoundedTool({ keyRow, cluster, tool: 'restart', source, namespace: a.namespace, verb: 'patch', resource: `${kind}/${a.name}`, summary: `${kind}/${a.name}`,
         fn: async (saCtx) => {
           if (!RESTART_KINDS.includes(kind)) throw new Error(`restart 仅支持 ${RESTART_KINDS.join('/')},不是 ${kind}`)

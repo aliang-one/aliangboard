@@ -16,7 +16,8 @@ import { msg } from '../messages.mjs'
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
 // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
-import { KIND_API_PATH } from '../kind-paths.mjs'
+import { getApiPath } from '../kind-paths.mjs'
+import { normalizeKind } from '../kindAlias.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
@@ -62,11 +63,12 @@ export function createWorkbenchConvRoutes(deps) {
     const blocks = []
     const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
-      const pathFn = KIND_API_PATH[ref.kind]
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-      if (!pathFn) { blocks.push(`${label}: (不支持的 kind)`); continue }
+      // 防御性归一:ref.kind 正常恒为前端 canonical,与工具链同源归一以防旧数据
+      const path = getApiPath(normalizeKind(ref.kind), ref.namespace || '', ref.name)
+      if (!path) { blocks.push(`${label}: (不支持的 kind)`); continue }
       try {
-        const res = await requestKubernetes(k8sSession, pathFn(ref.namespace || '', ref.name))
+        const res = await requestKubernetes(k8sSession, path)
         // requestKubernetes 返回 {status,headers,body};资源在 body(guard:可能 undefined)
         const body = res?.body
         if (body == null) { blocks.push(`${label}: (空响应)`); continue }

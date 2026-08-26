@@ -18,6 +18,7 @@ import { runDistill } from '../distill.mjs'
 import { reconcileProject } from '../reconcile.mjs'
 import { msg } from '../messages.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
+import { listApiPath } from '../kind-paths.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
@@ -157,18 +158,9 @@ export function createWorkbenchProjectRoutes(deps) {
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
       if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
 
-      // kind → K8s list path
-      const KIND_PATH = {
-        pods: '/api/v1/pods', services: '/api/v1/services', configmaps: '/api/v1/configmaps',
-        secrets: '/api/v1/secrets', namespaces: '/api/v1/namespaces',
-        deployments: '/apis/apps/v1/deployments', statefulsets: '/apis/apps/v1/statefulsets', daemonsets: '/apis/apps/v1/daemonsets',
-        ingresses: '/apis/networking.k8s.io/v1/ingresses',
-        // SP3 扩展:集群级 + 存储 + 网络 + 身份
-        nodes: '/api/v1/nodes', persistentvolumes: '/api/v1/persistentvolumes',
-        persistentvolumeclaims: '/api/v1/persistentvolumeclaims', storageclasses: '/apis/storage.k8s.io/v1/storageclasses',
-        networkpolicies: '/apis/networking.k8s.io/v1/networkpolicies', serviceaccounts: '/api/v1/serviceaccounts',
-      }
-      const listPath = KIND_PATH[kind]
+      // kind → K8s list path:统一从 kind-paths.mjs 派生(本路由曾持 15-kind 私有表,已删)。
+      // 集群级列表 + 前端客户端过滤 ns/name(语义不变)。
+      const listPath = listApiPath(kind, '')
       if (!listPath) { sendJson(res, 400, { message: msg(req, 'wbp.kindUnsupported', { kind }) }); return true }
 
       try {

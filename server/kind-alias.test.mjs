@@ -9,6 +9,13 @@ test('规范复数直通', () => {
   }
 })
 
+// 2026-08-26 报障:cronjobs/descheduler 与 node/k8s-master3 被拒(词表缺口)
+test('2026-08-26 扩充的 12 个 kind 规范复数直通', () => {
+  for (const k of ['cronjobs', 'jobs', 'endpoints', 'replicasets', 'horizontalpodautoscalers', 'poddisruptionbudgets', 'roles', 'rolebindings', 'clusterroles', 'clusterrolebindings', 'limitranges', 'resourcequotas']) {
+    assert.equal(normalizeKind(k), k, `${k} 应为规范 kind`)
+  }
+})
+
 test('单数名归一(报障场景:service)', () => {
   assert.equal(normalizeKind('service'), 'services')
   assert.equal(normalizeKind('pod'), 'pods')
@@ -39,6 +46,38 @@ test('kubectl 缩写归一', () => {
   assert.equal(normalizeKind('sc'), 'storageclasses')
   assert.equal(normalizeKind('netpol'), 'networkpolicies')
   assert.equal(normalizeKind('sa'), 'serviceaccounts')
+})
+
+test('新 kind 的单数/Kind 名归一(报障场景:cronjobs)', () => {
+  assert.equal(normalizeKind('cronjob'), 'cronjobs')
+  assert.equal(normalizeKind('CronJob'), 'cronjobs')
+  assert.equal(normalizeKind('job'), 'jobs')
+  assert.equal(normalizeKind('Job'), 'jobs')
+  assert.equal(normalizeKind('endpoint'), 'endpoints')
+  assert.equal(normalizeKind('Endpoints'), 'endpoints')
+  assert.equal(normalizeKind('replicaset'), 'replicasets')
+  assert.equal(normalizeKind('ReplicaSet'), 'replicasets')
+  assert.equal(normalizeKind('HorizontalPodAutoscaler'), 'horizontalpodautoscalers')
+  assert.equal(normalizeKind('PodDisruptionBudget'), 'poddisruptionbudgets')
+  assert.equal(normalizeKind('role'), 'roles')
+  assert.equal(normalizeKind('Role'), 'roles')
+  assert.equal(normalizeKind('rolebinding'), 'rolebindings')
+  assert.equal(normalizeKind('clusterrole'), 'clusterroles')
+  assert.equal(normalizeKind('ClusterRole'), 'clusterroles')
+  assert.equal(normalizeKind('ClusterRoleBinding'), 'clusterrolebindings')
+  assert.equal(normalizeKind('limitrange'), 'limitranges')
+  assert.equal(normalizeKind('resourcequota'), 'resourcequotas')
+  assert.equal(normalizeKind('ResourceQuota'), 'resourcequotas')
+})
+
+test('新 kind 的 kubectl 缩写归一', () => {
+  assert.equal(normalizeKind('cj'), 'cronjobs')
+  assert.equal(normalizeKind('ep'), 'endpoints')
+  assert.equal(normalizeKind('rs'), 'replicasets')
+  assert.equal(normalizeKind('hpa'), 'horizontalpodautoscalers')
+  assert.equal(normalizeKind('pdb'), 'poddisruptionbudgets')
+  assert.equal(normalizeKind('quota'), 'resourcequotas')
+  assert.equal(normalizeKind('limits'), 'limitranges')
 })
 
 test('未知名/空输入 → null', () => {

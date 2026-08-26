@@ -5,6 +5,10 @@
 //     不走 K8s tier(forTier 因 minTier 缺失自动排除);write_project_file 走人审。
 // agent-runner 按 ctx 里有什么(keyRow / workbench)决定 offering;execTool 经 registry.get(name).exec(ctx,args) 分派。
 
+import { CANONICAL_KINDS } from './kindAlias.mjs'
+// schema 词表动态生成:kind 清单跟 kind-paths.mjs 的 KIND_API 走,不再手抄第 5 份拷贝
+const KIND_DESC = `资源类别,复数形式:${CANONICAL_KINDS.join('/')};单数/Kind 名/缩写(svc/po 等)自动归一`
+
 const RANK = { read: 0, operator: 1, admin: 2 }
 const rank = t => RANK[t] ?? 99 // 工作台工具无 minTier → rank 99 → 自动排除出 forTier/toolDefsForTier
 
@@ -15,13 +19,13 @@ const K8S = [
     description: '获取 pod 日志(有界 tail,非 follow)。支持 previous(CrashLoopBackOff 前一容器日志)、timestamps(每行加时间戳)、container、tail。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, tail: { type: 'number' }, previous: { type: 'boolean', description: 'true=前一容器日志(CrashLoopBackOff 调试)' }, timestamps: { type: 'boolean', description: 'true=每行加 RFC3339 时间戳' } }, required: ['namespace', 'pod'] } },
   { name: 'list_resources', minTier: 'read', requiresApproval: false,
-    description: '列出 namespace 内资源(slim 名单)。两种用法:(a) kind ∈ pods/services/configmaps/deployments/statefulsets/daemonsets(快捷,slim 含 phase/ready 等);(b) path 给 list 端点列任意 kind/CRD(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses),slim 项含 path 便于 get_resource_yaml。path 须在绑定 ns 内。capped 200。',
+    description: `列出 namespace 内资源(slim 名单)。两种用法:(a) kind ∈ ${CANONICAL_KINDS.join('/')}(快捷;pods 含 phase/ready,工作负载含 replicas,其余 name-only;单数/缩写自动归一);(b) path 给 list 端点列任意 kind/CRD(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses),slim 项含 path 便于 get_resource_yaml。path 须在绑定 ns 内。capped 200。`,
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, path: { type: 'string', description: 'list 端点(任意 kind,path 模式,优先于 kind)' } }, required: ['namespace'] } },
   { name: 'get_resource', minTier: 'read', requiresApproval: false,
     description: '获取单个资源完整对象(去 managedFields;JSON 超 32KB 时截断返回 + truncated 标志,提示改走 get_resource_yaml)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
   { name: 'get_resource_yaml', minTier: 'read', requiresApproval: false,
-    description: '按 K8s 资源路径取完整对象并以 YAML 返回(去 managedFields,32KB 截断)。支持任意 kind/CRD(ingress/secret/networkpolicy/…),弥补 get_resource 仅 6 kind 的局限。path 须在绑定 namespace 内(集群级资源如 PV/Node 不支持)。path 从 list_resources(path 模式)结果取,或自构(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)。',
+    description: '按 K8s 资源路径取完整对象并以 YAML 返回(去 managedFields,32KB 截断)。支持任意 kind/CRD(ingress/secret/networkpolicy/…),弥补 get_resource 词表之外的局限。path 须在绑定 namespace 内(集群级资源如 PV/Node 不支持)。path 从 list_resources(path 模式)结果取,或自构(如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, path: { type: 'string', description: 'K8s 资源路径(绑定 ns 内,从 list 取或自构)' } }, required: ['namespace', 'path'] } },
   { name: 'get_events', minTier: 'read', requiresApproval: false,
     description: '列出 namespace 事件(可按资源 name 过滤)。',
@@ -104,9 +108,9 @@ const WB = [
     exec: async (ctx) => ctx.wb.bootstrapLedger() },
   // === K8s 调查工具(workbench-principal,用项目绑定的集群凭据直连,不走 API key/tier) ===
   { name: 'wb_list_resources', requiresApproval: false,
-    description: '列出集群资源(按 kind: pods/services/deployments/configmaps/secrets 等 15+ kind)。返回 slim 名单。调查集群状态首选。',
-    promptHint: '按 kind 列资源(pods/deployments/services/configmaps/secrets/nodes/PV/PVC/SC/NetworkPolicy/SA 等 15+ kind)。',
-    inputSchema: { type: 'object', properties: { kind: { type: 'string', description: '资源类别,复数形式:pods/services/configmaps/secrets/namespaces/deployments/statefulsets/daemonsets/ingresses/nodes/persistentvolumes/persistentvolumeclaims/storageclasses/networkpolicies/serviceaccounts;单数/Kind 名/缩写(svc/po 等)自动归一' }, namespace: { type: 'string' } }, required: ['kind'] },
+    description: `列出集群资源(按 kind:pods/services/deployments/cronjobs/nodes 等共 ${CANONICAL_KINDS.length} 个 kind,可给 namespace 收窄)。返回 slim 名单。调查集群状态首选。`,
+    promptHint: `按 kind 列资源(pods/deployments/services/cronjobs/nodes/PV/PVC/SC/RBAC 等共 ${CANONICAL_KINDS.length} kind)。`,
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', description: KIND_DESC }, namespace: { type: 'string' } }, required: ['kind'] },
     exec: async (ctx, args) => { try { return await ctx.wb.listResources(args.kind, args.namespace) } catch (e) { return `列出失败: ${e.message}` } } },
   { name: 'wb_get_pod_logs', requiresApproval: false,
     description: '获取 pod 日志(有界 tail)。CrashLoopBackOff 用 previous=true 看前一容器日志。',
@@ -116,12 +120,12 @@ const WB = [
   { name: 'wb_describe_resource', requiresApproval: false,
     description: 'kubectl describe 式:一次返回资源完整对象 + 关联事件。调查首选工具。',
     promptHint: '(首选)一步拿资源完整对象 + 关联事件(namespace, kind, name)。诊断首选。',
-    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: '资源类别,复数形式:pods/services/configmaps/secrets/namespaces/deployments/statefulsets/daemonsets/ingresses/nodes/persistentvolumes/persistentvolumeclaims/storageclasses/networkpolicies/serviceaccounts;单数/Kind 名/缩写(svc/po 等)自动归一' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: KIND_DESC }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.describeResource(args.namespace, args.kind, args.name) } catch (e) { return `查询失败: ${e.message}` } } },
   { name: 'wb_get_resource', requiresApproval: false,
     description: '获取单个资源完整对象(去 managedFields)。比 describe_resource 轻:不附带 events,适合看 ConfigMap data / Service ports / Secret keys 等。',
     promptHint: '轻量获取单个资源(无 events)。看 ConfigMap data / Service ports / Secret keys 时用,省一次 events 查询。',
-    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: '资源类别,复数形式:pods/services/configmaps/secrets/namespaces/deployments/statefulsets/daemonsets/ingresses/nodes/persistentvolumes/persistentvolumeclaims/storageclasses/networkpolicies/serviceaccounts;单数/Kind 名/缩写(svc/po 等)自动归一' }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
+    inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', description: KIND_DESC }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.getResource(args.namespace, args.kind, args.name) } catch (e) { return `查询失败: ${e.message}` } } },
   { name: 'wb_get_events', requiresApproval: false,
     description: '列出 namespace 事件(可按资源 name 过滤)。Warning/Error 通常是根因线索。',

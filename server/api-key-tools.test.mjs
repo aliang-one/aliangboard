@@ -29,6 +29,7 @@ function mockRequestFn({ logBody = 'line1\nline2\nline3', deployment = null, rep
     if (path.includes('/log')) return { body: logBody }
     if (/\/namespaces\/[^/]+\/pods$/.test(path)) return { body: { items: [{ metadata: { name: 'p1' }, status: { phase: 'Running', containerStatuses: [{ name: 'c1', ready: true }] } }, { metadata: { name: 'p2' }, status: { phase: 'Pending' } }] } }
     if (/\/namespaces\/[^/]+\/deployments$/.test(path)) return { body: { items: [{ metadata: { name: 'd1' }, spec: { replicas: 2 }, status: { readyReplicas: 2, updatedReplicas: 2 } }] } }
+    if (/\/namespaces\/[^/]+\/ingresses$/.test(path)) return { body: { items: [{ metadata: { name: 'ing-1' } }] } }
     if (/\/namespaces\/[^/]+\/pods\/[^/]+$/.test(path)) return { body: { metadata: { name: 'p1', managedFields: [{ x: 1 }] }, status: { phase: 'Running' } } }
     if (/\/namespaces\/[^/]+\/events/.test(path)) return { body: { items: [{ reason: 'BackOff', type: 'Warning', message: 'x'.repeat(400), lastTimestamp: '2026-01-01T00:00:00Z' }] } }
     // --- 新增:Deployment 单体 GET(非 PATCH)+ ReplicaSet 列表(rollout 用)---
@@ -108,11 +109,20 @@ test('list_resources(deployments): slimWorkload(ready/desired/updated)', async (
   const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'deployments', namespace: 'ns' })
   assert.deepEqual(out.items[0], { name: 'd1', ready: 2, desired: 2, updated: 2 })
 })
+// 2026-08-26 词表齐平:api-key list 从 6 kind 扩到与 get 同源的全量(kind-paths.mjs KIND_API)
+test('list_resources(ingresses): 词表外 kind 现已可列(2026-08-26 齐平)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
+  const out = await tools.callTool(k, cluster, 'list_resources', { kind: 'ingresses', namespace: 'ns' })
+  assert.equal(out.kind, 'ingresses'); assert.equal(out.count, 1)
+  assert.deepEqual(out.items[0], { name: 'ing-1' }) // 非 pods/工作负载 → name-only slim
+})
 test('list_resources(unsupported kind): policy 拒', async () => {
   const db = makeDb()
   const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn() })
-  await assert.rejects(() => tools.callTool(k, cluster, 'list_resources', { kind: 'ingresses', namespace: 'ns' }), (e) => e.reason === 'policy')
+  await assert.rejects(() => tools.callTool(k, cluster, 'list_resources', { kind: 'widget', namespace: 'ns' }), (e) => e.reason === 'policy')
 })
 
 // --- get_resource ---
