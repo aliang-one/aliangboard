@@ -24,7 +24,7 @@ export function createWatchController({ connect, relist, onState, baseMs = WATCH
     clearTimer()
     if (handle) { try { handle.abort() } catch { /* noop */ } }
     handle = connect({
-      onOpen: () => { failures = 0; setState('live') },
+      onOpen: () => { if (stopped) return; failures = 0; setState('live') },
       onError: err => onFailure(err),
       onClose: () => onFailure(null),
     })
@@ -50,7 +50,7 @@ export function createWatchController({ connect, relist, onState, baseMs = WATCH
 
   return {
     start() { if (!stopped) return; stopped = false; failures = 0; setState('reconnecting'); open() },
-    stop() { stopped = true; clearTimer(); if (handle) { try { handle.abort() } catch { /* noop */ } } handle = null },
+    stop() { stopped = true; clearTimer(); if (handle) { try { handle.abort() } catch { /* noop */ } } handle = null; setState('off') },
     get state() { return state },
   }
 }

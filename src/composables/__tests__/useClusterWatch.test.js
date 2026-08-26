@@ -82,7 +82,20 @@ describe('createWatchController', () => {
     calls[0].handlers.onError(new Error('late'))
     vi.advanceTimersByTime(WATCH_DEGRADED_RETRY_MS * 3)
     expect(calls.length).toBe(1)
-    expect(states).toEqual(['reconnecting', 'live'])
+    expect(states).toEqual(['reconnecting', 'live', 'off'])  // stop 现在会复位 off(F1)
+  })
+
+  it('stop 复位状态为 off;迟到的 onOpen 不得复活 live', () => {
+    const { connect, calls } = makeFakeConnect()
+    const states = []
+    const c = createWatchController({ connect, relist: vi.fn(), onState: s => states.push(s) })
+    c.start(); calls[0].handlers.onOpen()
+    c.stop()
+    expect(c.state).toBe('off')
+    expect(states[states.length - 1]).toBe('off')
+    calls[0].handlers.onOpen()                            // 迟到 onOpen
+    expect(c.state).toBe('off')
+    expect(states).toEqual(['reconnecting', 'live', 'off'])
   })
 })
 

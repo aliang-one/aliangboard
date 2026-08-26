@@ -164,6 +164,7 @@ Vue Query 缓存   useClusterWatch 管理器(单例,store 内)
 | 7 条长连接压力 | 空闲零流量;网关 10h 超时透传;单用户量级无虞 |
 | gcTime Infinity 内存增长 | mapped 对象为瘦结构;切集群 clear 已有;量级(百资源 × 几 KB)无虞 |
 | 网关剥字段误伤未知消费方 | 仅剥已验证零读取方的两个字段;单测钉住 spec/status 完整 |
+| watch DELETED 事件与在途全量 refetch 竞写(旧快照后到覆盖删除) | 展示级陈旧:该条目短暂复活,路由重挂(staleTime 15s→remount refetch)或下一事件自愈;接受为已知限制,不为此引入合并复杂度 |
 
 ## 9. 交付物清单
 

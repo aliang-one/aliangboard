@@ -26,10 +26,15 @@ const cid = computed(() => (store.currentCluster || 'cluster'))
 // watch 聚合态驱动轮询：live/reconnecting 零轮询（watch 推送），降级 60s 兜底（spec §5.4）
 const wlState = computed(() => store.watchStateOf('workloads'))
 const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
+// services/ingresses 各自门控:单资源 watch 降级时不可静默停刷(chip 仍显示 workloads 聚合态)
+const svcState = computed(() => store.watchStateOf('services'))
+const svcInterval = computed(() => (svcState.value === 'live' || svcState.value === 'reconnecting') ? false : 60000)
+const ingState = computed(() => store.watchStateOf('ingresses'))
+const ingInterval = computed(() => (ingState.value === 'live' || ingState.value === 'reconnecting') ? false : 60000)
 
 const wlQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
-const ingQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: svcInterval, refetchOnWindowFocus: false } })
+const ingQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: ingInterval, refetchOnWindowFocus: false } })
 
 // 三态派生：pending 且三路皆无数据 → 真骨架；有旧数据 → 继续展示旧数据
 const booting = computed(() => wlQ.isPending.value && !wlQ.data.value && !svcQ.data.value && !ingQ.data.value)

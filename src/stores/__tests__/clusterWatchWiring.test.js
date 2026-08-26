@@ -17,8 +17,9 @@ vi.mock('@/api/client', () => ({
 
 import { useClusterStore } from '@/stores/cluster'
 import { createPinia, setActivePinia } from 'pinia'
+import { clearWatchRegistry } from '@/composables/watchRegistry'
 
-beforeEach(() => { setActivePinia(createPinia()); streamMocks.length = 0 })
+beforeEach(() => { setActivePinia(createPinia()); streamMocks.length = 0; clearWatchRegistry() })
 
 describe('cluster store watch 接线', () => {
   it('startWorkloadFamilyWatch 建立 7 条 watch(workloads 三类+services+ingresses+pods+events),幂等', async () => {
@@ -57,6 +58,17 @@ describe('cluster store watch 接线', () => {
     svc.handlers.onMessage(JSON.stringify({ type: 'ADDED', object: { metadata: { name: 'svc1', namespace: 'default', uid: 'u1', resourceVersion: '9' } }, spec: {}, status: {} }))
     // store 内部用 Pinia 测试插件的 queryClient;直接断言 watchStates 仍 live + registry RV 前滚
     expect(store.watchStateOf('services')).toBe('live')
+    store.stopWorkloadFamilyWatch()
+  })
+
+  it('stopPodWatch 复位 pods 态为 off(podWatchLive=false),其余流不受影响', () => {
+    const store = useClusterStore()
+    store.startWorkloadFamilyWatch()
+    for (const h of streamMocks) h.handlers.onOpen?.()
+    store.stopPodWatch()
+    expect(store.watchStateOf('pods')).toBe('off')
+    expect(store.podWatchLive).toBe(false)
+    expect(store.watchStateOf('workloads')).toBe('live')  // 其余流仍 live
     store.stopWorkloadFamilyWatch()
   })
 })

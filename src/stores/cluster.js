@@ -1027,6 +1027,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   function setConnectedCluster(info) {
+    // 先停旧 watch:换集群不灭旧流会留 7 条僵尸连接(与 switchCluster 对称)
+    try { stopWorkloadFamilyWatch() } catch { /* noop */ }
     connectionState.value = 'loading'
     let name = info.name
     try { name = name || new URL(info.apiServer).hostname } catch { name = name || info.apiServer }
