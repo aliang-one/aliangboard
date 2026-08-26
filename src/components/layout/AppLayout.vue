@@ -45,7 +45,10 @@ onMounted(() => {
   if (getSession()) {
     termStore.loadPersisted()
     fbStore.loadPersisted()
-    store.hydrateCriticalResources({ silent: true }).catch(() => {})
+    // 水合失败也必须启 watch:否则会话困在 60s 降级轮询且无重试(startWorkloadFamilyWatch 幂等,流自降级)
+    store.hydrateCriticalResources({ silent: true }).catch(() => {}).finally(() => {
+      try { store.startWorkloadFamilyWatch() } catch { /* 网关不可达时控制器自行降级 */ }
+    })
   }
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })

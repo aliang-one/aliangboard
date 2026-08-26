@@ -6,6 +6,7 @@
     "add": "添加",
     "remove": "移除",
     "search": "搜索",
+    "watchLive": "实时", "watchReconnecting": "重连中", "watchDegraded": "已降级轮询",
     "sync": "同步",
     "loading": "加载中…",
     "success": "成功",

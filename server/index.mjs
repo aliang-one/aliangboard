@@ -46,6 +46,7 @@ import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failov
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
+import { slimListBody } from './k8s-slim.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
@@ -1964,6 +1965,8 @@ async function handle(req, res) {
       body,
       ...(ct ? { headers: { 'content-type': ct } } : {}),
     })
+    // list GET 响应剥冗余(managedFields/last-applied);单对象 GET 与写操作不动
+    if (req.method === 'GET' && Array.isArray(result.body?.items)) slimListBody(result.body)
     return sendJson(res, result.status, result.body ?? {})
   } catch (error) {
     return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })

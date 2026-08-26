@@ -39,9 +39,16 @@ const svcDetail = useResourceDetail({
 const svc = computed(() => svcDetail.data.value)
 
 // pods + workloads + events 走 Vue Query（store ref 在 remote 下孤立）
-const podsQ = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: 30000 } })
-const wlsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
-const eventsQ = useResourceList({ key: ['cluster', cid, 'events'], fetcher: () => store.fetchEvents(), options: { refetchInterval: 30000 } })
+// watch live 零轮询 / 降级 60s 兜底（各资源按自身 watch 态门控）；refetchInterval 直传 ref。
+const podsState = computed(() => store.watchStateOf('pods'))
+const podsInterval = computed(() => (podsState.value === 'live' || podsState.value === 'reconnecting') ? false : 60000)
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
+const eventsState = computed(() => store.watchStateOf('events'))
+const eventsInterval = computed(() => (eventsState.value === 'live' || eventsState.value === 'reconnecting') ? false : 60000)
+const podsQ = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: podsInterval, refetchOnWindowFocus: false } })
+const wlsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
+const eventsQ = useResourceList({ key: ['cluster', cid, 'events'], fetcher: () => store.fetchEvents(), options: { refetchInterval: eventsInterval, refetchOnWindowFocus: false } })
 const nsPods = computed(() => (podsQ.data.value || []).filter(p => p.namespace === route.params.namespace))
 const nsWorkloads = computed(() => (wlsQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 // 容器端口（从 workloads 派生，替代 nsContainerPortGroups/nsContainerPorts）
@@ -67,7 +74,8 @@ const hasNodePort = computed(() => svc.value?.type === 'NodePort' || svc.value?.
 const forwardPorts = computed(() => portRows.value.map(p => Number(p.port)).filter(n => !isNaN(n)))
 
 // === Endpoints：从 cluster-wide Endpoints 列表按 ns/name 过滤（store ref 在 remote 下孤立）===
-const endpointsQ = useResourceList({ key: ['cluster', cid, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000 } })
+// endpoints 无 watch：保留 30s 轮询兜底
+const endpointsQ = useResourceList({ key: ['cluster', cid, 'endpoints'], fetcher: () => store.fetchEndpoints(), options: { refetchInterval: 30000, refetchOnWindowFocus: false } })
 const ep = computed(() => (endpointsQ.data.value || []).find(e => e.name === route.params.name && e.namespace === route.params.namespace))
 const epTargets = computed(() => ep.value?.targets || {})
 const podByIp = computed(() => {

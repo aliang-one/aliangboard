@@ -368,7 +368,7 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
 // 流式读取 K8s 长连接（watch=true / log follow=true）：Gateway 已对这两类请求改为 pipe 透传。
 // 按行回调 onMessage（watch 为换行分隔 JSON，log 为换行分隔文本）；返回 { abort } 供调用方停止。
 // 认证 header 复用 k8sHttp.authHeaders()，错误体解析复用 parseBody（与 request 同源）。
-export function k8sStream(path, { onMessage, onError, onClose } = {}) {
+export function k8sStream(path, { onMessage, onError, onClose, onOpen } = {}) {
   const controller = new AbortController()
   let reader = null
   let aborted = false
@@ -378,8 +378,9 @@ export function k8sStream(path, { onMessage, onError, onClose } = {}) {
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         const body = parseBody(text)
-        throw new Error(body?.message || i18n.global.t('store.streamFailed', { status: response.status }))
+        throw Object.assign(new Error(body?.message || i18n.global.t('store.streamFailed', { status: response.status })), { status: response.status })
       }
+      onOpen?.()
       reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''

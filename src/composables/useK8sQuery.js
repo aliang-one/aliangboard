@@ -40,7 +40,7 @@ export function useResourceList({ key, fetcher, select, identityKey = uidKey, op
     queryKey: key,
     queryFn: fetcher,
     staleTime: options.staleTime ?? 15_000,
-    gcTime: options.gcTime ?? 5 * 60_000,
+    gcTime: options.gcTime ?? Infinity,   // 缓存永驻：正确性靠 watch 纠偏 + mutation 显式 invalidate（spec §5.1）
     refetchOnWindowFocus: options.refetchOnWindowFocus ?? true,
     retry: options.retry ?? 1,
     refetchInterval: options.refetchInterval ?? false,

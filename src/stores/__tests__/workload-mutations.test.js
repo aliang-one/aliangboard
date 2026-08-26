@@ -21,6 +21,15 @@ const { api } = vi.hoisted(() => ({
           status: { readyReplicas: 3 },
         }
       }
+      // rollbackWorkload 改源后按需拉 replicasets(fetchWorkloadRevisions)
+      if (typeof path === 'string' && path.includes('/replicasets')) {
+        return {
+          items: [{
+            metadata: { name: 'nginx-abc', uid: 'u1', annotations: { 'deployment.kubernetes.io/revision': '1' }, ownerReferences: [{ kind: 'Deployment', controller: true, name: 'nginx' }] },
+            spec: { template: { spec: { containers: [{ name: 'nginx', image: 'nginx:1.20' }] } } },
+          }],
+        }
+      }
       return {}
     }),
   },
@@ -55,9 +64,9 @@ describe('workload 旁系变更 fetch-first（不再读空 workloadList）', () 
     expect(mut[0].body.spec.template.metadata.annotations['kubectl.kubernetes.io/restartedAt']).toBeTruthy()
   })
 
-  it('rollbackWorkload: PATCH 目标 template（旧实现误抛 workloadNotFound）', async () => {
+  it('rollbackWorkload: PATCH 目标 template（旧实现误抛 workloadNotFound;改源后 revisions 走按需 fetch,不再读缓存对象）', async () => {
     const tpl = { spec: { containers: [{ name: 'nginx', image: 'nginx:1.20' }] } }
-    queryClient.setQueryData(WL_KEY, [deploy({ revisions: [{ rev: 1, image: 'nginx:1.20', _template: tpl }] })])
+    queryClient.setQueryData(WL_KEY, [deploy()])
     await store.rollbackWorkload('nginx', 'default', 1)
     expect(mut.length).toBe(1)
     expect(mut[0].method).toBe('PATCH')

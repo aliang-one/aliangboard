@@ -29,15 +29,20 @@ const queryClient = useQueryClient()
 
 // Ingress 走 Vue Query（cluster-wide + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
 const cid = computed(() => (store.currentCluster || 'cluster'))
+// watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const ingState = computed(() => store.watchStateOf('ingresses'))
+const ingInterval = computed(() => (ingState.value === 'live' || ingState.value === 'reconnecting') ? false : 60000)
+const svcState = computed(() => store.watchStateOf('services'))
+const svcInterval = computed(() => (svcState.value === 'live' || svcState.value === 'reconnecting') ? false : 60000)
 const ingressesKey = ['cluster', cid, 'ingresses']
 const ingressesQuery = useResourceList({
   key: ingressesKey,
   fetcher: () => store.fetchIngresses(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: ingInterval, refetchOnWindowFocus: false },
 })
 const nsIngress = computed(() => (ingressesQuery.data.value || []).filter(i => i.namespace === route.params.namespace))
 // Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: svcInterval, refetchOnWindowFocus: false } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 // TLS Secret 候选:当前 ns + kubernetes.io/tls 类型(fetchSecrets 拉的是全 ns 列表,须过滤)

@@ -27,6 +27,7 @@ store.setNamespace(route.params.namespace)
 // 声明顺序即依赖顺序:pollInterval 先声明(直传 ref 给三查询,无 TDZ)→ 建查询 → fastMode 状态机消费查询数据。
 const pollInterval = ref(SLOW_MS)
 const cid = computed(() => (store.currentCluster || 'cluster'))
+const wlState = computed(() => store.watchStateOf('workloads'))
 const workloadsKey = ['cluster', cid, 'workloads']
 // refetchInterval 直传 ref(cloneDeepUnref 会 unref 并追踪 .value):
 // pollInterval 变化 → defaultedOptions watcher → setOptions → 立即重排定时器,
@@ -39,8 +40,11 @@ const workloadsQuery = useResourceList({
 const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
 
 // fastMode:对 ns 内 workload 判定进行中;pollInterval 随之切换(FAST/SLOW 常量同源)
+// watch 门控:live/reconnecting 态 watch 推缓存,轮询归零;降级/off 态才按 fast/slow 轮询兜底。
 const { fastMode } = useDeployFastPoll(() => nsWorkloads.value.map(w => w.raw))
-watch(fastMode, f => { pollInterval.value = f ? FAST_MS : SLOW_MS }, { immediate: true })
+watch([fastMode, wlState], ([f, s]) => {
+  pollInterval.value = (s === 'live' || s === 'reconnecting') ? false : (f ? FAST_MS : SLOW_MS)
+}, { immediate: true })
 
 // 创建负载分割按钮：从 YAML 创建 / 复制 workload（弹窗状态）
 const showYamlDialog = ref(false)

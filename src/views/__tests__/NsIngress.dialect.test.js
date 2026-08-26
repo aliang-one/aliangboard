@@ -6,7 +6,7 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { notify } from '@/composables/useToast'
 
 const addIngress = vi.fn(async () => ({ ok: true }))
-vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({ currentCluster: 'demo', nsServices: [], fetchServices: vi.fn(async () => []), fetchIngresses: vi.fn(async () => []), fetchIngressClasses: vi.fn(async () => [{ name: 'traefik' }, { name: 'nginx' }, { name: 'istio-thing' }]), addIngress, setNamespace: () => {} }) }))
+vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({ currentCluster: 'demo', watchStateOf: () => 'off', nsServices: [], fetchServices: vi.fn(async () => []), fetchIngresses: vi.fn(async () => []), fetchIngressClasses: vi.fn(async () => [{ name: 'traefik' }, { name: 'nginx' }, { name: 'istio-thing' }]), addIngress, setNamespace: () => {} }) }))
 vi.mock('@/api/client', () => ({ api: { k8s: vi.fn(async () => ({ items: [] })), applyYaml: vi.fn() } }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { namespace: 'default' } }), useRouter: () => ({ push: () => {} }) }))
 vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))

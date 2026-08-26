@@ -12,6 +12,7 @@ import PodCard from '@/components/common/PodCard.vue'
 import StatusSummaryCard from '@/components/common/StatusSummaryCard.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import WatchStateChip from '@/components/common/WatchStateChip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,7 @@ const { t } = useI18n()
 store.setNamespace(route.params.namespace)
 
 const cid = computed(() => (store.currentCluster || 'cluster'))
+const podsState = computed(() => store.watchStateOf('pods'))
 const podsQuery = useResourceList({
   key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
@@ -138,6 +140,7 @@ async function handleCreate() {
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
       <div class="flex items-center gap-sm">
+        <WatchStateChip :state="podsState" />
         <button v-if="!batchMode" @click="enterBatch"
           class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container transition-colors"
           :title="t('ns.pods.batchEnter')">

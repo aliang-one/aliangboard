@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
 import { api, k8sStream, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -12,8 +12,10 @@ import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
-import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace } from '@/composables/useFetchers'
+import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace, fetchWorkloadRevisions } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
+import { createWatchController } from '@/composables/useClusterWatch'
+import { recordListRv, getListRv, clearWatchRegistry } from '@/composables/watchRegistry'
 import { deriveClusterCounts } from '@/logic/clusterCounts'
 import { pushSample, restoreSamples, persistPayload } from '@/logic/metricsWindow'
 
@@ -88,13 +90,9 @@ export const useClusterStore = defineStore('cluster', () => {
   const connectionState = ref('')
   // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
   let prevClusterMetrics = { cpu: null, mem: null }
-  // Pod Watch（实时监听）的资源版本续接点 + 句柄；断开/出错即停，避免重连风暴
-  let podWatchRv = null
-  let podWatchHandle = null
+  // Pod/Event Watch 兼容布尔（旧消费方 NsPods/NsEvents/AuditLogs/MonitoringCenter 读）；
+  // 真值现由 watchStates 驱动（见下方 Workload 族 Watch 区块）
   const podWatchLive = ref(false)
-  // Event Watch 同款状态
-  let eventWatchRv = ''
-  let eventWatchHandle = null
   const eventWatchLive = ref(false)
 
   // === 当前选中的 Namespace（持久化：刷新不丢，与集群选择同模式）===
@@ -130,7 +128,7 @@ export const useClusterStore = defineStore('cluster', () => {
   // 按需拉取单个工作负载并 upsert 进 workloads Query 缓存。
   // Job/CronJob 不在 fetchWorkloads 批量列表里（deployments/sts/ds）；从 Pod 详情跳转或直接链接进入
   // NsWorkloadDetail 时由 ensureWorkload 调此补齐——P2-B 前写孤儿 workloadList（无读者）→ 详情恒空白。
-  // 缓存里已有同名条目时跳过：批量列表带 attachRolloutHistory 的 revisions，单体 upsert 会覆盖丢失。
+  // 缓存里已有同名条目时跳过：避免单体 upsert 覆盖批量列表条目（历史 attachRolloutHistory 时代防 revisions 丢失;现仅防字段面回退）。
   async function fetchWorkload(type, name, ns) {
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
     if (!plural) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
@@ -643,11 +641,13 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 一键回滚到指定 revision（kubectl rollout undo --to-revision=N 语义）
   // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 workloadNotFound。
-  // revisions 来自缓存的工作负载对象（mapWorkload 从 ReplicaSets 填充），target._template 携带完整模板。
+  // 改源:revisions 不再读列表缓存对象(fetchWorkloads 已瘦身),按需 fetchWorkloadRevisions,
+  // target._template 携带完整模板,兜底走镜像 PATCH。
   async function rollbackWorkload(name, ns, revNumber) {
     const wl = await getWorkloadForEdit(name, ns)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
-    const target = (wl.revisions || []).find(r => r.rev === revNumber)
+    const revs = await fetchWorkloadRevisions(wl.type, name, ns)
+    const target = (revs || []).find(r => r.rev === revNumber)
     if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev: revNumber }))
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
     if (plural) {
@@ -662,6 +662,7 @@ export const useClusterStore = defineStore('cluster', () => {
       })
     }
     invalidateResource('workloads')
+    queryClient.invalidateQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === 'revisions' })
   }
 
   async function deletePod(name, ns) {
@@ -696,59 +697,76 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   function stopHealthCheck() { if (healthTimer) clearInterval(healthTimer); healthTimer = null }
 
-  // === Pod / Event Watch：实时监听（ADDED/MODIFIED/DELETED 增量更新）===
-  // P2-B：watch 事件只 queryClient.setQueryData（NsPods/NsEvents 等 Query 消费者享 live）。
-  // 安全策略：从水合时的 resourceVersion 续接，只收变更事件；流断开或出错（含 RV 失效 410）即停，
-  // 由 UI 提示用户手动恢复——不做自动重连，避免在不可控网络下产生重连风暴。
+  // === Workload 族 Watch：7 条长连接增量写 Vue Query canonical key ===
+  // spec §5.3:deployments/statefulsets/daemonsets 三流 merge 进同一 'workloads' key;
+  // 断线由 createWatchController 退避重连/410 relist/降级轮询接管。
+  const WATCH_CONFIGS = [
+    { key: 'pods', queryKey: 'pods', watchPath: '/api/v1/pods', mapFn: mapPod },
+    { key: 'events', queryKey: 'events', watchPath: '/api/v1/events', mapFn: mapEvent },
+    { key: 'deployments', queryKey: 'workloads', watchPath: '/apis/apps/v1/deployments', mapFn: i => mapWorkload(i, 'Deployment') },
+    { key: 'statefulsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/statefulsets', mapFn: i => mapWorkload(i, 'StatefulSet') },
+    { key: 'daemonsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/daemonsets', mapFn: i => mapWorkload(i, 'DaemonSet') },
+    { key: 'services', queryKey: 'services', watchPath: '/api/v1/services', mapFn: mapService },
+    { key: 'ingresses', queryKey: 'ingresses', watchPath: '/apis/networking.k8s.io/v1/ingresses', mapFn: mapIngress },
+  ]
+  const watchStates = reactive(Object.fromEntries(WATCH_CONFIGS.map(c => [c.key, 'off'])))
+  const watchControllers = new Map()
 
-  // --- Pod Watch ---
-  function startPodWatch() {
-    if (podWatchHandle) return
-    const rv = podWatchRv || ''
-    const path = `/api/v1/pods?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`
-    podWatchLive.value = true
-    podWatchHandle = k8sStream(path, {
-      onMessage: line => {
-        try {
-          const evt = JSON.parse(line)
-          if (evt.object?.metadata?.resourceVersion) podWatchRv = evt.object.metadata.resourceVersion
-          // P2-B：只写 Query 缓存（NsPods 等 Query 消费者享 live）；旧 applyPodWatchEvent 双写孤儿 podList 已删
-          const _cid = currentCluster.value || 'cluster'
-          queryClient.setQueryData(['cluster', _cid, 'pods'], old => applyWatchEvent(old || [], evt.type, mapPod(evt.object)))
-        } catch { /* 忽略非 JSON 心跳行 */ }
-      },
-      onError: stopPodWatch,
-      onClose: stopPodWatch,
-    })
-  }
-  function stopPodWatch() {
-    podWatchLive.value = false
-    if (podWatchHandle) { podWatchHandle.abort(); podWatchHandle = null }
+  function relistQueryKey(queryKey) {
+    return queryClient.refetchQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === queryKey })
   }
 
-  // --- Event Watch ---
-  function startEventWatch() {
-    if (eventWatchHandle) return
-    const path = `/api/v1/events?watch=true${eventWatchRv ? `&resourceVersion=${encodeURIComponent(eventWatchRv)}` : ''}`
-    eventWatchLive.value = true
-    eventWatchHandle = k8sStream(path, {
-      onMessage: line => {
-        try {
-          const evt = JSON.parse(line)
-          if (evt.object?.metadata?.resourceVersion) eventWatchRv = evt.object.metadata.resourceVersion
-          // P2-B：只写 Query 缓存（NsEvents 等 Query 消费者享 live）；旧 applyEventWatchEvent 双写孤儿 eventList 已删
-          const _cid = currentCluster.value || 'cluster'
-          queryClient.setQueryData(['cluster', _cid, 'events'], old => applyWatchEvent(old || [], evt.type, mapEvent(evt.object)))
-        } catch { /* 忽略非 JSON 心跳行 */ }
+  function controllerFor(cfg) {
+    if (watchControllers.has(cfg.key)) return watchControllers.get(cfg.key)
+    const ctl = createWatchController({
+      connect: ({ onOpen, onError, onClose }) => {
+        const rv = getListRv(cfg.watchPath)
+        return k8sStream(`${cfg.watchPath}?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`, {
+          onOpen,
+          onClose,
+          onError,
+          onMessage: line => {
+            try {
+              const evt = JSON.parse(line)
+              if (evt.object?.metadata?.resourceVersion) recordListRv(cfg.watchPath, evt.object.metadata.resourceVersion)
+              const _cid = currentCluster.value || 'cluster'
+              queryClient.setQueryData(['cluster', _cid, cfg.queryKey], old => applyWatchEvent(old || [], evt.type, cfg.mapFn(evt.object)))
+            } catch { /* 忽略非 JSON 心跳行 */ }
+          },
+        })
       },
-      onError: stopEventWatch,
-      onClose: stopEventWatch,
+      relist: () => relistQueryKey(cfg.queryKey),
+      onState: s => {
+        watchStates[cfg.key] = s
+        if (cfg.key === 'pods') podWatchLive.value = s === 'live'
+        if (cfg.key === 'events') eventWatchLive.value = s === 'live'
+      },
     })
+    watchControllers.set(cfg.key, ctl)
+    return ctl
   }
-  function stopEventWatch() {
-    eventWatchLive.value = false
-    if (eventWatchHandle) { eventWatchHandle.abort(); eventWatchHandle = null }
+
+  function startWorkloadFamilyWatch() {
+    for (const cfg of WATCH_CONFIGS) controllerFor(cfg).start()
   }
+  function stopWorkloadFamilyWatch() {
+    for (const ctl of watchControllers.values()) ctl.stop()
+    clearWatchRegistry()
+  }
+  // canonical queryKey 聚合态:全 live 才 live;任一 degraded 即 degraded
+  function watchStateOf(queryKey) {
+    const ss = WATCH_CONFIGS.filter(c => c.queryKey === queryKey).map(c => watchStates[c.key])
+    if (!ss.length || ss.every(s => s === 'off')) return 'off'
+    if (ss.some(s => s === 'degraded')) return 'degraded'
+    if (ss.some(s => s === 'reconnecting')) return 'reconnecting'
+    if (ss.every(s => s === 'live')) return 'live'
+    return 'off'
+  }
+  // 旧入口兼容(NsPods toggleLive / NsEvents / AuditLogs / MonitoringCenter 既存调用点)
+  function startPodWatch() { controllerFor(WATCH_CONFIGS[0]).start() }
+  function stopPodWatch() { controllerFor(WATCH_CONFIGS[0]).stop() }
+  function startEventWatch() { controllerFor(WATCH_CONFIGS[1]).start() }
+  function stopEventWatch() { controllerFor(WATCH_CONFIGS[1]).stop() }
   // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
 
   // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList 指标字段 → 重算集群汇总。
@@ -983,8 +1001,7 @@ export const useClusterStore = defineStore('cluster', () => {
     metricsHold = true   // 水合期间挂起 tick(变体 B);try/finally 必清,不会永久卡死采样
     try {
       // 切集群前停止旧集群的实时监听并清空命名空间作用域，避免旧 ns 残留 / 旧 watch 带失效 token 报错
-      try { stopPodWatch() } catch { /* 未启动时忽略 */ }
-      try { stopEventWatch() } catch { /* 未启动时忽略 */ }
+      try { stopWorkloadFamilyWatch() } catch { /* 未启动时忽略 */ }
       currentNamespace.value = ''
       setActiveToken(c.token)
       activeApiServerRef.value = c.apiServer
@@ -995,6 +1012,7 @@ export const useClusterStore = defineStore('cluster', () => {
       try { queryClient.clear(); await hydrateCriticalResources() } catch { connectionState.value = 'error' }
       apiReachable.value = true
       startHealthCheck()
+      startWorkloadFamilyWatch()
     } finally { metricsHold = false }
   }
   // 移除已保存集群
@@ -1009,6 +1027,8 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   function setConnectedCluster(info) {
+    // 先停旧 watch:换集群不灭旧流会留 7 条僵尸连接(与 switchCluster 对称)
+    try { stopWorkloadFamilyWatch() } catch { /* noop */ }
     connectionState.value = 'loading'
     let name = info.name
     try { name = name || new URL(info.apiServer).hostname } catch { name = name || info.apiServer }
@@ -1027,6 +1047,7 @@ export const useClusterStore = defineStore('cluster', () => {
     }
     apiReachable.value = true
     startHealthCheck()
+    startWorkloadFamilyWatch()
   }
 
   async function fetchCRDs() { const d = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500'); return (d?.items || []).map(mapCRD) }
@@ -1048,6 +1069,7 @@ export const useClusterStore = defineStore('cluster', () => {
       podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
     }
     const podMetric = (ns, name) => (metricsAvailable ? (podMetricMap.get(`${ns}/${name}`) || null) : null)
+    recordListRv('/api/v1/pods', podData?.metadata?.resourceVersion)
     return (podData?.items || []).map(item => mapPod(item, podMetric(item.metadata?.namespace, item.metadata?.name)))
   }
   async function fetchPod(name, ns) {
@@ -1059,7 +1081,7 @@ export const useClusterStore = defineStore('cluster', () => {
     const m = (metricsData?.items || []).find(it => it.metadata?.namespace === ns && it.metadata?.name === name)
     return mapPod(data, m ? { cpuMilli: m.containers?.reduce((s, c) => s + cpuToMilli(c.usage?.cpu), 0), memKi: m.containers?.reduce((s, c) => s + memToKi(c.usage?.memory), 0) } : null)
   }
-  async function fetchEvents() { const d = await api.k8s('/api/v1/events?limit=1000'); return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0)) }
+  async function fetchEvents() { const d = await api.k8s('/api/v1/events?limit=1000'); recordListRv('/api/v1/events', d?.metadata?.resourceVersion); return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0)) }
 
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
   // 入参 metricsAvailable：调用前 nodeList 的 metric 字段须已就绪
@@ -1946,7 +1968,7 @@ status:
     fetchPVs, fetchStorageClasses, fetchPV, fetchStorageClass,
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
-    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
+    fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchWorkloads, fetchWorkloadRevisions, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
     fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
     fetchCRDs, fetchCRD, fetchCRInstances,
@@ -1959,6 +1981,7 @@ status:
     // Pod Watch（实时监听）
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch,
+    watchStates, watchStateOf, startWorkloadFamilyWatch, stopWorkloadFamilyWatch,
     // CRD
     crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计

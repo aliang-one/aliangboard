@@ -3,7 +3,8 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceList } from '@/composables/useK8sQuery'
+import { useResourceList, useResourceDetail } from '@/composables/useK8sQuery'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 import { usePodBatchDelete } from '@/composables/usePodBatchDelete'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
@@ -77,6 +78,7 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 // (滚动/扩缩/刚 apply)→ 两查询 3s;收敛 +10s 保持后回 30s,高频 5min 封顶防抖。
 // refetchInterval 直传 ref:变化即时重排定时器(闭包形式滞后一个旧周期)。
 const pollInterval = ref(SLOW_MS)
+const wlState = computed(() => store.watchStateOf('workloads'))
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
@@ -91,7 +93,11 @@ const workload = computed(() => (workloadsQuery.data.value || []).find(
   w => w.name === route.params.name && w.namespace === route.params.namespace
 ))
 const { fastMode } = useDeployFastPoll(() => (workload.value?.raw ? [workload.value.raw] : []))
-watch(fastMode, f => { pollInterval.value = f ? FAST_MS : SLOW_MS }, { immediate: true })
+// watch 门控:live/reconnecting 态轮询归零(watch 推缓存);降级/off 才按 fast/slow 兜底。
+// podsQuery 共用 pollInterval,以 workloads 态门控(pods 有独立 watch,两态高度同步,简化可接受)。
+watch([fastMode, wlState], ([f, s]) => {
+  pollInterval.value = (s === 'live' || s === 'reconnecting') ? false : (f ? FAST_MS : SLOW_MS)
+}, { immediate: true })
 // 受管 Pod：复刻 store.getWorkloadPods 的选择器逻辑（selector.matchLabels → template labels.app
 // → workload labels.app → 名称前缀），数据源改为 podsQuery.data（远端不再依赖 store.podList）。
 const managedPods = computed(() => {
@@ -279,7 +285,15 @@ const replicasLabel = computed(() => {
 })
 const isCronJob = computed(() => workload.value?.type === 'CronJob')
 const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
-const revisions = computed(() => workload.value?.revisions || [])
+// 发布历史独立 query:列表已瘦身(fetchWorkloads 不再携带 revisions),按需拉(spec §5.2 第一刀)
+const TYPE_MAP = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet' }
+const queryClient = useQueryClient()
+const revisionsQuery = useResourceDetail({
+  key: ['cluster', cid, 'revisions', route.params.namespace, route.params.name],
+  fetcher: () => store.fetchWorkloadRevisions(TYPE_MAP[String(route.params.type).toLowerCase()] || workload.value?.type || 'Deployment', route.params.name, route.params.namespace),
+  options: { enabled: () => isRolloutType.value },
+})
+const revisions = computed(() => revisionsQuery.data.value || [])
 
 // 副本/滚动状态：从 Deployment/StatefulSet/DaemonSet 的 status 推导健康等级 + 新旧版本进度
 // level: healthy(绿) / updating(蓝) / warning(黄) / failed(红)，对应 status-* 设计令牌
@@ -336,6 +350,7 @@ async function handleRollback() {
   if (rollbackTarget.value == null) return
   try {
     await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
+    revisionsQuery.refetch()
     showRollbackModal.value = false
     rollbackTarget.value = null
     refreshSoon()
@@ -381,7 +396,7 @@ async function handleDeleteRev() {
   try {
     await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(route.params.namespace)}/replicasets/${encodeURIComponent(rev.rsName)}`, { method: 'DELETE' })
     notify('success', t('workload.notify.deletedRev', { rev: rev.rev, rsName: rev.rsName }))
-    if (workload.value?.revisions) workload.value.revisions = workload.value.revisions.filter(r => r.rev !== rev.rev)
+    queryClient.setQueryData(['cluster', cid.value, 'revisions', route.params.namespace, route.params.name], (old = []) => old.filter(r => r.rev !== rev.rev))
     if (expandedRev.value === rev.rev) expandedRev.value = null
   } catch (e) { notify('error', e.message || t('workload.notify.deleteFailed')) }
   showDeleteRevModal.value = false; deleteRevTarget.value = null

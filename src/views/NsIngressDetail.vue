@@ -39,8 +39,10 @@ const ingressClassesQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
-// Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+// Service 下拉源走 Vue Query（nsServices.value 在 remote 下孤立）；watch live 零轮询 / 降级 60s 兜底（直传 ref）
+const svcState = computed(() => store.watchStateOf('services'))
+const svcInterval = computed(() => (svcState.value === 'live' || svcState.value === 'reconnecting') ? false : 60000)
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: svcInterval, refetchOnWindowFocus: false } })
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 // TLS Secret 下拉源走 Vue Query（store.nsSecrets 在 remote 下孤立）
 const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })

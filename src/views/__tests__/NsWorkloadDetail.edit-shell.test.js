@@ -37,6 +37,7 @@ const demoWorkload = {
 }
 state.demoWorkload = demoWorkload
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
+    watchStateOf: () => 'off',
   currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true),
   fetchWorkloads: vi.fn(async () => [state.demoWorkload]), fetchPods: vi.fn(async () => []),
   updateWorkload: vi.fn((name, ns, updates) => captured.push(updates)),

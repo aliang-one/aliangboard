@@ -6,6 +6,7 @@
     "add": "Add",
     "remove": "Remove",
     "search": "Search",
+    "watchLive": "Live", "watchReconnecting": "Reconnecting", "watchDegraded": "Degraded (polling)",
     "sync": "Sync",
     "loading": "Loading…",
     "success": "Success",

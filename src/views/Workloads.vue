@@ -25,10 +25,13 @@ const { t } = useI18n()
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const nsQ = useResourceList({ key: ['cluster', cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000 } })
 const allNamespaces = computed(() => nsQ.data.value ?? store.namespaceList)
+// watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
 const workloadList = computed(() => workloadsQuery.data.value || [])
 

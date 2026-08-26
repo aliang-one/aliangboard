@@ -14,6 +14,13 @@ const { t } = useI18n()
 
 // 集群级聚合查询（Vue Query，cluster-wide 单 key；eventWatch 桥接仍写同一缓存）
 const cid = computed(() => (store.currentCluster || 'cluster'))
+// workload 族 watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const podsState = computed(() => store.watchStateOf('pods'))
+const podsInterval = computed(() => (podsState.value === 'live' || podsState.value === 'reconnecting') ? false : 60000)
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
+const eventsState = computed(() => store.watchStateOf('events'))
+const eventsInterval = computed(() => (eventsState.value === 'live' || eventsState.value === 'reconnecting') ? false : 60000)
 const nodesQuery = useResourceList({
   key: ['cluster', cid, 'nodes'],
   fetcher: () => store.fetchNodes(),
@@ -22,17 +29,17 @@ const nodesQuery = useResourceList({
 const podsQuery = useResourceList({
   key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: podsInterval, refetchOnWindowFocus: false },
 })
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
 const eventsQuery = useResourceList({
   key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: eventsInterval, refetchOnWindowFocus: false },
 })
 const nodeList = computed(() => nodesQuery.data.value || [])
 const podList = computed(() => podsQuery.data.value || [])
