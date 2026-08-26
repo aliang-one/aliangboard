@@ -38,16 +38,21 @@ const pod = computed(() => podDetail.data.value)
 const activeTab = ref('logs')
 
 // 归属 workload 查询（Vue Query；用于 owning-workload 计算属性中 ReplicaSet → Deployment 的前缀匹配）
+// watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
+const eventsState = computed(() => store.watchStateOf('events'))
+const eventsInterval = computed(() => (eventsState.value === 'live' || eventsState.value === 'reconnecting') ? false : 60000)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
 // 事件查询（Vue Query；podEvents 计算属性按 involvedObject 过滤该 Pod 的事件）
 const eventsQuery = useResourceList({
   key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: eventsInterval, refetchOnWindowFocus: false },
 })
 
 // 支持 hash 直达 tab：PodCard 等快速入口跳转到 PodDetail 时带 #terminal/#files/#exec/#logs

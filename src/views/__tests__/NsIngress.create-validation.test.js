@@ -17,6 +17,7 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/composables/useToast', () => ({ notify: (...a) => notify(...a) }))
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
+    watchStateOf: () => 'off',
     currentCluster: 'demo', setNamespace: () => {},
     fetchIngresses: vi.fn(async () => []), fetchServices: vi.fn(async () => []),
     fetchIngressClasses: vi.fn(async () => []),

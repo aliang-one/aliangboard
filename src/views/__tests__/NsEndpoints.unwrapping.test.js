@@ -9,6 +9,7 @@ import { i18n } from '@/i18n'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
+    watchStateOf: () => 'off',
     currentCluster: 'demo',
     serviceList: [],
     setNamespace: () => {},

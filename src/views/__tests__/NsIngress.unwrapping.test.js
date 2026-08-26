@@ -10,6 +10,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
+    watchStateOf: () => 'off',
     currentCluster: 'demo',
     nsServices: [],
     setNamespace: () => {},

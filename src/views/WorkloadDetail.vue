@@ -16,11 +16,14 @@ const router = useRouter()
 const store = useClusterStore()
 
 // 服务端状态归 Vue Query：workloads/pods/events 三查询，与列表页同源缓存。
+// workloads 走 watch 门控:live 零轮询 / 降级 60s 兜底;pods/events 无固定轮询,靠 watch 推缓存。
 const cid = computed(() => (store.currentCluster || 'cluster'))
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
 const podsQuery = useResourceList({
   key: ['cluster', cid, 'pods'],

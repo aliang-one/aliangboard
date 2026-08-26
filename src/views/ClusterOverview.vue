@@ -12,6 +12,11 @@ const store = useClusterStore()
 
 // Cluster ID (demo for mock, cluster name for remote)
 const cid = computed(() => (store.currentCluster || 'cluster'))
+// workload 族 watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const podsState = computed(() => store.watchStateOf('pods'))
+const podsInterval = computed(() => (podsState.value === 'live' || podsState.value === 'reconnecting') ? false : 60000)
+const eventsState = computed(() => store.watchStateOf('events'))
+const eventsInterval = computed(() => (eventsState.value === 'live' || eventsState.value === 'reconnecting') ? false : 60000)
 
 // Nodes query (Vue Query)
 const nodesQuery = useResourceList({
@@ -25,7 +30,7 @@ const nodeList = computed(() => nodesQuery.data.value || [])
 const podsQuery = useResourceList({
   key: ['cluster', cid, 'pods'],
   fetcher: () => store.fetchPods(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: podsInterval, refetchOnWindowFocus: false },
 })
 const podList = computed(() => podsQuery.data.value || [])
 // P2-B：每节点 Pod 数从 pods 查询派生（旧 node.podCount 读孤儿 podList 回填 → 恒 0）
@@ -39,7 +44,7 @@ const podCountByNode = computed(() => {
 const eventsQuery = useResourceList({
   key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
-  options: { refetchInterval: 30000 }
+  options: { refetchInterval: eventsInterval, refetchOnWindowFocus: false }
 })
 const eventList = computed(() => eventsQuery.data.value || [])
 

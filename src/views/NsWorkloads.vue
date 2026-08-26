@@ -17,6 +17,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import SplitButton from '@/components/common/SplitButton.vue'
 import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
+import WatchStateChip from '@/components/common/WatchStateChip.vue'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -31,13 +32,15 @@ const queryClient = useQueryClient()
 const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
 
-// Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：远端 30s 轮询 + 聚焦重拉 + 新鲜度。
+// Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：watch live 零轮询，降级 60s 兜底。
 const cid = computed(() => (store.currentCluster || 'cluster'))
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
 const workloadsKey = ['cluster', cid, 'workloads']
 const workloadsQuery = useResourceList({
   key: workloadsKey,
   fetcher: () => store.fetchWorkloads(),
-  options: { refetchInterval: 30000 },
+  options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
 const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
 
@@ -122,7 +125,10 @@ async function handleDelete() {
 
     <div class="flex justify-between items-end mt-sm mb-md">
       <div>
-        <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
+        <div class="flex items-center gap-sm">
+          <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
+          <WatchStateChip :state="wlState" />
+        </div>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: nsWorkloads.length, ns: route.params.namespace }) }}</p>
       </div>
       <SplitButton

@@ -156,7 +156,10 @@ const ingressDialect = computed(() => detectDialect(form.value.ingressClassName)
 watch(ingressDialect, () => { form.value.ingressAdv = {} })
 
 // Service 候选:ns 已有(Vue Query)+ 向导自建虚拟项(createService 开启时;label 标「本向导创建」)
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+// watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
+const svcState = computed(() => store.watchStateOf('services'))
+const svcInterval = computed(() => (svcState.value === 'live' || svcState.value === 'reconnecting') ? false : 60000)
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: svcInterval, refetchOnWindowFocus: false } })
 const virtualServiceName = computed(() => (form.value.createService && form.value.name ? `${form.value.name}-svc` : ''))
 const ingressServiceOptions = computed(() => {
   const real = (svcQ.data.value || []).filter(s => s.namespace === form.value.namespace)

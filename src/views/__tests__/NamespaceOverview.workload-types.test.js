@@ -21,6 +21,7 @@ const fixtures = [
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
+    watchStateOf: () => 'off',
     currentCluster: 'c',
     setNamespace: vi.fn(),
     fetchWorkloads: vi.fn(async () => fixtures),

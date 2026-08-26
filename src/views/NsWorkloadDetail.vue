@@ -77,6 +77,7 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 // (滚动/扩缩/刚 apply)→ 两查询 3s;收敛 +10s 保持后回 30s,高频 5min 封顶防抖。
 // refetchInterval 直传 ref:变化即时重排定时器(闭包形式滞后一个旧周期)。
 const pollInterval = ref(SLOW_MS)
+const wlState = computed(() => store.watchStateOf('workloads'))
 const workloadsQuery = useResourceList({
   key: ['cluster', cid, 'workloads'],
   fetcher: () => store.fetchWorkloads(),
@@ -91,7 +92,11 @@ const workload = computed(() => (workloadsQuery.data.value || []).find(
   w => w.name === route.params.name && w.namespace === route.params.namespace
 ))
 const { fastMode } = useDeployFastPoll(() => (workload.value?.raw ? [workload.value.raw] : []))
-watch(fastMode, f => { pollInterval.value = f ? FAST_MS : SLOW_MS }, { immediate: true })
+// watch 门控:live/reconnecting 态轮询归零(watch 推缓存);降级/off 才按 fast/slow 兜底。
+// podsQuery 共用 pollInterval,以 workloads 态门控(pods 有独立 watch,两态高度同步,简化可接受)。
+watch([fastMode, wlState], ([f, s]) => {
+  pollInterval.value = (s === 'live' || s === 'reconnecting') ? false : (f ? FAST_MS : SLOW_MS)
+}, { immediate: true })
 // 受管 Pod：复刻 store.getWorkloadPods 的选择器逻辑（selector.matchLabels → template labels.app
 // → workload labels.app → 名称前缀），数据源改为 podsQuery.data（远端不再依赖 store.podList）。
 const managedPods = computed(() => {

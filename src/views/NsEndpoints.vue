@@ -30,8 +30,10 @@ const endpointsQuery = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const nsEndpoints = computed(() => (endpointsQuery.data.value || []).filter(e => e.namespace === route.params.namespace))
-// Service 名查询（svcByName 在 remote 下孤立）
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
+// Service 名查询（svcByName 在 remote 下孤立）；watch live 零轮询 / 降级 60s 兜底（直传 ref）
+const svcState = computed(() => store.watchStateOf('services'))
+const svcInterval = computed(() => (svcState.value === 'live' || svcState.value === 'reconnecting') ? false : 60000)
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: svcInterval, refetchOnWindowFocus: false } })
 const svcByName = (name, ns) => (svcQ.data.value || []).find(s => s.name === name && s.namespace === ns)
 
 const search = ref('')
