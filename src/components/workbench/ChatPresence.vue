@@ -1,6 +1,7 @@
 <script setup>
 // 全局悬浮 AI 对话入口(挂 AppLayout 浮层区,spec §3.2):
-// 10s 轮询 /conversations/active → chatPresence 纯函数算显隐/徽标 → 单按钮(≥2 个活跃先微型列表)。
+// 10s 轮询 /conversations/active → chatPresence 纯函数算显隐/徽标 → 单按钮 + 微型选择列表
+// (2026-08-26:点击恒出列表,取消「恰 1 条直开」捷径;paused 不参与当前项目排除)。
 // readAt 唯一写入点:Modal 打开期间(选中对话)+ 停留 /workbench/:id 期间(该项目全部对话)——
 // 「看着它跑完」不误报未读,「走后才跑完」正确报未读。
 // 连续 3 次轮询失败(含 401)→ 隐藏按钮但继续轮询,成功自愈恢复。
@@ -55,9 +56,11 @@ async function poll() {
 
 function onVisibility() { if (!document.hidden) poll() }
 
+// 点击 FAB 恒出选择列表(2026-08-26 修复):旧版「恰 1 条活跃直开 Modal」的捷径让用户
+// 在典型状态(当前项目排除 + 30min 窗口后仅剩 1 条)下永远见不到列表入口——用户报告
+// 「点击后应可选过去一段时间的对话,列表逻辑没正确运行」。列表是唯一入口,几条都先出列表。
 function onFabClick() {
-  if (presence.value.directOpen) openConv(visible.value[0])
-  else listOpen.value = !listOpen.value
+  listOpen.value = !listOpen.value
 }
 function openConv(c) {
   selected.value = c
@@ -79,8 +82,8 @@ onUnmounted(() => {
 
 <template>
   <div v-if="presence.show && failCount < MAX_FAILS" class="fixed right-6 bottom-20 z-[45] flex flex-col items-end gap-sm">
-    <!-- 微型列表(≥2 个活跃先选择;缩为 1 个时自动收起) -->
-    <div v-if="listOpen && !presence.directOpen" data-testid="presence-list"
+    <!-- 微型选择列表:点击 FAB 恒出(几条都出);列表清空时自动收起 -->
+    <div v-if="listOpen && visible.length" data-testid="presence-list"
       class="w-72 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-dropdown p-xs flex flex-col gap-0.5">
       <button v-for="c in visible" :key="c.id" data-testid="presence-row" @click="openConv(c)"
         class="text-left px-sm py-sm rounded-lg hover:bg-surface-container flex items-start gap-sm">

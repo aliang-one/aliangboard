@@ -679,8 +679,20 @@ async function decideApproval(approved) {
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
     startStreaming(id)
   } catch (e) {
-    if (!unmounted && pa.turnId) updateTurn(pa.turnId, { status: 'error', error: e.message || t('workbench.chat.agentFailed') })
-    if (!unmounted) sending.value = false
+    if (unmounted) return
+    if (e?.status === 400) {
+      // 审批准入 CAS 拒绝:已被别处决策(多实例双开/悬浮 Modal 同批)→ 对齐服务端真实状态;
+      // 对齐后若仍在跑则续流,若又 paused(下一道审批)pollOnce 自会弹新审批。
+      await pollOnce(conversationId.value)
+      if (!agentTurnDoneOrFinal() && convStatus.value === 'running') startStreaming(conversationId.value)
+      else sending.value = false
+    } else {
+      // 网络/5xx:恢复 modal 供重试,并撤销重放压制——否则 modal 已清 + replay 被压 + 轮询已停
+      // (paused 分支停轮询),本实例永远不再弹该审批,只剩别的实例能看到(2026-08-26 锁死修复)。
+      decidedApprovals.delete(pa.toolCallId)
+      pendingApproval.value = pa
+      sending.value = false
+    }
   }
 }
 

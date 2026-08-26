@@ -18,7 +18,7 @@ test('hasUpdate:无记录=有更新;等于=无;晚于=有;任意状态(running �
   expect(hasUpdate(conv({ status: 'done', updatedAt: T0 + 1 }), { c1: T0 })).toBe(true)  // 终态新动静
 })
 
-test('visibleConversations:只排当前项目;已读终态不再被滤(窗口过滤在服务端)', () => {
+test('visibleConversations:排当前项目的 running/终态;已读终态不再被滤(窗口过滤在服务端)', () => {
   const convs = [
     conv({ id: 'a', projectId: 'here', status: 'running' }),
     conv({ id: 'b', projectId: 'other', status: 'done', updatedAt: T0 }),  // 已读终态 → 保留(新模型)
@@ -27,16 +27,28 @@ test('visibleConversations:只排当前项目;已读终态不再被滤(窗口过
   expect(visibleConversations(convs, { currentProjectId: null }).map(c => c.id)).toEqual(['a', 'b'])
 })
 
+// 2026-08-26 修复:审批等人的对话(paused)不参与「正在看的项目」排除——用户正在该项目
+// 工作台页时,若把本项目的 paused 也藏掉,审批就只剩悬浮 Modal 一处可见(用户报告:
+// 「审批只在 modal 里出现,工作台里没弹出来」)。paused 是等人决策的紧急态,任何页面都必须露出。
+test('visibleConversations:当前项目的 paused 不被排除(审批必须处处可见)', () => {
+  const convs = [
+    conv({ id: 'wait', projectId: 'here', status: 'paused' }),
+    conv({ id: 'run', projectId: 'here', status: 'running' }),
+    conv({ id: 'done', projectId: 'here', status: 'done', updatedAt: T0 }),
+  ]
+  expect(visibleConversations(convs, { currentProjectId: 'here' }).map(c => c.id)).toEqual(['wait'])
+})
+
 test('presenceState:空→不显示;paused > update > running;全读终态→idle', () => {
-  expect(presenceState([], {})).toEqual({ show: false, level: 'none', icon: '', badgeCount: 0, directOpen: false })
+  expect(presenceState([], {})).toEqual({ show: false, level: 'none', icon: '', badgeCount: 0 })
   const seen = { a: T0, c1: T0 }
   expect(presenceState([conv({ id: 'a', status: 'paused' }), conv({ id: 'b', status: 'done', updatedAt: T0 })], seen))
-    .toEqual({ show: true, level: 'paused', icon: 'pending_actions', badgeCount: 1, directOpen: false })
+    .toEqual({ show: true, level: 'paused', icon: 'pending_actions', badgeCount: 1 })
   expect(presenceState([conv({ id: 'a', updatedAt: T0 })], { a: T0 - 1 }).level).toBe('update')
   expect(presenceState([conv({ id: 'a', status: 'running', updatedAt: T0 })], { a: T0 }).level).toBe('running')
   // 全部是已读终态 → idle:常驻但安静(smart_toy 不转圈),未读数 0
   expect(presenceState([conv({ id: 'a', status: 'done', updatedAt: T0 })], { a: T0 }))
-    .toEqual({ show: true, level: 'idle', icon: 'smart_toy', badgeCount: 0, directOpen: true })
+    .toEqual({ show: true, level: 'idle', icon: 'smart_toy', badgeCount: 0 })
 })
 
 test('presenceState.badgeCount = 未读数(有新动态的条数),读了就减', () => {

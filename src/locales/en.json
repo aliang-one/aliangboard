@@ -3296,7 +3296,8 @@
       "convRenamed": "Conversation renamed",
       "renameFailed": "Rename failed",
       "backgroundChat": "Background",
-      "backgroundChatTitle": "Conversation keeps running in background; back to namespace overview"
+      "backgroundChatTitle": "Conversation keeps running in background; back to namespace overview",
+      "pausedConvBanner": "\"{title}\" is awaiting your approval — click to review"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",

@@ -62,7 +62,12 @@ function beforeUnloadGuard(e) {
 onMounted(() => window.addEventListener('beforeunload', beforeUnloadGuard))
 const unmountedFlag = ref(false)
 const unmounted = unmountedFlag
-onUnmounted(() => { unmountedFlag.value = true; window.removeEventListener('beforeunload', beforeUnloadGuard) })
+onUnmounted(() => {
+  unmountedFlag.value = true
+  window.removeEventListener('beforeunload', beforeUnloadGuard)
+  document.removeEventListener('visibilitychange', onConvRefreshVisibility)
+  if (convRefreshTimer) clearInterval(convRefreshTimer)
+})
 
 // 挂到后台:对话是服务端 detached 执行,前端直接走人——回当前 ns 总览(分层拓扑),
 // 状态交给悬浮按钮(ChatPresence)。无集群会话则回集群选择页。
@@ -158,6 +163,24 @@ async function loadConversations() {
     conversations.value = r.conversations || []
   } catch {}
 }
+
+// ── 审批可见性(2026-08-26,用户报告「审批只在悬浮 Modal 出现,工作台里没弹出来」)──
+// 审批 UI 只活在「当前查看的那条对话」的 WorkbenchChat 实例里;审批发生在别的对话上
+// (切了对话/点了 New/挂到后台)时,这里补两道页面级防线:
+// ① 对话列表 10s 活刷新——侧栏状态点/横幅不滞留在挂载快照,paused 半路出现也即时可见;
+// ② 本项目有 paused 且非当前查看 → 聊天区顶部醒目横幅,点击切换过去(该对话挂载即弹审批 Modal)。
+function convRefreshTick() {
+  if (document.hidden || mode.value !== 'agent') return
+  loadConversations()
+}
+function onConvRefreshVisibility() { if (!document.hidden) convRefreshTick() }
+let convRefreshTimer = null
+onMounted(() => {
+  convRefreshTimer = setInterval(convRefreshTick, 10_000)
+  document.addEventListener('visibilitychange', onConvRefreshVisibility)
+})
+// 当前查看的 paused 不进横幅——其审批 Modal 已由 WorkbenchChat 在页面内弹出,横幅只做重复噪音
+const pausedOthers = computed(() => conversations.value.filter(c => c.status === 'paused' && c.id !== activeConversationId.value))
 async function reconcile() {
   reconciling.value = true
   try {
@@ -359,15 +382,24 @@ const treeRows = computed(() => {
         </div>
       </div>
       <!-- Chat area (full width) -->
-      <div class="flex-1 min-w-0">
-        <WorkbenchChat
-          :key="activeConversationId || 'new'"
-          :project-id="id"
-          :project-name="project?.name"
-          :conversation-id="activeConversationId"
-          :active-conversation-id="activeConversationId"
-          @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
-        />
+      <div class="flex-1 min-w-0 flex flex-col">
+        <!-- 审批等人横幅:本项目其他对话 paused → 醒目入口,点击切换过去(挂载即弹审批 Modal) -->
+        <button v-for="c in pausedOthers" :key="c.id" data-testid="paused-conv-banner" @click="selectConversation(c.id)"
+          class="shrink-0 flex items-center gap-sm px-md py-sm bg-status-warning/10 border-b border-status-warning/30 text-left hover:bg-status-warning/20 transition-colors">
+          <span class="material-symbols-outlined text-status-warning text-base shrink-0">pending_actions</span>
+          <span class="text-body-sm text-status-warning font-medium truncate">{{ t('workbench.detail.pausedConvBanner', { title: c.title || c.userMessage || t('workbench.detail.emptyConv') }) }}</span>
+          <span class="material-symbols-outlined text-status-warning text-base shrink-0 ml-auto">chevron_right</span>
+        </button>
+        <div class="flex-1 min-h-0 min-w-0">
+          <WorkbenchChat
+            :key="activeConversationId || 'new'"
+            :project-id="id"
+            :project-name="project?.name"
+            :conversation-id="activeConversationId"
+            :active-conversation-id="activeConversationId"
+            @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
+          />
+        </div>
       </div>
     </div>
 

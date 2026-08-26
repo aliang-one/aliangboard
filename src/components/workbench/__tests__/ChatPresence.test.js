@@ -1,7 +1,10 @@
-// ChatPresence 契约:轮询 → 显隐/徽标;单个活跃直开 Modal;≥2 个先微型列表;
+// ChatPresence 契约:轮询 → 显隐/徽标;点击 FAB 恒出选择列表(2026-08-26 修复:
+// 单个活跃曾直开 Modal 跳过列表——用户报告「点击后应可选过去一段时间的对话,列表
+// 逻辑没正确运行」;现列表是唯一入口,几条都出列表);
 // 空列表不渲染;连续 3 失败隐藏(成功自愈恢复);打开 Modal 即写 readAt;
 // Modal 关闭(update:modelValue=false)清空 selected。
 // 近期动态模型(2026-08-17):点击/读过只清「新动态」小点,条目与 FAB 常驻不消失。
+// 2026-08-26:当前项目的 paused 不再被排除(审批必须处处可见,详见 chatPresence.test.js)。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
@@ -46,12 +49,17 @@ async function mountPresence(activeResult) {
   return w
 }
 
-test('1 个未读终态:点击直开 Modal 并写 readAt;FAB 与条目保留(近期动态模型)', async () => {
+test('1 个未读终态:点击出列表(单条也不直开),选行再开 Modal 并写 readAt;FAB 与条目保留', async () => {
   const w = await mountPresence({ conversations: [conv({ status: 'done' })] })
   const fab = w.find('[data-testid="chat-presence-fab"]')
   expect(fab.exists()).toBe(true)
   expect(fab.text()).toContain('smart_toy') // update 档
   await fab.trigger('click')
+  // 2026-08-26 修复:单条也先出选择列表(直开捷径让用户永远见不到列表入口)
+  expect(w.find('[data-testid="presence-list"]').exists()).toBe(true, '单条活跃也先出列表')
+  expect(w.findAll('[data-testid="presence-row"]').length).toBe(1)
+  expect(w.find('[data-testid="chat-modal"]').exists()).toBe(false, '未选行不开 Modal')
+  await w.find('[data-testid="presence-row"]').trigger('click')
   await flushPromises()
   expect(w.find('[data-testid="chat-modal"]').text()).toBe('c1')
   expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true, '读过不清条目——FAB 保留')
@@ -86,13 +94,14 @@ test('微型列表:有新动态的行亮点,无动态的行不亮', async () => 
   expect(dots.length).toBe(1)
 })
 
-// 评审 Critical-1 回归:Modal 移出显隐容器。单个未读终态点击 FAB → openConv 同步 markRead,
+// 评审 Critical-1 回归:Modal 移出显隐容器。单个未读终态选行 → openConv 同步 markRead,
 // 近期动态模型下读过不清条目(FAB 常驻),打开中的 Modal 只许由 selected 控制挂载/卸载
 // (旧代码 Modal 住在 v-if 容器里,会连同尚未挂载完的 Modal 一起消失,用户一点全没了)
-test('单个未读终态:点击 FAB 后 FAB 保留,Modal 挂载且持续存在', async () => {
+test('单个未读终态:打开后 FAB 保留,Modal 挂载且持续存在', async () => {
   const w = await mountPresence({ conversations: [conv({ status: 'done' })] })
   expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true)
   await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+  await w.find('[data-testid="presence-row"]').trigger('click')
   await flushPromises()
   expect(w.find('[data-testid="chat-presence-fab"]').exists()).toBe(true, '读过不清条目——FAB 保留')
   expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
@@ -111,6 +120,7 @@ test('Modal 开着唯一 running 对话跑完:下一轮 poll 后 idle 档 FAB �
     const w = mount(ChatPresence, { global: { plugins: [i18n] } })
     await vi.advanceTimersByTimeAsync(0) // 冲刷首轮 poll(onMounted)+渲染
     await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+    await w.find('[data-testid="presence-row"]').trigger('click') // 列表选行打开
     await vi.advanceTimersByTimeAsync(0) // 解析 defineAsyncComponent
     expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
     // 第二次轮询:跑完(done)且 updatedAt 更新;poll 对 selected 刷 readAt(poll 时钟 T0+40s)
@@ -133,7 +143,8 @@ test('正在看的 running 对话:两轮 poll 间 updatedAt 前进也不亮新�
     api.active.mockImplementation(async () => ({ conversations: [conv()] })) // updatedAt=T0
     const w = mount(ChatPresence, { global: { plugins: [i18n] } })
     await vi.advanceTimersByTimeAsync(0)
-    await w.find('[data-testid="chat-presence-fab"]').trigger('click') // 直开 Modal → watching
+    await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+    await w.find('[data-testid="presence-row"]').trigger('click') // 列表选行打开 → watching
     await vi.advanceTimersByTimeAsync(0)
     // 第二轮:服务端又落库了,且服务端时钟领先(updatedAt=T0+50s,超出本机假时钟 T0+40s)——
     // 墙钟水位会误判未读;水位=updatedAt 则正在看永不亮
@@ -151,6 +162,7 @@ test('正在看的 running 对话:两轮 poll 间 updatedAt 前进也不亮新�
 test('Modal 关闭:emit update:modelValue=false → chat-modal 卸载', async () => {
   const w = await mountPresence({ conversations: [conv()] })
   await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+  await w.find('[data-testid="presence-row"]').trigger('click')
   await flushPromises() // ChatModal 为 defineAsyncComponent,动态 import 解析需冲刷(同上)
   expect(w.find('[data-testid="chat-modal"]').exists()).toBe(true)
   w.findComponent({ name: 'ChatModal' }).vm.$emit('update:modelValue', false)
@@ -192,8 +204,16 @@ test('连续 3 失败隐藏 FAB;成功自愈复活;非空列表 3 失败同样�
 
 // 需求书注:$route 全局属性注入与 useRoute()(走 inject)不兼容,改挂最小真路由,
 // 让 useRoute().name === 'WorkbenchProject' 成立;断言不变
-test('正在看的项目被排除(路由 WorkbenchProject)', async () => {
-  api.active.mockImplementation(async () => ({ conversations: [conv({ projectId: 'p1' }), conv({ id: 'b', projectId: 'p2', projectName: 'P2', status: 'paused' })] }))
+// 2026-08-26 契约修正:排除只作用于 running/终态;paused(审批等人)任何页面都必须露出
+// ——用户报告「审批只在悬浮 Modal 出现,工作台页面不弹」的直接温床之一就是本排除
+// 把正在看的项目里 paused 的对话也藏了。
+test('正在看的项目:running/终态被排除,paused 保留(路由 WorkbenchProject)', async () => {
+  api.active.mockImplementation(async () => ({ conversations: [
+    conv({ id: 'run', projectId: 'p1' }),                                          // p1 running → 排除
+    conv({ id: 'done', projectId: 'p1', status: 'done', updatedAt: T0 }),          // p1 done → 排除
+    conv({ id: 'wait', projectId: 'p1', status: 'paused' }),                       // p1 paused → 保留!
+    conv({ id: 'b', projectId: 'p2', projectName: 'P2', status: 'paused' }),
+  ] }))
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/workbench/:id', name: 'WorkbenchProject', component: { render: () => null } }],
@@ -202,9 +222,10 @@ test('正在看的项目被排除(路由 WorkbenchProject)', async () => {
   await router.isReady()
   const w = mount(ChatPresence, { global: { plugins: [i18n, router] } })
   await flushPromises()
-  // p2 的 paused 仍在;p1 的 running 被排除
   expect(w.find('[data-testid="chat-presence-fab"]').text()).toContain('pending_actions')
-  // 钉死排除生效:若 p1 未被排除,badgeCount=2 会显示数字角标
-  // (上面 paused 图标断言在排除失效时照样绿,挡不住回归)
-  expect(w.find('[data-testid="chat-presence-fab"]').text()).not.toContain('2')
+  await w.find('[data-testid="chat-presence-fab"]').trigger('click')
+  // 列表含两个 paused(本项目的 wait + 别项目的 b),不含本项目 running/done
+  expect(w.findAll('[data-testid="presence-row"]')).toHaveLength(2)
+  // 行文本只渲染 title/projectName,不渲染 id → 用 vm 上的 visible 权威断言成员
+  expect(w.vm.visible.map(c => c.id)).toEqual(['wait', 'b'])
 })

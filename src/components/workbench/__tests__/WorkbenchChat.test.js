@@ -55,10 +55,13 @@ async function mountChat(props = {}) {
 }
 
 // Reset call history between tests so create/append assertions are scoped to one test.
+// (approve/deny 同清:审批链测试断言调用次数,前序测试的计数会泄漏——2026-08-26 踩到)
 beforeEach(() => {
   api.conversations.create.mockClear()
   api.conversations.append.mockClear()
   api.conversations.get.mockClear()
+  api.conversations.approve.mockClear()
+  api.conversations.deny.mockClear()
 })
 
 test('send() calls conversations.create when no activeConversationId', async () => {
@@ -698,4 +701,56 @@ test('加载失败空态下发消息被拦:不创建幻影轮、不调 append/cr
   expect(api.conversations.append).not.toHaveBeenCalled()
   // 无幻影 user turn
   expect(w.html()).not.toContain('新消息')
+})
+
+// ── 2026-08-26 审批锁死修复(decideApproval 失败僵尸)──
+// 旧版 decideApproval 在发请求「之前」就把 toolCallId 记入 decidedApprovals(重放不弹)并清
+// pendingApproval;请求失败(网络/5xx)后:modal 已清、重放被压、轮询已停(paused 分支停轮询)
+// → 本实例永远不再弹该审批,只剩别的实例/悬浮 Modal 能看到(用户报告「审批只在 modal 里
+// 出现,工作台里没弹出来」的可达路径之一)。
+// 修复契约:①网络/5xx 失败 → 恢复 modal 供重试,撤销重放压制;②400(CAS:已被别处决策)
+// → 不恢复 modal,pollOnce 对齐服务端真实状态并按需续流。
+test('审批决策失败(网络)→ modal 恢复可重试;重试成功后正常续跑', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValueOnce({
+    id: 'conv-z', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+    pendingApproval: JSON.stringify({ toolCallId: 'tz', name: 'wb_scale', args: { replicas: 3 } }),
+  })
+  api.conversations.approve.mockRejectedValueOnce(Object.assign(new Error('network down'), { status: 502 }))
+  const w = await mountChat({ conversationId: 'conv-z', activeConversationId: 'conv-z' })
+  await flushPromises()
+  const approveBtn = () => w.findAll('button').find(b => b.text().includes('workbench.chat.approve'))
+  expect(approveBtn(), '审批弹出').toBeTruthy()
+  await approveBtn().trigger('click')
+  await flushPromises()
+  expect(api.conversations.approve).toHaveBeenCalledTimes(1)
+  expect(approveBtn(), '请求失败 → modal 恢复(可重试),不得锁死').toBeTruthy()
+  // 重试成功 → modal 关闭、进入 running 续流(测试环境无 EventSource → 降级轮询)
+  api.conversations.approve.mockResolvedValue({ status: 'running' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-z', status: 'done', content: '终答', trace: '[]', steps: 2, recap: '', messages: [{ role: 'assistant', content: '终答', createdAt: 1 }] })
+  await approveBtn().trigger('click')
+  await flushPromises()
+  expect(api.conversations.approve).toHaveBeenCalledTimes(2)
+  expect(approveBtn(), '决策成功 → modal 关闭').toBeFalsy()
+  w.unmount()
+})
+
+test('审批决策 400(已被别处决策,CAS)→ 不恢复 modal;pollOnce 对齐 running', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValueOnce({
+    id: 'conv-cas', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+    pendingApproval: JSON.stringify({ toolCallId: 'tc', name: 'wb_scale', args: {} }),
+  })
+  api.conversations.approve.mockRejectedValueOnce(Object.assign(new Error('对话不在审批态'), { status: 400 }))
+  // CAS 后服务端真实状态:running(另一实例已批,resume 进行中)
+  api.conversations.get.mockResolvedValueOnce({ id: 'conv-cas', status: 'running', content: '', trace: '[]', steps: 1, recap: '', messages: [] })
+  const w = await mountChat({ conversationId: 'conv-cas', activeConversationId: 'conv-cas' })
+  await flushPromises()
+  const approveBtn = () => w.findAll('button').find(b => b.text().includes('workbench.chat.approve'))
+  expect(approveBtn(), '审批弹出').toBeTruthy()
+  await approveBtn().trigger('click')
+  await flushPromises()
+  expect(approveBtn(), 'CAS 冲突:审批已被别处决策,不恢复 modal').toBeFalsy()
+  expect(w.vm.convStatus, '本地状态对齐服务端 running').toBe('running')
+  w.unmount()
 })
