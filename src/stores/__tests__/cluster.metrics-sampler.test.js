@@ -11,7 +11,7 @@ vi.mock('@/api/client', () => {
       if (!url.includes('metrics.k8s.io')) return {}
       return url.endsWith('/nodes') ? nodeMetrics : podMetrics
     }) },
-    k8sStream: vi.fn(), portForwardApi: {},
+    k8sStream: vi.fn(), k8sChannel: vi.fn(() => ({ abort(){} })), portForwardApi: {},
     getSavedClusters: () => [], addSavedCluster: vi.fn(), removeSavedCluster: vi.fn(),
     setActiveToken: vi.fn(), activeApiServer: () => '', getSessionToken: () => '',
   }

@@ -102,6 +102,12 @@ Vue Query 缓存   useClusterWatch 管理器(单例,store 内)
 
 ### 5.3 watch 增量通道
 
+> **2026-08-26 修订(上线当日事故)**:初版 7 条独立 watch 长连接打爆浏览器 HTTP/1.1 同源 6 连接上限(6 条 watch + HMR WS 占满,第 7 条 watch 与全部数据请求在浏览器排队 pending → 全站白屏,`ss` 实测 7×5173/6×8787)。传输层改为**网关多路复用单流**;`useClusterWatch` 状态机与页面接线不变。
+
+- **传输(修订后)**:网关新增 `GET /api/k8s-watch?resources=<7 资源 CSV>&rv_<r>=<n>`(`server/k8s-watch-mux.mjs`),单条 NDJSON 流聚合 7 路上游 watch,行格式 `{"r":<资源>,"t":<ADDED|MODIFIED|DELETED>,"o":<对象>}`;任一上游失败(含 410 RV 失效)发 `{"r":...,"err":<status>}` 后整通道关闭。前端 `k8sChannel`(client.js,与 k8sStream 共享行读取循环)单连接接入,demux 后按资源走 `applyWatchEvent` 写各自 canonical key——浏览器恒占 **1 条**连接。
+- **断线语义(修订后)**:通道级退避重连/降级沿用 `createWatchController`;err 行 → 该资源 `refetchQueries`(刷新 registry RV)后拆通道重连;410 走 onError({status:410}) 不计失败(RV 过期计失败会误降级)。
+- **开关**:`localStorage.aliangboard.watchFamily` —— 默认开;'0' 为 kill-switch 强制回落轮询世界(60s 兜底)。
+- 旧入口 `startPodWatch/startEventWatch` 保留直连单资源流(NsPods 手动 toggle 等场景;与家庭通道事件幂等双写,多占 1 条连接,已知可接受)。
 - 将 `startPodWatch/startEventWatch` 泛化为 `useClusterWatch` 管理器(store 内单例),每资源一条配置 `{ watchPath, mapFn, queryKey }`;旧两个函数改为薄封装,外部行为与现有启动点兼容。
 - 新接 5 条:deployments / statefulsets / daemonsets(各自事件 merge 进同一 `['cluster',cid,'workloads']` key)、services、ingresses;连同已有 pods/events 共 7 条长连接,空闲零流量。
 - **RV 生命周期**:每次 list(初次 fetch 与降级轮询)把响应 `metadata.resourceVersion` 登记进管理器 → watch 从该 RV 续接只收变更;事件中的新 RV 持续前滚。
@@ -161,7 +167,10 @@ Vue Query 缓存   useClusterWatch 管理器(单例,store 内)
 |---|---|
 | 回滚链路改数据源(最高危) | fetcher 单源两消费方共用 + 护栏单测 + 手测回归 |
 | watch 与 invalidate 竞写 | 不可变合并语义不变(既有) |
-| 7 条长连接压力 | 空闲零流量;网关 10h 超时透传;单用户量级无虞 |
+| ~~7 条长连接压力~~ → **浏览器同源 6 连接上限**(已发生,当日修订) | 传输改多路复用单流(§5.3 修订);watchFamily '0' kill-switch |
+| mux 网关侧无背压(write 返回值未理) | 与旧流式分支同特性,7 路聚合放大——follow-up 加 drain |
+| mux 双上游同 tick 失败二次 write-after-end | 实践 cosmetic(浏览器反正重连)——follow-up 加 ended 守卫 |
+| NsPods toggle 与家庭通道双写 pods | applyWatchEvent 幂等,多占 1 连接,已知可接受 |
 | gcTime Infinity 内存增长 | mapped 对象为瘦结构;切集群 clear 已有;量级(百资源 × 几 KB)无虞 |
 | 网关剥字段误伤未知消费方 | 仅剥已验证零读取方的两个字段;单测钉住 spec/status 完整 |
 | watch DELETED 事件与在途全量 refetch 竞写(旧快照后到覆盖删除) | 展示级陈旧:该条目短暂复活,路由重挂(staleTime 15s→remount refetch)或下一事件自愈;接受为已知限制,不为此引入合并复杂度 |
