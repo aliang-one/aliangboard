@@ -45,7 +45,7 @@ onMounted(() => {
   if (getSession()) {
     termStore.loadPersisted()
     fbStore.loadPersisted()
-    store.hydrateCriticalResources({ silent: true }).catch(() => {})
+    store.hydrateCriticalResources({ silent: true }).then(() => store.startWorkloadFamilyWatch()).catch(() => {})
   }
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })

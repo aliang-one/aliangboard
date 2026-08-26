@@ -1,5 +1,6 @@
 // 资源 fetcher（K8s API → mapXxx）。从 cluster.js 抽出的纯数据拉取函数。
 import { api } from '@/api/client'
+import { recordListRv } from '@/composables/watchRegistry'
 import { i18n } from '@/i18n'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import {
@@ -80,13 +81,13 @@ export async function fetchNode(name) {
 }
 
 // 单类型资源列表拉取（自包含：单 endpoint + mapXxx，无 metrics 耦合）。供各 Ns* 列表页 Vue Query 作 fetcher。
-export async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); return (d?.items || []).map(mapService) }
+export async function fetchServices() { const d = await api.k8s('/api/v1/services?limit=1000'); recordListRv('/api/v1/services', d?.metadata?.resourceVersion); return (d?.items || []).map(mapService) }
 export async function fetchService(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`); return d ? mapService(d) : null }
 export async function fetchConfigMaps() { const d = await api.k8s('/api/v1/configmaps?limit=5000'); return (d?.items || []).map(mapConfigMap) }
 export async function fetchConfigMap(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps/${encodeURIComponent(name)}`); return d ? mapConfigMap(d) : null }
 export async function fetchSecrets() { const d = await api.k8s('/api/v1/secrets?limit=5000'); return (d?.items || []).map(mapSecret) }
 export async function fetchSecret(name, ns) { const d = await api.k8s(`/api/v1/namespaces/${encodeURIComponent(ns)}/secrets/${encodeURIComponent(name)}`); return d ? mapSecret(d) : null }
-export async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); return (d?.items || []).map(mapIngress) }
+export async function fetchIngresses() { const d = await api.k8s('/apis/networking.k8s.io/v1/ingresses?limit=1000'); recordListRv('/apis/networking.k8s.io/v1/ingresses', d?.metadata?.resourceVersion); return (d?.items || []).map(mapIngress) }
 export async function fetchIngress(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`); return d ? mapIngress(d) : null }
 export async function fetchNetworkPolicies() { const d = await api.k8s('/apis/networking.k8s.io/v1/networkpolicies?limit=5000'); return (d?.items || []).map(mapNetworkPolicy) }
 export async function fetchNetworkPolicy(name, ns) { const d = await api.k8s(`/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`); return d ? mapNetworkPolicy(d) : null }
@@ -112,6 +113,10 @@ export async function fetchWorkloads() {
     ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
     ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
   ]
+  // watch RV 登记簿写入:三类各登记自己的 list RV,供 7 流 watch 重连续接(拆分前先加,Task 5 再瘦身)
+  recordListRv('/apis/apps/v1/deployments', dep?.metadata?.resourceVersion)
+  recordListRv('/apis/apps/v1/statefulsets', sts?.metadata?.resourceVersion)
+  recordListRv('/apis/apps/v1/daemonsets', ds?.metadata?.resourceVersion)
   attachRolloutHistory(list, dep, rs)
   return list
 }
