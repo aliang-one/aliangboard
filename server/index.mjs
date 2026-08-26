@@ -1117,9 +1117,9 @@ async function handle(req, res) {
         // === K8s 调查(workbench-principal,直连集群凭据) ===
         listResources: async (kind, namespace) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = normalizeKind(kind) || 'pods'
+          const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
+          if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const listPath = WB_K8S_LIST_PATH[k]
-          if (!listPath) throw new Error(msg(req, 'api.unsupportedKind', { k: `${k}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const path = namespace && namespace !== '_' ? listPath.replace('/pods', `/namespaces/${enc(namespace)}/pods`).replace('/services', `/namespaces/${enc(namespace)}/services`).replace('/deployments', `/namespaces/${enc(namespace)}/deployments`).replace('/configmaps', `/namespaces/${enc(namespace)}/configmaps`).replace('/secrets', `/namespaces/${enc(namespace)}/secrets`).replace('/statefulsets', `/namespaces/${enc(namespace)}/statefulsets`).replace('/daemonsets', `/namespaces/${enc(namespace)}/daemonsets`).replace('/persistentvolumeclaims', `/namespaces/${enc(namespace)}/persistentvolumeclaims`).replace('/networkpolicies', `/namespaces/${enc(namespace)}/networkpolicies`).replace('/serviceaccounts', `/namespaces/${enc(namespace)}/serviceaccounts`).replace('/ingresses', `/namespaces/${enc(namespace)}/ingresses`) : listPath
           const resp = await requestKubernetes(k8sSession, path)
           const items = (resp?.body?.items || []).slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
@@ -1152,9 +1152,9 @@ async function handle(req, res) {
         },
         describeResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = normalizeKind(kind) || 'pods'
+          const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
+          if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const getter = WB_K8S_GET_PATH[k]
-          if (!getter) throw new Error(msg(req, 'api.unsupportedKind', { k: `${k}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const resResp = await requestKubernetes(k8sSession, getter(namespace, name))
           const resBody = resResp?.body
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
@@ -1165,9 +1165,9 @@ async function handle(req, res) {
         // 轻量 GET:单个资源完整对象(无 events),适合 ConfigMap/Service/Secret 等不需要事件的场景
         getResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          const k = normalizeKind(kind) || 'pods'
+          const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
+          if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const getter = WB_K8S_GET_PATH[k]
-          if (!getter) throw new Error(msg(req, 'api.unsupportedKind', { k: `${k}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
           const resp = await requestKubernetes(k8sSession, getter(namespace, name))
           const body = resp?.body
           if (body?.metadata?.managedFields) delete body.metadata.managedFields

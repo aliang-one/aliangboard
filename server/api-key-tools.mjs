@@ -174,7 +174,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
             return { kind: '(path)', count: all.length, returned: items.length, items }
           } })
       }
-      const kind = normalizeKind(a.kind) || 'pods'
+      const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
+      if (!kind) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       const templ = LIST_PATH[kind]
       if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
@@ -186,7 +187,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     get_resource: async (keyRow, cluster, a, source) => {
-      const kind = normalizeKind(a.kind) || 'pods'
+      const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
+      if (!kind) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       const getter = GET_PATH[kind]
       if (!getter) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'get_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `kind=${kind} name=${a.name}`,
@@ -222,7 +224,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     describe_resource: async (keyRow, cluster, a, source) => {
-      const kind = normalizeKind(a.kind) || 'pods'
+      const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
+      if (!kind) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       const getter = GET_PATH[kind]
       if (!getter) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'describe_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `describe ${kind}/${a.name}`,
