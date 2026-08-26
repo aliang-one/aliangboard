@@ -116,23 +116,23 @@ async function copyLogs() {
       <button @click="restart" class="ml-auto underline">{{ t('component.logViewer.retry') }}</button>
     </div>
 
-    <!-- 工具栏 -->
-    <div class="bg-surface-container-highest/50 px-md py-2 flex flex-wrap items-center gap-md border-b border-outline-variant shrink-0">
+    <!-- 工具栏·第一行:数据源 -->
+    <div data-testid="log-toolbar-row-1" class="bg-surface-container-highest/50 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0">
       <div class="flex items-center gap-xs">
-        <span class="text-body-sm text-on-surface-variant font-medium">{{ t('component.logViewer.container') }}</span>
-        <select v-model="container" data-testid="log-container" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.container') }}</span>
+        <select v-model="container" data-testid="log-container" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
           <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
         </select>
       </div>
       <div class="flex items-center gap-xs">
-        <span class="text-body-sm text-on-surface-variant font-medium">{{ t('component.logViewer.lines') }}</span>
-        <select v-model="logLines" data-testid="log-lines" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.lines') }}</span>
+        <select v-model="logLines" data-testid="log-lines" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
           <option v-for="n in LOG_LINE_OPTIONS" :key="n" :value="n">{{ n }}</option>
         </select>
       </div>
       <div class="flex items-center gap-xs">
-        <span class="text-body-sm text-on-surface-variant font-medium">{{ t('component.logViewer.since') }}</span>
-        <select v-model="logSince" data-testid="log-since" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.since') }}</span>
+        <select v-model="logSince" data-testid="log-since" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
           <option v-for="o in LOG_SINCE_OPTIONS" :key="o.value" :value="o.value">{{ t(SINCE_LABEL_KEYS[o.value] || 'component.logViewer.since_all') }}</option>
         </select>
       </div>
@@ -147,31 +147,37 @@ async function copyLogs() {
           <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>{{ t('component.logViewer.live') }}
         </span>
       </label>
-      <div class="flex items-center gap-xs">
+    </div>
+
+    <!-- 工具栏·第二行:查看控制 -->
+    <div data-testid="log-toolbar-row-2" class="bg-surface-container-highest/30 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0">
+      <div class="flex items-center gap-xs flex-1 min-w-40">
         <span class="material-symbols-outlined text-body-base text-on-surface-variant">search</span>
-        <input v-model="search" data-testid="log-search" type="text" :placeholder="t('component.logViewer.searchPlaceholder')" class="w-40 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+        <input v-model="search" data-testid="log-search" type="text" :placeholder="t('component.logViewer.searchPlaceholder')" class="flex-1 min-w-0 h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
         <label class="flex items-center gap-0.5 text-body-xs cursor-pointer select-none" :class="useRegex ? 'text-primary font-medium' : 'text-on-surface-variant'" :title="t('component.logViewer.regexHint')">
           <input v-model="useRegex" data-testid="log-regex" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.regex') }}
         </label>
         <span v-if="filter.error" data-testid="log-regex-error" class="text-error text-body-xs">{{ t('component.logViewer.invalidRegex') }}</span>
       </div>
+      <span class="w-px h-5 bg-outline-variant/60 shrink-0"></span>
       <div class="flex items-center gap-1">
         <button v-for="c in LEVEL_CHIPS" :key="c.lv" data-testid="log-level" @click="toggleLevel(c.lv)"
           class="px-sm py-0.5 rounded-full text-[11px] font-mono border transition-colors"
-          :class="activeLevels.includes(c.lv) ? c.on : 'border-outline-variant/50 text-on-surface-variant/40'">
-          {{ c.lv }} {{ counts[c.lv] }}
+          :class="activeLevels.includes(c.lv) ? [c.on, 'font-semibold'] : 'border-outline-variant/50 text-on-surface-variant/40'">
+          {{ c.lv }}<span class="ml-1 tabular-nums opacity-80">{{ counts[c.lv] }}</span>
         </button>
       </div>
+      <span class="w-px h-5 bg-outline-variant/60 shrink-0"></span>
+      <label :title="t('component.logViewer.wrapHint')" class="flex items-center gap-0.5 text-body-xs cursor-pointer select-none" :class="wrap ? 'text-primary font-medium' : 'text-on-surface-variant'">
+        <input v-model="wrap" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.wrap') }}
+      </label>
+      <label :title="t('component.logViewer.timestampsHint')" class="flex items-center gap-0.5 text-body-xs cursor-pointer select-none" :class="showTs ? 'text-primary font-medium' : 'text-on-surface-variant'">
+        <input v-model="showTs" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.timestamps') }}
+      </label>
       <div class="flex items-center gap-1 ml-auto">
-        <label :title="t('component.logViewer.wrapHint')" class="flex items-center gap-0.5 text-body-xs cursor-pointer select-none" :class="wrap ? 'text-primary font-medium' : 'text-on-surface-variant'">
-          <input v-model="wrap" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.wrap') }}
-        </label>
-        <label :title="t('component.logViewer.timestampsHint')" class="flex items-center gap-0.5 text-body-xs cursor-pointer select-none" :class="showTs ? 'text-primary font-medium' : 'text-on-surface-variant'">
-          <input v-model="showTs" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.timestamps') }}
-        </label>
-        <button @click="restart" :title="t('component.logViewer.refresh')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">refresh</span></button>
-        <button @click="downloadLogs" :title="t('component.logViewer.download')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">download</span></button>
-        <button @click="copyLogs" :title="t('component.logViewer.copy')" class="p-1 hover:bg-surface-container-low rounded"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
+        <button @click="restart" :title="t('component.logViewer.refresh')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">refresh</span></button>
+        <button @click="downloadLogs" :title="t('component.logViewer.download')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">download</span></button>
+        <button @click="copyLogs" :title="t('component.logViewer.copy')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
       </div>
     </div>
 

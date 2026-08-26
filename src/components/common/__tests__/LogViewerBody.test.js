@@ -130,3 +130,14 @@ test('渲染区语义色:容器含 text-on-code-surface;INFO 标签 primary-fixe
   expect(tags[0].classes()).toContain('text-primary-fixed-dim')   // 首行 = 'app started' → INFO
   expect(w.find('[data-testid="log-line"] .text-outline-variant').exists()).toBe(false)
 })
+
+test('工具栏双行:数据源行(容器/行数/时间)与查看控制行(搜索/级别)分离', async () => {
+  const w = mountBody()
+  const r1 = w.find('[data-testid="log-toolbar-row-1"]')
+  const r2 = w.find('[data-testid="log-toolbar-row-2"]')
+  expect(r1.exists() && r2.exists()).toBe(true)
+  expect(r1.find('[data-testid="log-container"]').exists()).toBe(true)
+  expect(r1.find('[data-testid="log-search"]').exists()).toBe(false)
+  expect(r2.find('[data-testid="log-search"]').exists()).toBe(true)
+  expect(r2.find('[data-testid="log-container"]').exists()).toBe(false)
+})
