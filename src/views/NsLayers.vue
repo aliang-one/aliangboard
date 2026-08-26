@@ -10,6 +10,8 @@ import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
+import AsyncState from '@/components/common/AsyncState.vue'
+import WatchStateChip from '@/components/common/WatchStateChip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,9 +22,17 @@ store.setNamespace(route.params.namespace)
 // 聚合本命名空间下可归类的资源（带 _kind 用于跳转与默认归类）
 // workloads + services + ingresses 走 Vue Query（远端模式 store 已清空，必须走 Query）
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const wlQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: 30000 } })
-const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: 30000 } })
-const ingQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: 30000 } })
+
+// watch 聚合态驱动轮询：live/reconnecting 零轮询（watch 推送），降级 60s 兜底（spec §5.4）
+const wlState = computed(() => store.watchStateOf('workloads'))
+const wlInterval = computed(() => (wlState.value === 'live' || wlState.value === 'reconnecting') ? false : 60000)
+
+const wlQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
+const svcQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
+const ingQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: wlInterval, refetchOnWindowFocus: false } })
+
+// 三态派生：pending 且三路皆无数据 → 真骨架；有旧数据 → 继续展示旧数据
+const booting = computed(() => wlQ.isPending.value && !wlQ.data.value && !svcQ.data.value && !ingQ.data.value)
 const nsWorkloads = computed(() => (wlQ.data.value || []).filter(w => w.namespace === route.params.namespace))
 const nsServices = computed(() => (svcQ.data.value || []).filter(s => s.namespace === route.params.namespace))
 const nsIngress = computed(() => (ingQ.data.value || []).filter(i => i.namespace === route.params.namespace))
@@ -93,6 +103,7 @@ async function applyLayer(key) {
       <div>
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.layers.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs" v-html="t('ns.layers.subtitle', { ns: route.params.namespace, total: items.length, classified: totalClassified })"></p>
+        <WatchStateChip :state="wlState" />
       </div>
     </div>
 
@@ -102,8 +113,9 @@ async function applyLayer(key) {
       <p class="text-xs text-on-surface-variant" v-html="t('ns.layers.classificationHint')"></p>
     </div>
 
-    <!-- 3 列分层布局：左=监控 | 中=主应用流 | 右=中间件 -->
-    <div v-if="groups.length" class="grid grid-cols-1 xl:grid-cols-[220px_1fr_220px] gap-md">
+    <!-- 3 列分层布局：左=监控 | 中=主应用流 | 右=中间件（AsyncState 统一骨架/内容；空态走槽内自定义卡片） -->
+    <AsyncState :loading="booting">
+      <div v-if="groups.length" class="grid grid-cols-1 xl:grid-cols-[220px_1fr_220px] gap-md">
       <!-- 左列：监控层 -->
       <div v-if="leftGroups.length" class="flex flex-col gap-sm">
         <div v-for="g in leftGroups" :key="g.key" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
@@ -207,11 +219,12 @@ async function applyLayer(key) {
       </div>
     </div>
 
-    <!-- 空状态 -->
-    <div v-else class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
-      <span class="material-symbols-outlined text-2xl text-surface-container-high">layers</span>
-      <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.layers.emptyState') }}</p>
-    </div>
+      <!-- 真空态：三路皆有数据但 items 为空 -->
+      <div v-else data-test="layers-empty" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
+        <span class="material-symbols-outlined text-2xl text-surface-container-high">layers</span>
+        <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.layers.emptyState') }}</p>
+      </div>
+    </AsyncState>
 
     <!-- 体系一览（折叠式说明） -->
     <details class="mt-md rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
