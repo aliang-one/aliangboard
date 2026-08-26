@@ -47,16 +47,28 @@ export function tmuxKillCommand(label, name, tmuxBin = 'tmux') {
 }
 
 // -A = attach if session exists, else create. shell array is spread after `--`.
-export function tmuxAttachCommand({ tmuxBin = 'tmux', terminfoDir = '', label, name, cols, rows, shell }) {
-  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'new-session', '-A', '-s', name,
+export function tmuxAttachCommand({ tmuxBin = 'tmux', terminfoDir = '', confPath = '', label, name, cols, rows, shell }) {
+  return withTermInfo(terminfoDir, [tmuxBin, ...(confPath ? ['-f', confPath] : []), '-L', label, 'new-session', '-A', '-s', name,
     '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
 }
 
 // new-session -d: detached 建会话(不 attach)。handleExec 先用它探测 tmux 能否起 server+pane,
 // 成功后再 attach;失败(只读/noexec/无 pty/server 崩)则降级一次性 exec。shell spread after `--`。
-export function tmuxNewSessionDetached({ tmuxBin = 'tmux', terminfoDir = '', label, name, cols, rows, shell }) {
-  return withTermInfo(terminfoDir, [tmuxBin, '-L', label, 'new-session', '-d', '-s', name,
+export function tmuxNewSessionDetached({ tmuxBin = 'tmux', terminfoDir = '', confPath = '', label, name, cols, rows, shell }) {
+  return withTermInfo(terminfoDir, [tmuxBin, ...(confPath ? ['-f', confPath] : []), '-L', label, 'new-session', '-d', '-s', name,
     '-x', String(cols || 80), '-y', String(rows || 24), '--', ...(shell && shell.length ? shell : ['sh'])])
+}
+
+// 注入的 tmux conf 内容。tmux pane 内 TERM 默认取 default-terminal(裸 screen),
+// 而注入的 terminfo 没有 s/screen 条目 → pane 里 shell 行编辑(上箭头等)错乱;
+// 定到 screen-256color(tar 已含该条目,pane 应用还能拿到 256 色)。只在 new-session(server 启动)时被读。
+export function tmuxConfContent() {
+  return 'set -g default-terminal "screen-256color"\n'
+}
+
+// conf 注入目标候选:system/injected 两路共用,不必与二进制同目录(只要 pod 里可读)。
+export function confDestCandidates() {
+  return ['/dev/shm/.ab-tmux.conf', '/tmp/.ab-tmux.conf']
 }
 
 // has-session: 查会话是否存在(socket-only,但要 TMUX_TMPDIR 找对 socket)。退出码区分重连 vs 首次。
@@ -113,4 +125,25 @@ export function archFromUname(unameOutput) {
 // Writable+exec candidate dests for the injected binary (prefer /dev/shm — survives RO rootfs).
 export function injectDestCandidates(arch) {
   return [`/dev/shm/.ab-tmux-${arch}`, `/tmp/.ab-tmux-${arch}`]
+}
+
+// ---- shell 智能探测 ----
+// 默认 exec 'sh' 在 Debian/Ubuntu 系镜像=dash,无任何 tab 补全;bash/zsh 才有 readline 完整体验。
+// 单发探测:输出首个命中的 shell 名(一行);探测结果只允许白名单内的裸名字(防注入任意 argv)。
+export const KNOWN_SHELLS = ['bash', 'zsh', 'ash', 'dash', 'sh']
+
+export function isKnownShell(name) {
+  return KNOWN_SHELLS.includes(String(name || '').trim())
+}
+
+export function shellProbeCommand() {
+  const list = KNOWN_SHELLS.join(' ')
+  return ['sh', '-c', `for s in ${list}; do command -v "$s" >/dev/null 2>&1 && { echo "$s"; exit 0; }; done; echo sh`]
+}
+
+// 探测输出 → shell 名:取首个非空行,白名单校验不过则回退 sh(与旧行为一致)。
+export function pickShellFromProbe(stdout) {
+  const out = Buffer.isBuffer(stdout) ? stdout.toString('utf8') : ''
+  const first = out.split('\n').map(l => l.trim()).find(l => l.length > 0) || ''
+  return isKnownShell(first) ? first : 'sh'
 }

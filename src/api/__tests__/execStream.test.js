@@ -37,6 +37,16 @@ describe('execStream', () => {
     expect(capturedUrl).not.toMatch(/sid=/)
   })
 
+  it('puts auto=1 into the WS URL when auto is set (server probes best shell)', () => {
+    execStream({ namespace: 'default', pod: 'web', command: 'sh', auto: true })
+    expect(capturedUrl).toMatch(/auto=1/)
+  })
+
+  it('omits auto when not set (manual/ladder shell stays verbatim)', () => {
+    execStream({ namespace: 'default', pod: 'web', command: 'bash' })
+    expect(capturedUrl).not.toMatch(/auto=/)
+  })
+
   it('dispatches a type-5 frame to onMode as {persistent}', () => {
     let mode = null
     execStream({ namespace: 'default', pod: 'web', command: 'sh', sid: 't', onMode: m => { mode = m } })

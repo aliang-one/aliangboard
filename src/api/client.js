@@ -319,7 +319,7 @@ export const adminApi = {
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。
-export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, attach = false, sid = '', onStdout, onStderr, onExit, onError, onClose, onMode } = {}) {
+export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, attach = false, sid = '', auto = false, onStdout, onStderr, onExit, onError, onClose, onMode } = {}) {
   const token = getSessionToken()
   const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
   const host = globalThis.location?.host || '127.0.0.1:8787'
@@ -329,6 +329,7 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
   else if (command) params.set('command', command)
   if (token) params.set('session', token)
   if (sid) params.set('sid', sid)
+  if (auto && !attach) params.set('auto', '1')      // 自动模式：网关探测最优 shell（bash 优先，dash 无补全）
   const ws = new WebSocket(`${proto}://${host}/api/exec?${params}`)
   ws.binaryType = 'arraybuffer'
   // stdout/stderr 直传原始字节给 xterm（term.write 接受 Uint8Array，内部正确处理 UTF-8/ANSI/二进制），

@@ -35,6 +35,9 @@ const SHELLS = ['sh', 'bash', 'ash', '/bin/sh', '/bin/bash']
 const shellIdx = ref(0)
 const customShell = ref('')
 const cmd = computed(() => customShell.value.trim() || SHELLS[shellIdx.value] || 'sh')
+// 网关 auto 探测实际用上的 shell（CH_MODE 回传）。自动模式下 cmd 是前端假设（sh），
+// 真实 shell 由网关定（bash 优先）；头部以此展示，手测时可直接确认拿到了 bash。
+const actualShell = ref('')
 // 自动检测全失败后才让用户手动选/填 shell（默认不展示选择器）
 const manualNeeded = ref(false)
 const manualCmd = ref('')
@@ -77,12 +80,15 @@ function openStream() {
     command: cmd.value,
     attach: props.attach,
     sid: props.sessionId,
+    // 自动模式首连才带 auto（网关探测最优 shell，bash 优先；dash 无 tab 补全）。
+    // 降级重试/手动选择不带：网关须尊重前端指定的 shell，否则探测结果覆盖梯子选择导致死循环。
+    auto: !props.attach && !customShell.value && shellIdx.value === 0,
     onStdout: d => { gotOutput = true; term.write(d) },
     onStderr: d => { gotOutput = true; term.write(d) },
     onExit: s => { if (my === gen) handleEnd(s?.status, s?.code) },
     onError: m => { if (my === gen) handleEnd(undefined, undefined, m) },
     onClose: () => { if (my === gen && status.value !== 'error' && status.value !== 'closed') handleEnd() },
-    onMode: m => { persistent.value = !!m?.persistent },
+    onMode: m => { persistent.value = !!m?.persistent; if (m?.shell) actualShell.value = m.shell },
   })
   const tryResize = () => { if (stream?.isOpen && term) { stream.resize({ cols: term.cols, rows: term.rows }); return true } return false }
   if (!tryResize()) { resizeTimer = setInterval(() => { if (tryResize() || status.value === 'closed' || status.value === 'error') { clearInterval(resizeTimer); resizeTimer = null } }, 120) }
@@ -114,6 +120,7 @@ async function connect(opts = {}) {
   if (!props.podName || !props.namespace) { setStatus('error', t('terminal.missingContext')); return }
   teardown()
   persistent.value = null
+  actualShell.value = ''      // 每次新连接由 CH_MODE 重新回传
   // 自动连接（非手动）：清掉自定义命令，从首选 shell 起步并允许自动降级
   if (!opts.manual) { customShell.value = ''; shellIdx.value = 0 }
   manualNeeded.value = false
@@ -171,7 +178,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
             <span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim/70"></span>
             <span class="w-2.5 h-2.5 rounded-full bg-primary-container/70"></span>
           </div>
-          <span class="text-code-sm text-on-surface-variant ml-sm">{{ podName }}:{{ container || 'main' }}<span v-if="!attach" class="text-on-surface-variant/50"> · {{ cmd }}</span></span>
+          <span class="text-code-sm text-on-surface-variant ml-sm">{{ podName }}:{{ container || 'main' }}<span v-if="!attach" class="text-on-surface-variant/50"> · {{ actualShell || cmd }}</span></span>
           <span v-if="persistent === true" class="text-body-xs text-primary ml-xs" :title="t('terminal.persistentHint')">✓ {{ t('terminal.persistentBadge') }}</span>
           <span v-else-if="persistent === false" class="text-body-xs text-tertiary ml-xs" :title="t('terminal.ephemeralHint')">⚠ {{ t('terminal.ephemeralBadge') }}</span>
         </div>
