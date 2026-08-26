@@ -175,9 +175,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           } })
       }
       const kind = a.kind && String(a.kind).trim() ? normalizeKind(a.kind) : 'pods'
-      if (!kind) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${String(a.kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
+      if (!kind) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${String(a.kind)}(支持:${Object.keys(LIST_PATH).join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       const templ = LIST_PATH[kind]
-      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
+      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${Object.keys(LIST_PATH).join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
