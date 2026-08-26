@@ -9,6 +9,7 @@ import { buildCallContext } from './call-context.mjs'
 import { toExecArgv } from './exec-bounds.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
+import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -173,9 +174,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
             return { kind: '(path)', count: all.length, returned: items.length, items }
           } })
       }
-      const kind = String(a.kind || 'pods').toLowerCase()
+      const kind = normalizeKind(a.kind) || 'pods'
       const templ = LIST_PATH[kind]
-      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(骨架:pods/services/configmaps/deployments/statefulsets/daemonsets);或用 path 列任意 kind` })
+      if (!templ) throw new PermissionDeniedError('policy', { tool: 'list_resources', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一);或用 path 列任意 kind` })
       return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: kind, summary: `kind=${kind}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, templ.replace('%ns%', enc(a.namespace)))
@@ -185,9 +186,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     get_resource: async (keyRow, cluster, a, source) => {
-      const kind = String(a.kind || 'pods').toLowerCase()
+      const kind = normalizeKind(a.kind) || 'pods'
       const getter = GET_PATH[kind]
-      if (!getter) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${kind}` })
+      if (!getter) throw new PermissionDeniedError('policy', { tool: 'get_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'get_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `kind=${kind} name=${a.name}`,
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, getter(a.namespace, a.name))
@@ -221,9 +222,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         } })
     },
     describe_resource: async (keyRow, cluster, a, source) => {
-      const kind = String(a.kind || 'pods').toLowerCase()
+      const kind = normalizeKind(a.kind) || 'pods'
       const getter = GET_PATH[kind]
-      if (!getter) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${kind}` })
+      if (!getter) throw new PermissionDeniedError('policy', { tool: 'describe_resource', detail: `不支持的 kind: ${kind}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` })
       return runBoundedTool({ keyRow, cluster, tool: 'describe_resource', source, namespace: a.namespace, verb: 'get', resource: `${kind}/${a.name}`, summary: `describe ${kind}/${a.name}`,
         fn: async (saCtx) => {
           const { body: resBody } = await requestFn(saCtx, getter(a.namespace, a.name))

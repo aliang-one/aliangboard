@@ -17,6 +17,7 @@ import { computeStorageInfo } from '../storage-info.mjs'
 import { runDistill } from '../distill.mjs'
 import { reconcileProject } from '../reconcile.mjs'
 import { msg } from '../messages.mjs'
+import { normalizeKind } from '../kindAlias.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
@@ -147,7 +148,7 @@ export function createWorkbenchProjectRoutes(deps) {
     if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const projectId = url.searchParams.get('projectId')
-      const kind = url.searchParams.get('kind') || 'pods'
+      const kind = normalizeKind(url.searchParams.get('kind')) || 'pods'
       const q = (url.searchParams.get('q') || '').toLowerCase()
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
