@@ -11,6 +11,12 @@ export function firstVolumeMountError(volumeMounts, validTargets) {
     if (src && !v[src]) return { key: 'deploy.volumeSourceRequired', n: i + 1 }
     if (!v.mountPath || !String(v.mountPath).startsWith('/')) return { key: 'deploy.volumeMountRequired', n: i + 1 }
     if (!(validTargets || []).includes(v.target)) return { key: 'deploy.volumeTargetInvalid', n: i + 1 }
+    if (volumeItemsIncomplete(v)) return { key: 'deploy.volumeItemsIncomplete', n: i + 1 }
   }
   return null
+}
+
+// items 键映射半填:key/path 须成对;全空行忽略(与 YAML 生成 it.key 过滤的「整行空=跳过」语义一致)
+export function volumeItemsIncomplete(entry) {
+  return (entry?.items || []).some(it => (it.key || it.path) && !(it.key && it.path))
 }

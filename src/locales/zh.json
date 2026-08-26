@@ -1920,7 +1920,8 @@
     "partialApplied": "部分资源应用失败（主工作负载已创建），可稍后重试：",
     "volumeSourceRequired": "第 {n} 个存储缺少来源(按类型填 PVC/路径/服务器/名称)",
     "volumeMountRequired": "第 {n} 个存储缺少容器内挂载路径(须以 / 开头)",
-    "volumeTargetInvalid": "第 {n} 个存储的目标容器不存在或未配置镜像"
+    "volumeTargetInvalid": "第 {n} 个存储的目标容器不存在或未配置镜像",
+    "volumeItemsIncomplete": "第 {n} 个存储的键映射(items)有半填行(key/path 须成对)"
   },
   "workload": {
     "notFound": "工作负载未找到",
@@ -2321,6 +2322,8 @@
       "volumeMissingNfs": "卷 {name}：缺少 NFS server",
       "volumeMissingConfigMap": "卷 {name}：缺少 ConfigMap",
       "volumeMissingSecret": "卷 {name}：缺少 Secret",
+      "volumeItemsIncomplete": "{name} 的键映射(items)有半填行(key/path 须成对)",
+      "volumeTargetInvalid": "{name} 的目标容器不存在或未配置镜像",
       "portMissing": "端口 #{idx}：缺少端口号",
       "envMissingKey": "环境变量 #{idx}：缺少 KEY",
       "envCmMissing": "ConfigMap 环境变量 {name}：需 ENV 名 / ConfigMap / key",

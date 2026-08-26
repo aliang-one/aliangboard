@@ -19,6 +19,7 @@ import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
+import { volumeItemsIncomplete } from '@/logic/volumeMountValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -1021,6 +1022,7 @@ function mountObjs(target, f) {
 // 保存前校验：返回错误描述数组（空=通过）
 function validateEdit() {
   const f = editForm.value, errs = []
+  const validTargets = containerTargets.value.map(x => x.value)
   ;(f.volumeMounts || []).forEach((v, i) => {
     const w = t('common.name') + ' ' + (v.name || '#' + (i + 1))
     if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(t('workload.validation.volumeEmpty', { name: v.name || '#' + (i + 1) }))
@@ -1031,6 +1033,8 @@ function validateEdit() {
       if (v.type === 'nfs' && !v.server) errs.push(t('workload.validation.volumeMissingNfs', { name: v.name || '#' + (i + 1) }))
       if (v.type === 'configMap' && !v.cmName) errs.push(t('workload.validation.volumeMissingConfigMap', { name: v.name || '#' + (i + 1) }))
       if (v.type === 'secret' && !v.secretName) errs.push(t('workload.validation.volumeMissingSecret', { name: v.name || '#' + (i + 1) }))
+      if (!validTargets.includes(v.target)) errs.push(t('workload.validation.volumeTargetInvalid', { name: v.name || '#' + (i + 1) }))
+      if (volumeItemsIncomplete(v)) errs.push(t('workload.validation.volumeItemsIncomplete', { name: v.name || '#' + (i + 1) }))
     }
   })
   // 子容器校验接入单源(containerValidation):空行判定统一 isSubContainerEmpty——
