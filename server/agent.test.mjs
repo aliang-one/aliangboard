@@ -147,6 +147,25 @@ test('clampToolContent: 超长内容截断 + 尾标', () => {
   assert.ok(out.includes('truncated'))
 })
 
+// I-审计(2026-08-26):工具结果归一的三缺陷。此前 `JSON.stringify(content)`:
+//   undefined → stringify 返 undefined → .length 抛 TypeError → 炸整轮对话(比显示 bug 严重);
+//   Error 对象 → '{}' 静默吞失败信息;BigInt/循环引用 → 直接 throw。
+test('clampToolContent: undefined → 占位串不抛(一个工具无返回不炸整轮对话)', () => {
+  assert.equal(clampToolContent(undefined), '(工具无返回值)')
+  assert.equal(clampToolContent(null), '(工具无返回值)')
+})
+
+test('clampToolContent: Error 对象 → message 串(失败信息不静默丢)', () => {
+  assert.match(clampToolContent(new Error('boom')), /boom/)
+})
+
+test('clampToolContent: 不可 stringify(BigInt/循环引用)→ String 兜底不抛', () => {
+  const out = clampToolContent({ v: 10n })
+  assert.ok(typeof out === 'string' && out.length > 0, `返回字符串(实际 ${typeof out})`)
+  const a = {}; a.self = a
+  assert.doesNotThrow(() => clampToolContent(a))
+})
+
 test('trimMessages: 预算内不动 + truncated=false', () => {
   const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'hi' }]
   const { messages, truncated } = trimMessages(msgs, 100000)

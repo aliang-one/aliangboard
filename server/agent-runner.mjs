@@ -54,7 +54,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     reserveAudit(audit.db, intent)
     try {
       const r = await t.exec(ctx, args)
-      finalizeAudit(audit.db, intent, r?.error ? { result: 'error', reason: String(r.error).slice(0, 80) } : { result: 'ok' })
+      finalizeAudit(audit.db, intent, r?.error ? { result: 'error', reason: String(r.error?.message || r.error).slice(0, 80) } : { result: 'ok' })
       return r
     } catch (e) {
       finalizeAudit(audit.db, intent, { result: 'error', reason: String(e?.message || e).slice(0, 80) })

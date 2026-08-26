@@ -73,6 +73,36 @@ test('chatStream: content delta 累积 + onDelta 回调 + body.stream=true', asy
   assert.equal(cap.body.stream, true)
 })
 
+// I-审计(2026-08-26):delta.content 无 typeof 守卫(reasoning 有,content 没有——不对称)。
+// 多模态代理/畸形 delta 发数组形态 content 时,`content += 数组` 会产生逗号拼接或
+// [object Object] 直接进对话+落库。守卫:非字符串形态 JSON.stringify 并入(保内容不产乱串)。
+test('chatStream: delta.content 非字符串(多模态数组/对象)→ JSON 串并入,不产生 [object Object]/逗号拼接', async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":[{"type":"text","text":"看图"}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"结论"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.ok(msg.content.includes('"type":"text"') && msg.content.includes('看图'), '数组形态以 JSON 串保全并入')
+  assert.ok(msg.content.endsWith('结论'), '后续正常字符串 delta 照常拼接')
+  assert.ok(!msg.content.includes('[object Object]'))
+})
+
+test('chatStream: delta.content 空串/null 跳过(不回调 onDelta)', async () => {
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":""}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":null}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"x"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) })
+  assert.equal(msg.content, 'x')
+  assert.deepEqual(deltas, ['x'])
+})
+
 test('chatStream: tool_calls 按 index 合并分片(name+arguments 增量)', async () => {
   const chunks = [
     'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_resources","arguments":""}}]}}]}\n\n',

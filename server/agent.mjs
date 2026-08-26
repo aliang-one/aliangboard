@@ -13,9 +13,16 @@ export function formatToolError(e) {
   return `工具执行失败: ${e?.detail || e?.message || String(e)}`
 }
 
-// 单条工具结果截断:超过 max 字符时硬截断 + 标记
+// 单条工具结果 → 喂 LLM 的字符串归一 + 截断(超过 max 字符硬截断 + 标记)。
+// 归一(2026-08-26 审计加固):string 直用;undefined/null → 占位(JSON.stringify(undefined)
+// 返 undefined,.length 抛 TypeError——一个工具无返回会炸整轮对话);Error → message
+// (否则 stringify 成 '{}' 静默吞失败信息);BigInt/循环引用 → String 兜底不抛。
 export function clampToolContent(content, max = MAX_TOOL_CONTENT_CHARS) {
-  const s = typeof content === 'string' ? content : JSON.stringify(content)
+  let s
+  if (typeof content === 'string') s = content
+  else if (content == null) s = '(工具无返回值)'
+  else if (content instanceof Error) s = content.message || String(content)
+  else { try { s = JSON.stringify(content) ?? '(工具无返回值)' } catch { s = String(content) } }
   if (s.length <= max) return s
   return s.slice(0, max) + `\n…[truncated ${s.length - max} chars]`
 }

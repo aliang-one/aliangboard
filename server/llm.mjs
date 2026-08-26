@@ -92,7 +92,12 @@ export function createLlmClient({
         if (!delta) continue
         const rtext = delta.reasoning_content ?? delta.reasoning
         if (typeof rtext === 'string' && rtext) { reasoning += rtext; onReasoning?.(rtext) }
-        if (delta.content) { content += delta.content; onDelta?.(delta.content) }
+        // I-审计(2026-08-26):content 与 reasoning 同款守卫——多模态代理可能发数组形态
+        // content,`content += 对象` 会产生 [object Object]/逗号拼接直接进对话+落库。非字符串 JSON 并入。
+        if (delta.content) {
+          const text = typeof delta.content === 'string' ? delta.content : JSON.stringify(delta.content)
+          content += text; onDelta?.(text)
+        }
         if (Array.isArray(delta.tool_calls)) {
           for (const tc of delta.tool_calls) {
             const i = tc.index ?? 0
