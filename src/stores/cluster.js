@@ -746,7 +746,14 @@ export const useClusterStore = defineStore('cluster', () => {
     return ctl
   }
 
+  // 多路 watch 总开关(默认关):浏览器 HTTP/1.1 同源 6 连接上限会被 7 条 watch 长连接打满,
+  // 其余数据请求全部排队 pending。多路复用单连接通道落地前,须显式开启:
+  // localStorage.setItem('aliangboard.watchFamily','1')。关闭时全部资源回落轮询(60s 兜底)。
+  function watchFamilyEnabled() {
+    try { return localStorage.getItem('aliangboard.watchFamily') === '1' } catch { return false }
+  }
   function startWorkloadFamilyWatch() {
+    if (!watchFamilyEnabled()) return
     for (const cfg of WATCH_CONFIGS) controllerFor(cfg).start()
   }
   function stopWorkloadFamilyWatch() {

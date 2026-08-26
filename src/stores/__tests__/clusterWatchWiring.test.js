@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // 模块级 mock 必配 reset(既有教训):每用例重置注册表
 const streamMocks = []
@@ -19,9 +19,21 @@ import { useClusterStore } from '@/stores/cluster'
 import { createPinia, setActivePinia } from 'pinia'
 import { clearWatchRegistry } from '@/composables/watchRegistry'
 
-beforeEach(() => { setActivePinia(createPinia()); streamMocks.length = 0; clearWatchRegistry() })
+beforeEach(() => {
+  setActivePinia(createPinia()); streamMocks.length = 0; clearWatchRegistry()
+  localStorage.setItem('aliangboard.watchFamily', '1')   // 默认关(浏览器 6 连接上限热修),测试显式开旗
+})
+afterEach(() => { localStorage.removeItem('aliangboard.watchFamily') })
 
 describe('cluster store watch 接线', () => {
+  it('默认关(watchFamily 未开旗):startWorkloadFamilyWatch 零建流——浏览器 6 连接上限热修回归', async () => {
+    localStorage.removeItem('aliangboard.watchFamily')
+    const store = useClusterStore()
+    store.startWorkloadFamilyWatch()
+    expect(streamMocks.length).toBe(0)
+    expect(store.watchStateOf('workloads')).toBe('off')   // off → 页面 60s 轮询兜底
+  })
+
   it('startWorkloadFamilyWatch 建立 7 条 watch(workloads 三类+services+ingresses+pods+events),幂等', async () => {
     const store = useClusterStore()
     store.startWorkloadFamilyWatch()
