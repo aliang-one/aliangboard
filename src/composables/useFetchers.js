@@ -10,6 +10,46 @@ import {
   mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf
 } from '@/composables/useResourceMappers'
 
+// 单个 Deployment 的发布历史(deploy 对象 + 其 owned ReplicaSets → rev[])
+export function buildRevisions(deploy, ownedRs) {
+  const curRev = deploy?.metadata?.annotations?.['deployment.kubernetes.io/revision'] || ''
+  const base = { name: deploy?.metadata?.name || '', namespace: deploy?.metadata?.namespace || '', image: deploy?.spec?.template?.spec?.containers?.[0]?.image || '' }
+  const revs = ownedRs.map(rs => {
+    const rev = Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision']) || 0
+    return {
+      rev,
+      image: rs.spec?.template?.spec?.containers?.[0]?.image || base.image,
+      sha: String(rs.metadata?.uid || '').slice(0, 7) || String(rs.metadata?.name || '').split('-').pop() || '—',
+      age: ageOf(rs.metadata?.creationTimestamp),
+      reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
+      current: curRev ? String(rev) === String(curRev) : false,
+      replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
+      readyReplicas: rs.status?.readyReplicas ?? 0,
+      desiredReplicas: rs.spec?.replicas ?? rs.status?.replicas ?? 0,
+      rsName: rs.metadata?.name,
+      rsUid: rs.metadata?.uid,
+      _template: rs.spec?.template,
+    }
+  }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
+  return revs.length ? revs : [{ rev: Number(curRev) || 1, image: base.image, sha: '—', age: ageOf(deploy?.metadata?.creationTimestamp), reason: i18n.global.t('store.currentVersion'), current: true }]
+}
+
+// 回滚历史独立 fetcher:仅详情页/回滚按需拉(共享列表不再携带全史,spec §5.2 第一刀)
+export async function fetchWorkloadRevisions(type, name, ns) {
+  if (type !== 'Deployment') {
+    const plural = { StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[type]
+    if (!plural) return []
+    const d = await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
+    return [{ rev: 1, image: d?.spec?.template?.spec?.containers?.[0]?.image || '', sha: '—', age: ageOf(d?.metadata?.creationTimestamp), reason: i18n.global.t('store.currentVersion'), current: true }]
+  }
+  const [deploy, rsList] = await Promise.all([
+    api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/deployments/${encodeURIComponent(name)}`),
+    api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/replicasets?limit=500`),
+  ])
+  const owned = (rsList?.items || []).filter(rs => (rs.metadata?.ownerReferences || []).some(o => o.kind === 'Deployment' && o.controller && o.name === name))
+  return buildRevisions(deploy, owned)
+}
+
 // 还原 Deployment 的滚动发布历史：每个 ReplicaSet 携带 deployment.kubernetes.io/revision 注解，
 // 其 pod template 即该 revision 的镜像/配置；当前 revision 取 Deployment 自身注解。
 // _template 保留完整模板，供 rollbackWorkload 执行真正的 rollout undo PATCH。
@@ -30,28 +70,8 @@ function attachRolloutHistory(workloads, deploymentData, replicaSetData) {
       continue
     }
     const deploy = findDeploy(wl.name, wl.namespace)
-    const curRev = deploy?.metadata?.annotations?.['deployment.kubernetes.io/revision'] || ''
     const rss = rsByDeploy.get(`${wl.namespace}/${wl.name}`) || []
-    const revs = rss.map(rs => {
-      const rev = Number(rs.metadata?.annotations?.['deployment.kubernetes.io/revision']) || 0
-      return {
-        rev,
-        image: rs.spec?.template?.spec?.containers?.[0]?.image || wl.image,
-        sha: String(rs.metadata?.uid || '').slice(0, 7) || String(rs.metadata?.name || '').split('-').pop() || '—',
-        age: ageOf(rs.metadata?.creationTimestamp),
-        reason: rs.metadata?.annotations?.['kubernetes.io/change-cause'] || (rev ? `revision ${rev}` : '—'),
-        current: curRev ? String(rev) === String(curRev) : false,
-        replicas: rs.status?.replicas ?? rs.spec?.replicas ?? 0,
-        readyReplicas: rs.status?.readyReplicas ?? 0,
-        desiredReplicas: rs.spec?.replicas ?? rs.status?.replicas ?? 0,
-        rsName: rs.metadata?.name,
-        rsUid: rs.metadata?.uid,
-        _template: rs.spec?.template,
-      }
-    }).filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev)
-    wl.revisions = revs.length
-      ? revs
-      : [{ rev: Number(curRev) || 1, image: wl.image, sha: wl.sha || '—', age: wl.age, current: true, reason: i18n.global.t('store.currentVersion') }]
+    wl.revisions = buildRevisions(deploy, rss)
   }
 }
 
