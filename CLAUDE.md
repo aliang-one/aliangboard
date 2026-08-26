@@ -18,6 +18,11 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 
 > 设计文档：`~/.gstack/projects/aliang-aliangboard/liang-feat-data-model-design-20260806-001249.md`（含 GSTACK REVIEW REPORT）。
 
+## 提交规范
+
+- 提交作者恒为 `aliangone <aliangone@gmail.com>`;**禁止**在提交信息中加 `Co-Authored-By: Claude` 尾注(用户 2026-08-26 明确要求,GitHub 会把尾注渲染成共同作者)。
+- **禁止改写已推送的历史**、禁止 force push(多会话并行开发,改写历史会使并行会话推送被拒);任何清理/修整只允许作用于**未推送的本地提交**。
+
 ## 测试
 
 - 服务端 + 纯逻辑：`npm test`（含 `scripts/test.mjs` 自研零依赖运行器 + `node --test server/*.test.mjs`）。
