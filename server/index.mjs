@@ -15,7 +15,7 @@ import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
-import { runBoundedCollect, toExecArgv } from './exec-bounds.mjs'
+import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
@@ -816,7 +816,8 @@ async function handleExec(ws, session, url, req) {
       conn = await new Attach(kc).attach(namespace, pod, container, stdout, stderr, stdin, tty)
     } else {
       conn = await new Exec(kc).exec(namespace, pod, container, execCommand, stdout, stderr, stdin, tty, status => {
-        wsSend(ws, CH_EXIT, JSON.stringify({ status: status?.status || 'Success', code: status?.code ?? null }))
+        // code=数字退出码(V1Status 无顶层 code,恒 null bug 一并修:码在 details.causes,经 k8sStatusToExitCode 解析)
+        wsSend(ws, CH_EXIT, JSON.stringify({ status: status?.status || 'Success', code: k8sStatusToExitCode(status) }))
       })
     }
   } catch (error) {
@@ -879,7 +880,9 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
   // 命令（ls/head/cat）自行退出 → kubelet 关闭 → conn close；不主动关 stdin
   try { stdin.destroy() } catch { /* noop */ }
   await new Promise(r => setImmediate(r))
-  const out = { stdout: collected.stdout, stderr: collected.stderr.toString('utf8'), status: exitStatus, timedOut: collected.timedOut, truncated: collected.truncated }
+  // exitCode=数字退出码(V1Status 对象解析,见 exec-bounds.k8sStatusToExitCode);status=原对象保留
+  // (tmux 路径以 status.status==='Success' 判断,不动)。AI 工具(wb_exec/exec_pod)消费 exitCode。
+  const out = { stdout: collected.stdout, stderr: collected.stderr.toString('utf8'), status: exitStatus, exitCode: k8sStatusToExitCode(exitStatus), timedOut: collected.timedOut, truncated: collected.truncated }
   if (raw) return out
   const rawStr = collected.stdout.toString('utf8')
   const clean = rawStr.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
@@ -1341,7 +1344,7 @@ async function handle(req, res) {
           if (!command.trim()) throw new Error(msg(req, 'api.missingCommand'))
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return {
-            pod: args.pod, container: args.container || '', exitCode: r.status ?? null,
+            pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
             stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
             stderr: (r.stderr || '').slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,

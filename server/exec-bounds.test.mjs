@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { EventEmitter } from 'node:events'
-import { runBoundedCollect, toExecArgv } from './exec-bounds.mjs'
+import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 
 // fake conn:close() 记录 + 触发 close 事件;neverClose=true 模拟「close 后也不出事件」的挂死连接
 function fakeConn({ neverClose = false } = {}) {
@@ -91,4 +91,36 @@ test('toExecArgv: 空串/空白串/空数组/非命令类型 → 抛(防 sh -c "
   assert.throws(() => toExecArgv([]), /command/)
   assert.throws(() => toExecArgv(null), /command/)
   assert.throws(() => toExecArgv(123), /command/)
+})
+
+// --- k8sStatusToExitCode(2026-08-26 exit=[object Object] bug):exec status 回调是 V1Status 对象 ---
+// 根因:client-node exec 的 status 回调收到的是 K8s Status 对象而非数字——成功
+// `{status:'Success'}`(码隐含 0);非零退出 `{status:'Failure',reason:'NonZeroExitCode',
+// details:{causes:[{reason:'ExitCode',message:'126'}]}}`(码在 causes[].message,
+// kubectl/client-go 同款语义)。wb_exec/exec_pod 把整个对象塞进 exitCode → 前端
+// fmtExec 模板插值渲染成 exit=[object Object],LLM/MCP 收到结构噪音。
+test('k8sStatusToExitCode: Success → 0;null/undefined → null(未知)', () => {
+  assert.equal(k8sStatusToExitCode({ status: 'Success' }), 0)
+  assert.equal(k8sStatusToExitCode(null), null)
+  assert.equal(k8sStatusToExitCode(undefined), null)
+})
+
+test('k8sStatusToExitCode: NonZeroExitCode → 码取 details.causes[reason=ExitCode].message(126/127 等)', () => {
+  const nonZero = (code) => ({
+    kind: 'Status', apiVersion: 'v1', status: 'Failure', reason: 'NonZeroExitCode',
+    message: `command terminated with non-zero exit code: ${code}`,
+    details: { causes: [{ reason: 'ExitCode', message: String(code) }] },
+  })
+  assert.equal(k8sStatusToExitCode(nonZero(126)), 126)
+  assert.equal(k8sStatusToExitCode(nonZero(1)), 1)
+  // 用户实测样本:db-migrate 失败(exit 1)
+  assert.equal(k8sStatusToExitCode(nonZero(127)), 127)
+})
+
+test('k8sStatusToExitCode: Failure 无 ExitCode cause(协议层错误等)→ null;数字防御透传', () => {
+  assert.equal(k8sStatusToExitCode({ status: 'Failure', reason: 'BadRequest', message: 'x' }), null)
+  assert.equal(k8sStatusToExitCode({ status: 'Failure' }), null)
+  // 防御:若未来 client-node 版本改成回传数字,原样透传
+  assert.equal(k8sStatusToExitCode(0), 0)
+  assert.equal(k8sStatusToExitCode(42), 42)
 })

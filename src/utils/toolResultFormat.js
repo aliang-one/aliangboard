@@ -81,8 +81,23 @@ export function fmtRollout(r) {
   return L.join('\n')
 }
 
+// exec 退出码归一(2026-08-26 exit=[object Object] bug 的存量兜底):数字直用;
+// 存量 trace(服务端修复前)的 exitCode 是 V1Status 对象——Success→0,非零码在
+// details.causes[reason=ExitCode].message。语义与 server/exec-bounds.mjs
+// k8sStatusToExitCode 同源(前后端分仓,前端持副本);无码 → null(显示 '?')。
+function exitCodeOf(v) {
+  if (v == null) return null
+  if (typeof v === 'number') return v
+  if (typeof v !== 'object') return null
+  if (v.status === 'Success') return 0
+  const cause = (v.details?.causes || []).find(c => c.reason === 'ExitCode')
+  const n = Number(cause?.message ?? cause?.value)
+  return Number.isFinite(n) ? n : null
+}
+
 export function fmtExec(r) {
-  const L = [`exit=${r.exitCode ?? '?'}${r.timedOut ? ' · timed out' : ''}${r.truncated ? ' · truncated' : ''}`]
+  const code = exitCodeOf(r.exitCode)
+  const L = [`exit=${code ?? '?'}${r.timedOut ? ' · timed out' : ''}${r.truncated ? ' · truncated' : ''}`]
   if (r.stdout) L.push('--- stdout ---', r.stdout)
   if (r.stderr) L.push('--- stderr ---', r.stderr)
   if (r.hint) L.push(r.hint)

@@ -31,6 +31,22 @@ test('result null:空串', () => {
   expect(fmtResult({ name: 'wb_get_pod_logs', result: null })).toBe('')
 })
 
+// wb_exec exitCode 契约(2026-08-26 exit=[object Object] bug):服务端已修为数字;
+// 存量 trace 里 exitCode 是 V1Status 对象,fmtExec 须就地解析成数字显示。
+test('wb_exec:数字 exitCode 正常;存量 V1Status 对象形态就地解析(不显示 [object Object])', () => {
+  expect(fmtResult({ name: 'wb_exec', result: { exitCode: 0, stdout: 'ok' } })).toContain('exit=0')
+  // 用户实测样本形态:db-migrate 失败,码在 details.causes[reason=ExitCode].message
+  const legacy = { exitCode: { kind: 'Status', status: 'Failure', reason: 'NonZeroExitCode', message: 'command terminated with non-zero exit code: 1', details: { causes: [{ reason: 'ExitCode', message: '1' }] } }, stdout: '', stderr: 'PostgresError: schema "auth" does not exist', timedOut: false, truncated: false }
+  const out = fmtResult({ name: 'wb_exec', result: legacy })
+  expect(out).toContain('exit=1')
+  expect(out).not.toContain('[object Object]')
+  // 存量成功形态:{status:'Success'} → 0
+  expect(fmtResult({ name: 'wb_exec', result: { exitCode: { status: 'Success' }, stdout: 'x' } })).toContain('exit=0')
+  // 无码(null/无 ExitCode cause 的 Failure)→ ?
+  expect(fmtResult({ name: 'wb_exec', result: { exitCode: null, stdout: '' } })).toContain('exit=?')
+  expect(fmtResult({ name: 'wb_exec', result: { exitCode: { status: 'Failure', reason: 'BadRequest' }, stdout: '' } })).toContain('exit=?')
+})
+
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 
 test('applyLegacyTs:无 ts 的历史事件用轮次时刻兜底,已有 ts 不动', () => {

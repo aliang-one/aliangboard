@@ -6,7 +6,7 @@ import { authorize, PermissionDeniedError, effectiveNamespaces } from './authori
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
-import { toExecArgv } from './exec-bounds.mjs'
+import { toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -346,7 +346,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           // command= 参数,kubelet 把整串当二进制名 → 必败。exec_pod 契约=shell 命令 → sh -c 包装。
           const r = await execFn(saCtx, a.namespace, a.pod, a.container || '', toExecArgv(command), { timeoutMs: EXEC_TIMEOUT_MS, maxBytes: EXEC_STREAM_MAX })
           return {
-            pod: a.pod, container: a.container || '', exitCode: r.status ?? null,
+            // exitCode 必须是数字(execFn=execCapture 已解析 V1Status;旧写法 r.status 是整个对象 → 前端 exit=[object Object])
+            pod: a.pod, container: a.container || '', exitCode: r.exitCode ?? k8sStatusToExitCode(r.status),
             stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768), stderr: (r.stderr || '').slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
             ...(r.timedOut ? { hint: `命令超时(>${Math.round(EXEC_TIMEOUT_MS / 1000)}s)被中止,输出为已收部分;一次性 exec 不适用于长驻命令(tail -f/top 等)` } : {}),

@@ -248,7 +248,9 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   const db = makeDb()
   const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
   let called = null
-  const execFn = async (saCtx, ns, pod, container, command, bounds) => { called = { ns, pod, container, command, bounds, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: 0, timedOut: false, truncated: false } }
+  // execFn 契约 = execCapture 返回:status 是 V1Status 对象(真实 client-node 形态,2026-08-26 前
+  // mock 猜成数字 status:0 → 测试全绿但线上 exit=[object Object])+ exitCode 数字(新字段)
+  const execFn = async (saCtx, ns, pod, container, command, bounds) => { called = { ns, pod, container, command, bounds, authHeader: saCtx.authHeader }; return { stdout: Buffer.from('total 0\n'), stderr: '', status: { kind: 'Status', status: 'Success' }, exitCode: 0, timedOut: false, truncated: false } }
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), execFn })
   const out = await tools.callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', container: 'c1', command: 'ls -la' })
   assert.equal(called.ns, 'ns'); assert.equal(called.pod, 'p1'); assert.deepEqual(called.command, ['sh', '-c', 'ls -la'], 'exec 契约是 argv 数组(shell 命令→sh -c 包装)')
@@ -257,6 +259,20 @@ test('exec_pod(admin happy): 走 runBoundedTool 全链(SA token)→ execFn(saCtx
   assert.equal(out.exitCode, 0)
   const rows = db.prepare('SELECT result FROM audit_log ORDER BY seq').all()
   assert.equal(rows[rows.length - 1].result, 'ok')
+})
+
+// --- exitCode 契约(2026-08-26 exit=[object Object] bug):非零退出的 V1Status 对象必须解析成数字 ---
+// 真实形态:码在 details.causes[reason=ExitCode].message(kubectl/client-go 同款)。旧实现
+// `exitCode: r.status ?? null` 把整个对象塞进 exitCode → 前端 fmtExec 渲染 exit=[object Object]。
+test('exec_pod(exitCode): 非零退出 V1Status 对象 → exitCode 数字(旧注入无 exitCode 字段时兜底解析 status)', async () => {
+  const db = makeDb()
+  const k = mkAdmin(db)
+  const v1fail = { kind: 'Status', status: 'Failure', reason: 'NonZeroExitCode', message: 'command terminated with non-zero exit code: Error executing in Docker Container: 1', details: { causes: [{ reason: 'ExitCode', message: '1' }] } }
+  // 旧形态注入(仅 status 对象,无 exitCode 字段)→ 网关内兜底解析
+  const execFnOld = async () => ({ stdout: Buffer.from('migrate failed'), stderr: 'PostgresError: schema "auth" does not exist', status: v1fail, timedOut: false, truncated: false })
+  const outOld = await createApiKeyTools({ db, requestFn: mockRequestFn(), execFn: execFnOld }).callTool(k, cluster, 'exec_pod', { namespace: 'ns', pod: 'p1', command: 'node /app/dist/db-migrate.js' })
+  assert.equal(outOld.exitCode, 1, '退出码必须是数字 1,不是 V1Status 对象')
+  assert.ok(typeof outOld.exitCode === 'number')
 })
 
 // --- exec 界限(2026-08-14 审计 P1a):AI 路径必须向 execFn 传 {timeoutMs,maxBytes},防挂死/吃内存 ---

@@ -20,6 +20,23 @@ export function toExecArgv(command) {
   throw new Error(`command 必须是非空字符串或非空字符串数组(收到: ${typeof command})`)
 }
 
+// K8s exec status 回调 → 数字退出码(2026-08-26 exit=[object Object] bug)。
+// client-node exec 的 status 回调收到的是 V1Status 对象而非数字:成功
+// `{status:'Success'}`(码隐含 0);非零退出 `{status:'Failure',reason:'NonZeroExitCode',
+// details:{causes:[{reason:'ExitCode',message:'126'}]}}`(码在 causes[].message,
+// kubectl/client-go 同款语义;message 兜底 value 防字段演进)。其他 Failure(协议层
+// 错误等)无退出码 → null。数字入参透传(防未来 client-node 改契约)。
+// 消费方:execCapture(→ wb_exec/exec_pod 的 exitCode)、终端 CH_EXIT 的 code。
+export function k8sStatusToExitCode(status) {
+  if (status == null) return null
+  if (typeof status === 'number') return status
+  if (typeof status !== 'object') return null
+  if (status.status === 'Success') return 0
+  const cause = (status.details?.causes || []).find(c => c.reason === 'ExitCode')
+  const code = Number(cause?.message ?? cause?.value)
+  return Number.isFinite(code) ? code : null
+}
+
 // openConn(stdoutSink, stderrSink) → Promise<conn>(conn: EventEmitter,须有 close())。
 // 返回 { stdout, stderr(Buffer), timedOut, truncated }:
 //   timedOut  = 超时被中止(timeoutMs>0 且 conn 在期限内未关)→ 主动 close,已收数据保留
