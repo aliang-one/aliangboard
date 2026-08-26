@@ -50,6 +50,14 @@ const LEVEL_CHIPS = [
   { lv: 'WARN', on: 'bg-tertiary-container/15 text-tertiary-container border-tertiary-container/40' },
   { lv: 'INFO', on: 'bg-primary-container/10 text-primary border-primary/30' },
 ]
+// 等级标签色:渲染区为恒暗底 code-surface,fixed 系 = 固定暗面安全变体;
+// INFO 用 primary-fixed-dim(#4edea3)与工具栏 INFO chip 的 primary 身份一致。
+const LEVEL_COLORS = {
+  ERROR: 'text-error',
+  WARN: 'text-tertiary-fixed-dim',
+  INFO: 'text-primary-fixed-dim',
+}
+const levelColor = lv => LEVEL_COLORS[lv] || 'text-on-code-surface/60'
 
 // === 显示选项 ===
 const wrap = ref(true)
@@ -171,12 +179,12 @@ async function copyLogs() {
     <div class="px-md py-0.5 text-[11px] text-on-surface-variant/60 border-b border-outline-variant/50 shrink-0">{{ t('component.logViewer.stat', { loaded: lines.length, visible: visibleLines.length }) }}</div>
 
     <!-- 渲染区 -->
-    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" class="flex-1 min-h-0 overflow-auto bg-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
-      <p v-if="!visibleLines.length" class="text-outline-variant py-md text-center">{{ t('component.logViewer.empty') }}</p>
+    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" class="flex-1 min-h-0 overflow-auto bg-code-surface text-on-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
+      <p v-if="!visibleLines.length" class="text-on-code-surface/60 py-md text-center">{{ t('component.logViewer.empty') }}</p>
       <div v-for="(log, idx) in visibleLines" :key="idx" data-testid="log-line" class="leading-relaxed break-all" :class="wrap ? 'whitespace-pre-wrap' : 'whitespace-pre'">
-        <span v-if="showTs" class="text-outline-variant/70">{{ log.timestamp }} </span>
-        <span :class="log.level === 'ERROR' ? 'text-error' : log.level === 'WARN' ? 'text-tertiary-fixed-dim' : 'text-outline-variant'">[{{ log.level }}]</span>
-        <span v-for="(seg, si) in filter.highlight(log.message)" :key="si" :data-testid="seg.hit ? 'log-highlight' : undefined" :class="seg.hit ? 'bg-primary/30 text-on-surface rounded-sm' : ''">{{ seg.text }}</span>
+        <span v-if="showTs" class="text-on-code-surface/50">{{ log.timestamp }} </span>
+        <span data-testid="log-level-tag" :class="levelColor(log.level)">[{{ log.level }}]</span>
+        <span v-for="(seg, si) in filter.highlight(log.message)" :key="si" :data-testid="seg.hit ? 'log-highlight' : undefined" :class="seg.hit ? 'bg-code-surface-selection text-on-code-surface rounded-sm' : ''">{{ seg.text }}</span>
       </div>
       <div v-if="followLog" class="w-1.5 h-4 bg-primary inline-block animate-pulse ml-1 align-middle"></div>
     </div>

@@ -119,3 +119,14 @@ test('上滚暂停跟随：出现回到底部按钮，点击恢复', async () =>
   await w.find('[data-testid="back-to-bottom"]').trigger('click')
   expect(w.find('[data-testid="back-to-bottom"]').exists()).toBe(false)
 })
+
+test('渲染区语义色:容器含 text-on-code-surface;INFO 标签 primary-fixed-dim;行内不再用边框 token 冒充文字色', async () => {
+  const w = mountBody()
+  streamHandlers.onMessage('2026-01-01T00:00:00Z app started')
+  await w.vm.$nextTick()
+  expect(w.find('[data-testid="log-scroll"]').classes()).toContain('text-on-code-surface')
+  const tags = w.findAll('[data-testid="log-level-tag"]')
+  expect(tags.length).toBeGreaterThan(0)
+  expect(tags[0].classes()).toContain('text-primary-fixed-dim')   // 首行 = 'app started' → INFO
+  expect(w.find('[data-testid="log-line"] .text-outline-variant').exists()).toBe(false)
+})
