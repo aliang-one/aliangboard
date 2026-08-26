@@ -6,6 +6,8 @@ import {
   planExec, pickStaleSids,
   tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture,
   archFromUname, injectDestCandidates, withTermInfo,
+  shellProbeCommand, pickShellFromProbe, isKnownShell,
+  tmuxConfContent, confDestCandidates,
 } from './tmux-session.mjs'
 
 test('hashToken: first 8 hex of sha256, stable', () => {
@@ -185,4 +187,69 @@ test('tmuxHasSessionCommand: has-session -t name (with env for socket dir)', () 
   assert.equal(c[0], 'env')
   assert.ok(c.includes('TMUX_TMPDIR=/dev/shm'), 'sets TMUX_TMPDIR so it finds the injected socket')
   assert.ok(c.includes('has-session'))
+})
+
+// ---- confPath:tmux 只在 new-session 启动 server 时读 conf,只有 new-session 系构造器需要 -f ----
+// 目的:pane 内 TERM 默认是 tmux default-terminal(裸 screen),注入 terminfo 里没有该条目 →
+// shell 行编辑(方向键)错乱。conf 把 default-terminal 定到 screen-256color(tar 已含该条目)。
+
+test('tmuxConfContent: set -g default-terminal "screen-256color"', () => {
+  const c = tmuxConfContent()
+  assert.match(c, /set -g default-terminal "screen-256color"/)
+})
+
+test('tmuxNewSessionDetached: confPath → -f <conf> 紧跟 tmuxBin(含 env 前缀时在 env 之后)', () => {
+  const plain = tmuxNewSessionDetached({ tmuxBin: '/x/tmux', confPath: '/d/.ab-tmux.conf', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })
+  assert.deepEqual(plain.slice(0, 4), ['/x/tmux', '-f', '/d/.ab-tmux.conf', '-L'])
+  const envied = tmuxNewSessionDetached({ tmuxBin: '/x/tmux', terminfoDir: '/d/.ti', confPath: '/d/.ab-tmux.conf', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })
+  assert.deepEqual(envied.slice(0, 7), ['env', 'TERMINFO=/d/.ti', 'TMUX_TMPDIR=/d/.ti', 'TERM=xterm-256color', '/x/tmux', '-f', '/d/.ab-tmux.conf'])
+})
+
+test('tmuxAttachCommand: confPath → -f <conf> 紧跟 tmuxBin;无 confPath 时不变', () => {
+  const c = tmuxAttachCommand({ tmuxBin: '/x/tmux', confPath: '/d/.ab-tmux.conf', label: 'L', name: 'N', cols: 80, rows: 24, shell: ['bash'] })
+  assert.deepEqual(c.slice(0, 4), ['/x/tmux', '-f', '/d/.ab-tmux.conf', '-L'])
+  const noConf = tmuxAttachCommand({ label: 'L', name: 'N', cols: 80, rows: 24, shell: ['sh'] })
+  assert.ok(!noConf.includes('-f'), 'no confPath → no -f flag (backward compat)')
+})
+
+test('confDestCandidates: /dev/shm 优先(RO-rootfs 可写),/tmp 兜底;system/injected 两路共用', () => {
+  assert.deepEqual(confDestCandidates(), ['/dev/shm/.ab-tmux.conf', '/tmp/.ab-tmux.conf'])
+})
+
+// ---- shell 智能探测：默认 sh 在 Debian 系镜像=dash,无 tab 补全;探测改用 bash 优先 ----
+
+test('shellProbeCommand: 单发探测,按优先级输出首个命中的 shell 名', () => {
+  const c = shellProbeCommand()
+  assert.equal(c[0], 'sh')
+  assert.equal(c[1], '-c')
+  // 优先级链必须 bash 在前(sh/dash 无补全);输出为单个 shell 名
+  assert.match(c[2], /^for s in bash/)
+  assert.ok(c[2].includes('command -v'))
+})
+
+test('pickShellFromProbe: 按优先级取输出行,回退 sh', () => {
+  assert.equal(pickShellFromProbe(Buffer.from('bash\n')), 'bash')
+  assert.equal(pickShellFromProbe(Buffer.from('ash\n')), 'ash')
+  assert.equal(pickShellFromProbe(Buffer.from('  zsh \n')), 'zsh')
+  // 空输出/异常 → sh(与旧行为一致)
+  assert.equal(pickShellFromProbe(Buffer.alloc(0)), 'sh')
+  assert.equal(pickShellFromProbe(Buffer.from('   \n')), 'sh')
+  assert.equal(pickShellFromProbe(null), 'sh')
+  assert.equal(pickShellFromProbe(undefined), 'sh')
+  // 多行(理论上不会发生,防御) → 取首个非空行
+  assert.equal(pickShellFromProbe(Buffer.from('\nzsh\nbash\n')), 'zsh')
+  // 探测输出了未知 shell 名 → 不透传,回退 sh(防注入任意 argv)
+  assert.equal(pickShellFromProbe(Buffer.from('bash; rm -rf /\n')), 'sh')
+  assert.equal(pickShellFromProbe(Buffer.from('/bin/bash\n')), 'sh')
+})
+
+test('isKnownShell: 只认可白名单内的 shell 名', () => {
+  assert.equal(isKnownShell('bash'), true)
+  assert.equal(isKnownShell('zsh'), true)
+  assert.equal(isKnownShell('ash'), true)
+  assert.equal(isKnownShell('dash'), true)
+  assert.equal(isKnownShell('sh'), true)
+  assert.equal(isKnownShell(''), false)
+  assert.equal(isKnownShell('/bin/bash'), false)
+  assert.equal(isKnownShell('bash -l'), false)
 })

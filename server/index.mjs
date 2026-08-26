@@ -43,7 +43,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 
@@ -633,6 +633,20 @@ async function verifyTmuxBin(session, namespace, pod, container, binPath) {
   } catch { return false }
 }
 
+// 把 tmux conf 文本经一次性 exec 灌进 pod(cat > dest;无需 +x)。
+async function execInjectConf(session, namespace, pod, container, content, destPath) {
+  const { KubeConfig, Exec } = await k8sClient()
+  const kc = buildKubeConfig(KubeConfig, session)
+  const exec = new Exec(kc)
+  const stdin = new PassThrough()
+  try {
+    const conn = await exec.exec(namespace, pod, container, ['sh', '-c', 'cat > "$1"', 'ab-conf', destPath], null, null, stdin, false)
+    stdin.end(content)
+    await new Promise(resolve => conn.on('close', resolve))
+    return true
+  } catch { return false }
+}
+
 // 决定持久化用的 tmux:系统有 → system;否则探测架构 + 注入 → injected;否则 none。
 async function resolveTmux(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
@@ -658,8 +672,29 @@ async function resolveTmux(session, namespace, pod, container) {
       }
     }
   }
+  // tmux conf 注入(system/injected 共用):pane 内 TERM 取 default-terminal(默认裸 screen),
+  // 定到 screen-256color,否则最小镜像里 shell 行编辑(上箭头)查不到键序列。
+  // 失败不致命:回退默认 screen,由注入 terminfo 的 s/screen 兜底条目接管。
+  if (res.kind === 'system' || res.kind === 'injected') {
+    const conf = tmuxConfContent()
+    for (const dest of confDestCandidates()) {
+      if (await execInjectConf(session, namespace, pod, container, conf, dest)) { res = { ...res, confPath: dest }; break }
+    }
+  }
   tmuxProbeCache.set(key, { res, at: Date.now() })
   return res
+}
+
+// shell 探测缓存:auto 模式下为 pod/container 选最优 shell(bash 优先;dash/sh 无 tab 补全)。TTL 同 tmux 探测。
+const shellProbeCache = new Map()
+async function resolveShell(session, namespace, pod, container) {
+  const key = probeKey(namespace, pod, container)
+  const hit = shellProbeCache.get(key)
+  if (hit && Date.now() - hit.at < TMUX_PROBE_TTL) return hit.shell
+  let shell = 'sh'
+  try { shell = pickShellFromProbe((await execCapture(session, namespace, pod, container, shellProbeCommand())).stdout) } catch { /* 探测失败 → sh */ }
+  shellProbeCache.set(key, { shell, at: Date.now() })
+  return shell
 }
 
 function buildKubeConfig(KubeConfig, session) {
@@ -719,10 +754,15 @@ async function handleExec(ws, session, url, req) {
   if (!namespace || !pod) { wsSend(ws, CH_ERROR, msg(req, 'api.missingNsPodParams')); return ws.close() }
   const container = url.searchParams.get('container') || ''
   const mode = url.searchParams.get('mode')   // 'attach' = 连接主进程 stdio；否则 exec 开新 shell
-  const command = (url.searchParams.get('command') || '/bin/sh').trim().split(/\s+/)
+  let command = (url.searchParams.get('command') || '/bin/sh').trim().split(/\s+/)
   const tty = url.searchParams.get('tty') !== 'false'
   const sid = url.searchParams.get('sid') || ''           // 稳定会话标识 = 前端 terminal.id
   const token = url.searchParams.get('session') || ''     // k8s session token（WS 鉴权同一值）
+  // auto=1(前端自动模式,未手选 shell)→ 探测最优 shell(bash 优先;默认 sh 在 Debian 系镜像=dash,
+  // 无 tab 补全)。手动选择不传 auto,command 原样尊重。只影响建会话时 pane 里跑什么,不碰会话身份。
+  if (mode !== 'attach' && url.searchParams.get('auto') === '1') {
+    command = [await resolveShell(session, namespace, pod, container)]
+  }
 
   // 决定执行命令 + 持久性。tmux 可用且有 sid → 先 detached 建会话(探测 tmux 能否起 server+pane);
   // 成功 → 回放历史 + attach;失败(最小镜像限制:只读/noexec/无 pty/server 崩 等)→ 降级一次性 exec,
@@ -742,7 +782,7 @@ async function handleExec(ws, session, url, req) {
       if (has?.status?.status !== 'Success') {
         // 首次连接:detached 建会话(探测 tmux 能否起)。失败 → throw → catch 降级。
         const made = await execCapture(session, namespace, pod, container,
-          tmuxNewSessionDetached({ tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, label, name: sessionName, cols: 80, rows: 24, shell: command }), true)
+          tmuxNewSessionDetached({ tmuxBin: resolved.bin, terminfoDir: resolved.terminfoDir, confPath: resolved.confPath, label, name: sessionName, cols: 80, rows: 24, shell: command }), true)
         if (made?.status?.status !== 'Success') throw new Error('tmux new-session failed')
       }
       // 成功:回放 scrollback(B),再 attach
@@ -758,7 +798,8 @@ async function handleExec(ws, session, url, req) {
       execCommand = command
     }
   }
-  wsSend(ws, CH_MODE, JSON.stringify({ persistent }))   // 告知前端最终是否持久(徽标)
+  // 告知前端最终是否持久(徽标) + 实际 shell(auto 探测可能与前端假设不同,头部展示用)
+  wsSend(ws, CH_MODE, JSON.stringify({ persistent, ...(mode === 'attach' ? {} : { shell: command.join(' ') }) }))
 
   const { KubeConfig, Exec, Attach } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
