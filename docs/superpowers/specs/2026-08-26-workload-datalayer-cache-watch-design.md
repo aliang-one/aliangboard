@@ -142,13 +142,16 @@ Vue Query 缓存   useClusterWatch 管理器(单例,store 内)
 
 **手测清单(需 kind/真实集群):**
 
-1. 重访 NsLayers 即时出内容(>5min 离开后)
-2. 创建 workload 返回分层页不闪白
-3. 拔网线 → chip 转「已降级」+ 60s 轮询 → 恢复 → 回升 live
-4. `kubectl scale` → 页面秒级跟变(watch 推送)
-5. 回滚功能回归(revisions tab + 一键回滚)
-6. 断开重启网关 → watch 自动重连
-7. 切集群 → 缓存清空不串台,新集群 watch 正常
+**实现完成,回归全绿,以下 8 项待执行(需真实集群环境):**
+
+1. NsLayers 离开 >5min 后重访:首帧即内容(旧数据),无空态闪烁
+2. 部署向导建 workload → 返回分层页:无空白
+3. `kubectl scale deployment` → NsWorkloads/NsLayers 秒级跟变(网络面板无 list 轮询,仅 watch 字节)
+4. 停网关 30s:chip 转「重连中」→ 连续失败后「已降级轮询」且 60s 轮询可见 → 重启网关 → 回「实时」
+5. watch 断开期间 `kubectl delete pod` → 恢复后(降级轮询或 relist)列表对齐
+6. NsWorkloadDetail revisions tab 正常展示;一键回滚到旧 rev 后 spec.template 与该 rev 一致
+7. 切换集群:旧集群 watch 全断(网关连接数归零)、缓存清空不串台、新集群 7 条 watch 重建
+8. 网络面板确认:list 响应无 managedFields/last-applied-configuration;单对象 GET 仍在(不剥)
 
 **验收指标:**停留在 workload 族页面期间网络面板 0 新增请求(集群无变更时,watch 长连接无字节);NsLayers 重访首帧即内容。注:重访页面时若数据已 stale(静止集群无 watch 事件刷新 `dataUpdatedAt`),至多触发一轮兜底 list——这是刻意的安全网,不是缺陷。
 
