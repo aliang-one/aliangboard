@@ -43,6 +43,7 @@ import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
+import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates } from './tmux-session.mjs'
 import { msg } from './messages.mjs'
 import { slimListBody } from './k8s-slim.mjs'
@@ -1884,7 +1885,41 @@ async function handle(req, res) {
   // K8s 代理 vs 平台 API 路由分发
   const isK8s = url.pathname.startsWith('/api/k8s/')
   const isPlatform = url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/my-clusters') || url.pathname.startsWith('/api/connect-cluster')
-  if (!isK8s && !isPlatform) return sendJson(res, 404, { message: 'Not found' })
+  if (!isK8s && !isPlatform) {
+  // 多路复用 watch 通道：单连接聚合 7 资源 watch 事件（浏览器同源 ~6 并发上限根治）。
+  // 必须在 isK8s/isPlatform 分发门之前（/api/k8s-watch 不匹配 /api/k8s/ 前缀，会被 404 吞掉）。
+  if (req.method === 'GET' && url.pathname === '/api/k8s-watch') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const { list, invalid } = parseResources(url)
+    if (list.length === 0) return sendJson(res, 400, { message: msg(req, 'api.watchMuxNoResources') })
+    if (invalid.length) return sendJson(res, 400, { message: msg(req, 'api.watchMuxBadResource', { names: invalid.join(', ') }) })
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson',
+      'cache-control': 'no-cache',
+      'x-accel-buffering': 'no',
+      'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
+    })
+    res.flushHeaders?.()
+    // 上游凭据/dispatcher 复用既有流式透传分支同一机制（session.authHeader + currentDispatcher）
+    const fetchUpstream = (path, { signal }) => kubeFetch(new URL(path, currentEndpoint(session)), {
+      method: 'GET',
+      headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+      dispatcher: currentDispatcher(session),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000))]),
+    })
+    const mux = createMuxStream({
+      resources: list,
+      fetchUpstream,
+      write: line => res.write(line + '\n'),
+      end: () => { try { res.end() } catch { /* 已断 */ } },
+    })
+    // 客户端断开 → 中止全部上游，避免泄漏
+    req.on('close', () => mux.close())
+    return
+  }
+  return sendJson(res, 404, { message: 'Not found' })
+  } // end if (!isK8s && !isPlatform)
 
   if (isK8s) {
   const session = sessionFromRequest(req)

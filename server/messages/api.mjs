@@ -69,6 +69,8 @@ export const TABLE = {
   'api.resolveOwnerFailed': { zh: '解析归属链失败', en: 'Failed to resolve ownership chain' },
   'api.k8sHttpError': { zh: 'Kubernetes API 返回 HTTP {status}', en: 'Kubernetes API returned HTTP {status}' },
   'api.k8sStreamFailed': { zh: 'Kubernetes 流式请求失败', en: 'Kubernetes streaming request failed' },
+  'api.watchMuxNoResources': { zh: '缺少 resources 参数', en: 'Missing resources parameter' },
+  'api.watchMuxBadResource': { zh: '不支持的 watch 资源: {names}', en: 'Unsupported watch resource(s): {names}' },
   'api.k8sRequestFailed': { zh: 'Kubernetes API 请求失败', en: 'Kubernetes API request failed' },
   'api.serverError': { zh: '服务器错误', en: 'Server error' },
   'api.missingNsPodParams': { zh: '缺少 namespace / pod 参数', en: 'Missing namespace / pod parameters' },
