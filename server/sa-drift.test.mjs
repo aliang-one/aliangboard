@@ -146,9 +146,10 @@ test('shared 去重:同 cluster 两把 key 同 ns,rolebinding list 只发一次'
   const shared = {}
   await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: managedRow, shared })
   await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: key2, shared })
-  assert.equal(calls.filter(p => p.startsWith(nsListPath)).length, 1)
-  assert.equal(calls.filter(p => p.startsWith(crbListPath)).length, 1)
-  assert.equal(calls.filter(p => p.startsWith('/apis/rbac.authorization.k8s.io/v1/clusterroles/aliangboard-mcp-cani')).length, 1)
+  // 精确匹配:list 端点路径恰为 nsListPath/crbListPath(无 query 无后缀);startsWith 会误计逐 item GET。
+  assert.equal(calls.filter(p => p === nsListPath).length, 1)
+  assert.equal(calls.filter(p => p === crbListPath).length, 1)
+  assert.equal(calls.filter(p => p === '/apis/rbac.authorization.k8s.io/v1/clusterroles/aliangboard-mcp-cani').length, 1)
 })
 
 test('共享 cani ClusterRole 缺失 → crb-missing(所有 key 的 can_i 同坏)', async () => {
