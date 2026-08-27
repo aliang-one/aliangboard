@@ -7,6 +7,7 @@ import { api, adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
+import SettingsAboutPanel from '@/components/settings/SettingsAboutPanel.vue'
 import { i18n, setLocale } from '@/i18n'
 
 const { t } = useI18n()
@@ -20,6 +21,7 @@ const tabs = computed(() => [
   { key: 'components', label: t('settings.tabs.components'), icon: 'extension' },
   { key: 'api', label: t('settings.tabs.api'), icon: 'api' },
   { key: 'customcols', label: t('settings.tabs.customcols'), icon: 'view_column' },
+  { key: 'about', label: t('settings.tabs.about'), icon: 'update' },
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
   ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
 ])
@@ -280,6 +282,9 @@ const { catalog, resetAll } = useTableColumns()
             </div>
           </div>
         </div>
+
+        <!-- About -->
+        <SettingsAboutPanel v-if="activeTab === 'about'" />
 
         <!-- MCP Service tab (admin only) -->
         <div v-if="activeTab === 'mcp'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
