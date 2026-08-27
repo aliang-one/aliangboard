@@ -29,7 +29,23 @@ export function platformNames(keyId) {
   return s
 }
 
-const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`probe timeout after ${ms}ms`)), ms))])
+const withTimeout = (p, ms) => {
+  let timer
+  const settled = {}
+  return Promise.race([
+    p.finally(() => { settled.ok = true; if (timer) clearTimeout(timer) }),
+    new Promise((_, rej) => { timer = setTimeout(() => { settled.ok = true; rej(new Error(`probe timeout after ${ms}ms`)) }, ms) })
+  ]).finally(() => { if (!settled.ok && timer) clearTimeout(timer) })
+}
+
+// 一次 health 调用内的共享缓存:同 apiServer 的 ns rolebinding list / CRB list / cani CR GET 只发一次;失败不缓存。
+function sharedGet(shared, key, make) {
+  if (!shared[key]) {
+    const p = make().catch(e => { delete shared[key]; throw e })
+    shared[key] = p
+  }
+  return shared[key]
+}
 
 function issue(type, extra = {}) { return { type, ...extra } }
 
@@ -42,6 +58,15 @@ export async function probeSaDrift({ requestFn, callCtx, timeoutMs = DEFAULT_TIM
   const nss = [...effectiveNamespaces(keyRow)]
   const tier = rbacTier(keyRow)
   const role = `aliangboard-mcp-${tier}-${id8(keyRow.id)}`
+  const apiServer = String(callCtx?.apiServer || '')
+  // list 的 404 视为空(与 teardown 容忍语义一致);其他错误(超时/403)→ null → probe-error。
+  const listNs = (ns) => sharedGet(shared, `nslist|${apiServer}|${ns}`, async () =>
+    (await withTimeout(requestFn(callCtx, `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings`), timeoutMs))?.body?.items || [])
+    .catch(e => e?.status === 404 ? [] : null)
+  const listCrb = () => sharedGet(shared, `crblist|${apiServer}`, async () =>
+    (await withTimeout(requestFn(callCtx, '/apis/rbac.authorization.k8s.io/v1/clusterrolebindings'), timeoutMs))?.body?.items || [])
+    .catch(e => e?.status === 404 ? [] : null)
+  const refUs = (item) => (item.subjects || []).some(s => s.kind === 'ServiceAccount' && s.name === keyRow.boundSA_name && s.namespace === keyRow.boundSA_namespace)
 
   if (keyRow.saManaged) {
     for (const ns of nss) {
@@ -60,8 +85,27 @@ export async function probeSaDrift({ requestFn, callCtx, timeoutMs = DEFAULT_TIM
     }
     const crb = await get(`/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${enc('aliangboard-mcp-cani-' + id8(keyRow.id))}`)
     if (!crb.ok) crb.status === 404 ? issues.push(issue('crb-missing', { name: 'aliangboard-mcp-cani-' + id8(keyRow.id) })) : issues.push(issue('probe-error', { detail: crb.error }))
+    // 共享 cani ClusterRole(每 cluster 一次,走 shared):所有 key 的 can_i 都依赖它
+    await sharedGet(shared, `cani|${apiServer}`, async () =>
+      withTimeout(requestFn(callCtx, '/apis/rbac.authorization.k8s.io/v1/clusterroles/aliangboard-mcp-cani'), timeoutMs))
+      .catch(e => { e?.status === 404 ? issues.push(issue('crb-missing', { name: 'aliangboard-mcp-cani' })) : issues.push(issue('probe-error', { detail: e?.message || 'cani ClusterRole 探测失败' })) })
+    // 外来绑定扫描(超配):subjects 引用我们的 SA 且名字非平台命名 → 报告不处理
+    const mine = platformNames(keyRow.id)
+    for (const ns of nss) {
+      const items = await listNs(ns)
+      if (items == null) { issues.push(issue('probe-error', { ns, detail: 'rolebinding list 失败' })); continue }
+      for (const item of items) if (refUs(item) && !mine.has(item.metadata?.name)) issues.push(issue('foreign-binding', { ns, name: item.metadata?.name }))
+    }
+    const crbItems = await listCrb()
+    if (crbItems == null) issues.push(issue('probe-error', { detail: 'clusterrolebinding list 失败' }))
+    else for (const item of crbItems) if (refUs(item) && !mine.has(item.metadata?.name)) issues.push(issue('foreign-crb', { name: item.metadata?.name }))
   } else {
-    // Task 2 实现(BYO:ns 内有无绑定引用该 SA)
+    // BYO:平台不拥有 RBAC,只探「ns 内有无任何绑定引用该 SA」;无 → 引导自建或接管。超配扫描跳过(一切外来皆合法)。
+    for (const ns of nss) {
+      const items = await listNs(ns)
+      if (items == null) { issues.push(issue('probe-error', { ns, detail: 'rolebinding list 失败' })); continue }
+      if (!items.some(refUs)) issues.push(issue('byo-no-binding', { ns }))
+    }
   }
   const status = issues.some(i => !['probe-error', 'foreign-binding', 'foreign-crb'].includes(i.type)) ? 'drift'
     : issues.some(i => i.type === 'foreign-binding' || i.type === 'foreign-crb') ? 'over' : 'ok'

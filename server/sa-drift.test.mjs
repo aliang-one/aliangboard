@@ -82,3 +82,84 @@ test('探测超时 → probe-error,不计入 drift(status 仍 ok)', async () => 
   assert.equal(out.status, 'ok')
   assert.ok(out.issues.some(i => i.type === 'probe-error'))
 })
+
+// —— Task 2 追加测试 ——
+const listBody = (items) => ({ items })
+const nsListPath = '/apis/rbac.authorization.k8s.io/v1/namespaces/ns1/rolebindings'
+const crbListPath = '/apis/rbac.authorization.k8s.io/v1/clusterrolebindings'
+
+test('外来 RoleBinding 引用我们的 SA → over(平台命名不误报)', async () => {
+  const objects = {
+    ...GREEN,
+    [nsListPath]: listBody([
+      { metadata: { name: ROLE }, subjects: binding.subjects },                        // 平台绑定:不报
+      { metadata: { name: 'aliangboard-mcp-11111111-admin' }, subjects: binding.subjects }, // 外来(命名不合规序):报
+    ]),
+    [crbListPath]: listBody([]),
+  }
+  const { requestFn } = fakeApi(objects)
+  const out = await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: managedRow })
+  assert.equal(out.status, 'over')
+  assert.ok(out.issues.some(i => i.type === 'foreign-binding' && i.name === 'aliangboard-mcp-11111111-admin'))
+})
+
+test('外来 ClusterRoleBinding 引用我们的 SA → over', async () => {
+  const objects = {
+    ...GREEN,
+    [nsListPath]: listBody([{ metadata: { name: ROLE }, subjects: binding.subjects }]),
+    [crbListPath]: listBody([
+      { metadata: { name: 'aliangboard-mcp-cani-11111111' }, subjects: binding.subjects }, // 平台 CRB:不报
+      { metadata: { name: 'evil-crb' }, subjects: [{ kind: 'ServiceAccount', name: SA_NAME, namespace: 'ns1' }] },
+    ]),
+  }
+  const { requestFn } = fakeApi(objects)
+  const out = await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: managedRow })
+  assert.equal(out.status, 'over')
+  assert.ok(out.issues.some(i => i.type === 'foreign-crb' && i.name === 'evil-crb'))
+})
+
+test('BYO:ns 内无绑定引用该 SA → byo-no-binding 计 drift;有 → ok', async () => {
+  const byoRow = { ...managedRow, saManaged: 0, boundSA_name: 'nursor-debug' }
+  const empty = await probeSaDrift({ requestFn: fakeApi({ [nsListPath]: listBody([]), [crbListPath]: listBody([]) }).requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: byoRow })
+  assert.equal(empty.status, 'drift')
+  assert.ok(empty.issues.some(i => i.type === 'byo-no-binding' && i.ns === 'ns1'))
+  const bound = await probeSaDrift({
+    requestFn: fakeApi({
+      [nsListPath]: listBody([{ metadata: { name: 'user-made' }, subjects: [{ kind: 'ServiceAccount', name: 'nursor-debug', namespace: 'ns1' }] }]),
+      [crbListPath]: listBody([]),
+    }).requestFn, callCtx: { apiServer: 'https://x' },
+  }, { keyRow: byoRow })
+  assert.equal(bound.status, 'ok')
+})
+
+test('shared 去重:同 cluster 两把 key 同 ns,rolebinding list 只发一次', async () => {
+  const key2 = { ...managedRow, id: '99999999-2222-3333-4444-555555555555', tier: 'read' }
+  const objects = {
+    ...GREEN,
+    [nsListPath]: listBody([{ metadata: { name: ROLE }, subjects: binding.subjects }]),
+    [crbListPath]: listBody([]),
+    [`/apis/rbac.authorization.k8s.io/v1/namespaces/ns1/roles/aliangboard-mcp-read-99999999`]: role,
+    [`/apis/rbac.authorization.k8s.io/v1/namespaces/ns1/rolebindings/aliangboard-mcp-read-99999999`]: { ...binding, roleRef: { ...binding.roleRef, name: 'aliangboard-mcp-read-99999999' } },
+    '/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/aliangboard-mcp-cani-99999999': {},
+  }
+  const { requestFn, calls } = fakeApi(objects)
+  const shared = {}
+  await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: managedRow, shared })
+  await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: key2, shared })
+  assert.equal(calls.filter(p => p.startsWith(nsListPath)).length, 1)
+  assert.equal(calls.filter(p => p.startsWith(crbListPath)).length, 1)
+  assert.equal(calls.filter(p => p.startsWith('/apis/rbac.authorization.k8s.io/v1/clusterroles/aliangboard-mcp-cani')).length, 1)
+})
+
+test('共享 cani ClusterRole 缺失 → crb-missing(所有 key 的 can_i 同坏)', async () => {
+  const objects = {
+    ...GREEN,
+    [nsListPath]: listBody([{ metadata: { name: ROLE }, subjects: binding.subjects }]),
+    [crbListPath]: listBody([]),
+  }
+  delete objects['/apis/rbac.authorization.k8s.io/v1/clusterroles/aliangboard-mcp-cani']
+  const { requestFn } = fakeApi(objects)
+  const out = await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' } }, { keyRow: managedRow })
+  assert.equal(out.status, 'drift')
+  assert.ok(out.issues.some(i => i.type === 'crb-missing' && i.name === 'aliangboard-mcp-cani'))
+})
