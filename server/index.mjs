@@ -300,6 +300,9 @@ function sendJson(res, status, payload) {
   res.end(body)
 }
 
+// 有状态(版本检测缓存):必须模块级构造一次——放 handle() 内会每请求重建缓存(终审 C1)
+const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
+
 // readBody 已迁 server/body.mjs(裸 JSON.parse 会把 V8 SyntaxError 泄漏给前端,现统一 400)
 
 
@@ -1377,7 +1380,6 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
   })
-  const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
