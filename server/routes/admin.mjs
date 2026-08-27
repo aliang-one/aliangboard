@@ -304,10 +304,34 @@ export function createAdminRoutes(deps) {
       try {
         const id = decodeURIComponent(url.pathname.split('/')[4])
         const input = await readBody(req)
+        const row = db.prepare('SELECT * FROM api_keys WHERE id = ? AND revokedAt IS NULL').get(id)
+        if (!row) { sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true }
         const json = normalizeToolOverrides(input.tool_overrides)  // strict: 坏→抛
-        const changes = db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id).changes
-        if (!changes) { sendJson(res, 404, { message: msg(req, 'admin.apikeyNotFound') }); return true }
-        sendJson(res, 200, { ok: true, id, tool_overrides: json })
+        // 托管 key:先供给后落库(与 ns PATCH 同语义)——overrides 加开工具面会抬 rbacTier
+        // (read+allow scale→operator、危险工具→admin),只改 DB 会造出「策略允许、RBAC 403」;
+        // 供给失败 → 502 + 明细,DB 不动。BYO:平台不碰其身份,只落库。
+        if (row.saManaged) {
+          if (!deps.provisionCluster || !deps.getCluster) { sendJson(res, 503, { message: msg(req, 'admin.overridesUpdateProvisionUnavailable') }); return true }
+          const nextTier = rbacTier({ ...row, tool_overrides: json })
+          let extraNs = []
+          try { extraNs = row.allowed_namespaces ? JSON.parse(row.allowed_namespaces) : [] } catch { extraNs = [] }
+          const prov = await deps.provisionCluster(deps.getCluster(row.clusterId), {
+            keyId: id, namespace: row.boundSA_namespace, name: row.boundSA_name, tier: nextTier, namespaces: extraNs,
+          })
+          if (!prov.ok) {
+            sendJson(res, 502, { message: msg(req, 'admin.overridesUpdateRbacFailed', { reason: prov.failed[0]?.error || prov.failed[0]?.kind || msg(req, 'admin.unknownError') }), failed: prov.failed })
+            return true
+          }
+          // 档名变更后清旧档名 RBAC 残留(best-effort:失败不回滚;对齐 repair 的 sweepStaleTierBindings)。
+          if (deps.sweepStaleCluster && rbacTier(row) !== nextTier) {
+            try { await deps.sweepStaleCluster(deps.getCluster(row.clusterId), { keyId: id, namespace: row.boundSA_namespace, keepTier: nextTier, namespaces: extraNs }) } catch { /* best-effort */ }
+          }
+          db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id)
+          sendJson(res, 200, { ok: true, id, tool_overrides: json, rbac: 'provisioned' })
+          return true
+        }
+        db.prepare('UPDATE api_keys SET tool_overrides = ? WHERE id = ? AND revokedAt IS NULL').run(json, id)
+        sendJson(res, 200, { ok: true, id, tool_overrides: json, rbac: 'byo-self-managed' })
         return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.updateOverridesFailed') }); return true }
     }
@@ -362,16 +386,22 @@ export function createAdminRoutes(deps) {
         return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.updateNsFailed') }); return true }
     }
-    // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA。
+    // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA;SA 在 → 追加 RBAC 漂移探测(rbac 字段)。
     if (req.method === 'GET' && url.pathname === '/api/admin/apikeys/health') {
       const ps = requireAdmin(req, res); if (!ps) return true
       if (!deps.probeSa || !deps.getCluster) { sendJson(res, 200, { health: [] }); return true }
       const keys = listKeys(db).filter(k => !k.revokedAt)
+      const shared = {} // 本次调用的共享缓存:同 cluster 的 rolebinding/CRB list 只发一次
       const health = await Promise.all(keys.map(async k => {
         const r = await deps.probeSa(deps.getCluster(k.clusterId), k.boundSA_namespace, k.boundSA_name)
-        return { id: k.id, prefix: k.prefix, boundSA: `${k.boundSA_namespace}/${k.boundSA_name}`, managed: !!k.saManaged, tier: k.tier, ok: !!(r && r.ok), detail: r?.detail || null }
+        let rbac = { status: 'unknown', issues: [] } // SA 不可达 → 短路 unknown(红点已足够)
+        if (r && r.ok && deps.probeDrift) {
+          try { rbac = (await deps.probeDrift(deps.getCluster(k.clusterId), k, shared)) || rbac } catch { /* 漂移探测失败不阻塞列表 */ }
+        }
+        return { id: k.id, prefix: k.prefix, boundSA: `${k.boundSA_namespace}/${k.boundSA_name}`, managed: !!k.saManaged, tier: k.tier, ok: !!(r && r.ok), detail: r?.detail || null, rbac }
       }))
-      sendJson(res, 200, { health }); return true
+      sendJson(res, 200, { health })
+      return true
     }
     // 修复托管身份;takeover=true 时 BYO key 换平台托管名并改绑(解决「SA 被删整 key 灭门」的存量 key)。
     if (req.method === 'POST' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/sa\/repair$/)) {

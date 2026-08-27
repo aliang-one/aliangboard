@@ -21,6 +21,8 @@ export const TABLE = {
   'admin.mintFailed': { zh: '签发 API key 失败', en: 'Failed to mint API key' },
   'admin.apikeyNotFound': { zh: 'API key 不存在或已吊销', en: 'API key not found or already revoked' },
   'admin.updateOverridesFailed': { zh: '更新覆盖失败', en: 'Failed to update overrides' },
+  'admin.overridesUpdateProvisionUnavailable': { zh: '工具覆盖更新未接通(网关未注入集群供给能力)', en: 'Tool overrides update unavailable (gateway lacks cluster provisioning capability)' },
+  'admin.overridesUpdateRbacFailed': { zh: '工具覆盖更新失败:所需权限档的集群 RBAC 未创建成({reason};DB 未改动,可重试)', en: 'Tool overrides update failed: cluster RBAC for the required tier was not created ({reason}; DB unchanged, you can retry)' },
   'admin.nsUpdateProvisionUnavailable': { zh: 'ns allowlist 更新未接通(网关未注入集群供给能力)', en: 'Namespace allowlist update unavailable (gateway lacks cluster provisioning capability)' },
   'admin.nsNotExistInCluster': { zh: "namespace '{ns}' 在集群中不存在,请先在集群创建后再添加(或用下拉选择已有 namespace);DB 未改动", en: "namespace '{ns}' does not exist in the cluster; create it in the cluster first (or pick an existing namespace from the dropdown); DB unchanged" },
   'admin.nsUpdateRbacFailed': { zh: 'ns allowlist 更新失败:新 ns 的集群 RBAC 创建未成({reason};DB 未改动,可重试)', en: 'Namespace allowlist update failed: cluster RBAC for the new namespaces was not created ({reason}; DB unchanged, you can retry)' },

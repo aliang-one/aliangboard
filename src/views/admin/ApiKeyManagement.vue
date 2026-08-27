@@ -51,8 +51,8 @@ function openOverrideEditor(k) {
 }
 async function saveOverrides() {
   try {
-    await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
-    notify('success', t('admin.apiKeys.overridesUpdated')); showOverrideModal.value = false; load()
+    const res = await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
+    notify('success', res?.rbac === 'byo-self-managed' ? t('admin.apiKeys.overridesUpdatedByo') : t('admin.apiKeys.overridesUpdated')); showOverrideModal.value = false; load()
   } catch (e) { notify('error', e.message || t('admin.apiKeys.updateFailed')) }
 }
 
@@ -99,6 +99,15 @@ const saHealth = ref({})
 async function loadHealth() {
   try { const res = await adminApi.apikeys.health(); saHealth.value = Object.fromEntries((res.health || []).map(h => [h.id, h])) } catch { /* 网关旧版本无此端点:静默降级 */ }
 }
+// 漂移三态(spec 2026-08-27):绿=ok且无漂移;黄=ok但 RBAC drift/over;红=SA 不可达。旧网关无 rbac → 退化两态。
+const camelize = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+const dotColor = (h) => !h ? 'var(--md-sys-color-outline-variant, #9ca3af)' : !h.ok ? '#dc2626' : (h.rbac?.status && h.rbac.status !== 'ok') ? '#f59e0b' : '#10b981'
+const dotTitle = (h) => {
+  if (!h) return ''
+  const issues = (h.rbac?.issues || []).map(i => `${t(`admin.apiKeys.drift.${camelize(i.type)}`)}${i.ns ? ` (${i.ns}${i.name ? '/' + i.name : ''})` : ''}`)
+  return [h.detail, ...issues, h.rbac?.status === 'over' ? t('admin.apiKeys.drift.foreignHint') : ''].filter(Boolean).join('\n')
+}
+const needsRepair = (row) => { const h = saHealth.value[row.id]; return !!(h && (!h.ok || h.rbac?.status === 'drift')) }
 async function repairSa(row) {
   try {
     const res = await adminApi.apikeys.repairSa(row.id, row.saManaged ? {} : { takeover: true })
@@ -183,10 +192,10 @@ async function doRevoke(k) {
       </template>
       <template #boundSA="{ row }">
         <div class="flex items-center gap-xs">
-          <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="{ background: saHealth[row.id] ? (saHealth[row.id].ok ? '#10b981' : '#dc2626') : 'var(--md-sys-color-outline-variant, #9ca3af)' }" :title="saHealth[row.id]?.detail || ''"></span>
+          <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="{ background: dotColor(saHealth[row.id]) }" :title="dotTitle(saHealth[row.id])"></span>
           <span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span>
           <span v-if="row.saManaged" class="px-xs rounded-full text-[10px] leading-4 border border-outline-variant text-on-surface-variant">{{ $t('admin.apiKeys.managedBadge') }}</span>
-          <button v-if="saHealth[row.id] && !saHealth[row.id].ok" data-testid="sa-repair" class="text-body-xs text-primary underline underline-offset-2" @click="repairSa(row)">{{ row.saManaged ? $t('admin.apiKeys.repair') : $t('admin.apiKeys.repairTakeover') }}</button>
+          <button v-if="needsRepair(row)" data-testid="sa-repair" class="text-body-xs text-primary underline underline-offset-2" @click="repairSa(row)">{{ row.saManaged ? $t('admin.apiKeys.repair') : $t('admin.apiKeys.repairTakeover') }}</button>
         </div>
       </template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>

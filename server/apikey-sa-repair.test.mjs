@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createApiKeysSchema, mintKey, revokeKey, listKeys } from './auth-keys.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 
-function makeHarness({ probe, teardownShouldThrow, sweepShouldThrow } = {}) {
+function makeHarness({ probe, drift, teardownShouldThrow, sweepShouldThrow } = {}) {
   const db = new DatabaseSync(':memory:')
   createApiKeysSchema(db)
   const sent = []
@@ -19,6 +19,7 @@ function makeHarness({ probe, teardownShouldThrow, sweepShouldThrow } = {}) {
     teardownCluster: async (row, spec) => { teardownCalls.push(spec); if (teardownShouldThrow) throw new Error('net error'); return { deleted: [], errors: [] } },
     sweepStaleCluster: async (row, spec) => { sweepCalls.push(spec); if (sweepShouldThrow) throw new Error('sweep error'); return { deleted: [], errors: [] } },
     probeSa: async (row, ns, name) => (typeof probe === 'function' ? probe(ns, name) : { ok: true }),
+    probeDrift: async (row, keyRow, shared) => (typeof drift === 'function' ? drift(keyRow) : { status: 'ok', issues: [] }),
   })
   return { db, sent, provisionCalls, teardownCalls, sweepCalls, setBody: b => { body = b }, call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
 }
@@ -103,4 +104,26 @@ test('吊销 BYO key:不回收(身份不是平台的)', async () => {
   await h.call('DELETE', `/api/admin/apikeys/${k.id}`)
   assert.equal(h.sent[0].status, 200)
   assert.equal(h.teardownCalls.length, 0)
+})
+
+test('health:透传 rbac 字段;SA 挂 → unknown 短路且不跑 drift;probeDrift 抛错不阻塞', async () => {
+  const h = makeHarness({ drift: () => ({ status: 'drift', issues: [{ type: 'role-missing', ns: 'ns' }] }) })
+  mintKey(h.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa-a', saManaged: 1 })
+  await h.call('GET', '/api/admin/apikeys/health')
+  const x = h.sent[0].json.health[0]
+  assert.equal(x.rbac.status, 'drift')
+  assert.equal(x.rbac.issues[0].type, 'role-missing')
+
+  let driftRan = 0
+  const h2 = makeHarness({ probe: async () => ({ ok: false, detail: 'not found' }), drift: async () => { driftRan++; return { status: 'ok', issues: [] } } })
+  mintKey(h2.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa-b', saManaged: 1 })
+  await h2.call('GET', '/api/admin/apikeys/health')
+  assert.equal(h2.sent[0].json.health[0].rbac.status, 'unknown') // SA 探测失败短路
+  assert.equal(driftRan, 0)                                       // 短路 = 不调 drift
+
+  const h3 = makeHarness({ drift: () => { throw new Error('boom') } })
+  mintKey(h3.db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa-c', saManaged: 1 })
+  await h3.call('GET', '/api/admin/apikeys/health')
+  assert.equal(h3.sent[0].status, 200)
+  assert.equal(h3.sent[0].json.health[0].rbac.status, 'unknown') // drift 抛错兜底,列表照常
 })
