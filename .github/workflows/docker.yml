@@ -46,6 +46,10 @@ jobs:
             type=semver,pattern={{version}}          # v1.2.3 → 1.2.3(不可变,锁版本用)
             type=semver,pattern={{major}}.{{minor}}  # 同时产 1.2 滚动标签
 
+      - name: Resolve VERSION（tag → semver；手动构建 → dev）
+        id: ver
+        run: echo "v=${{ steps.meta.outputs.version || 'dev' }}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push（amd64+arm64）
         uses: docker/build-push-action@v6
         with:
@@ -56,3 +60,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: VERSION=${{ steps.ver.outputs.v }}

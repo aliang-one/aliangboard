@@ -17,7 +17,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY server/ ./server/
 COPY --from=build /app/dist ./dist
 RUN mkdir -p /app/data && chown -R node:node /app/data
-ENV HOST=0.0.0.0 PORT=8787 NODE_ENV=production
+ARG VERSION=dev
+ENV HOST=0.0.0.0 PORT=8787 NODE_ENV=production APP_VERSION=${VERSION}
 USER node
 EXPOSE 8787
 VOLUME /app/data
