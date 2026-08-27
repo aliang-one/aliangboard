@@ -2,6 +2,7 @@
 // health / login / me / logout / my-clusters / connect-cluster 逐字搬迁,仅依赖引用改走 deps 注入。
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
+import { APP_VERSION } from '../version.mjs'
 
 export function createAuthRoutes(deps) {
   const {
@@ -14,7 +15,7 @@ export function createAuthRoutes(deps) {
   async function handle(req, res, url) {
     // GET /api/health — 无鉴权健康检查(负载均衡/存活探针)
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString() })
+      sendJson(res, 200, { ok: true, service: 'aliangboard-api', time: new Date().toISOString(), version: APP_VERSION })
       return true
     }
 
