@@ -143,3 +143,21 @@ test('HTTP 层: 限流 429 → 带 Retry-After HTTP 头(此前只在 error messa
   assert.ok(Number(headers['retry-after']) >= 1, `Retry-After 头(实际 ${headers['retry-after']})`)
   assert.equal(res.body.error.code, -32002)
 })
+
+// 2026-08-27 [object Object] 家族灭绝扫尾:callTool 抛「非 Error 对象」(理论路径——未来
+// 新工具 throw 裸对象/字符串)时,错误文本不得塌成 [object Object](String(obj) 家族,
+// get_pod_logs previous=true 同族事故的 MCP 协议层残留点)。
+test('tools/call: 抛非 Error 对象 → isError 文本为可读 JSON,非 [object Object]', async () => {
+  const tools = mockTools({ callTool: async () => { throw { weird: true, detail: 'raw object throw' } } })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'exec_pod', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
+  assert.equal(r.result.isError, true)
+  assert.ok(!r.result.content[0].text.includes('[object Object]'), `不得 [object Object],实际: ${r.result.content[0].text}`)
+  assert.match(r.result.content[0].text, /raw object throw/)
+})
+
+test('tools/call: 抛裸字符串 → isError 文本为该字符串', async () => {
+  const tools = mockTools({ callTool: async () => { throw 'plain string failure' } })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'exec_pod', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
+  assert.equal(r.result.isError, true)
+  assert.match(r.result.content[0].text, /plain string failure/)
+})

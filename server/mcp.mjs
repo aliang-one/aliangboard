@@ -18,6 +18,16 @@ export const TOOL_META = registry.toMeta()
 const ok = (id, result) => ({ jsonrpc: '2.0', id, result })
 const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } })
 
+// 工具异常 → AI 可读文本([object Object] 家族灭绝,2026-08-27):当前工具链 throw 均为
+// Error/PermissionDeniedError(e.message 恒有),但未来新工具 throw 裸对象/字符串时,
+// String(obj) 会塌成 [object Object](get_pod_logs previous=true 同族事故的协议层残留点)。
+// 契约:Error → message;字符串 → 原文;其它 → JSON 序列化(序列化自身失败才 String 兜底)。
+function describeThrow(e) {
+  if (e?.message) return String(e.message)
+  if (typeof e === 'string') return e
+  try { const j = JSON.stringify(e); return j ?? String(e) } catch { return String(e) }
+}
+
 // 纯逻辑:处理一条 JSON-RPC 消息 → 响应对象(或 null=notification)。可单测,无 HTTP。
 export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
   if (!msg || typeof msg !== 'object') return err(null, -32600, 'invalid request')
@@ -48,7 +58,7 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
     } catch (e) {
       if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.detail || e.message}`)
-      return ok(id, { isError: true, content: [{ type: 'text', text: e.message || String(e) }] })
+      return ok(id, { isError: true, content: [{ type: 'text', text: describeThrow(e) }] })
     }
   }
 
