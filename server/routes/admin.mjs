@@ -362,16 +362,22 @@ export function createAdminRoutes(deps) {
         return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.updateNsFailed') }); return true }
     }
-    // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA。
+    // SA 健康(列表页红绿点):轻量 GET 每把未吊销 key 的绑定 SA;SA 在 → 追加 RBAC 漂移探测(rbac 字段)。
     if (req.method === 'GET' && url.pathname === '/api/admin/apikeys/health') {
       const ps = requireAdmin(req, res); if (!ps) return true
       if (!deps.probeSa || !deps.getCluster) { sendJson(res, 200, { health: [] }); return true }
       const keys = listKeys(db).filter(k => !k.revokedAt)
+      const shared = {} // 本次调用的共享缓存:同 cluster 的 rolebinding/CRB list 只发一次
       const health = await Promise.all(keys.map(async k => {
         const r = await deps.probeSa(deps.getCluster(k.clusterId), k.boundSA_namespace, k.boundSA_name)
-        return { id: k.id, prefix: k.prefix, boundSA: `${k.boundSA_namespace}/${k.boundSA_name}`, managed: !!k.saManaged, tier: k.tier, ok: !!(r && r.ok), detail: r?.detail || null }
+        let rbac = { status: 'unknown', issues: [] } // SA 不可达 → 短路 unknown(红点已足够)
+        if (r && r.ok && deps.probeDrift) {
+          try { rbac = (await deps.probeDrift(deps.getCluster(k.clusterId), k, shared)) || rbac } catch { /* 漂移探测失败不阻塞列表 */ }
+        }
+        return { id: k.id, prefix: k.prefix, boundSA: `${k.boundSA_namespace}/${k.boundSA_name}`, managed: !!k.saManaged, tier: k.tier, ok: !!(r && r.ok), detail: r?.detail || null, rbac }
       }))
-      sendJson(res, 200, { health }); return true
+      sendJson(res, 200, { health })
+      return true
     }
     // 修复托管身份;takeover=true 时 BYO key 换平台托管名并改绑(解决「SA 被删整 key 灭门」的存量 key)。
     if (req.method === 'POST' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/sa\/repair$/)) {

@@ -12,6 +12,7 @@ import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
+import { probeSaDrift } from './sa-drift.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1405,6 +1406,10 @@ async function handle(req, res) {
         await requestKubernetes(buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }), `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`)
         return { ok: true }
       } catch (e) { return { ok: false, detail: e.status === 404 ? msg(req, 'api.saNotFound') : e.message } }
+    },
+    probeDrift: async (row, keyRow, shared) => {
+      if (!row) return { status: 'unknown', issues: [] }
+      return probeSaDrift({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, { keyRow, shared })
     },
   })
   const projectRoutes = createWorkbenchProjectRoutes({
