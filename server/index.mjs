@@ -37,6 +37,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
@@ -1376,6 +1377,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
   })
+  const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
@@ -1416,6 +1418,7 @@ async function handle(req, res) {
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
+  if (await versionRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
   if (await ingressControllerRoutes.handle(req, res, url)) return
 
