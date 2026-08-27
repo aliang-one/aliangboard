@@ -133,7 +133,10 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           if (a.timestamps) q.set('timestamps', 'true')
           const { body } = await requestFn(saCtx, `/api/v1/namespaces/${enc(a.namespace)}/pods/${enc(a.pod)}/log?${q}`)
           // 字节上限(codex #11):单行巨大的日志也会撑爆输出。截断 + 标志,让 AI 知道要更小 tail 重试。
-          const buf = Buffer.from(typeof body === 'string' ? body : String(body ?? ''), 'utf8')
+          // body 兜底序列化(2026-08-27):对象穿透(代理剥 content-type 等)时 JSON 序列化,
+          // 永不产出 "[object Object]"(previous=true 崩溃容器日志事故;根因层见 parseResponseBody)。
+          const logsText = typeof body === 'string' ? body : (body == null ? '' : JSON.stringify(body, null, 2))
+          const buf = Buffer.from(logsText, 'utf8')
           const originalBytes = buf.length
           const truncated = originalBytes > LOG_BYTE_MAX
           const logs = truncated ? buf.subarray(0, LOG_BYTE_MAX).toString('utf8') : buf.toString('utf8')

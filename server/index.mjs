@@ -7,7 +7,7 @@ import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
-import { normalizeServer, getDispatcher, buildCallContext } from './call-context.mjs'
+import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
@@ -403,8 +403,10 @@ async function requestOnce(session, endpoint, path, init = {}) {
     signal: AbortSignal.timeout(Number(process.env.K8S_REQUEST_TIMEOUT || 15000)),
   })
   const text = await response.text()
-  let body = null
-  try { body = text ? JSON.parse(text) : null } catch { body = text }
+  // content-type 感知解析(2026-08-27 根因修复,语义见 parseResponseBody 注释):此前无脑
+  // JSON.parse 任何可解析文本——pod /log(text/plain)的崩溃容器日志恰为合法 JSON 时被
+  // 解析成对象,消费方 String(obj) 变 "[object Object]"(MCP get_pod_logs previous 事故)。
+  const body = parseResponseBody(text, response.headers?.get?.('content-type'))
   if (!response.ok) {
     const message = body?.message || body?.reason || `Kubernetes API 返回 HTTP ${response.status}`
     const error = new Error(message)
@@ -1172,7 +1174,10 @@ async function handle(req, res) {
           const resp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(args.namespace)}/pods/${enc(args.pod)}/log?${q}`)
           // requestKubernetes 恒返回 {status, headers, body};/log 为 text/plain → 日志串在 resp.body。
           // 曾误把 resp 本身当串 → String({}) = "[object Object]",agent 永远看不到真实日志(2026-08-25)。
-          const buf = Buffer.from(typeof resp?.body === 'string' ? resp.body : String(resp?.body ?? ''), 'utf8')
+          // 2026-08-27 同族续修:body 本身为对象(结构化日志 JSON 行被解析/代理剥 content-type)
+          // 时序列化为可读 JSON,同样不产出 [object Object](根因层 parseResponseBody)。
+          const logsText = typeof resp?.body === 'string' ? resp.body : (resp?.body == null ? '' : JSON.stringify(resp.body, null, 2))
+          const buf = Buffer.from(logsText, 'utf8')
           const truncated = buf.length > LOG_MAX
           return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },

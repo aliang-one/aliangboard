@@ -10,6 +10,19 @@ let allowedHosts = new Set((process.env.K8S_ALLOWED_HOSTS || '').split(',').map(
 // 仅测试用:覆盖 allowedHosts(避免测试受部署环境 K8S_ALLOWED_HOSTS 影响)
 export function _setAllowedHostsForTest(set) { allowedHosts = set }
 
+// 响应 body 解析(content-type 感知,2026-08-27 根因修复):此前 requestOnce 对「任何能被
+// JSON.parse 的文本」都解析成对象——结构化日志端点(pod /log 为 text/plain,崩溃容器整段
+// 日志恰为合法 JSON 时)被解析成对象,消费方 String(obj) 变 "[object Object]"
+// (MCP get_pod_logs previous=true 实测事故)。
+// 语义:ct 明示 json → 解析(失败回退原文);ct 明示非 json(text/plain、application/yaml)
+// → 保持文本;无 ct(代理剥头)→ 维持旧的「尝试解析」兼容;空文本 → null。
+export function parseResponseBody(text, contentType) {
+  if (text == null || text === '') return null
+  const ct = String(contentType || '')
+  if (ct && !/json/i.test(ct)) return text
+  try { return JSON.parse(text) } catch { return text }
+}
+
 export function normalizeServer(value) {
   const url = new URL(String(value || ''))
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('API Server 必须使用 http 或 https')

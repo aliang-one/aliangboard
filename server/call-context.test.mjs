@@ -83,3 +83,23 @@ test('回归: API-key 风格上下文(现签 SA token)与浏览器 session 形�
   assert.equal(typeof browserSession.authHeader, typeof apiKeyCtx.authHeader)
   assert.ok(browserSession.dispatcher && apiKeyCtx.dispatcher)
 })
+
+// ── 2026-08-27:requestOnce body 解析的 content-type 感知(根因:结构化日志端点被无脑
+// JSON.parse 成对象,MCP/WB get_pod_logs String(obj) 变 "[object Object]")──
+// 语义:ct 含 json → 解析;ct 明示非 json(text/plain、application/yaml)→ 保持文本;
+// 无 ct(代理剥头)→ 维持旧的「尝试解析」兼容行为;空文本 → null。
+test('parseResponseBody:json ct 解析对象;text/plain 的合法 JSON 文本保持字符串;无 ct 兼容旧解析', async () => {
+  const { parseResponseBody } = await import('./call-context.mjs')
+  const jsonText = '{"kind":"Pod","metadata":{"name":"p1"}}'
+  const logJsonLine = '{"level":"error","msg":"boom"}'
+  assert.equal(parseResponseBody(jsonText, 'application/json').kind, 'Pod', 'application/json → 解析')
+  assert.equal(parseResponseBody(jsonText, 'application/json; charset=utf-8').kind, 'Pod', '带 charset 也解析')
+  assert.equal(typeof parseResponseBody(logJsonLine, 'text/plain'), 'string', 'text/plain + 合法 JSON 日志行 → 保持字符串(根因修复)')
+  assert.equal(parseResponseBody(logJsonLine, 'text/plain; charset=utf-8'), logJsonLine, '原文不变')
+  assert.equal(parseResponseBody('apiVersion: v1\nkind: Pod\n', 'application/yaml'), 'apiVersion: v1\nkind: Pod\n', 'yaml ct → 文本')
+  assert.equal(parseResponseBody(jsonText).kind, 'Pod', '无 ct → 兼容旧行为尝试解析')
+  assert.equal(parseResponseBody(jsonText, '').kind, 'Pod', '空 ct 视同无 ct(尝试解析)')
+  assert.equal(parseResponseBody('plain text', 'application/json'), 'plain text', 'json ct 但解析失败 → 原文本(旧行为)')
+  assert.equal(parseResponseBody('', 'application/json'), null, '空文本 → null')
+  assert.equal(parseResponseBody(null, 'application/json'), null, 'null → null')
+})

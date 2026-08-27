@@ -808,3 +808,20 @@ test('自愈失败(重建也失败)→ 抛 SA_BINDING_ERROR 含「自动重建�
     e => e.message.startsWith('SA_BINDING_ERROR:') && e.message.includes('自动重建失败')
   )
 })
+
+// ── 2026-08-27 MCP get_pod_logs [object Object] 事故 ──
+// previous=true 取崩溃容器日志,整段日志恰为合法 JSON(gotrue 结构化日志一行)时被
+// requestOnce 无脑 JSON.parse 成对象 → 工具层 String(obj) = "[object Object]"
+// (外部 AI 会话实测拿到,还误诊为「gotrue 把错误 toString 了」)。根因修复在
+// requestOnce 的 content-type 感知解析(call-context.parseResponseBody);此处锁工具层
+// 兜底:body 穿透为对象时序列化为可读 JSON,永不产出 [object Object]。
+test('get_pod_logs:body 为对象(根因穿透/代理剥 content-type)→ logs 为可读 JSON 串,非 [object Object]', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ logBody: { level: 'error', msg: 'connect ECONNREFUSED 127.0.0.1:5432', svc: 'gotrue' } }) })
+  const out = await tools.getPodLogs(k, cluster, { namespace: 'ns', pod: 'p1', previous: true })
+  assert.ok(!out.logs.includes('[object Object]'), `logs 不得是 [object Object],实际: ${out.logs.slice(0, 80)}`)
+  assert.match(out.logs, /connect ECONNREFUSED/)
+  assert.match(out.logs, /gotrue/)
+  assert.equal(out.previous, true)
+})
