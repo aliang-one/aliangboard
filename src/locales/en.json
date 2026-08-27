@@ -2912,6 +2912,7 @@
       "overrideMeta": "tier=<b>{tier}</b>; SA={ns}/{name}. No re-mint needed after editing.",
       "overrideCorrupted": "(corrupted)",
       "overridesUpdated": "Overrides updated",
+      "overridesUpdatedByo": "Overrides updated; this key uses a self-managed SA — if you enabled higher-privilege tools, create the cluster Role/RoleBinding yourself",
       "updateFailed": "Failed to update",
       "minted": "Minted (plaintext visible only this time — copy now)",
       "mintFailed": "Failed to mint",

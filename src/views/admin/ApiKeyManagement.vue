@@ -51,8 +51,8 @@ function openOverrideEditor(k) {
 }
 async function saveOverrides() {
   try {
-    await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
-    notify('success', t('admin.apiKeys.overridesUpdated')); showOverrideModal.value = false; load()
+    const res = await adminApi.apikeys.updateOverrides(editingKey.value.id, overridesPayload(editOverrides.value))
+    notify('success', res?.rbac === 'byo-self-managed' ? t('admin.apiKeys.overridesUpdatedByo') : t('admin.apiKeys.overridesUpdated')); showOverrideModal.value = false; load()
   } catch (e) { notify('error', e.message || t('admin.apiKeys.updateFailed')) }
 }
 

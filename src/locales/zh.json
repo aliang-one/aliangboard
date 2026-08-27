@@ -2912,6 +2912,7 @@
       "overrideMeta": "tier=<b>{tier}</b>;SA={ns}/{name}。改完无需重签 key。",
       "overrideCorrupted": "(损坏)",
       "overridesUpdated": "覆盖已更新",
+      "overridesUpdatedByo": "工具覆盖已更新;该 key 为自带 SA,若加开了更高权限的工具,集群 Role/RoleBinding 需自行创建",
       "updateFailed": "更新失败",
       "minted": "已签发(明文仅此次可见,请立即复制)",
       "mintFailed": "签发失败",
