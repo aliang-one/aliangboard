@@ -210,6 +210,9 @@ export const resourceTreeApi = {
 // 工作台 API（W2，第三阶段）：任意平台用户，项目按 userId 归属
 export const workbenchApi = {
   listProjects: () => platformHttp.request('/api/workbench/projects'),
+  // 平台版本检测(2026-08-27 版本机制设计)
+  getVersion: () => platformHttp.request('/api/version'),
+  checkVersion: () => platformHttp.request('/api/version/check', { method: 'POST' }),
   // 工作台「记录」页:跨项目对话记录 + 计数 + 存储信息(admin)
   records: () => platformHttp.request('/api/workbench/records'),
   createProject: payload => platformHttp.request('/api/workbench/projects', { method: 'POST', body: JSON.stringify(payload) }),
