@@ -39,6 +39,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
@@ -300,6 +301,9 @@ function sendJson(res, status, payload) {
   })
   res.end(body)
 }
+
+// 有状态(版本检测缓存):必须模块级构造一次——放 handle() 内会每请求重建缓存(终审 C1)
+const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
 
 // readBody 已迁 server/body.mjs(裸 JSON.parse 会把 V8 SyntaxError 泄漏给前端,现统一 400)
 
@@ -1423,6 +1427,7 @@ async function handle(req, res) {
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
+  if (await versionRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
   if (await ingressControllerRoutes.handle(req, res, url)) return
 

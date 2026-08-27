@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
@@ -23,6 +23,8 @@ const TransfersPanel = defineAsyncComponent(() => import('@/components/common/Tr
 // 悬浮 AI 对话入口:按钮本身极轻,直接静态引入;重货 ChatModal(内嵌 WorkbenchChat/
 // marked/dompurify)由 ChatPresence 内部 defineAsyncComponent 按需加载
 import ChatPresence from '@/components/workbench/ChatPresence.vue'
+import UpdateBanner from './UpdateBanner.vue'
+import { useAppVersion } from '@/composables/useAppVersion'
 // fullHeight 路由判定用:main 的 class 绑在 router-view 外,v-slot 的 route 够不到
 const route = useRoute()
 
@@ -31,6 +33,11 @@ const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
 const { tick: refreshTick } = usePageRefresh()
+
+// 平台版本更新检测(横幅:每版本提示一次;未登录不进 AppLayout,query 天然不启用)
+const { query: versionQuery } = useAppVersion()
+const hasUpdate = computed(() => !!versionQuery.data.value?.hasUpdate)
+const latestVersion = computed(() => versionQuery.data.value?.latest || null)
 
 // footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
 const lastUpdated = ref('')
@@ -68,6 +75,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <span v-if="store.clusterHealth.status === 'Critical'">{{ $t('layout.controlPlaneAbnormal', { ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
         <span v-else>{{ $t('layout.clusterUnreachable', { reasons: store.clusterHealth.reasons.map(r => $t(r)).join('；') }) }}</span>
       </div>
+      <!-- 版本更新横幅:检测到新版本(每版本提示一次,可关闭) -->
+      <UpdateBanner v-if="hasUpdate" :latest="latestVersion" />
       <!-- fullHeight 路由(工作台类应用式布局):main 不滚不留白,高度链贯通到页面组件,
            由页面内部自管滚动;其余路由保持文档式页面滚动 -->
       <main class="flex-1 min-h-0" :class="route?.meta?.fullHeight ? 'overflow-hidden' : 'overflow-y-auto bg-surface p-margin'">

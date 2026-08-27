@@ -481,7 +481,8 @@
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
     "clusterUnreachable": "集群不可达或未连接：{reasons}",
-    "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}"
+    "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}",
+    "updateBanner": { "found": "发现新版本", "view": "查看发布", "dismiss": "关闭" }
   },
   "clusters": {
     "title": "集群管理",
@@ -2339,6 +2340,7 @@
       "components": "Components",
       "api": "API Server",
       "customcols": "Custom Columns",
+      "about": "关于",
       "mcp": "MCP 服务",
       "transfers": "文件传输"
     },
@@ -2394,7 +2396,18 @@
     "transfersLimitHint": "容器文件上传/下载共用的单文件上限;默认 1024(1GB),可调 1-10240。超限时传输任务会提示当前限额。",
     "transfersSaved": "已保存",
     "transfersInvalid": "请输入 1-10240 的整数",
-    "transfersLoadFailed": "读取配置失败"
+    "transfersLoadFailed": "读取配置失败",
+    "about": {
+      "title": "关于平台",
+      "currentVersion": "当前版本",
+      "latestVersion": "最新版本",
+      "checkNow": "立即检查",
+      "checking": "检测中…",
+      "checkFailed": "检测失败(内网或限流)",
+      "devBuild": "开发构建",
+      "upgradeGuide": "版本与升级",
+      "copyCommand": "复制命令"
+    }
   },
   "storage": {
     "title": "存储",

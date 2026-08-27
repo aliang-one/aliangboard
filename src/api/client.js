@@ -139,6 +139,9 @@ export const api = {
     catalog: () => k8sHttp.request('/api/ingress-controllers/catalog'),
     manifest: id => k8sHttp.request(`/api/ingress-controllers/manifest/${encodeURIComponent(id)}`),
   },
+  // 平台版本检测(2026-08-27 版本机制设计;api 对象内首个 platformHttp 端点)
+  getVersion: () => platformHttp.request('/api/version'),
+  checkVersion: () => platformHttp.request('/api/version/check', { method: 'POST' }),
 }
 
 // 端口转发管理（REST）：在网关主机开本地 TCP 监听转发到 Pod，等同 kubectl port-forward。

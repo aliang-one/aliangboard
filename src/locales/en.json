@@ -481,7 +481,8 @@
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
     "clusterUnreachable": "Cluster unreachable or not connected: {reasons}",
-    "clusterStatusSummary": "Cluster: {status} · Control plane {ready}/{total} · Worker {wready}/{wtotal}"
+    "clusterStatusSummary": "Cluster: {status} · Control plane {ready}/{total} · Worker {wready}/{wtotal}",
+    "updateBanner": { "found": "New version available", "view": "View releases", "dismiss": "Dismiss" }
   },
   "clusters": {
     "title": "Cluster Management",
@@ -2339,6 +2340,7 @@
       "components": "Components",
       "api": "API Server",
       "customcols": "Custom Columns",
+      "about": "About",
       "mcp": "MCP Service",
       "transfers": "File Transfers"
     },
@@ -2394,7 +2396,18 @@
     "transfersLimitHint": "Shared limit for container file upload/download; default 1024 (1GB), range 1-10240. Oversized transfers fail with the current limit shown.",
     "transfersSaved": "Saved",
     "transfersInvalid": "Enter an integer between 1 and 10240",
-    "transfersLoadFailed": "Failed to load config"
+    "transfersLoadFailed": "Failed to load config",
+    "about": {
+      "title": "About",
+      "currentVersion": "Current version",
+      "latestVersion": "Latest version",
+      "checkNow": "Check now",
+      "checking": "Checking…",
+      "checkFailed": "Check failed (offline or rate-limited)",
+      "devBuild": "Dev build",
+      "upgradeGuide": "Version & upgrade",
+      "copyCommand": "Copy command"
+    }
   },
   "storage": {
     "title": "Storage",
