@@ -43,7 +43,8 @@ jobs:
           if [ -z "$BASE" ]; then echo "找不到 ghcr 包(用户/组织端点都 404)"; exit 1; fi
           echo "包端点: $BASE"
 
-          page=1          while :; do
+          page=1
+          while :; do
             resp=$(curl -s "${auth[@]}" "https://api.github.com/$BASE/packages/container/aliangboard/versions?per_page=100&page=$page")
             count=$(echo "$resp" | jq 'length')
             [ "$count" -eq 0 ] && break
