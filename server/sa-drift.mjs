@@ -29,7 +29,9 @@ export function platformNames(keyId) {
   return s
 }
 
-const withTimeout = (p, ms) => {
+// per-probe 超时:Promise.race 包裹,默认 ms 复用 HEALTH_PROBE_TIMEOUT_MS(5000)。
+// 导出供 index.mjs probeSa 复用(spec 目标③:死集群不得挂死 health 列表)。
+export const withTimeout = (p, ms = DEFAULT_TIMEOUT_MS) => {
   let timer
   const settled = {}
   return Promise.race([

@@ -2,7 +2,7 @@
 // 漂移探测契约:托管 key 逐 ns 声明式比对(Role 规则/RoleBinding/CRB)+ per-probe 超时不计入 drift。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { probeSaDrift, stableStringify, platformNames } from './sa-drift.mjs'
+import { probeSaDrift, stableStringify, platformNames, withTimeout } from './sa-drift.mjs'
 import { roleRules } from './sa-provision.mjs'
 
 const KEY = '11111111-2222-3333-4444-555555555555'
@@ -81,6 +81,13 @@ test('探测超时 → probe-error,不计入 drift(status 仍 ok)', async () => 
   const out = await probeSaDrift({ requestFn, callCtx: { apiServer: 'https://x' }, timeoutMs: 50 }, { keyRow: managedRow })
   assert.equal(out.status, 'ok')
   assert.ok(out.issues.some(i => i.type === 'probe-error'))
+})
+
+test('withTimeout 直测:值/错误透传,挂死按 ms reject;省略 ms 走默认也不影响即回请求', async () => {
+  await withTimeout(Promise.resolve('v'), 50).then(v => assert.equal(v, 'v'))          // 值透传
+  await withTimeout(Promise.reject(new Error('boom')), 50).catch(e => assert.equal(e.message, 'boom')) // 错误透传不吞
+  await assert.rejects(withTimeout(new Promise(() => {}), 50), /probe timeout after 50ms/) // 挂死 → 超时 reject
+  await withTimeout(Promise.resolve(1))                                                  // 默认 ms 参数存在且不延迟即回
 })
 
 // —— Task 2 追加测试 ——

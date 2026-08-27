@@ -12,7 +12,8 @@ import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
-import { probeSaDrift } from './sa-drift.mjs'
+// withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
+import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
@@ -1403,7 +1404,8 @@ async function handle(req, res) {
     probeSa: async (row, ns, name) => {
       if (!row) return { ok: false, detail: msg(req, 'api.clusterNotFound') }
       try {
-        await requestKubernetes(buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }), `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`)
+        // 同款 per-probe 超时(默认 HEALTH_PROBE_TIMEOUT_MS/5000):TCP 通但 HTTP 挂死的集群不再拖满 undici 默认 300s(spec 目标③)。
+        await withProbeTimeout(requestKubernetes(buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }), `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts/${encodeURIComponent(name)}`))
         return { ok: true }
       } catch (e) { return { ok: false, detail: e.status === 404 ? msg(req, 'api.saNotFound') : e.message } }
     },
