@@ -364,3 +364,46 @@ test('取消后:已流出的部分内容+思考落 assistant 消息,状态保持
   assert.equal(msgs.at(-1).content, '已流出的一半', '已流出的部分答案保留,刷新不蒸发')
   assert.equal(msgs.at(-1).reasoning, '想了一半', '部分思考一并保留')
 })
+
+// ── 2026-08-27 静默终止审计:salvage 自身抛错(DB 中途损坏/锁死)不得让 runConversation ──
+// reject——detached 调用点无 .catch,reject 会变 unhandledRejection 把网关进程带走
+// (全站 SSE 断流,用户侧即「对话异常结束且无任何提示」的终极形态)。契约:
+// 即使落库全废,busEmit(failed+end)+ dispose 事件序列必须完整发出(SSE 客户端仍能收到失败)。
+test('runConversation:catch 块内 salvage 抛错 → 不 reject,failed/end/dispose 事件仍完整发出', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  // db 中途关死:salvage 的 updateConversation/appendMessage 全部抛错,模拟 DB 文件损坏/锁死
+  // run 内部把 db 关死:salvage 的 updateConversation/appendMessage 全部抛错,模拟 DB 文件损坏/锁死
+  const { createAgentRunner } = makeRunner(async () => {
+    db.close()
+    throw new Error('LLM HTTP 502: upstream down')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  // 修复前:salvage 的 DB 异常穿透 reject(unhandledRejection);修复后:resolve 且事件序列完整
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const types = events.map(e => e.type)
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'failed' && /502/.test(e.error || '')), 'emit failed(带原始错误)')
+  assert.ok(types.includes('end'), 'emit end')
+  assert.ok(types.includes('disposed'), 'bus dispose')
+})
+
+test('resumeConversation:catch 块内 salvage 抛错 → 不 reject,failed/end/dispose 事件仍完整发出', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, {
+    status: 'paused', messages: '[]', queue: '[]', denied: '[]',
+    pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_exec', args: {} }), steps: 1,
+  })
+  const { createAgentRunner } = makeRunner(async () => {
+    db.close()
+    throw new Error('boom')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const types = events.map(e => e.type)
+  assert.ok(events.find(e => e.type === 'status' && e.status === 'failed'), 'emit failed')
+  assert.ok(types.includes('end'), 'emit end')
+  assert.ok(types.includes('disposed'), 'bus dispose')
+})

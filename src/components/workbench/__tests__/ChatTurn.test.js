@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ChatTurn from '../ChatTurn.vue'
 
-const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成', reasoningTitle: '思考过程' } } } } })
+const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成', reasoningTitle: '思考过程', maxStepsReached: '已达到最大执行步数' } } } } })
 
 test('ChatTurn: agent done 渲染 markdown(v-html)', () => {
   const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '**hi**' } }, global: { plugins: [i18n] } })
@@ -123,4 +123,21 @@ test('存量回退:trace 无 assistant 事件 → 时间线布局,终答走原�
   expect(w.find('[data-testid="interleaved-flow"]').exists()).toBe(false)
   expect(w.find('[data-testid="tool-timeline"]').exists()).toBe(true)
   expect(w.text()).toContain('终答')
+})
+
+// 2026-08-27 静默终止审计:truncated(done+步数用尽)此前只有角色行 ⚠ 小标,用户等数分钟
+// 拿到一行灰字观感即"异常结束无提示"——锁定醒目警告块渲染。
+test('ChatTurn: truncated 渲染醒目步数用尽警告块', () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '(达到最大步数,未给出终答)', truncated: true } }, global: { plugins: [i18n] } })
+  expect(w.text()).toContain('已达到最大执行步数')
+  expect(w.find('.text-status-warning').exists()).toBe(true)
+})
+
+// 2026-08-27 modal 审计:pending_approval 黄条是审批 modal 的重开入口(ESC 收起后不再自动重弹)
+test('ChatTurn: pending_approval 黄条可点击,emit reopen-approval', async () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'pending_approval', content: '' } }, global: { plugins: [i18n] } })
+  const bar = w.find('[data-testid="pending-approval-bar"]')
+  expect(bar.exists()).toBe(true)
+  await bar.trigger('click')
+  expect(w.emitted('reopen-approval')).toHaveLength(1)
 })

@@ -11,6 +11,9 @@ const props = defineProps({
   title: { type: String, default: '' },
   width: { type: String, default: 'max-w-lg' },
   fullscreen: { type: Boolean, default: false },
+  // 优先层(2026-08-27):阻塞式弹窗(如 AI 审批)用它盖过一切普通 modal——Modal 都 Teleport
+  // 到 body 且同 Z.modal 时按 DOM 序层叠,后打开的普通 modal(悬浮 ChatModal)会盖住先弹的审批。
+  priority: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm', 'cancel'])
@@ -33,7 +36,7 @@ function confirm() {
 <template>
   <Teleport to="body">
     <transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 flex items-center justify-center" :style="{ zIndex: Z.modal }">
+      <div v-if="modelValue" class="fixed inset-0 flex items-center justify-center" :style="{ zIndex: props.priority ? Z.modalPriority : Z.modal }">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-on-surface/30 backdrop-blur-sm" @click="close"></div>
         <!-- Dialog -->

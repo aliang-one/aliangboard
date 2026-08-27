@@ -12,7 +12,7 @@ import ToolRow from './ToolRow.vue'
 import ResourceCard from '@/components/common/ResourceCard.vue'
 
 const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false } })
-const emit = defineEmits(['regenerate'])
+const emit = defineEmits(['regenerate', 'reopen-approval'])
 const { t } = useI18n()
 
 const root = ref(null)
@@ -211,6 +211,13 @@ function onRootClick(e) {
     <div v-else class="flex flex-col gap-sm px-md">
       <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
 
+      <!-- 步数用尽醒目警告(2026-08-27 静默终止审计):done+truncated 此前只有角色行 ⚠ 小标,
+           用户等数分钟拿到一行灰字"(达到最大步数…)"观感即"异常结束无提示"——加可读警告块。 -->
+      <div v-if="turn.truncated" class="flex items-start gap-sm px-md py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
+        <span class="material-symbols-outlined text-base text-status-warning mt-0.5">warning</span>
+        <span class="text-body-sm text-status-warning leading-relaxed">{{ t('workbench.chat.maxStepsReached') }}</span>
+      </div>
+
       <!-- 交错流:文本↔工具行按发生顺序(中间文本+终答都在块序列里);thinking 时当前轮流式文本为末段 -->
       <div v-if="interleaveUsable" data-testid="interleaved-flow" class="flex flex-col gap-sm">
         <template v-for="(b, i) in blocks" :key="i">
@@ -254,9 +261,14 @@ function onRootClick(e) {
         <span v-else-if="turn.trace && turn.trace.length" class="text-body-xs text-on-surface-variant/60 font-mono">{{ turn.trace.length }}↻</span>
       </div>
 
-      <div v-else-if="turn.status === 'pending_approval'" class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
+      <!-- N2(2026-08-27 modal 审计):黄条可点击重开审批 modal——ESC/遮罩收起后轮询已停/SSE 已断,
+           不会再自动重弹;无重开入口 = 审批死锁(只能刷新页面)。 -->
+      <div v-else-if="turn.status === 'pending_approval'" data-testid="pending-approval-bar" @click="emit('reopen-approval')"
+        :title="t('workbench.chat.reopenApproval')"
+        class="flex items-center gap-sm px-sm py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl cursor-pointer hover:bg-status-warning/10 hover:border-status-warning/60 transition-colors">
         <span class="material-symbols-outlined text-base text-status-warning">pending_actions</span>
         <span class="text-body-sm text-status-warning font-medium">{{ t('workbench.chat.pendingApproval') }}</span>
+        <span class="material-symbols-outlined text-sm text-status-warning/60 ml-auto">open_in_new</span>
       </div>
 
       <div v-else-if="turn.status === 'error'" class="flex items-start gap-sm px-md py-sm bg-error/5 border border-error/20 rounded-xl">

@@ -75,7 +75,7 @@ function userHarness({ settings, body } = {}) {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => body || {},
     requireAdmin: (rq, rs) => ({ userId: 'u1', username: 't', role: 'user' }),
-    wbAgent: { runConversation: () => {}, resumeConversation: () => {} }, getLlmConfig: () => ({ baseURL: 'http://x', apiKey: 'SECRET', model: 'm7' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {} }, getLlmConfig: () => ({ baseURL: 'http://x', apiKey: 'SECRET', model: 'm7' }),
     createLlmClient: () => ({}), buildCallContext: () => ({}), requestKubernetes: async () => ({}),
     busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
   })

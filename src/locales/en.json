@@ -3375,7 +3375,10 @@
         "disabledBadge": "Disabled",
         "approvalBadge": "Approval required",
         "retry": "Retry"
-      }
+      },
+      "reconnecting": "Connection lost, retrying automatically…",
+      "maxStepsReached": "Maximum agent steps reached without a final answer. Try \"Regenerate\", or continue with a follow-up prompt.",
+      "reopenApproval": "Click to reopen the approval dialog"
     },
     "shell": {
       "title": "Workbench",

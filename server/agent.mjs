@@ -66,8 +66,12 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   //   resume = { messages, queue, denied, steps, toolCallId, approved } —— 续跑某个 pending 写工具
 
   let idSeq = 0
+  // 盖章 id 的唯一性(2026-08-27 审计):旧 `gen_${idSeq}` 每实例从 0 重计——跨轮(新 run/resume
+  // 都新建 agent)可重复,前端 decidedApprovals 按_id 去重会误命中旧决策 → 审批不弹死锁。
+  // 实例随机 tag 保证跨实例、跨进程重启都不撞(LLM 带的 call_xxx 原生 id 不受影响)。
+  const runTag = Math.random().toString(36).slice(2, 8)
   // OpenAI 兼容 tool_call 都带 id;缺失时盖章一个稳定 id(写回 tc,保证 checkpoint→resume 一致)
-  function callId(tc) { if (!tc.id) tc.id = `gen_${idSeq++}`; return tc.id }
+  function callId(tc) { if (!tc.id) tc.id = `gen_${runTag}_${idSeq++}`; return tc.id }
   function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return {} } }
 
   async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {

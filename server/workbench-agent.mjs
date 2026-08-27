@@ -102,6 +102,14 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       updateConversation(db, convId, { status: 'failed', error: err.message })
     }
   }
+  // 静默终止审计(2026-08-27):salvage 落库自身抛错(DB 损坏/锁死)不得打断 catch 块后续的
+  // busEmit(failed+end)——事件发不出去,前端就是无限 thinking 无提示;且本函数 detached
+  // 调用(无 .catch),reject 会变 unhandledRejection 把网关进程带走。落库失败只记 stderr,
+  // conv 留在 running 由启动时 salvageInterrupted 兜底标记。
+  function safeSalvage(convId, err, tracker) {
+    try { salvagePartial(convId, err, tracker) }
+    catch (salvageErr) { console.error('[workbench-agent] salvage 落库失败(对话留待启动抢救):', salvageErr?.message || salvageErr) }
+  }
   function finalizeConvEmit(convId, out) {
     const { events, dispose } = eventsForResult(out)
     for (const evt of events) busEmit(convId, evt)
@@ -173,7 +181,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace))
       finalizeConvEmit(convId, out)
     } catch (err) {
-      salvagePartial(convId, err, tracker)
+      safeSalvage(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -241,7 +249,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       ))
       finalizeConvEmit(convId, out)
     } catch (err) {
-      salvagePartial(convId, err, tracker)
+      safeSalvage(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)

@@ -8,6 +8,8 @@ export const Z = {
   windowBase: 60,  // 浮动窗口带下限(终端/文件浏览器浮窗、全局 loading bar)
   windowMax: 99,   // 浮动窗口带上限:恒低于 modal
   modal: 100,      // 模态弹窗层(Modal/CreateResourceDialog/ScaleDialog/NodeActions/hover 富卡片)
+  modalPriority: 150, // 优先模态层(阻塞式审批 Modal,2026-08-27):盖过一切普通 modal(悬浮
+                   // ChatModal 后开盖住审批的场景),仍低于 toast(全局错误提示恒最高)。
   toast: 200,      // 全局 toast:恒在一切浮层之上
 }
 

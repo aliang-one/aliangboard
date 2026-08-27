@@ -52,3 +52,17 @@ test('Modal: fullscreen 态铺满视口+分区滚动;非 fullscreen 原布局不
   expect(dialog2.className).toContain('rounded-xl')
   w2.unmount()
 })
+
+// 2026-08-27 modal 审计:priority 弹窗用 Z.modalPriority(150)——阻塞式审批 Modal 必须盖过
+// 一切普通 modal(同 Z.modal 按 Teleport DOM 序层叠,后开的悬浮 ChatModal 会盖住先弹的审批),
+// 仍低于 toast(200)。
+test('Modal: priority 提升到 Z.modalPriority(盖过普通 modal,低于 toast)', () => {
+  const w1 = mount(Modal, { props: { modelValue: true }, global: { plugins: [i18n] } })
+  expect(document.querySelector('body div.fixed.inset-0').style.zIndex).toBe(String(Z.modal))
+  w1.unmount()
+  const w2 = mount(Modal, { props: { modelValue: true, priority: true }, global: { plugins: [i18n] } })
+  expect(document.querySelector('body div.fixed.inset-0').style.zIndex).toBe(String(Z.modalPriority))
+  expect(Z.modalPriority).toBeGreaterThan(Z.modal)
+  expect(Z.modalPriority).toBeLessThan(Z.toast)
+  w2.unmount()
+})

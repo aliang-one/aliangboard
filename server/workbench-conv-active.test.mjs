@@ -25,7 +25,7 @@ function makeHarness({ requireAdmin, settings } = {}) {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => ({}),
     requireAdmin: requireAdmin || (() => ({ userId: 'u1', username: 'u', role: 'admin' })),
-    wbAgent: { runConversation: () => {}, resumeConversation: () => {}, cancelConversation: () => ({ ok: true }) },
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),

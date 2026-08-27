@@ -32,9 +32,17 @@ const turns = ref([])
 const input = ref('')
 const sending = ref(false)
 const errorBanner = ref('')
+// 静默终止审计(2026-08-27):pollOnce 原空 catch 吞网络错误——网关重启/token 失效期间
+// 看门狗与降级轮询全部静默失败,对话永久卡 thinking、审批 modal 永不弹且无任何提示。
+// 连续失败 ≥3 次亮「连接中断」横幅,任一次成功即熄灭。
+const netLost = ref(false)
+let pollFailStreak = 0
 const scrollEl = ref(null)
 const taEl = ref(null)
 const pendingApproval = ref(null)
+// N2(2026-08-27 modal 审计):最近未决策审批。ESC/遮罩收起 modal 后,轮询已停/SSE 已断,
+// 不会再自动重弹——turn 黄条成为重开入口。审批被消费(paused→running/done/failed)时清除。
+const lastApproval = ref(null)
 const showAiConfig = ref(false)
 // I(2026-08-17 审计):已决策(approve/deny)的审批 id——SSE 重连/轮询重放旧审批时跳过,
 // 否则已 deny 的审批会重弹,再点 approve 语义混乱。跨组件实例不持久(服务端 CAS 兜底)。
@@ -298,6 +306,9 @@ watch(() => props.conversationId, async (convId) => {
   recap.value = ''
   pendingApproval.value = null
   errorBanner.value = ''
+  netLost.value = false
+  pollFailStreak = 0
+  lastApproval.value = null   // 切对话:旧对话的未决审批不得跟过来(黄条重开入口换对话即失效)
   if (convId) {
     conversationId.value = convId
     // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
@@ -438,13 +449,16 @@ async function pollOnce(id) {
       if (pa) {
         // I:重放已决策的审批(轮询侧)不重弹
         if (!decidedApprovals.has(pa.toolCallId)) {
-          pendingApproval.value = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
+          const p = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
+          lastApproval.value = p
+          pendingApproval.value = p
         }
       }
       sending.value = false
     } else if (conv.status === 'done') {
       stopPolling()
       stopWatchdog()
+      lastApproval.value = null   // 离开 paused:黄条重开入口下线
       // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流
       if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), reasoning: conv.reasoning || agentTurn.reasoning || '', steps: conv.steps ?? agentTurn.steps })
       sending.value = false
@@ -452,14 +466,18 @@ async function pollOnce(id) {
     } else if (conv.status === 'failed') {
       stopPolling()
       stopWatchdog()
+      lastApproval.value = null   // 离开 paused:黄条重开入口下线
       // 落库 error 可能是上游网关整页 HTML(如 nginx 502)——显示前净化,原文留在库里供诊断
       const errMsg = sanitizeChatError(conv.error) || t('workbench.chat.agentFailed')
       errorBanner.value = errMsg
       if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: errMsg })
       sending.value = false
     }
+    pollFailStreak = 0
+    if (netLost.value) netLost.value = false
   } catch {
-    // 网络抖动:忽略,下次轮询重试
+    // 网络抖动:计连败(≥3 次亮「连接中断」横幅),下次轮询自动重试——不再彻底静默
+    if (++pollFailStreak >= 3) netLost.value = true
   }
 }
 
@@ -493,6 +511,39 @@ function startStreaming(id) {
   es.onmessage = (ev) => {
     let evt
     try { evt = JSON.parse(ev.data) } catch { return }
+    // ── 全局事件处理(approval/终态/end/convStatus):不依赖 agent turn ──
+    // 静默终止审计(2026-08-27):旧实现开头 `if (!agentTurn) return` 把这些事件一起丢——
+    // approval 丢失 = 审批 modal 永不弹、failed 丢失 = 无任何提示。turn 缺失(重建竞态/
+    // 极端空态)时它们必须仍然生效。
+    if (evt.type === 'hello' || evt.type === 'status') {
+      if (evt.status === 'running') convStatus.value = 'running'
+      else if (evt.status === 'done' || evt.status === 'failed' || evt.status === 'paused') convStatus.value = evt.status
+    }
+    // 审批事件:弹 modal(I:SSE 重连 replay 已决策的审批不重弹)
+    if (evt.type === 'approval' && evt.pending) {
+      if (!decidedApprovals.has(evt.pending.toolCallId)) {
+        const pa = { turnId: activeAgentTurn()?._id ?? null, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
+        lastApproval.value = pa
+        pendingApproval.value = pa
+      }
+    }
+    // 审批已被消费(离开 paused:resume 的 running / 终态)→ 黄条重开入口下线。
+    // hello 也算:重连补齐时对话可能已 running/终态(断线窗口内审批被别处决策)。
+    if ((evt.type === 'status' || evt.type === 'hello') && ['running', 'done', 'failed', 'cancelled'].includes(evt.status)) lastApproval.value = null
+    // 终态:关流;failed 同步亮顶部横幅(与轮询降级路径对齐——此前 SSE 路径只写 turn 内小红块)。
+    // 事件到达本身证明连接活着 → 熄 netLost(终态后轮询/看门狗即停,不清则横幅永久残留)
+    if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
+      if (evt.status === 'failed') errorBanner.value = sanitizeChatError(evt.error) || t('workbench.chat.agentFailed')
+      netLost.value = false; pollFailStreak = 0
+      stopStreaming(); stopWatchdog(); sending.value = false; followBottom()
+    }
+    // end 事件:若已到终态则关流,否则也关(连接终结)
+    if (evt.type === 'end') {
+      stopStreaming(); sending.value = false
+      // 兜底:若 end 到达但状态仍非终态(race),pollOnce 对齐一次
+      if (!agentTurnDoneOrFinal()) pollOnce(id)
+    }
+    // ── turn 归约(需要 agent turn)──
     const agentTurn = activeAgentTurn()
     if (!agentTurn) return
     // 归约事件 → 新状态快照
@@ -507,32 +558,20 @@ function startStreaming(id) {
       pendingApproval: pendingApproval.value,
       error: agentTurn.error || '',
     }, evt)
-    // cancelled 事件 reducer 不带文案(纯函数无 i18n),这里用 t() 补"已停止"
-    if (next.status === 'error' && !next.error) next.error = t('workbench.chat.stopped')
+    // error 缺文案兜底:cancelled(纯函数无 i18n)补「已停止」;其余(如 hello:failed 中间态)
+    // 用通用失败文案——旧实现一律「已停止」,用户没停过却看到"已停止"是误导。
+    if (next.status === 'error' && !next.error) {
+      next.error = (evt.type === 'status' && evt.status === 'cancelled') ? t('workbench.chat.stopped') : t('workbench.chat.agentFailed')
+    }
+    // done 兜底(2026-08-27):content 与 trace 均无文本时 LLM 空回复会渲染纯空白——
+    // SSE 路径补「无回答」(轮询路径 pollOnce 已有同款兜底)。
+    if (evt.type === 'status' && evt.status === 'done') {
+      const hasText = !!(next.content || '').trim() || (next.trace || []).some(e => e?.type === 'assistant' && e.content)
+      if (!hasText) next.content = t('workbench.chat.noAnswer')
+    }
     updateTurn(agentTurn._id, next)
-    // 同步 convStatus 状态栏
-    if (evt.type === 'hello' || evt.type === 'status') {
-      if (evt.status === 'running') convStatus.value = 'running'
-      else if (evt.status === 'done' || evt.status === 'failed' || evt.status === 'paused') convStatus.value = evt.status
-    }
-    // 审批事件:弹 modal(I:SSE 重连 replay 已决策的审批不重弹)
-    if (evt.type === 'approval' && evt.pending) {
-      if (!decidedApprovals.has(evt.pending.toolCallId)) {
-        pendingApproval.value = { turnId: agentTurn._id, toolCallId: evt.pending.toolCallId, name: evt.pending.name, args: evt.pending.args }
-      }
-    }
     // delta 事件:贴底跟随(上翻读历史不拽)
     if (evt.type === 'delta') followBottom()
-    // 终态:关流
-    if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
-      stopStreaming(); stopWatchdog(); sending.value = false; followBottom()
-    }
-    // end 事件:若已到终态则关流,否则也关(连接终结)
-    if (evt.type === 'end') {
-      stopStreaming(); sending.value = false
-      // 兜底:若 end 到达但状态仍非终态(race),pollOnce 对齐一次
-      if (!agentTurnDoneOrFinal()) pollOnce(id)
-    }
   }
   es.onerror = () => {
     // 断流修复(2026-08-16):readyState=CONNECTING 表示浏览器将自动重连(~3s)——不关流,
@@ -633,6 +672,7 @@ async function send() {
       if (unmounted) return // P0(C):await 期间被卸载(切对话/关 Modal)——不再碰已死组件
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
+      netLost.value = false; pollFailStreak = 0   // POST 成功 = 网络已活,熄断连横幅(免得残留到下次轮询)
       if (Array.isArray(references) && references.length) {
         const ut = turns.value.find(x => x._id === userId)
         if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
@@ -643,6 +683,7 @@ async function send() {
       if (unmounted) return // P0(C)
       conversationId.value = id
       convStatus.value = 'running'
+      netLost.value = false; pollFailStreak = 0   // 同上:POST 成功即网络已活
       // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
       if (Array.isArray(references) && references.length) {
         const ut = turns.value.find(x => x._id === userId)
@@ -676,6 +717,7 @@ async function decideApproval(approved) {
     else { await workbenchApi.conversations.deny(id) }
     if (unmounted) return // P0(C)
     convStatus.value = 'running'
+    lastApproval.value = null   // 审批已消费:黄条重开入口下线
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
     startStreaming(id)
   } catch (e) {
@@ -683,6 +725,8 @@ async function decideApproval(approved) {
     if (e?.status === 400) {
       // 审批准入 CAS 拒绝:已被别处决策(多实例双开/悬浮 Modal 同批)→ 对齐服务端真实状态;
       // 对齐后若仍在跑则续流,若又 paused(下一道审批)pollOnce 自会弹新审批。
+      // 该审批已被消费 → 黄条重开入口下线(重开注定再吃 400)。
+      lastApproval.value = null
       await pollOnce(conversationId.value)
       if (!agentTurnDoneOrFinal() && convStatus.value === 'running') startStreaming(conversationId.value)
       else sending.value = false
@@ -725,7 +769,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; errorBanner.value = ''; conversationId.value = null; convStatus.value = null; recap.value = '' }
+function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; lastApproval.value = null; errorBanner.value = ''; netLost.value = false; pollFailStreak = 0; conversationId.value = null; convStatus.value = null; recap.value = '' }
 </script>
 
 <template>
@@ -735,7 +779,9 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
       <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' || convStatus === 'cancelled' }"></span>
       <span class="text-body-xs font-medium" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
     </div>
-    <div v-if="errorBanner" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs"><span class="material-symbols-outlined text-base">error</span> {{ errorBanner }}</div>
+    <div v-if="errorBanner || netLost" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs">
+      <span class="material-symbols-outlined text-base" :class="{ 'animate-spin': netLost && !errorBanner }">{{ netLost && !errorBanner ? 'progress_activity' : 'error' }}</span> {{ errorBanner || t('workbench.chat.reconnecting') }}
+    </div>
 
     <!-- Messages -->
     <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onChatScroll">
@@ -776,7 +822,8 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <div v-for="(turn, i) in turns" :key="turn._id">
           <ChatTurn :turn="turn"
             :show-regenerate="turn.role === 'assistant' && i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
-            @regenerate="regenerate" />
+            @regenerate="regenerate"
+            @reopen-approval="() => { if (lastApproval && !pendingApproval) pendingApproval = lastApproval }" />
         </div>
 
         <!-- 回到底部:非贴底时悬浮露出(流式中上翻读历史的回程入口;sticky 随内容驻留视口底) -->
@@ -805,13 +852,13 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="!!pendingApproval" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="!!pendingApproval || convStatus === 'paused'" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
           <!-- 运行中:发送键变停止键(输错→停止→修改重发);等待审批时不显示 -->
           <button v-if="sending && conversationId && !pendingApproval" @click="stopRun" :title="t('workbench.chat.stop')"
             class="shrink-0 w-8 h-8 flex items-center justify-center border border-error/40 text-error rounded-xl hover:bg-error/10 transition-colors">
             <span class="material-symbols-outlined text-base">stop</span>
           </button>
-          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
+          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval || convStatus === 'paused'" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
         </div>
@@ -853,8 +900,11 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
       </div>
     </div>
 
-    <!-- Approval Modal -->
-    <Modal :modelValue="!!pendingApproval" :title="approvalTitle" width="max-w-2xl">
+    <!-- Approval Modal:N1(2026-08-27 modal 审计)监听 update:model-value——此前 ESC/遮罩/X 的
+         close emit 丢失,pendingApproval 不清 → modal 点不动,且 ESC 栈顶恒为她,悬浮 ChatModal
+         内连锁锁死。收起 = 只收 modal(黄条可重开),决策仍走批准/拒绝。 -->
+    <Modal :modelValue="!!pendingApproval" :title="approvalTitle" width="max-w-2xl" priority
+      @update:model-value="v => { if (!v) pendingApproval = null }">
       <div v-if="pendingApproval" class="flex flex-col gap-md">
         <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-status-warning">{{ approvalIcon }}</span>

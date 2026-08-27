@@ -294,3 +294,19 @@ test('工具执行前发 tool_start(name+args),完成后发 tool(带 result);che
   await run2({ history: [], onStep: e => steps2.push(e) })
   assert.ok(steps2.every(s => s.type !== 'tool_start'), 'checkpoint(未批准未执行)不发 tool_start')
 })
+
+// 2026-08-27 审计:盖章 id 跨实例唯一。旧 `gen_${idSeq}` 每实例从 0 重计——跨轮新 run/resume
+// 新建 agent 后重复 → 前端 decidedApprovals 按 id 去重误命中旧决策 → 审批不弹死锁。
+// 契约:LLM 未带 id 时,各实例(run/resume 每轮新建)盖出的 id 互不相等。
+test('盖章 toolCall id 跨实例唯一(LLM 未带 id 时)', async () => {
+  const noIdCall = () => ({ role: 'assistant', content: null, tool_calls: [{ type: 'function', function: { name: 'write', arguments: '{}' } }] })
+  const ids = new Set()
+  for (let i = 0; i < 3; i++) {
+    const agent = createAgent({ chat: async () => noIdCall(), execTool: async () => 'ok', needsApproval: () => true })
+    const out = await agent.run({ history: [{ role: 'user', content: 'q' }] })
+    assert.ok(out.status === 'pending_approval', '写工具 checkpoint')
+    assert.match(out.pending.toolCallId, /^gen_/, '盖章 id 形如 gen_<tag>_<seq>')
+    ids.add(out.pending.toolCallId)
+  }
+  assert.equal(ids.size, 3, '3 个实例的盖章 id 互不相等')
+})
