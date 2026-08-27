@@ -407,3 +407,60 @@ test('resumeConversation:catch 块内 salvage 抛错 → 不 reject,failed/end/d
   assert.ok(types.includes('end'), 'emit end')
   assert.ok(types.includes('disposed'), 'bus dispose')
 })
+// ── 2026-08-27 一致性审计:旧轮检查点回灌窗口 ──
+// resetRound 此前只清内存,DB conv.content 滞留旧轮最后检查点;窗口内(assistant 事件后、
+// 新轮首个 200 字检查点前)重连 snapshot / 降级轮询(R3)会把旧轮 partial 当「当前轮流式
+// 文本」回灌前端——与旧轮 assistant chip 双显,后续 delta 还会拼在旧文本尾。
+// 修复契约:resetRound 同步落库清零;所有读取方均有空值守卫(salvage/R3/snapshot),空值零副作用。
+test('resetRound:assistant 轮完成即持久化清零 conv.content/reasoning(旧轮尾巴不滞留 DB)', async () => {
+  const { db, conv, makeRunner } = setup()
+  let midRun = null
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    // 第 1 轮:流出 250 字(过 200 阈值,检查点已落库)
+    opts.onDelta('A'.repeat(250))
+    assert.equal(getConversation(db, conv.id).content, 'A'.repeat(250), '250 字检查点已写库')
+    // assistant 轮完成 → resetRound(此刻须同步清 DB)
+    opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '第一轮文本' }, ts: 1 })
+    midRun = getConversation(db, conv.id)
+    // 第 2 轮:流出 100 字(< 200 阈值,不应触发检查点写库)
+    opts.onDelta('B'.repeat(100))
+    assert.equal(getConversation(db, conv.id).content, '', '新轮 <200 字不触发检查点,DB 无旧轮回灌源')
+    return { status: 'done', content: '终答', steps: 2, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit: () => {}, busDispose: () => {} })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  assert.equal(midRun.content, '', 'assistant 轮完成时 DB 检查点同步清零(窗口闭合)')
+  assert.equal(midRun.reasoning, '', 'reasoning 同步清零')
+  assert.equal(getConversation(db, conv.id).content, '终答', 'done 终值照常落库(清零不破坏终态写入)')
+})
+
+// ── 2026-08-27 一致性审计:trace/SSE 工具结果无界 ──
+// get_resource/describe 返回全量 K8s 对象;onStep 此前把原始 result 原样 appendTrace 落库
+// + busEmit 推流 → conv.trace 随大对象线性膨胀,GET /:id(降级 2s/看门狗 10s 轮询)与
+// turnSnapshot(重连)载荷放大。修复:持久化/推流前按 32KB 截断(带标记);LLM feed 不受影响
+// (agent.mjs clampToolContent 独立钳制)。
+test('trace 工具结果超限截断:DB 与 SSE step 事件均存截断版,LLM feed 用原始 result', async () => {
+  const { db, conv, events, makeRunner } = setup()
+  const bigResult = { resource: { kind: 'ConfigMap', data: { big: 'x'.repeat(200_000) } } }
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onStep({ type: 'tool', name: 'wb_get_resource', args: { kind: 'configmaps', name: 'cm1' }, result: bigResult, ts: 1 })
+    return { status: 'done', content: 'ok', steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit: (id, e) => events.push({ id, ...e }), busDispose: () => {} })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  // DB 对话级 trace:截断版(字符串 + truncated 标记)
+  const trace = JSON.parse(getConversation(db, conv.id).trace)
+  assert.equal(trace.length, 1)
+  const toolEv = trace[0]
+  assert.equal(toolEv.resultTruncated, true, '带截断标记')
+  assert.ok(typeof toolEv.result === 'string' && toolEv.result.length < 40_000, 'result 为截断串')
+  assert.ok(toolEv.resultOriginalBytes > 200_000, '记录原始字节数')
+  // 消息级 trace(done 落库)同款截断
+  const asst = db.prepare("SELECT trace FROM workbench_messages WHERE conversationId=? AND role='assistant'").get(conv.id)
+  const msgTrace = JSON.parse(asst.trace)
+  assert.equal(msgTrace[0].resultTruncated, true, '消息级 trace 同步截断')
+  // SSE step 事件推的也是截断版
+  const stepEvt = events.find(e => e.type === 'step' && e.step?.type === 'tool')
+  assert.equal(stepEvt.step.resultTruncated, true, 'SSE step 事件同步截断')
+})

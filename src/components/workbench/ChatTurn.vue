@@ -209,7 +209,9 @@ function onRootClick(e) {
 
     <!-- AGENT -->
     <div v-else class="flex flex-col gap-sm px-md">
-      <ToolTrace v-if="turn.trace && turn.trace.length" :trace="turn.trace" />
+      <!-- chips 总览仅回退布局(2026-08-27 审计):交错模式下每个工具已在流内有 ToolRow
+           (时刻+名称+预览+详情),chips 再放一份=同屏双显;无 assistant 文本的存量 trace 才走 chips -->
+      <ToolTrace v-if="!interleaveUsable && turn.trace && turn.trace.length" :trace="turn.trace" />
 
       <!-- 步数用尽醒目警告(2026-08-27 静默终止审计):done+truncated 此前只有角色行 ⚠ 小标,
            用户等数分钟拿到一行灰字"(达到最大步数…)"观感即"异常结束无提示"——加可读警告块。 -->

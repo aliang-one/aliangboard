@@ -1,7 +1,7 @@
 // Agent loop 测试(mock chat + mock execTool;写操作走 checkpoint/resume 人审)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createAgent, formatToolError, trimMessages, clampToolContent } from './agent.mjs'
+import { createAgent, formatToolError, trimMessages, clampToolContent, clampTraceStep } from './agent.mjs'
 
 // mock chat:按顺序返回一组 assistant message(最后一条若无 tool_calls 即终答)
 function mockChat(responses) {
@@ -309,4 +309,21 @@ test('盖章 toolCall id 跨实例唯一(LLM 未带 id 时)', async () => {
     ids.add(out.pending.toolCallId)
   }
   assert.equal(ids.size, 3, '3 个实例的盖章 id 互不相等')
+})
+// 2026-08-27 审计:trace 存/流面的工具结果截断(与 clampToolContent 喂 LLM 面分工)
+test('clampTraceStep:小结果原样返回(同引用);超限截断带标记;非 tool 事件不动', () => {
+  const small = { type: 'tool', name: 'wb_get_resource', args: {}, result: { resource: { kind: 'Pod' } }, ts: 1 }
+  assert.equal(clampTraceStep(small), small, '未超限返回原对象(零拷贝)')
+  assert.equal(clampTraceStep({ type: 'assistant', message: { content: 'x' }, ts: 1 }).type, 'assistant', '非 tool 事件原样')
+  assert.equal(clampTraceStep({ type: 'tool', name: 't', args: {}, ts: 1 }).result, undefined, 'result 为空不动')
+  // 字符串 result 超限
+  const s = clampTraceStep({ type: 'tool', name: 'wb_read_pod_file', args: {}, result: 'y'.repeat(50_000), ts: 1 }, 1024)
+  assert.equal(s.resultTruncated, true)
+  assert.ok(s.result.length < 1200 && s.result.includes('[result truncated'))
+  assert.equal(s.resultOriginalBytes, 50_000)
+  // 对象 result 超限(JSON 序列化超 1024 字节)
+  const o = clampTraceStep({ type: 'tool', name: 'wb_get_resource', args: {}, result: { resource: { data: 'z'.repeat(5_000) } }, ts: 1 }, 1024)
+  assert.equal(o.resultTruncated, true)
+  assert.ok(o.result.startsWith('{"resource"'))
+  assert.equal(clampTraceStep({ type: 'tool_start', name: 't', args: {}, ts: 1 }).type, 'tool_start', 'tool_start 瞬态不动')
 })

@@ -141,3 +141,19 @@ test('ChatTurn: pending_approval 黄条可点击,emit reopen-approval', async ()
   await bar.trigger('click')
   expect(w.emitted('reopen-approval')).toHaveLength(1)
 })
+// 2026-08-27 一致性审计:交错模式下工具双重渲染——ToolTrace chips 总览无 interleaveUsable
+// 守卫,交错流内每个工具已有 ToolRow(时刻+名称+预览+详情),chips 再放一份=同屏双显。
+// 修复契约:chips 仅回退布局(无 assistant 文本的存量 trace)渲染;交错模式唯一展示位=流内行。
+test('交错模式:ToolTrace chips 退场,工具只在交错流内出现一次', () => {
+  const turn = { _id: 12, role: 'assistant', status: 'done', content: '终答', reasoning: '', steps: 2,
+    trace: [
+      { type: 'assistant', content: '先看。', ts: 1 },
+      { type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: 'L1' }, ts: 2 },
+      { type: 'assistant', content: '终答', ts: 3 },
+    ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [i18n] } })
+  expect(w.find('[data-testid="interleaved-flow"]').exists()).toBe(true)
+  // 工具名只出现一次(交错流 ToolRow);chips 总览不得再放一份
+  const occurrences = (w.html().match(/wb_get_pod_logs/g) || []).length
+  expect(occurrences).toBe(1, `交错模式工具名单一展示位,实际出现 ${occurrences} 次`)
+})

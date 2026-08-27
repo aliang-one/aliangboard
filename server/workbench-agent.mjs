@@ -5,6 +5,7 @@
 // busEmit/busDispose 作 factory dep 注入(与 createAgentRunner 同理,便于单测 stub)。
 import { buildHistory, appendMessage, getConversation, getProject, updateConversation, appendTrace, appendHistory } from './workbench-projects.mjs'
 import { eventsForResult } from './conv-events.mjs'
+import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
@@ -88,7 +89,14 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       // 轮间清零(2026-08-25 交错渲染):assistant 轮完成时清累积——检查点语义回到「当前轮
       // partial」;已完成轮文本活在 trace。防跨轮全文经 conv.content 检查点 → snapshot/降级
       // 轮询回灌前端,与已清零的流式 content 打架(闪变源之一)。
-      resetRound: () => { partial = ''; reasoning = ''; ckAt = 0; rCkAt = 0 },
+      // 轮间清零(2026-08-25 交错渲染;2026-08-27 补持久化):assistant 轮完成时清累积并
+      // **同步落库**——此前只清内存,DB conv.content 滞留旧轮最后检查点,窗口内(此刻→新轮
+      // 首个 200 字检查点)重连 snapshot/降级轮询 R3 会把旧轮 partial 当当前轮流式文本回灌
+      // (与旧轮 assistant chip 双显,后续 delta 拼错位)。所有读取方均有空值守卫,清零零副作用。
+      resetRound: () => {
+        partial = ''; reasoning = ''; ckAt = 0; rCkAt = 0
+        checkpoint()
+      },
     }
   }
   function salvagePartial(convId, err, tracker) {
@@ -155,7 +163,10 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         onReasoning: tracker.onReasoning,
         // assistant 事件瘦身入 turnTrace({type,content,ts}——中间文本,交错渲染用;终答 content 恒等于
         // 末个 assistant 事件,前端据此去重);对话级 appendTrace 仍存全事件。tool_start 瞬态只推流不落库。
-        onStep: e => {
+        // 2026-08-27:工具 result 存/流面前过 clampTraceStep(32KB 截断)——get_resource 等全量
+        // 对象不再无界灌入 conv.trace/GET /:id/SSE;LLM feed 不受影响(agent.mjs 独立钳制)。
+        onStep: raw => {
+          const e = clampTraceStep(raw)
           if (e.type !== 'tool_start') {
             appendTrace(db, convId, e)
             if (e.type === 'assistant') {
@@ -229,7 +240,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         refreshSystem,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
-        onStep: e => { if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态)
+        onStep: raw => { const e = clampTraceStep(raw); if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态);result 存/流面截断同 runConversation
       })
       // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
       if (getConversation(db, convId)?.status === 'cancelled') {

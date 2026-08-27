@@ -27,6 +27,29 @@ export function clampToolContent(content, max = MAX_TOOL_CONTENT_CHARS) {
   return s.slice(0, max) + `\n…[truncated ${s.length - max} chars]`
 }
 
+// trace 持久化/推流的工具结果截断(2026-08-27 一致性审计):get_resource/describe 等返回
+// 全量 K8s 对象,此前 appendTrace/busEmit 原样落库推流 → conv.trace 随大对象线性膨胀,
+// GET /:id(降级 2s/看门狗 10s 轮询)与 turnSnapshot(重连)载荷放大。
+// 与 clampToolContent(喂 LLM,8192 字符)分工:本函数只管「存/流」面,返回新事件对象
+// (浅拷贝 + result 替换),超限 result → 截断串 + resultTruncated/resultOriginalBytes 标记;
+// 前端 fmtResult 对字符串 result 直显,零改动。tool_start/denied/assistant 等事件原样返回。
+const TRACE_RESULT_MAX_BYTES = 32768
+export function clampTraceStep(e, cap = TRACE_RESULT_MAX_BYTES) {
+  if (!e || e.type !== 'tool' || e.result == null) return e
+  let full
+  if (typeof e.result === 'string') full = e.result
+  else { try { full = JSON.stringify(e.result) ?? '' } catch { full = String(e.result) } }
+  const originalBytes = Buffer.byteLength(full, 'utf8')
+  if (originalBytes <= cap) return e
+  const cut = Buffer.from(full, 'utf8').subarray(0, cap).toString('utf8')
+  return {
+    ...e,
+    result: cut + `\n…[result truncated: ${originalBytes}B > ${cap}B]`,
+    resultTruncated: true,
+    resultOriginalBytes: originalBytes,
+  }
+}
+
 // 预算裁剪:超 budget 字符时,从最旧的非 system 消息丢起,保留 system + 尾部;
 // 丢弃 tool 消息时,连带从对应 assistant.tool_calls 删该 id(若 tool_calls 清空则丢掉该 assistant),防悬空。
 export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
