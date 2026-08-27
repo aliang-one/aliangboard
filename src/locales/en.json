@@ -481,7 +481,8 @@
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
     "clusterUnreachable": "Cluster unreachable or not connected: {reasons}",
-    "clusterStatusSummary": "Cluster: {status} · Control plane {ready}/{total} · Worker {wready}/{wtotal}"
+    "clusterStatusSummary": "Cluster: {status} · Control plane {ready}/{total} · Worker {wready}/{wtotal}",
+    "updateBanner": { "found": "New version available", "view": "View releases", "dismiss": "Dismiss" }
   },
   "clusters": {
     "title": "Cluster Management",

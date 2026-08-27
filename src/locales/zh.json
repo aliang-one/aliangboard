@@ -481,7 +481,8 @@
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
     "clusterUnreachable": "集群不可达或未连接：{reasons}",
-    "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}"
+    "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}",
+    "updateBanner": { "found": "发现新版本", "view": "查看发布", "dismiss": "关闭" }
   },
   "clusters": {
     "title": "集群管理",
