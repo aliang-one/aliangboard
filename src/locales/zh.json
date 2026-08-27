@@ -2895,6 +2895,18 @@
       "managedBadge": "平台托管",
       "repair": "修复",
       "repairTakeover": "接管并修复",
+      "drift": {
+        "roleMissing": "缺少平台 Role",
+        "roleRules": "平台 Role 规则与当前权限档不符",
+        "bindingMissing": "缺少平台 RoleBinding",
+        "bindingSubjects": "RoleBinding 未绑定到该 key 的 SA",
+        "crbMissing": "缺少 can-i 所需 ClusterRole/ClusterRoleBinding",
+        "foreignBinding": "外来 RoleBinding 引用了该 SA(超配)",
+        "foreignCrb": "外来 ClusterRoleBinding 引用了该 SA(超配)",
+        "byoNoBinding": "该命名空间无 RoleBinding 引用此 SA(自管身份,请自建或接管)",
+        "probeError": "探测超时/失败,结果可能不完整",
+        "foreignHint": "外来绑定不属于平台托管,「修复」不会清理,去留请人工决定"
+      },
       "repairDone": "集群身份已就绪:{sa}",
       "repairFailed": "修复失败",
       "overrideMeta": "tier=<b>{tier}</b>;SA={ns}/{name}。改完无需重签 key。",
