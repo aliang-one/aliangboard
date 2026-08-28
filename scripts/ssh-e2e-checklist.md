@@ -38,3 +38,14 @@
 
 ## 指纹/密钥边界
 - [ ] 删除 data/ssh-crypt.key → 列表标记「凭据不可用」,试连/终端均报「凭据密钥不可用」;恢复密钥后复原
+
+## 已知延后项(backlog,终审 2026-08-28 裁决不阻塞合并)
+
+- [ ] routes.mjs 两处 writeAudit 直调(文件内 audit 助手是 `?.` 保护形态,统一之)
+- [ ] 试连 unreachable 文案内插原始 ssh2 错误文本(可只留 errorKind+本地化壳)
+- [ ] 前端清除主机密钥指纹后未 invalidateQueries(列表指纹列短暂陈旧)
+- [ ] 编辑表单 authMethod 切换但不带新凭据 → 可存出「必败」行(建议联动校验)
+- [ ] 编辑表单无法显式清除已存 sudo 密码(store 支持 null,表单不发)
+- [ ] 审批挂起期间策略被改为 none + 用户拒绝 → denied-resume 二道闸会放行(建议 checkpoint 过的调用 denied resume 恒拒)
+- [ ] 分类器短旗标组合(date -us/dmesg -cc)与 ping -f 不拦(审批闸非沙箱,显式可扩展 deny 表)
+- [ ] 手测清单全部条目(需真实 SSH 服务器环境)
