@@ -25,6 +25,7 @@ import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
+import { scrubSecrets } from './secret-scrub.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted } from './workbench-projects.mjs'
 import { listApiPath, getApiPath } from './kind-paths.mjs'
 import { REFS_CTX_HEADER } from './refs-context.mjs'
@@ -169,6 +170,13 @@ createWorkbenchSchema(db)
 // 若流式检查点(workbench-agent 的 200 字符 content 检查点)留有内容,补录为 assistant 消息——
 // 用户看着流出来的答案不因网关重启而"蒸发"(2026-08-17 意外中断内容保全)。
 salvageInterrupted(db)
+// 存量 Secret 明文清洗(spec 2026-08-28):异步跑不阻塞启动;幂等可重入
+setTimeout(() => {
+  try {
+    const r = scrubSecrets(db)
+    if (r.eventsMasked > 0) console.log(`[secret-scrub] 存量重掩 ${r.eventsMasked} 个 Secret 工具事件(扫 ${r.rowsScanned} 行)`)
+  } catch (e) { console.warn('[secret-scrub] 清洗失败(下个启动重试):', e?.message || e) }
+}, 2000)
 // === 平台设置(LLM 配置等,key/value 通用)===
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
