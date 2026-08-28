@@ -642,11 +642,11 @@ status:
     }
   }
 
-  async function applyResourceYaml(yamlStr) {
+  async function applyResourceYaml(yamlStr, opts = {}) {
     try {
       let object = null
       yamlLoadAll(yamlStr, document => { if (!object && document) object = document })
-      const result = await api.applyYaml(yamlStr) // { resources, applied, failed, total }
+      const result = await api.applyYaml(yamlStr, opts.defaultNs) // { resources, applied, failed, total }
       queryClient.invalidateQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' })
       const resource = result?.resources?.[0]
       const failed = result?.failed || []
