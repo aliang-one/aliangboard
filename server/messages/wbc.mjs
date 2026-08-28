@@ -17,4 +17,7 @@ export const TABLE = {
   'wbc.titleRequired': { zh: 'title 不能为空', en: 'title is required' },
   'wbc.projectIdRequired': { zh: '缺 projectId', en: 'projectId is required' },
   'wbc.cancelFailed': { zh: '取消失败', en: 'Failed to cancel' },
+  'wbc.compactShort': { zh: '对话太短,无需压缩', en: 'Conversation too short to compact' },
+  'wbc.compactBusy': { zh: '对话运行中/待审批,不能压缩', en: 'Conversation running/paused, cannot compact' },
+  'wbc.compactFailed': { zh: '摘要失败', en: 'Summarization failed' },
 }

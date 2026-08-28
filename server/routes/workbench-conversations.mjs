@@ -11,7 +11,7 @@ import {
   buildHistory,
 } from '../workbench-projects.mjs'
 import { contextWindowFor, estTokens } from '../model-context.mjs'
-import { maybeSummarize } from '../workbench-summarize.mjs'
+import { maybeSummarize, compactConversation } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
 import { msg } from '../messages.mjs'
 
@@ -221,6 +221,26 @@ export function createWorkbenchConvRoutes(deps) {
         sendJson(res, 200, { status: 'running' })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.regenFailed') }); return true }
+    }
+
+    // POST /api/workbench/conversations/:id/compact — 手动压缩上下文(全量重摘要,spec §4.4)
+    // 必须在 GET /:id 之前注册(路径更具体,先匹配)。
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/compact$/) && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const conv = getConversation(db, id)
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (conv.projectId) {
+        const project = getProject(db, conv.projectId)
+        if (project && project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
+      }
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+      const input = await readBody(req)
+      const out = await compactConversation(db, id, createLlmClient(cfg), String(input.instruction || ''))
+      if (!out.ok) { sendJson(res, out.status, { message: msg(req, out.message) }); return true }
+      sendJson(res, 200, { ok: true, recap: out.recap, context: contextInfo(getConversation(db, id)) })
+      return true
     }
 
     // GET /api/workbench/conversations/active — 悬浮入口原料:近期动态模型(running/paused 永在 +

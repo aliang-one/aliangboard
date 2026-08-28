@@ -7,6 +7,8 @@ import {
   updateConversation,
   getConversation,
 } from './workbench-projects.mjs'
+// 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
+// msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
 
 export const SUMMARIZE_PROMPT =
   '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。'
@@ -49,5 +51,39 @@ export async function maybeSummarize(
     return true
   } catch {
     return false // 摘失败不阻塞对话
+  }
+}
+
+// 手动 compact(spec §4.4,2026-08-28):全量重摘要(含旧 recap 作为输入)→ 新 recap 整体替换;
+// 保最近 KEEP_RECENT=2 条全文(summarizedUpTo=最大seq-2)。先摘要成功再落库(失败不动 DB)。
+// 门禁:仅终态(done/failed/cancelled;running/paused 会破坏 resume 状态);消息 ≤3 拒绝。
+const COMPACT_KEEP_RECENT = 2
+const COMPACT_MIN_MESSAGES = 4
+export async function compactConversation(db, convId, llmClient, instruction = '') {
+  const conv = getConversation(db, convId)
+  if (!conv) return { ok: false, status: 404, message: 'wbc.convNotFound' }
+  if (conv.status === 'running' || conv.status === 'paused') return { ok: false, status: 400, message: 'wbc.compactBusy' }
+  const msgs = listMessages(db, convId)
+  if (msgs.length <= COMPACT_MIN_MESSAGES - 1) return { ok: false, status: 400, message: 'wbc.compactShort' }
+  const maxSeq = getMaxSeq(db, convId)
+  const fold = msgs.filter(m => m.seq <= maxSeq - COMPACT_KEEP_RECENT)
+  const transcript = [
+    ...(conv.recap ? [`(此前摘要)\n${conv.recap}`] : []),
+    ...fold.map(m => `${m.role}: ${m.content}`),
+  ].join('\n')
+  const instruct = String(instruction || '').trim().slice(0, 200)
+  try {
+    const out = await llmClient.chat({
+      messages: [
+        { role: 'system', content: `你是对话压缩器。把下面的对话历史压缩成一份忠实、信息密集的中文摘要:保留已做出的决定、关键事实/数据、尚未解决的问题。${instruct ? `用户特别要求:${instruct}` : ''}` },
+        { role: 'user', content: transcript },
+      ],
+    })
+    const recap = out?.content?.trim()
+    if (!recap) return { ok: false, status: 502, message: 'wbc.compactFailed' }
+    updateConversation(db, convId, { recap, summarizedUpTo: maxSeq - COMPACT_KEEP_RECENT }, { touch: false })
+    return { ok: true, recap }
+  } catch (e) {
+    return { ok: false, status: 502, message: 'wbc.compactFailed' }
   }
 }

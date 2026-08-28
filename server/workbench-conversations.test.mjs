@@ -314,3 +314,46 @@ test('GET /:id 返回 context:estTokens/windowTokens/budgetTokens/recapUpTo/will
   assert.equal(r.context.recapUpTo, conv.summarizedUpTo ?? 0)
   assert.equal(r.context.willTrim, r.context.estTokens > r.context.budgetTokens)
 })
+
+// ── T4:POST /:id/compact HTTP 契约(全量重摘要+自定义指令)──
+function makeCompactHarness() {
+  const h = makeHttpHarness()
+  // 覆写 readBody/createLlmClient:带 instruction + 固定摘要返回
+  const db = h.db
+  const sent = []
+  const res = { writeHead: () => {}, end: () => {} }
+  const routes = createWorkbenchConvRoutes({
+    db,
+    sendJson: (r, status, json) => { sent.push({ status, json }) },
+    readBody: async () => ({ instruction: '保留结论' }),
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'mock-1' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '压缩后摘要' }) }),
+    buildCallContext: () => ({}),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+  })
+  return { db, pid: h.pid, sent, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
+}
+
+test('POST compact:成功 → { ok, recap, context };running → 400', async () => {
+  const h = makeCompactHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
+  for (const [role, content] of [['user', 'q1'], ['assistant', 'a1'], ['user', 'q2'], ['assistant', 'a2'], ['user', 'q3']]) {
+    appendMessage(h.db, { conversationId: conv.id, role, content, trace: role === 'assistant' ? '[]' : undefined })
+  }
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/compact`), '路由命中')
+  const ok = h.sent[h.sent.length - 1]
+  assert.equal(ok.status, 200)
+  assert.equal(ok.json.ok, true)
+  assert.ok(ok.json.recap)
+  assert.ok(ok.json.context.windowTokens, '响应带 context')
+  assert.equal(ok.json.context.recapUpTo, 3, '水位=最大seq-2')
+  // running 拒绝:第二条对话置 running
+  const conv2 = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q' })
+  updateConversation(h.db, conv2.id, { status: 'running' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv2.id}/compact`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400)
+})

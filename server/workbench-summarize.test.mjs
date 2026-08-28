@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { maybeSummarize } from './workbench-summarize.mjs'
+import { maybeSummarize, compactConversation } from './workbench-summarize.mjs'
 import {
   createWorkbenchSchema,
   createProject,
@@ -8,6 +8,7 @@ import {
   appendMessage,
   listConversations,
   getConversation,
+  updateConversation,
 } from './workbench-projects.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -158,4 +159,60 @@ test('摘要落库不 bump updatedAt(否则已读对话误报新动态)', async 
   const after = getConversation(db, conv.id)
   assert.ok(after.recap.includes('RECAP'), 'recap 已写')
   assert.equal(after.updatedAt, before, 'updatedAt 不动——摘要不是新消息')
+})
+
+// ── T4:手动 compact(全量重摘要+可选指令;spec §4.4)──
+function compactFixture() {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: '第一问' })
+  const conv = listConversations(db, p1Id(db))[0]
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '第一问' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '第一答', trace: '[]' })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '第二问' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '第二答', trace: '[]' })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '第三问' })
+  updateConversation(db, conv.id, { recap: '旧摘要', summarizedUpTo: 1 })
+  db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  return { db, conv }
+}
+
+test('compactConversation:全量重摘要落库,summarizedUpTo=最大seq-2,instruction 拼入 prompt', async () => {
+  const { db, conv } = compactFixture()
+  const calls = []
+  const llm = { chat: async (args) => { calls.push(args); return { content: '全量新摘要' } } }
+  const out = await compactConversation(db, conv.id, llm, '重点保留网络排查结论')
+  assert.equal(out.ok, true)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.recap, '全量新摘要', 'recap 被整体替换(旧 recap 并入摘要输入,非拼接)')
+  const maxSeq = db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(conv.id).m
+  assert.equal(row.summarizedUpTo, maxSeq - 2)
+  const userPrompt = calls[0].messages.map(m => m.content).join('\n')
+  assert.ok(userPrompt.includes('重点保留网络排查结论'), '用户指令拼入')
+  assert.ok(userPrompt.includes('第一问'), '旧消息全文进入摘要输入')
+  assert.ok(userPrompt.includes('旧摘要'), '旧 recap 并入摘要输入')
+})
+
+test('compactConversation:LLM 失败 → 不动任何字段', async () => {
+  const { db, conv } = compactFixture()
+  const before = getConversation(db, conv.id)
+  const llm = { chat: async () => { throw new Error('LLM down') } }
+  const out = await compactConversation(db, conv.id, llm)
+  assert.equal(out.ok, false)
+  const after = getConversation(db, conv.id)
+  assert.equal(after.recap, before.recap)
+  assert.equal(after.summarizedUpTo, before.summarizedUpTo)
+})
+
+test('compactConversation:消息 ≤3 → 拒绝;running/paused → 拒绝', async () => {
+  const { db, conv } = compactFixture()
+  // 短对话:截到 3 条
+  db.prepare('DELETE FROM workbench_messages WHERE seq > 3 AND conversationId=?').run(conv.id)
+  const llm = { chat: async () => ({ content: 'x' }) }
+  let out = await compactConversation(db, conv.id, llm)
+  assert.deepEqual(out, { ok: false, status: 400, message: 'wbc.compactShort' })
+  // running 态(消息恢复 5 条,置 running)
+  db.prepare("UPDATE workbench_conversations SET status='running' WHERE id=?").run(conv.id)
+  out = await compactConversation(db, conv.id, llm)
+  assert.equal(out.status, 400, 'running 拒绝')
+  assert.equal(out.message, 'wbc.compactBusy')
 })
