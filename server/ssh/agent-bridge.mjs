@@ -4,6 +4,7 @@
 // needsApproval 必须纯(无 IO 副作用/日志/审计)——agent.mjs 在 checkpoint 与 resume 两处都会调它。
 import { listSshServers, materializeCreds } from './store.mjs'
 import { classifyReadonly, buildSudoCommand } from './readonly-classifier.mjs'
+import { withSftp, sftpReadFile } from './sftp.mjs'
 
 const TIMEOUT_DEFAULT_MS = 30000, TIMEOUT_MIN_MS = 1000, TIMEOUT_MAX_MS = 120000
 const STDOUT_MAX = 32768, STDERR_MAX = 8192
@@ -116,24 +117,7 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     try { conn = await pool.acquire(row.id, `wb:${projectId}`) }
     catch (e) { return { error: `SSH 连接失败(${e.errorKind || 'unknown'})` } }
     try {
-      const sftp = await new Promise((res2, rej2) => conn.client.sftp((e, s) => e ? rej2(e) : res2(s)))
-      const data = await new Promise((res2, rej2) => {
-        const chunks = []; let size = 0; let truncated = false; let settled = false
-        const rs = sftp.createReadStream(path)
-        const ok = () => { if (settled) return; settled = true; res2({ content: Buffer.concat(chunks).toString('utf8'), truncated, size }) }
-        rs.on('data', d => {
-          size += d.length
-          if (size <= maxBytes) { chunks.push(d); return }
-          // 超限:先以已累计内容结算再销毁流——destroy 后只发 'close' 不发 'end' 且无 error,
-          // 等 'close' 结算曾致 promise 永挂 + 池句柄泄漏(2026-08-28 审查 Critical)。
-          truncated = true
-          ok()
-          try { rs.destroy() } catch {}
-        })
-        rs.on('end', ok)
-        rs.on('close', ok)      // end/destroy 两路都会到 close;幂等门闩保证单次结算
-        rs.on('error', e2 => { if (settled) return; settled = true; rej2(e2) })
-      })
+      const data = await withSftp(conn.client, s => sftpReadFile(s, path, maxBytes))
       return { server: row.name, path, content: data.content, truncated: data.truncated, size: data.size, durationMs: Date.now() - started }
     } catch (e) {
       const m = String(e?.message || e)

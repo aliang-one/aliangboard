@@ -146,14 +146,14 @@ test('readFile 超限:>maxBytes 后流只发 close(不发 end/error)→ promise 
   const bridge = createSshAgentBridge({ db: fakeDb(), key: KEY, pool, projectId: 'p1' })
   const r = await bridge.readFile({ server: 'dev-1', path: '/var/log/big.log', maxBytes: 1024 })
   assert.equal(r.truncated, true)
-  assert.equal(Buffer.byteLength(r.content), 0)    // 单块一脚踩过上限:0 字节入账,不挂起即为过
+  assert.equal(Buffer.byteLength(r.content), 1024) // 单块一脚踩过上限:保 maxBytes 前缀(共享 sftpReadFile 切片语义,brief 2026-08-28),不挂起即为过
   assert.ok(calls.some(c => c[0] === 'release'))   // 池句柄归还,不泄漏
-  // 分块场景:先 800B(入账)再 400B(超限)→ 内容 = 800B + truncated
+  // 分块场景:先 800B(入账)再 400B(超限)→ 内容 = 800B + 224B 前缀 = 1024(切片语义)
   const calls2 = []
   const sftp2 = { createReadStream: () => { const rs = new EventEmitter(); setImmediate(() => { rs.emit('data', Buffer.alloc(800, 0x63)); rs.emit('data', Buffer.alloc(400, 0x64)); rs.emit('close') }); rs.destroy = () => {}; return rs } }
   const bridge2 = createSshAgentBridge({ db: fakeDb(), key: KEY, pool: { acquire: async () => ({ client: { sftp: cb => cb(null, sftp2) }, release: () => calls2.push(['release']) }) }, projectId: 'p1' })
   const r2 = await bridge2.readFile({ server: 'dev-1', path: '/var/log/big.log', maxBytes: 1024 })
   assert.equal(r2.truncated, true)
-  assert.equal(Buffer.byteLength(r2.content), 800)
+  assert.equal(Buffer.byteLength(r2.content), 1024)
   assert.ok(calls2.some(c => c[0] === 'release'))
 })

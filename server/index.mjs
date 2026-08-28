@@ -179,6 +179,11 @@ function getPodfileLimitBytes() {
   const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
   return mb * 1024 * 1024
 }
+// SSH 文件传输限额(单文件,上传下载共用):默认 512MB,admin 可经设置调整(键 sshfile.limitMb)
+function getSshfileLimitBytes() {
+  const mb = limitMbFromValue(getSetting('sshfile.limitMb')) ?? 512
+  return mb * 1024 * 1024
+}
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
   return {
@@ -1457,7 +1462,7 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
-  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection })
+  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes })
   if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return

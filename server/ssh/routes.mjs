@@ -1,15 +1,99 @@
 // SSH 服务器 REST(工厂模式同 routes/auth.mjs)。CRUD admin-only(基础设施凭据);
 // test 端点同 requireAdmin(admin-only)。所有响应经 sanitizeSshServer——明文凭据永不出路由。
+// /api/sshfile/*:平台用户可用自己可见服务器的 SFTP 文件浏览/上传/下载(复用 podfile 传输骨架与限额)。
 import {
   createSshServer, updateSshServer, deleteSshServer, listSshServers,
   materializeCreds, getSshServerRow,
 } from './store.mjs'
 import { msg } from '../messages.mjs'
+import { withSftp, sftpReaddir, sftpStatSize, sftpStreamSession } from './sftp.mjs'
+import { streamUpload, streamDownload } from '../podfile-stream.mjs'
 
 export function createSshRoutes(deps) {
-  const { db, sendJson, readBody, requireAdmin, writeAudit, cryptKey, sshTestConnection } = deps
+  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes } = deps
 
   async function handle(req, res, url) {
+    // /api/sshfile/* 先于 /api/ssh/ 前缀判定('/api/sshfile/x' 严格说并不匹配 '/api/ssh/',但先行分支杜绝任何误配/阅读歧义)
+    if (url.pathname.startsWith('/api/sshfile/')) {
+      const action = url.pathname.slice('/api/sshfile/'.length)
+      const ps = requirePlatform(req, res); if (!ps) return true
+      // upload 是原始二进制流:绝不能 readBody(整包缓冲),元信息全走查询串
+      if (action === 'upload') {
+        const serverId = url.searchParams.get('serverId')
+        const path = url.searchParams.get('path') || '/'
+        const name = (url.searchParams.get('name') || 'upload.bin').trim()
+        // name 只允许文件名:拒绝 / 与 ..(防路径穿越写)
+        if (!serverId) { sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: 'serverId' }) }); return true }
+        if (!name || name.includes('/') || name.includes('\\') || name.includes('..') || name === '.' ) {
+          sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: 'name' }) }); return true
+        }
+        let conn = null
+        try {
+          const m = materializeCreds(db, cryptKey, serverId)
+          if (!m) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
+          conn = await sshPool.acquire(serverId, ps.username)
+          const target = (path.endsWith('/') ? path : path + '/') + name
+          const contentLength = parseInt(req.headers['content-length'] || '', 10)
+          const out = await streamUpload({
+            contentLength, limitBytes: getSshfileLimitBytes(), req,
+            openConn: (input) => sftpStreamSession(conn.client, s => {
+              const ws = s.createWriteStream(target)
+              input.pipe(ws)
+              return ws
+            }),
+          })
+          sendJson(res, 200, { ok: true, bytes: out.bytes, path: target })
+          return true
+        } catch (e) {
+          if (e?.message === 'SSH_CRED_DECRYPT_FAILED') { sendJson(res, 409, { message: msg(req, 'ssh.credKeyMissing') }); return true }
+          console.error('[sshfile/upload]', e?.status || '', e?.message || e)
+          if (e.canceled) return sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+          sendJson(res, e?.status || 502, { message: e?.message || msg(req, 'ssh.testGeneric', { message: 'sftp failed' }) })
+          return true
+        } finally { try { conn?.release() } catch { /* noop */ } }
+      }
+      const body = action === 'list' || action === 'download' ? await readBody(req) : null
+      const serverId = body?.serverId || url.searchParams.get('serverId')
+      const path = body?.path || url.searchParams.get('path') || '/'
+      if (!serverId) { sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: 'serverId' }) }); return true }
+      let conn = null
+      try {
+        const m = materializeCreds(db, cryptKey, serverId)
+        if (!m) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
+        conn = await sshPool.acquire(serverId, ps.username)
+        if (action === 'list') {
+          const entries = await withSftp(conn.client, s => sftpReaddir(s, path))
+          sendJson(res, 200, { path, entries })
+          return true
+        }
+        if (action === 'download') {
+          const size = await withSftp(conn.client, s => sftpStatSize(s, path))
+          const base = ((path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')) || 'download'
+          res.setHeader('access-control-allow-origin', process.env.CORS_ORIGIN || '*')
+          res.setHeader('access-control-expose-headers', 'content-disposition')
+          // openConn 契约(照 podfile):sink 为 base64 行解码器——sftp 流逐块 base64 行化喂入
+          await streamDownload({
+            statBytes: size, limitBytes: getSshfileLimitBytes(), res, filename: base,
+            openConn: (sink) => sftpStreamSession(conn.client, s => {
+              const rs = s.createReadStream(path)
+              rs.on('data', d => sink.write(d.toString('base64') + '\n'))
+              rs.on('end', () => sink.end())
+              rs.on('error', () => { try { rs.destroy() } catch { /* noop */ } })
+              return rs
+            }),
+          })
+          return true
+        }
+        sendJson(res, 404, { message: msg(req, 'ssh.notFound') })
+        return true
+      } catch (e) {
+        if (e?.message === 'SSH_CRED_DECRYPT_FAILED') { sendJson(res, 409, { message: msg(req, 'ssh.credKeyMissing') }); return true }
+        console.error(`[sshfile/${action}]`, e?.status || '', e?.message || e)
+        if (!res.headersSent) sendJson(res, e?.status || 502, { message: e?.message || msg(req, 'ssh.testGeneric', { message: 'sftp failed' }) })
+        else res.destroy()
+        return true
+      } finally { try { conn?.release() } catch { /* noop */ } }
+    }
     if (!url.pathname.startsWith('/api/ssh/')) return false
     const audit = (verb, tool, result, extra = {}) =>
       writeAudit?.(db, { owner: extra.owner || 'system', verb, tool, result,
