@@ -252,6 +252,50 @@ test('createAgentRunner 透传 maxSteps:循环不终答按给定上限截断', a
   assert.equal(out.steps, 3, '按透传的 maxSteps=3 截断(默认是 8)')
 })
 
+// Task 10 (SSH): 动态审批钩子 + 工具剔除
+test('excludeTools: 从 offering 剔除指定工具,其余保留', () => {
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([fin('ok')]) }
+  const { toolDefs } = createAgentRunner({ llmClient, workbench: wb, excludeTools: new Set(['wb_exec', 'wb_ssh_exec']) })
+  assert.ok(!toolDefs.some(t => t.function.name === 'wb_exec'), 'excludeTools 剔除 wb_exec')
+  assert.ok(!toolDefs.some(t => t.function.name === 'wb_ssh_exec'), '剔除未注册名不抛')
+  assert.ok(toolDefs.some(t => t.function.name === 'read_ledger'), 'read_ledger 保留')
+})
+
+test('dynamicApproval=false: 静态需审工具(write_project_file)被钩子放宽 → 免 checkpoint 直执行', async () => {
+  const writes = []
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async (p) => { writes.push(p) } }
+  const llmClient = { chat: seqChat([tc('1', 'write_project_file', { path: 'a.yaml', content: 'x' }), fin('已写')]) }
+  const asked = []
+  const { run } = createAgentRunner({ llmClient, workbench: wb, dynamicApproval: async (name, args) => { asked.push({ name, args }); return false } })
+  const out = await run({ history: [] })
+  assert.equal(out.status, undefined, '钩子放宽 → 不 pending_approval')
+  assert.equal(out.content, '已写')
+  assert.deepEqual(writes, ['a.yaml'], '直执行')
+  assert.ok(asked.length >= 1 && asked.every(a => a.name === 'write_project_file'), '钩子被问且仅问该工具(agent 两处调用点各问一次)')
+  assert.deepEqual(asked[0].args, { path: 'a.yaml', content: 'x' }, '钩子收到工具实参')
+})
+
+test('dynamicApproval=true: 钩子收紧 → 仍 pending_approval;默认(无钩子)不变', async () => {
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'write_project_file', { path: 'a.yaml', content: 'x' }), fin('等审')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, dynamicApproval: async () => true })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  // 无钩子(旧默认)仍 pending——由既有 write_project_file checkpoint 用例覆盖,此处不重复
+})
+
+test('dynamicApproval: 免审工具(read_ledger)不问钩子', async () => {
+  const wb = { readLedger: async () => '# 台账', readFile: async () => '', writeFile: async () => {} }
+  const llmClient = { chat: seqChat([tc('1', 'read_ledger', {}), fin('done')]) }
+  const asked = []
+  const { run } = createAgentRunner({ llmClient, workbench: wb, dynamicApproval: async (n) => { asked.push(n); return true } })
+  const out = await run({ history: [] })
+  assert.equal(out.status, undefined, 'read_ledger 静态免审,钩子不参与')
+  assert.deepEqual(asked, [], '钩子未被问')
+  assert.equal(out.content, 'done')
+})
+
 // Task 3: 工具禁用接入 offering(2026-08-25)
 test('工作台 runner:disabledTools 从 offering 消失,其余保留', () => {
   const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {} }
