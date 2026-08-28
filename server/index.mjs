@@ -42,6 +42,9 @@ import { createAuthRoutes } from './routes/auth.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
+import { createSshRoutes } from './ssh/routes.mjs'
+import { ensureSshSchema } from './ssh/store.mjs'
+import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -146,6 +149,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
 )`)
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
+// SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
+ensureSshSchema(db)
+const sshCryptKey = loadOrCreateKey(join(dirname(dbPath), 'ssh-crypt.key'))
+// 临时 stub(Task 5 换 pool.testConnection):
+const sshTestConnection = async () => ({ ok: false, errorKind: 'unreachable', message: 'pool not ready' })
 // === 审计日志(按人审计 + 链哈希,codex #9) ===
 // seq AUTOINCREMENT:单调序号(链锚点 + 排序,行 id 不重用)。
 // status:started(执行前先写,崩溃可追溯)→ finalized(执行后补结果)。codex #9 的两阶段。
@@ -1441,6 +1449,8 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
+  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection })
+  if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return
