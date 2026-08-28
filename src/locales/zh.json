@@ -6,7 +6,9 @@
     "add": "添加",
     "remove": "移除",
     "search": "搜索",
-    "watchLive": "实时", "watchReconnecting": "重连中", "watchDegraded": "已降级轮询",
+    "watchLive": "实时",
+    "watchReconnecting": "重连中",
+    "watchDegraded": "已降级轮询",
     "sync": "同步",
     "loading": "加载中…",
     "success": "成功",
@@ -482,7 +484,11 @@
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
     "clusterUnreachable": "集群不可达或未连接：{reasons}",
     "clusterStatusSummary": "集群: {status} · 控制面 {ready}/{total} · worker {wready}/{wtotal}",
-    "updateBanner": { "found": "发现新版本", "view": "查看发布", "dismiss": "关闭" }
+    "updateBanner": {
+      "found": "发现新版本",
+      "view": "查看发布",
+      "dismiss": "关闭"
+    }
   },
   "clusters": {
     "title": "集群管理",
@@ -3429,7 +3435,8 @@
       "tabProjects": "项目",
       "tabConfig": "配置",
       "tabGlobal": "全局",
-      "tabRecords": "记录"
+      "tabRecords": "记录",
+      "tabServers": "服务器"
     },
     "card": {
       "noProjects": "还没有项目,点击「新建」创建第一个",
@@ -4077,5 +4084,50 @@
     "openPanelTitle": "打开传输面板",
     "closeAllConfirm": "确定关闭 {count} 个会话(终端与文件窗口)?",
     "sessionsCount": "{count} 个会话"
+  },
+  "ssh": {
+    "title": "SSH 服务器",
+    "addServer": "添加服务器",
+    "editServer": "编辑服务器",
+    "name": "名称",
+    "host": "主机",
+    "port": "端口",
+    "username": "用户名",
+    "authMethod": "认证方式",
+    "authPassword": "密码",
+    "authPrivateKey": "私钥",
+    "password": "密码",
+    "privateKey": "私钥(PEM)",
+    "passphrase": "私钥口令",
+    "sudoPassword": "sudo 密码",
+    "sudoPasswordHint": "可选,供 AI 以 sudo 执行命令",
+    "clusterRef": "关联集群",
+    "clusterRefHint": "可选,如 prod(便于 AI 理解语境)",
+    "tags": "标签(逗号分隔)",
+    "description": "描述",
+    "exposeToAi": "暴露给 AI",
+    "exposeHint": "AI 仅可见名称/描述/关联集群,永不可见凭据与地址",
+    "aiApprovalPolicy": "审批策略",
+    "policyAlways": "每条命令必审批",
+    "policyReadonly": "只读命令免审批",
+    "policyNone": "免审批(高危)",
+    "testConnection": "测试连接",
+    "testing": "测试中…",
+    "testOk": "连接成功",
+    "terminal": "终端",
+    "files": "文件",
+    "actions": "操作",
+    "deleteConfirm": "确定删除服务器「{name}」?已保存的凭据将一并清除。",
+    "credOk": "已录入",
+    "credMissing": "缺凭据",
+    "credState": "凭据",
+    "readonlyNotice": "只读视图:SSH 服务器由管理员管理,你可使用终端与文件功能。",
+    "errRequired": "{field} 必填",
+    "keepBlank": "留空保持不变",
+    "saving": "保存中…",
+    "credKeyMissing": "凭据密钥不可用,请重新录入凭据",
+    "sessionTerminated": "会话已终止(网关重启或超时),点击重连",
+    "replayedBadge": "已回放",
+    "reconnect": "重连"
   }
 }

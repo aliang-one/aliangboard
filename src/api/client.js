@@ -188,6 +188,16 @@ export const podFileApi = {
   },
 }
 
+// SSH 服务器管理(Task 3 REST;全部 admin-only)。行经服务端脱敏:只有 hasPassword 等布尔,无凭据本体。
+export const sshApi = {
+  list: () => platformHttp.request('/api/ssh/servers'),
+  create: payload => platformHttp.request('/api/ssh/servers', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id, patch) => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  remove: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  testSaved: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  testForm: payload => platformHttp.request('/api/ssh/test', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
 export const podDebugApi = {
   attach: payload => k8sHttp.request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
