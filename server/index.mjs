@@ -45,6 +45,7 @@ import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema } from './ssh/store.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
+import { createSshPool } from './ssh/pool.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -152,8 +153,9 @@ createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
 ensureSshSchema(db)
 const sshCryptKey = loadOrCreateKey(join(dirname(dbPath), 'ssh-crypt.key'))
-// 临时 stub(Task 5 换 pool.testConnection):
-const sshTestConnection = async () => ({ ok: false, errorKind: 'unreachable', message: 'pool not ready' })
+// SSH 连接池(Task 5):试连走真 ssh2;row=null(未保存表单)时 creds 即表单,池内归一为表单行
+const sshPool = createSshPool({ db, key: sshCryptKey })
+const sshTestConnection = (row, creds) => sshPool.testConnection(row || creds, row ? null : creds)
 // === 审计日志(按人审计 + 链哈希,codex #9) ===
 // seq AUTOINCREMENT:单调序号(链锚点 + 排序,行 id 不重用)。
 // status:started(执行前先写,崩溃可追溯)→ finalized(执行后补结果)。codex #9 的两阶段。
