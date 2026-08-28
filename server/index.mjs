@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws'
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { loadAll as yamlLoadAll, load as yamlLoad } from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
 import { readBody } from './body.mjs'
@@ -51,12 +51,12 @@ import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
+import { createApplyYaml } from './apply-yaml.mjs'
 import { slimListBody } from './k8s-slim.mjs'
 
 const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
 const sessions = new Map()
-const discoveryCache = new Map()
 const sessionTtl = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000)
 
 // === 会话持久化（SQLite）：集群访问配置落盘，网关重启后浏览器 token 仍有效，无需重登 ===
@@ -448,6 +448,8 @@ async function requestKubernetes(session, path, init = {}) {
   }
 }
 
+// YAML apply 内核已抽至 ./apply-yaml.mjs(deps 注入便于单测,ns 缺省补齐见该模块)。
+const { applyYaml, applyYamlPartial } = createApplyYaml({ requestKubernetes })
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
 // AI 路径的 execFn 适配:api-key-tools 传第 6 参 bounds(审计 P1a)→ execCapture 第 7 参(raw 固定 false)
 const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: (ctx, ns, pod, container, command, bounds) => execCapture(ctx, ns, pod, container, command, false, bounds), applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
@@ -463,71 +465,6 @@ const clusterProber = createClusterProber({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
 const mcpHandler = createMcpServer({ db, apiKeyTools })
 
-async function discoverResource(session, object) {
-  const apiVersion = String(object.apiVersion || '')
-  const [group, version] = apiVersion.includes('/') ? apiVersion.split('/', 2) : ['', apiVersion]
-  if (!version) throw new Error('YAML 缺少 apiVersion')
-  const cacheKey = `${session.apiServer}:${apiVersion}`
-  let resources = discoveryCache.get(cacheKey)
-  if (!resources) {
-    const discoveryPath = group ? `/apis/${group}/${version}` : `/api/${version}`
-    resources = (await requestKubernetes(session, discoveryPath)).body?.resources || []
-    discoveryCache.set(cacheKey, resources)
-  }
-  const resource = resources.find(item => item.kind === object.kind && !item.name.includes('/'))
-  if (!resource) throw new Error(`集群未发现资源类型 ${object.kind} (${apiVersion})`)
-  return { group, version, resource }
-}
-
-async function applyYaml(session, yaml) {
-  const objects = []
-  yamlLoadAll(yaml, object => { if (object) objects.push(object) })
-  if (!objects.length) throw new Error('YAML 中没有可应用的资源')
-  // 逐资源 server-side apply,各自 try/catch:多文档时先建的不被后建的失败连累(QA ISSUE-002:
-  //   Deployment 建成功、Service 失败 → 旧 throw-on-first 整体 500,Deployment 残留且 UI 报失败)。
-  //   /api/apply 据 applied.length 判 200(部分或全成功)/422(全失败),保留单资源失败→throw 的旧语义。
-  const resources = [], applied = [], failed = []
-  for (const object of objects) {
-    const label = { kind: object?.kind, name: object?.metadata?.name, namespace: object?.metadata?.namespace }
-    try {
-      if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
-      const { group, version, resource } = await discoverResource(session, object)
-      const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
-      const namespacePart = resource.namespaced
-        ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}`
-        : ''
-      const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
-      const result = await requestKubernetes(session, path, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/apply-patch+yaml' },
-        body: JSON.stringify(object),
-      })
-      resources.push(result.body)
-      applied.push(label)
-    } catch (e) { failed.push({ ...label, error: e.message }) }
-  }
-  return { resources, applied, failed, total: objects.length }
-}
-
-// 工作台用(W5):逐资源 try/catch,部分失败上报(只回 label,不要 body)。applyYaml 同样逐资源但回 body 给 /api/apply。
-async function applyYamlPartial(session, yaml) {
-  const objects = []
-  yamlLoadAll(yaml, o => { if (o) objects.push(o) })
-  const applied = [], failed = []
-  for (const object of objects) {
-    const label = { kind: object?.kind, name: object?.metadata?.name, namespace: object?.metadata?.namespace }
-    try {
-      if (!object?.kind || !object?.metadata?.name) throw new Error('YAML 缺少 kind 或 metadata.name')
-      const { group, version, resource } = await discoverResource(session, object)
-      const prefix = group ? `/apis/${group}/${version}` : `/api/${version}`
-      const namespacePart = resource.namespaced ? `/namespaces/${encodeURIComponent(object.metadata.namespace || 'default')}` : ''
-      const path = `${prefix}${namespacePart}/${resource.name}/${encodeURIComponent(object.metadata.name)}?fieldManager=aliangboard&force=true`
-      await requestKubernetes(session, path, { method: 'PATCH', headers: { 'content-type': 'application/apply-patch+yaml' }, body: JSON.stringify(object) })
-      applied.push(label)
-    } catch (e) { failed.push({ ...label, error: e.message }) }
-  }
-  return { applied, failed, total: objects.length }
-}
 
 // 工作台:台账 bootstrap(survey 集群 → 事实型 INDEX.md)。/ledger/bootstrap 端点 + agent bootstrap_ledger 工具共用。
 async function bootstrapLedgerForCluster(cluster) {
@@ -1561,7 +1498,11 @@ async function handle(req, res) {
     if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     try {
       const input = await readBody(req)
-      const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''))
+      const { resources, applied, failed, total } = await applyYaml(
+        session,
+        String(input.yaml || ''),
+        typeof input.defaultNs === 'string' && input.defaultNs ? input.defaultNs : undefined,
+      )
       // 全失败 → 422:保留单资源「失败即抛错」语义(remoteCreate/remoteUpdate/CRD 等走 catch 回滚)
       if (!applied.length) {
         return sendJson(res, 422, { message: failed[0]?.error || msg(req, 'api.applyYamlFailed'), details: { failed, total } })
