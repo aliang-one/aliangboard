@@ -354,7 +354,7 @@ test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => 
   const { conv, anchorId } = seedEditConv(h.db, h.pid)
   // 锚消息自带 refs(编辑缺省 references 时沿用锚的)
   h.db.prepare('UPDATE workbench_messages SET refs=? WHERE id=?').run(JSON.stringify(anchorRefs), anchorId)
-  // 水位已盖住锚(seq3)→ 钳到 keptMinSeq-1
+  // 水位已盖住锚(seq3)→ 钳到 fromSeq-1=2(新消息不被"已进 recap"跳过)
   updateConversation(h.db, conv.id, { recap: '早期摘要', summarizedUpTo: 3 })
   h.body.v = { messageId: anchorId, content: '改过的问题' }
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`), '路由命中')
@@ -371,11 +371,33 @@ test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => 
   assert.deepEqual(JSON.parse(msgs[2].refs), anchorRefs, 'refs 缺省沿用锚消息原值')
   const after = getConversation(h.db, conv.id)
   assert.equal(after.status, 'running')
-  // 水位钳制(spec §3.1):summarizedUpTo <= keptMinSeq-1;本例前缀 seq 1,2 → keptMinSeq=1 → 钳到 0
-  // (保守侧:kept 消息永不被"已进 recap"跳过)
-  const keptMin = Math.min(...listMessages(h.db, conv.id).filter(m => m.seq < 3).map(m => m.seq))
-  assert.ok(after.summarizedUpTo <= keptMin - 1, `水位钳制: ${after.summarizedUpTo} <= keptMinSeq(${keptMin})-1`)
+  // 水位钳制(spec §3.1 修正版):min(现值, fromSeq-1)——前缀 1..2 连续,盖住锚(3)钳到 2
+  assert.equal(after.summarizedUpTo, 2, '水位盖住锚:钳到 fromSeq-1')
   assert.ok(JSON.parse(after.references).some(r => r.kind === 'pods' && r.name === 'p1'), '对话级 references 含原 ref')
+})
+
+// 水位边界锁定(spec §3.1 修正:边界=fromSeq-1,非 keptMinSeq-1——后者 seq 从 1 起恒为 1,
+// 每次编辑都把水位归零、前缀摘要覆盖白做。正确语义:前缀连续 1..fromSeq-1,其最大 seq 即 fromSeq-1)
+test('POST edit:水位边界=fromSeq-1——编辑末条保留前缀摘要覆盖,编辑首条归 0', async () => {
+  // 场景 1:锚=seq3(末条 user),summarizedUpTo=2 恰盖前缀 → 编辑后水位保留 2(不归 0)
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  updateConversation(h.db, conv.id, { recap: '早期摘要', summarizedUpTo: 2 })
+  h.body.v = { messageId: anchorId, content: '改末条' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 200)
+  const after = getConversation(h.db, conv.id)
+  assert.equal(after.summarizedUpTo, 2, '编辑末条:前缀(1..fromSeq-1=2)摘要覆盖保留')
+  assert.equal(after.recap, '早期摘要', 'recap 不动')
+  // 场景 2:锚=seq1(首条 user)→ 前缀空,水位归 0
+  const h2 = makeEditHarness()
+  const s2 = seedEditConv(h2.db, h2.pid)
+  const seq1Id = h2.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND seq=1").get(s2.conv.id).id
+  updateConversation(h2.db, s2.conv.id, { recap: '早期摘要', summarizedUpTo: 2 })
+  h2.body.v = { messageId: seq1Id, content: '改首条' }
+  assert.ok(await h2.call('POST', `/api/workbench/conversations/${s2.conv.id}/edit`))
+  assert.equal(h2.sent[h2.sent.length - 1].status, 200)
+  assert.equal(getConversation(h2.db, s2.conv.id).summarizedUpTo, 0, '编辑首条:前缀空(fromSeq-1=0)→ 归 0')
 })
 
 test('POST edit:references 替换(非沿用)', async () => {

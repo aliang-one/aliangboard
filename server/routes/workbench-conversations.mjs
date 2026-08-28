@@ -280,7 +280,9 @@ export function createWorkbenchConvRoutes(deps) {
         appendMessage(db, { conversationId: id, role: 'user', content, refs: refsValue ? refsValue.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name })) : null })
         updateConversation(db, id, {
           status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
-          summarizedUpTo: Math.min(conv.summarizedUpTo ?? 0, t.keptMinSeq == null ? 0 : t.keptMinSeq - 1),
+          // 水位钳制(spec §3.1 修正):min(现值, fromSeq-1)——前缀连续 1..fromSeq-1,保留其摘要覆盖;
+          // 编辑首条(fromSeq-1=0)归 0。原 keptMinSeq-1 因 seq 从 1 起恒为 0,会把摘要覆盖每次归零。
+          summarizedUpTo: Math.min(conv.summarizedUpTo ?? 0, t.fromSeq - 1),
         })
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
