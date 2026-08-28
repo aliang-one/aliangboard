@@ -13,6 +13,7 @@ import {
 import { contextWindowFor, estTokens } from '../model-context.mjs'
 import { maybeSummarize, compactConversation } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
+import { maskSecretResource } from '../secret-mask.mjs'
 import { msg } from '../messages.mjs'
 
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
@@ -86,7 +87,9 @@ export function createWorkbenchConvRoutes(deps) {
         const body = res?.body
         if (body == null) { blocks.push(`${label}: (空响应)`); continue }
         blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
-        resources.push(body)
+        // 落库 refs + 前端 ResourceCard 均掩码形(脱敏 spec 2026-08-28,终审 I1):
+        // 明文不出 DB;blocks 拼 ctx 保持原样(ctx 本身无消费方,system 注入走 fetchRefContext 已掩码)
+        resources.push(maskSecretResource(body))
       } catch (e) {
         blocks.push(`${label}: (not found)`)
       }

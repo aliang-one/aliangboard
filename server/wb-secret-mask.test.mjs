@@ -18,7 +18,7 @@ test('wb_get_resource 读 Secret:LLM 收到掩码指纹,明文不出现在工具
   const LLM_PORT = 43000 + Math.floor(Math.random() * 3000)
   const GW_PORT = 46000 + Math.floor(Math.random() * 3000)
   const DIR = mkdtempSync(join(tmpdir(), 'wb-secmask-'))
-  let llmSawSystem = '', llmSawTool = ''
+  let llmSawSystem = ''
   const k8s = createServer((req, res) => {
     const p = new URL(req.url, 'http://x').pathname
     if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31"}') }
@@ -29,8 +29,6 @@ test('wb_get_resource 读 Secret:LLM 收到掩码指纹,明文不出现在工具
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
       const { messages = [], stream } = JSON.parse(body || '{}')
       llmSawSystem = messages[0]?.content || llmSawSystem
-      const toolJson = messages.filter(m => m.role === 'tool').map(m => m.content).join('\n')
-      if (toolJson) llmSawTool = toolJson
       const reply = { role: 'assistant', content: '已读取' }
       if (stream) {
         res.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -60,9 +58,9 @@ test('wb_get_resource 读 Secret:LLM 收到掩码指纹,明文不出现在工具
     const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user:\n    token: d\n`
     const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
     const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't', clusterId: cr.cluster?.id || cr.id }) })).json()
-    // @secret:ns1/db-cred 引用 + 首条消息即问(工具调用由消息引导不可靠——直接断 refContext;
-    // 工具面经第二条对话 wb_get_resource 走:LLM mock 恒终答,故工具断言改用直接 HTTP 不可行,
-    // 改由 refContext 面覆盖:LLM 首轮 system 含引用资源 JSON)
+    // @secret:ns1/db-cred 引用 + 首条消息即问(工具调用由消息引导不可靠;LLM mock 恒终答,
+    // 工具面不可行)——覆盖两面:refContext(LLM 首轮 system)+ 落库 refs(终审 I1,
+    // GET /:id 的 user 消息 refs[].resource,前端 ResourceCard 数据源)
     const cv = await (await fetch(`${BASE}/api/workbench/conversations`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '这个 secret 配置对吗', references: [{ kind: 'secrets', namespace: 'ns1', name: 'db-cred' }] }) })).json()
     let st = 'running'
     for (let i = 0; i < 80 && st === 'running'; i++) {
@@ -75,6 +73,14 @@ test('wb_get_resource 读 Secret:LLM 收到掩码指纹,明文不出现在工具
     assert.ok(!llmSawSystem.includes('s3cr3t-hunter2'), '明文不得进 system')
     assert.ok(!llmSawSystem.includes(Buffer.from('s3cr3t-hunter2').toString('base64')), 'base64 明文也不得进 system')
     assert.match(llmSawSystem, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/, '值为掩码指纹形态')
+    // 落库 refs 面(终审 I1):user 消息 refs[].resource(前端 ResourceCard 数据源)也须掩码形
+    const final = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
+    const userMsg = (final.messages || []).find(m => m.role === 'user')
+    const refs = JSON.parse(userMsg?.refs || '[]')
+    assert.ok(refs.length >= 1, 'user 消息带 refs')
+    const data = refs[0]?.resource?.data || {}
+    assert.ok(!JSON.stringify(data).includes('s3cr3t-hunter2') && !JSON.stringify(data).includes(Buffer.from('s3cr3t-hunter2').toString('base64')), 'refs.resource.data 无明文')
+    assert.match(String(data.password || ''), /^\*\*\* \(\d+ chars, #[0-9a-f]{8}\)$/, 'refs.resource.data.password 为掩码指纹')
   } finally {
     gw.kill('SIGKILL'); k8s.close(); llm.close()
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
