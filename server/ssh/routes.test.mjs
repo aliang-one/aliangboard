@@ -73,6 +73,42 @@ test('SSH CRUD + 脱敏 + 试连结构化错误', { timeout: 60000 }, async () =
   assert.equal((await (await fetch(`${BASE}/api/ssh/servers`, { headers: H })).json()).servers.length, 0)
 })
 
+test('sshfile REST: dispatcher 顺序钉住 + name 穿越拒绝 + 未知 serverId 404', { timeout: 30000 }, async () => {
+  await waitUp()
+  const login = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+  const H = { 'content-type': 'application/json', 'x-platform-token': login.token }
+
+  // ① 无 token → 401:requirePlatform 在 sshfile 分支内部 —— 若请求被 /api/ssh/ 前缀吞掉
+  //    (dispatcher 顺序错),这里会是落空的 40x 而非 401。401 即钉住分支可达。
+  const noAuth = await fetch(`${BASE}/api/sshfile/list`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ serverId: 'x', path: '/' }) })
+  assert.equal(noAuth.status, 401)
+
+  // ② 带 token 但 serverId 不存在 → 404(materializeCreds 查无行)——再次证明进入 sshfile 分支
+  const nf = await fetch(`${BASE}/api/sshfile/list`, { method: 'POST', headers: H,
+    body: JSON.stringify({ serverId: 'no-such-server', path: '/' }) })
+  assert.equal(nf.status, 404)
+
+  // ③ 未知 serverId download → 404
+  const dl = await fetch(`${BASE}/api/sshfile/download`, { method: 'POST', headers: H,
+    body: JSON.stringify({ serverId: 'no-such-server', path: '/etc/hosts' }) })
+  assert.equal(dl.status, 404)
+
+  // ④ upload name 穿越/非法 → 400(校验先于 pool.acquire,无需真 sshd)
+  for (const name of ['../evil', 'a/b', 'a\\b', '..', '.']) {
+    const up = await fetch(`${BASE}/api/sshfile/upload?serverId=no-such-server&path=/tmp&name=${encodeURIComponent(name)}`,
+      { method: 'POST', headers: { 'x-platform-token': login.token }, body: '' })
+    assert.equal(up.status, 400, `name=${name}`)
+  }
+
+  // ⑤ 缺 serverId → 400
+  const noSrv = await fetch(`${BASE}/api/sshfile/list`, { method: 'POST', headers: H,
+    body: JSON.stringify({ path: '/' }) })
+  assert.equal(noSrv.status, 400)
+})
+
 test('cleanup', async () => {
   gw.kill('SIGKILL')
   await new Promise(r => setTimeout(r, 200))

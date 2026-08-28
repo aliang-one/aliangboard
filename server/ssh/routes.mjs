@@ -74,11 +74,20 @@ export function createSshRoutes(deps) {
           // openConn 契约(照 podfile):sink 为 base64 行解码器——sftp 流逐块 base64 行化喂入
           await streamDownload({
             statBytes: size, limitBytes: getSshfileLimitBytes(), res, filename: base,
-            openConn: (sink) => sftpStreamSession(conn.client, s => {
+            openConn: (sink, stderrSink) => sftpStreamSession(conn.client, s => {
               const rs = s.createReadStream(path)
               rs.on('data', d => sink.write(d.toString('base64') + '\n'))
               rs.on('end', () => sink.end())
-              rs.on('error', () => { try { rs.destroy() } catch { /* noop */ } })
+              // 中途错误必须显式中断:只 destroy 流不发信号的话,streamDownload 会在头部已发时照常
+              // res.end() → 产出短于 content-length 的假 200。错误文案写入 stderrSink(头部未发时
+              // 由 streamDownload 变成 4xx 响应体,照 podfile 的 stderr 惯例),并 destroy sink
+              // (其 'close' 是 streamDownload 的结算路径);rs 本身是 conn,'error' 事件同步触发
+              // streamDownload 的 connErrored → res.destroy()。
+              rs.on('error', e => {
+                try { stderrSink?.write(String(e?.message || e) + '\n') } catch { /* noop */ }
+                try { sink.destroy() } catch { /* noop */ }
+                try { rs.destroy() } catch { /* noop */ }
+              })
               return rs
             }),
           })
