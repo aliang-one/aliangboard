@@ -35,3 +35,9 @@ test('renderMarkdown: XSS — <script> 标签被剥离', () => {
   const out = renderMarkdown('<script>alert(1)</script>text')
   expect(out).not.toContain('<script>')
 })
+
+// breaks:true(2026-08-28):LLM 单换行排版极常见,GFM 严格模式把段内 \n 渲染为空格,
+// 中文行间无空格直接粘连——聊天场景必须单换行 → <br>。(happy-dom 剥 p,只断 br 本身)
+test('renderMarkdown: 单换行 → <br>(breaks:true,中文行不粘连)', () => {
+  expect(renderMarkdown('第一行\n第二行')).toContain('<br>')
+})

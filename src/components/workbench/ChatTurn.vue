@@ -17,6 +17,9 @@ const { t } = useI18n()
 
 const root = ref(null)
 // Prism 懒加载(镜像 CodeViewer.vue):首屏不拉 ~200KB;命中后缓存。languages 覆盖 chat 常见代码。
+// 2026-08-28 扩充:此前仅 yaml/json/bash/js——LLM 输出的 go/python/ts/sql/toml/docker/diff/ini
+// 全不上色(用户报告「代码语法没有正确展示」的一环)。typescript 依赖 javascript、docker 依赖
+// ini,列于其后(prism 组件自身有依赖声明,显式列出保序)。
 let PrismPromise = null
 function loadPrism() {
   if (!PrismPromise) {
@@ -27,6 +30,14 @@ function loadPrism() {
         import('prismjs/components/prism-json'),
         import('prismjs/components/prism-bash'),
         import('prismjs/components/prism-javascript'),
+        import('prismjs/components/prism-typescript'),
+        import('prismjs/components/prism-python'),
+        import('prismjs/components/prism-go'),
+        import('prismjs/components/prism-sql'),
+        import('prismjs/components/prism-ini'),
+        import('prismjs/components/prism-docker'),
+        import('prismjs/components/prism-toml'),
+        import('prismjs/components/prism-diff'),
         import('prismjs/themes/prism-tomorrow.css'),
       ])
       return Prism
@@ -55,12 +66,26 @@ const interleaveUsable = computed(() => {
   const texts = (props.turn.trace || []).filter(e => e && e.type === 'assistant' && e.content)
   return texts.length > 0 || !props.turn.content
 })
+// 交错块文本的 markdown 渲染(2026-08-28 修复):此前文本块是 {{ }} 纯文本插值——交错模式
+// (带工具调用的对话几乎全走此模式)下中间轮+终答的 markdown 全部按原字符显示(代码块裸露
+// ``` 围栏、加粗带星号)。「感觉不支持 markdown」的直接根因。此处预渲染成 html:
+// - WeakMap 按事件对象引用缓存——trace push 不改旧元素引用,nowTick 每秒重渲染/流式 delta
+//   高频更新都不触发旧块 re-parse(纯模板函数调用会每次重算);
+// - 消毒走 renderMarkdown(DOMPurify),LLM 内容必须过消毒才能进 v-html。
+const blockHtmlCache = new WeakMap()
 const blocks = computed(() => {
   if (!interleaveUsable.value) return []
   return (props.turn.trace || [])
-    .map(e => e && e.type === 'assistant'
-      ? ((e.content ?? e.message?.content) ? { kind: 'text', content: e.content ?? e.message?.content } : null)
-      : { kind: 'tool', event: e })
+    .map(e => {
+      if (!e) return null
+      if (e.type === 'assistant') {
+        const text = e.content ?? e.message?.content
+        if (!text) return null
+        if (!blockHtmlCache.has(e)) blockHtmlCache.set(e, renderMarkdown(text))
+        return { kind: 'text', html: blockHtmlCache.get(e) }
+      }
+      return { kind: 'tool', event: e }
+    })
     .filter(Boolean)
 })
 
@@ -92,6 +117,17 @@ function scheduleRender() {
   }
 }
 watch(() => [props.turn.content, props.turn.status], scheduleRender, { immediate: true })
+// 交错块(中间轮文本)到达时的代码块装饰+高亮(2026-08-28 markdown 修复配套):scheduleRender
+// 只盯 content/status,trace 变化(新文本块 v-html 进 DOM)不触发——不挂的话新块里的 pre
+// 无复制按钮装饰、无 Prism token 色,直到 done 终帧才补。节流口径与 doRender 相同(600ms 合并)。
+watch(() => props.turn.trace?.length, () => {
+  nextTick(() => {
+    decorateCodeBlocks()
+    const now = Date.now()
+    if (lastHighlight === 0 || now - lastHighlight >= HIGHLIGHT_INTERVAL) scheduleHighlight(0)
+    else if (!highlightTimer) scheduleHighlight(HIGHLIGHT_INTERVAL - (now - lastHighlight))
+  })
+})
 onUnmounted(() => { if (renderTimer) clearTimeout(renderTimer); if (highlightTimer) clearTimeout(highlightTimer) })
 onMounted(highlight)
 
@@ -220,10 +256,11 @@ function onRootClick(e) {
         <span class="text-body-sm text-status-warning leading-relaxed">{{ t('workbench.chat.maxStepsReached') }}</span>
       </div>
 
-      <!-- 交错流:文本↔工具行按发生顺序(中间文本+终答都在块序列里);thinking 时当前轮流式文本为末段 -->
+      <!-- 交错流:文本↔工具行按发生顺序(中间文本+终答都在块序列里);thinking 时当前轮流式文本为末段。
+           文本块走 markdown 渲染(v-html,renderMarkdown 已消毒;prose-chat 全局排版样式) -->
       <div v-if="interleaveUsable" data-testid="interleaved-flow" class="flex flex-col gap-sm">
         <template v-for="(b, i) in blocks" :key="i">
-          <p v-if="b.kind === 'text'" class="text-body-sm whitespace-pre-wrap break-words leading-relaxed text-on-surface">{{ b.content }}</p>
+          <div v-if="b.kind === 'text'" class="text-body-sm text-on-surface leading-relaxed prose-chat break-words" v-html="b.html"></div>
           <ToolRow v-else :event="b.event" />
         </template>
         <div v-if="isStreaming && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">

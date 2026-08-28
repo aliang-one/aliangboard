@@ -157,3 +157,20 @@ test('交错模式:ToolTrace chips 退场,工具只在交错流内出现一次',
   const occurrences = (w.html().match(/wb_get_pod_logs/g) || []).length
   expect(occurrences).toBe(1, `交错模式工具名单一展示位,实际出现 ${occurrences} 次`)
 })
+
+// 2026-08-28 markdown 修复:交错模式文本块此前是 {{ }} 纯文本插值——带工具调用的对话
+// (几乎全部)中间轮+终答的 markdown 全按原字符显示(代码块裸 ``` 围栏、加粗带星号),
+// 即用户报告「感觉不支持 markdown」。修复:文本块走 renderMarkdown(消毒后 v-html)。
+test('ChatTurn: 交错模式文本块渲染 markdown(粗体成 strong,非原字符)', () => {
+  const trace = [
+    { type: 'assistant', content: '先看**资源状态**', ts: 1 },
+    { type: 'tool', name: 'list', args: {}, result: 'ok', ts: 2 },
+    { type: 'assistant', content: '结论:`apiVersion` 缺失', ts: 3 },
+  ]
+  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '', trace } }, global: { plugins: [i18n] } })
+  const flow = w.find('[data-testid="interleaved-flow"]')
+  expect(flow.exists()).toBe(true)
+  expect(flow.html()).toContain('<strong>资源状态</strong>')   // markdown 已渲染,非字面 **
+  expect(flow.html()).not.toContain('**资源状态**')
+  expect(flow.html()).toContain('<code>apiVersion</code>')      // 行内代码成 code 元素
+})

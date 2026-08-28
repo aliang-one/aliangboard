@@ -4,7 +4,9 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
-marked.setOptions({ gfm: true, breaks: false })
+// breaks:true(2026-08-28):LLM(尤其国产模型)用单换行排版极常见;GFM 严格模式下段内 \n
+// 渲染为空格,中文行间无空格直接粘连成一行。breaks 把单换行转 <br>,聊天场景主流行为。
+marked.setOptions({ gfm: true, breaks: true })
 
 export function renderMarkdown(md) {
   if (!md) return ''

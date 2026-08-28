@@ -86,3 +86,71 @@ body {
   opacity: 0;
   transform: translateX(-20px);
 }
+
+/* ── AI 对话 markdown 排版(.prose-chat)── 2026-08-28 修复 ──
+   此前该类名是空壳(无任何定义):marked 输出的 h1/ul/blockquote/table/pre 全按浏览器
+   默认样式裸奔——h1 巨大、pre 白底、a 无样式,观感即「不支持 markdown」。色彩走 md-palette
+   注入的 M3 CSS 变量;代码块与 ChatTurn decorateCodeBlocks 的深色 code-bar 同底
+   (#0b1c30 / 字 #cfe3ff)——prism-tomorrow 是深色主题,pre 若浅底则 token 对比度错乱。 */
+.prose-chat > :first-child { margin-top: 0; }
+.prose-chat > :last-child { margin-bottom: 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface, #0b1c30);
+  line-height: 1.4;
+  margin: 0.9em 0 0.35em;
+}
+.prose-chat h1 { font-size: 1.15em; }
+.prose-chat h2 { font-size: 1.1em; }
+.prose-chat h3 { font-size: 1.05em; }
+.prose-chat h4 { font-size: 1em; }
+.prose-chat p { margin: 0.5em 0; }
+.prose-chat ul, .prose-chat ol { margin: 0.5em 0; padding-left: 1.4em; }
+.prose-chat ul { list-style: disc; }
+.prose-chat ol { list-style: decimal; }
+.prose-chat li { margin: 0.2em 0; }
+.prose-chat li > ul, .prose-chat li > ol { margin: 0.2em 0; }
+.prose-chat a { color: var(--md-sys-color-primary, #006c49); text-decoration: underline; text-underline-offset: 2px; }
+.prose-chat blockquote {
+  margin: 0.6em 0; padding: 0.35em 0.9em;
+  border-left: 3px solid var(--md-sys-color-outline-variant, #bbcabf);
+  background: var(--md-sys-color-surface-container-low, #eff4ff);
+  border-radius: 0 6px 6px 0;
+  color: var(--md-sys-color-on-surface-variant, #3c4a42);
+}
+/* 行内 code:浅底等宽(与围栏代码块的深底区分) */
+.prose-chat :not(pre) > code {
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--md-sys-color-surface-container-low, #eff4ff);
+  border: 1px solid var(--md-sys-color-outline-variant, #bbcabf);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+/* 围栏代码块:深底浅字(与 code-bar 同色系)。decorateCodeBlocks 装饰后 pre 进 code-block
+   壳(壳自带 border/圆角/裁剪),pre 的圆角被裁掉,底色与 bar 连成一体。 */
+.prose-chat pre {
+  margin: 0.6em 0;
+  background: #0b1c30;
+  color: #cfe3ff;
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+}
+.prose-chat pre code {
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.85em;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.prose-chat table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; display: block; overflow-x: auto; }
+.prose-chat th, .prose-chat td {
+  border: 1px solid var(--md-sys-color-outline-variant, #bbcabf);
+  padding: 0.3em 0.7em;
+  text-align: left;
+}
+.prose-chat th { background: var(--md-sys-color-surface-container-low, #eff4ff); font-weight: 600; }
+.prose-chat hr { border: none; border-top: 1px solid var(--md-sys-color-outline-variant, #bbcabf); margin: 1em 0; }
+.prose-chat img { max-width: 100%; border-radius: 8px; }
