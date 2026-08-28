@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -215,4 +215,38 @@ test('salvageInterrupted:有检查点内容且末条非 assistant → 补录;空
   salvageInterrupted(db)
   assert.equal(getConversation(db, c4.id).status, 'done')
   assert.equal(listMessages(db, c4.id).length, before4)
+})
+
+// ── 编辑重发 T1:按消息锚截断(spec §3.2)──
+test('truncateFromMessage:中间锚点删其后全部(含后续 user/assistant),前缀保留', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  createConversation(db, { projectId: proj.id, system: '', userMessage: 'first' })
+  const conv = listConversations(db, proj.id)[0]
+  const m1 = appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1' })
+  const m3 = appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a2' })
+  const r = truncateFromMessage(db, conv.id, m3.id)
+  assert.equal(r.removed, 2, 'q2+a2 被删')
+  assert.equal(r.fromSeq, m3.seq)
+  const msgs = db.prepare('SELECT content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.deepEqual(msgs.map(m => m.content), ['q1', 'a1'], '前缀保留')
+  assert.equal(r.keptMinSeq, m1.seq)
+})
+
+test('truncateFromMessage:首条锚全删 → keptMinSeq null;不存在/非 user → null', () => {
+  const db = makeDb()
+  createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' })
+  const proj = listProjects(db, { userId: 'u1', role: 'admin' })[0]
+  createConversation(db, { projectId: proj.id, system: '', userMessage: 'first' })
+  const conv = listConversations(db, proj.id)[0]
+  const m1 = appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1' })
+  const r = truncateFromMessage(db, conv.id, m1.id)
+  assert.equal(r.removed, 2); assert.equal(r.keptMinSeq, null)
+  assert.equal(truncateFromMessage(db, conv.id, 'no-such-id'), null)
+  const a = appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'x' })
+  assert.equal(truncateFromMessage(db, conv.id, a.id), null, 'assistant 锚拒绝')
 })

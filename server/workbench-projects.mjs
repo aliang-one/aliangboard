@@ -264,6 +264,17 @@ export function salvageInterrupted(db, { now = Date.now() } = {}) {
   return salvaged
 }
 
+// 编辑重发(2026-08-28 spec §3.2):按消息锚截断——删该消息及其后全部(seq >= 锚.seq),
+// 供 edit 路由换新内容重跑。keptMinSeq=剩余前缀最小 seq(截到空为 null),供摘要水位钳制。
+// 锚不存在或非 user 消息返回 null(调用方 400)。
+export function truncateFromMessage(db, conversationId, messageId) {
+  const row = db.prepare('SELECT seq, role FROM workbench_messages WHERE id=? AND conversationId=?').get(messageId, conversationId)
+  if (!row || row.role !== 'user') return null
+  const removed = db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>=?').run(conversationId, row.seq).changes
+  const kept = db.prepare('SELECT MIN(seq) AS m FROM workbench_messages WHERE conversationId=?').get(conversationId)
+  return { removed, fromSeq: row.seq, keptMinSeq: kept?.m ?? null }
+}
+
 // regenerate 后的摘要水位钳制(dev29 风险修复):appendMessage 的 seq 取"现存最大+1",
 // truncate 删除后新回复会复用被删 seq。若 summarizedUpTo ≥ lastUserSeq,buildHistory 会把
 // 原问题(seq ≤ upTo)当"已进 recap"跳过 → 重答只靠摘要、偏题。钳到 lastUserSeq-1,
