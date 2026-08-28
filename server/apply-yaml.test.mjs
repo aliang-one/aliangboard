@@ -104,3 +104,16 @@ test('applyYaml: discovery 缓存——同实例第二次 apply 不再发 discov
   assert.equal(calls.filter(c => c.path === '/apis/apps/v1').length, 1)
   assert.equal(calls.filter(c => c.method === 'PATCH').length, 2)
 })
+
+test('applyYaml: 空 yaml → 抛错(/api/apply handler catch → 422)', async () => {
+  const { requestFn } = makeK8s()
+  const { applyYaml } = createApplyYaml({ requestKubernetes: requestFn })
+  await assert.rejects(applyYaml(session, ''), /没有可应用的资源/)
+})
+
+test('applyYamlPartial: 空 yaml → 不抛,返回空结果 total:0', async () => {
+  const { requestFn } = makeK8s()
+  const { applyYamlPartial } = createApplyYaml({ requestKubernetes: requestFn })
+  const r = await applyYamlPartial(session, '')
+  assert.deepEqual(r, { applied: [], failed: [], total: 0 })
+})

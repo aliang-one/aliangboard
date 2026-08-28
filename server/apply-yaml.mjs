@@ -32,7 +32,9 @@ export function createApplyYaml({ requestKubernetes }) {
   async function applyObjects(session, yaml, defaultNs, { keepBody }) {
     const objects = []
     yamlLoadAll(yaml, object => { if (object) objects.push(object) })
-    if (!keepBody && !objects.length) throw new Error('YAML 中没有可应用的资源')
+    // 仅 applyYaml(keepBody=true,/api/apply)空 yaml 抛错 → handler catch 回 422;
+    // applyYamlPartial(工作台)空 yaml 不抛,回 { applied:[], failed:[], total:0 }。
+    if (keepBody && !objects.length) throw new Error('YAML 中没有可应用的资源')
     const resources = [], applied = [], failed = []
     for (const object of objects) {
       const label = { kind: object?.kind, name: object?.metadata?.name }
