@@ -26,7 +26,7 @@
   1. `DELETE FROM workbench_messages WHERE conversationId=? AND seq >= 该消息.seq`
   2. append 新 user 消息:content=新文本,refs=body.references ?? 原消息 refs(沿用);新 refs 并入对话级 references(同 append 的 mergeRefs)
   3. 复位 conv 运行态字段(status='running', content='', reasoning='', trace='[]', steps=0, pendingApproval=null——与 append 路由同款);`setActiveConversation`
-  4. `summarizedUpTo` 钳制:`min(现值, 截断后剩余消息的最小 seq - 1)`(泛化 regenWatermark 思路,防已摘要水位覆盖回滚区;截到空则置 0)
+  4. `summarizedUpTo` 钳制:`min(现值, fromSeq - 1)`(剩余前缀为连续 seq 1..fromSeq-1,fromSeq-1 即保留区边界;防已摘要水位覆盖回滚区。自审修正:原式「剩余最小 seq - 1」恒为 0,会把每次编辑的水位全清零——编辑末条时前缀摘要覆盖应保留)
   5. `wbAgent.runConversation`(detached)
 - **响应**:`{ status:'running', context }`(context 口径同 2026-08-28-ai-context-compact spec §4.3)
 - **recap 不动**:已摘要内容保留(它是「当时聊过」的记录;编辑改写后 recap 与新历史可能轻微失配,近似语义可接受——记录该取舍)
