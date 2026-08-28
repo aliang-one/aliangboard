@@ -305,6 +305,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           if (!WORKLOADS.includes(kind)) throw new Error(`update_image 仅支持 ${WORKLOADS.join('/')},不是 ${kind}`)
           if (!a.container) throw new Error('update_image 缺 container')
           if (!a.image) throw new Error('update_image 缺 image')
+          // 镜像引用不允许任何空格:LLM 参数的 tag 常带首尾空白,patch 前清(否则 Pod 永远 Pending)
+          a.image = String(a.image).replace(/\s+/g, '')
+          if (!a.image) throw new Error('update_image 缺 image')
           const getter = getApiPath(kind, a.namespace, a.name)
           const cur = (await requestFn(saCtx, getter)).body
           if (!cur) throw new Error(`${kind}/${a.name} 不存在`)
@@ -402,7 +405,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'kubectl_debug', source, namespace: a.namespace, verb: 'patch', resource: `Pod/${a.pod}/ephemeral`, summary: `pod=${a.pod} image=${a.image || 'busybox'}`,
       fn: async (saCtx) => {
         if (!ephemeralFn) throw new Error('kubectl_debug 未启用')
-        return ephemeralFn(saCtx, a.namespace, a.pod, { name: a.name || 'debugger', image: a.image || 'busybox:latest', command: a.command, targetContainerName: a.targetContainerName })
+        // 镜像引用不允许任何空格(同 update_image):LLM 参数/粘贴 tag 常带首尾空白,先清再用
+        return ephemeralFn(saCtx, a.namespace, a.pod, { name: a.name || 'debugger', image: String(a.image || 'busybox:latest').replace(/\s+/g, '') || 'busybox:latest', command: a.command, targetContainerName: a.targetContainerName })
       } }),
   }
 

@@ -825,3 +825,20 @@ test('get_pod_logs:body 为对象(根因穿透/代理剥 content-type)→ logs �
   assert.match(out.logs, /gotrue/)
   assert.equal(out.previous, true)
 })
+
+// 2026-08-28 生产事故:LLM 参数 tag 带首尾空格("repo:1.0.10 ")patch 进 Deployment →
+// Pod 创建被 K8s 拒(must not have leading or trailing whitespace)→ 永远 Pending。
+// 契约:update_image 落 patch 前清掉镜像引用内一切空白。
+test('update_image: 镜像引用清空白("img:9 " → "img:9",内嵌空格也清)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let patched = null
+  const base = mockRequestFn()
+  const tools = createApiKeyTools({ db, requestFn: async (ctx, path, init = {}) => {
+    if (init.method === 'PATCH' && /\/deployments\/[^/]+$/.test(path)) { patched = JSON.parse(init.body); return { body: { ok: true } } }
+    return base(ctx, path, init)
+  } })
+  const out = await tools.callTool(k, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'c1', image: ' ghcr.io/x/y:1.0.10 \n' })
+  assert.equal(out.newImage, 'ghcr.io/x/y:1.0.10')
+  assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'ghcr.io/x/y:1.0.10' }] } } } })
+})

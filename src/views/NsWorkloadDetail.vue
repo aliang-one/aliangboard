@@ -543,6 +543,10 @@ function openImageTagEditor() {
 }
 async function saveImageTag() {
   const f = imageTagForm.value
+  // 镜像引用不允许任何空格(2026-08-28 生产事故:tag 从 release 复制带尾空格 → Pod 永远
+  // Pending "must not have leading or trailing whitespace")。repo/tag 输入全量清空白。
+  f.repo = String(f.repo || '').replace(/\s+/g, '')
+  f.newTag = String(f.newTag || '').replace(/\s+/g, '')
   if (!f.newTag) { notify('error', t('workload.notify.tagEmpty')); return }
   const newImage = f.newTag ? `${f.repo}:${f.newTag}` : f.repo
   try {
@@ -1080,6 +1084,13 @@ async function saveEdit() {
   const errs = validateEdit()
   if (errs.length) { notify('error', t('workload.notify.fixErrors') + errs.join('；')); return }
   const f = editForm.value
+  // 镜像引用清空白(与 saveImageTag 同款,2026-08-28 生产事故):repo/tag/多容器镜像任何
+  // 位置空格都非法,patch 前全清;labels/annotation 值首尾 trim(K8s label 值不允许空格)。
+  const stripImg = v => String(v || '').replace(/\s+/g, '')
+  f.imageRepo = stripImg(f.imageRepo)
+  if (f.imageTag) f.imageTag = stripImg(f.imageTag)
+  for (const c of [...(f.containers || []), ...(f.initContainers || [])]) if (c?.image) c.image = stripImg(c.image)
+  for (const [k, v] of Object.entries(f.labels || {})) if (typeof v === 'string') f.labels[k] = v.trim()
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
   // Deployment 级（labels / replicas / 更新策略 / 历史上限）→ updateWorkload

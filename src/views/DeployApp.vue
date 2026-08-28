@@ -727,6 +727,18 @@ spec:`
 // 返回 [{ step, msg }]:step 用于部署校验失败时跳到首个出错步骤(QA ISSUE-004:原本只弹 toast,用户不知卡哪步)
 function validate() {
   const f = form.value, errs = []
+  // 标识字段统一清空白(2026-08-28 生产事故:tag 粘贴带尾空格 → Pod 永远 Pending
+  // "must not have leading or trailing whitespace")。镜像引用任何位置空格都非法 → 全清;
+  // name/namespace/容器名/资源量做首尾 trim(内部空格留给下方 DNS-1123 正则/K8s 报明确错误);
+  // command/args/env 值等语义字段不动。清理后 YAML 生成拿到的即为干净值。
+  f.image = String(f.image || '').replace(/\s+/g, '')
+  if (f.imagePullSecrets) f.imagePullSecrets = String(f.imagePullSecrets).replace(/\s+/g, '')
+  for (const k of ['name', 'namespace', 'containerName', 'workingDir']) if (f[k]) f[k] = String(f[k]).trim()
+  for (const k of ['cpuRequest', 'cpuLimit', 'memoryRequest', 'memoryLimit']) if (f[k]) f[k] = String(f[k]).trim()
+  for (const c of [...(f.initContainers || []), ...(f.extraContainers || [])]) {
+    if (c.image) c.image = String(c.image).replace(/\s+/g, '')
+    if (c.name) c.name = String(c.name).trim()
+  }
   if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push({ step: 0, msg: t('deploy.nameInvalid') })
   if (!f.namespace) errs.push({ step: 0, msg: t('deploy.namespaceRequired') })
   if (!f.image) errs.push({ step: 1, msg: t('deploy.imageRequired') })
