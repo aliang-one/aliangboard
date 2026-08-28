@@ -379,6 +379,45 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
   }
 }
 
+// SSH 终端双向通道:浏览器 WS ↔ 网关保活会话(浏览器断开不杀 shell,~10min 保活窗口)。
+// 帧同 exec + 下行 6=回放(重连同 sid 时网关先发快照再续直播);上行 1=stdin、2=resize。鉴权走平台 token。
+export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdout, onReplay, onError, onClose } = {}) {
+  const token = getPlatformToken()
+  const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
+  const host = globalThis.location?.host || '127.0.0.1:8787'
+  const params = new URLSearchParams({ serverId, sid, cols: String(cols), rows: String(rows) })
+  if (token) params.set('session', token)
+  const ws = new WebSocket(`${proto}://${host}/api/ssh/terminal?${params}`)
+  ws.binaryType = 'arraybuffer'
+  const utf8 = new TextDecoder()
+  ws.onmessage = ev => {
+    const buf = new Uint8Array(ev.data)
+    if (!buf.length) return
+    const type = buf[0]
+    const payload = buf.subarray(1)
+    if (type === 1) onStdout?.(payload)
+    else if (type === 6) onReplay?.(payload)
+    else if (type === 4) onError?.(utf8.decode(payload))
+  }
+  ws.onerror = () => onError?.(i18n.global.t('ssh.sessionTerminated'))
+  ws.onclose = () => onClose?.()
+  const encoder = new TextEncoder()
+  function frame(type, data) {
+    if (ws.readyState !== 1) return
+    const body = typeof data === 'string' ? encoder.encode(data) : data
+    const out = new Uint8Array(body.length + 1)
+    out[0] = type
+    out.set(body, 1)
+    ws.send(out.buffer)
+  }
+  return {
+    send: d => frame(1, d),
+    resize: ({ cols, rows }) => frame(2, JSON.stringify({ cols, rows })),
+    close: () => { try { ws.close() } catch { /* noop */ } },
+    get isOpen() { return ws.readyState === 1 },
+  }
+}
+
 // 共享内部:NDJSON 逐行读流(读循环/abort/认证/错误语义单一来源,k8sStream/k8sChannel 共用)。
 // url 为完整请求地址;按行回调 onMessage;返回 { abort } 供调用方停止。
 function ndjsonStream(url, { onMessage, onError, onClose, onOpen } = {}) {

@@ -51,7 +51,7 @@ const tabs = [
       <WorkbenchConfig v-else-if="activeTab === 'config'" />
       <WorkbenchLedger v-else-if="activeTab === 'global'" />
       <WorkbenchRecords v-else-if="activeTab === 'records'" />
-      <WorkbenchServers v-else-if="activeTab === 'servers'" @open-terminal="s => {}" @open-files="s => {}" />
+      <WorkbenchServers v-else-if="activeTab === 'servers'" @open-files="s => {}" />
     </div>
   </section>
 </template>

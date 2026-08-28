@@ -8,6 +8,8 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { sshApi } from '@/api/client'
 import SshServerForm from '@/components/ssh/SshServerForm.vue'
+import SshTerminalWindow from '@/components/ssh/SshTerminalWindow.vue'
+import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
@@ -26,7 +28,8 @@ const showForm = ref(false)
 const editing = ref(null)
 const busy = ref(false)
 const testResult = ref(null)   // {name, ok, message}
-const emit = defineEmits(['openTerminal', 'openFiles'])   // Task 8/15 消费
+const emit = defineEmits(['openFiles'])   // Task 15 消费;终端浮窗在本地 store 内渲染
+const sshTerminals = useSshTerminalStore()
 
 function openCreate() { editing.value = null; showForm.value = true }
 function openEdit(s) { editing.value = s; showForm.value = true }
@@ -85,7 +88,7 @@ defineExpose({ servers })
             </td>
             <td class="py-sm px-sm">
               <div class="flex gap-xs">
-                <button data-test="btnTerm" @click="emit('openTerminal', s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
+                <button data-test="btnTerm" @click="sshTerminals.openTerminal(s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
                 <button data-test="btnFiles" @click="emit('openFiles', s)" class="px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
                 <button v-if="isAdmin" data-test="btnTest" @click="onTest(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('ssh.testConnection') }}</button>
                 <button v-if="isAdmin" data-test="btnEdit" @click="openEdit(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('common.edit') }}</button>
@@ -106,5 +109,7 @@ defineExpose({ servers })
       </div>
     </template>
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
+    <!-- SSH 终端浮窗:每服务器一窗,sid 恒定(刷新回放续跑) -->
+    <SshTerminalWindow v-for="w in sshTerminals.openWindows" :key="w.id" :window="w" />
   </section>
 </template>
