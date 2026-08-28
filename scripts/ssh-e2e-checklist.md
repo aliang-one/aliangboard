@@ -49,3 +49,4 @@
 - [ ] 审批挂起期间策略被改为 none + 用户拒绝 → denied-resume 二道闸会放行(建议 checkpoint 过的调用 denied resume 恒拒)
 - [ ] 分类器短旗标组合(date -us/dmesg -cc)与 ping -f 不拦(审批闸非沙箱,显式可扩展 deny 表)
 - [ ] 手测清单全部条目(需真实 SSH 服务器环境)
+- [ ] 已知偶发:两个 spawn 真网关的集成测试(routes.test/ws-handshake.test)在全量并跑高负载下偶发竞态失败(单跑/复跑均绿,2026-08-28 合并日复现一次;必要时加启动重试或串行标注)
