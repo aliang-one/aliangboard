@@ -133,7 +133,7 @@ export const api = {
   session: () => k8sHttp.request('/api/session'),
   logout: () => k8sHttp.request('/api/session', { method: 'DELETE' }),
   health: () => k8sHttp.request('/api/health'),
-  applyYaml: yaml => k8sHttp.request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml }) }),
+  applyYaml: (yaml, defaultNs) => k8sHttp.request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml, defaultNs }) }),
   k8s: (path, options) => k8sHttp.request(`/api/k8s${path}`, options),
   ingressControllers: {
     catalog: () => k8sHttp.request('/api/ingress-controllers/catalog'),

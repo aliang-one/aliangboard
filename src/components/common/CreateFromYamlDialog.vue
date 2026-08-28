@@ -1,46 +1,23 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { loadAll as yamlLoadAll } from 'js-yaml'
 import Modal from '@/components/common/Modal.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import { useResourceApply } from '@/composables/useResourceApply'
+import { yamlTemplates, CLUSTER_SCOPED_KINDS } from '@/utils/yamlTemplates'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   namespace: { type: String, default: '' },
+  kind: { type: String, default: 'Deployment' },
 })
 const emit = defineEmits(['update:modelValue', 'applied'])
 
 const { t } = useI18n()
 const { applyYaml } = useResourceApply()
 
-function template() {
-  const ns = props.namespace || 'default'
-  return `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  namespace: ${ns}
-  labels:
-    app: my-app
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: my-app
-  template:
-    metadata:
-      labels:
-        app: my-app
-    spec:
-      containers:
-        - name: my-app
-          image: nginx:latest
-          ports:
-            - containerPort: 80
-`
-}
+const nsHint = computed(() => !!props.namespace && !CLUSTER_SCOPED_KINDS.has(props.kind))
 
 const yaml = ref('')
 const parseError = ref('')
@@ -48,7 +25,7 @@ const applying = ref(false)
 
 // immediate: 即便组件以 modelValue=true 挂载（例如测试或父组件先开再渲染）也能填入模板。
 watch(() => props.modelValue, v => {
-  if (v) { yaml.value = template(); parseError.value = ''; applying.value = false }
+  if (v) { yaml.value = (yamlTemplates[props.kind] || yamlTemplates.Deployment)(props.namespace || 'default'); parseError.value = ''; applying.value = false }
 }, { immediate: true })
 
 function close() { emit('update:modelValue', false) }
@@ -65,7 +42,7 @@ async function create() {
   }
   applying.value = true
   try {
-    const res = await applyYaml(yaml.value)
+    const res = await applyYaml(yaml.value, props.namespace ? { defaultNs: props.namespace } : undefined)
     if (res.ok) { emit('applied'); close() }
     else { parseError.value = res.error || t('component.createFromYaml.parseError') }
   } catch (e) {
@@ -82,6 +59,7 @@ async function create() {
     <div class="flex flex-col gap-sm">
       <p class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.hint') }}</p>
       <YamlEditor v-model="yaml" height="420px" />
+      <p v-if="nsHint" class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.nsHint', { ns: props.namespace }) }}</p>
       <p v-if="parseError" class="text-body-sm text-error">{{ parseError }}</p>
     </div>
     <template #actions>
