@@ -1,3 +1,4 @@
+// 本地 sshd 联调: docker run -d --name ab-sshd -p 2222:22 -e PASSWORD_ACCESS=true -e USER_PASSWORD=pass123 -e USER_NAME=ops linuxserver/openssh-server:latest
 // SSH REST 路由集成测试:spawn 真网关(模式同 wb-approval-roundtrip.test.mjs)。
 // 覆盖:CRUD + 脱敏(明文 pw 不得出现在任何响应)+ 校验 400 + 试连结构化错误。
 import { test } from 'node:test'
