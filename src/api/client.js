@@ -198,6 +198,20 @@ export const sshApi = {
   testForm: payload => platformHttp.request('/api/ssh/test', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
+// SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。
+// upload 服务端拒绝名字含 / \ .. . → 前端同名校验先行;409=凭据密钥不可用(message 来自服务端)。
+export const sshFileApi = {
+  list: (serverId, path) => platformHttp.request('/api/sshfile/list', { method: 'POST', body: JSON.stringify({ serverId, path }) }),
+  // 流式下载(进度):完成返回 Blob(content-length 缺失 → total=0 不确定态)
+  downloadStream: ({ serverId, path }, { onProgress, signal } = {}) =>
+    platformHttp.downloadStream('/api/sshfile/download', { body: { serverId, path }, onProgress, signal }),
+  // 流式上传(进度):元信息查询串 + 原始文件体
+  uploadStream: ({ serverId, path, name }, file, { onProgress, signal } = {}) => {
+    const q = new URLSearchParams({ serverId, path, name })
+    return platformHttp.uploadBinary(`/api/sshfile/upload?${q}`, file, { onProgress, signal })
+  },
+}
+
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
 export const podDebugApi = {
   attach: payload => k8sHttp.request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),

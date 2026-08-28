@@ -4128,6 +4128,15 @@
     "credKeyMissing": "Credential key unavailable, please re-enter credentials",
     "sessionTerminated": "Session terminated (gateway restart or timeout), click to reconnect",
     "replayedBadge": "Replayed",
-    "reconnect": "Reconnect"
+    "reconnect": "Reconnect",
+    "fileTitle": "Files · {name}",
+    "upload": "Upload",
+    "download": "Download",
+    "uploadLimit": "512MB per file limit",
+    "pathMissing": "Path not found",
+    "emptyDir": "Empty directory",
+    "badName": "Invalid file name \"{name}\" (no / \\ .. or bare .)",
+    "uploaded": "Uploaded {name}",
+    "uploadFailed": "Upload failed"
   }
 }

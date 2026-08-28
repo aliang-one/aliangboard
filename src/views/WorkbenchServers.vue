@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { sshApi } from '@/api/client'
 import SshServerForm from '@/components/ssh/SshServerForm.vue'
 import SshTerminalWindow from '@/components/ssh/SshTerminalWindow.vue'
+import SshFileBrowserWindow from '@/components/ssh/SshFileBrowserWindow.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
 
@@ -30,6 +31,13 @@ const busy = ref(false)
 const testResult = ref(null)   // {name, ok, message}
 const emit = defineEmits(['openFiles'])   // Task 15 消费;终端浮窗在本地 store 内渲染
 const sshTerminals = useSshTerminalStore()
+// 文件浏览浮窗:本地 ref 数组,同机去重(每服务器一窗);close 即销毁(传输中止在 Body onBeforeUnmount)
+const sshBrowsers = ref([])
+function openFiles(s) {
+  emit('openFiles', s)
+  if (!sshBrowsers.value.some(b => b.serverId === s.id)) sshBrowsers.value.push({ serverId: s.id, name: s.name })
+}
+const closeBrowser = s => { sshBrowsers.value = sshBrowsers.value.filter(b => b.serverId !== s) }
 
 function openCreate() { editing.value = null; showForm.value = true }
 function openEdit(s) { editing.value = s; showForm.value = true }
@@ -89,7 +97,7 @@ defineExpose({ servers })
             <td class="py-sm px-sm">
               <div class="flex gap-xs">
                 <button data-test="btnTerm" @click="sshTerminals.openTerminal(s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
-                <button data-test="btnFiles" @click="emit('openFiles', s)" class="px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
+                <button data-test="btnFiles" @click="openFiles(s)" class="px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
                 <button v-if="isAdmin" data-test="btnTest" @click="onTest(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('ssh.testConnection') }}</button>
                 <button v-if="isAdmin" data-test="btnEdit" @click="openEdit(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('common.edit') }}</button>
                 <button v-if="isAdmin" data-test="btnDel" @click="onDelete(s)" class="px-sm py-xs rounded-lg bg-error-container/40 text-body-xs">{{ t('common.delete') }}</button>
@@ -111,5 +119,8 @@ defineExpose({ servers })
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
     <!-- SSH 终端浮窗:每服务器一窗,sid 恒定(刷新回放续跑) -->
     <SshTerminalWindow v-for="w in sshTerminals.openWindows" :key="w.id" :window="w" />
+    <!-- SSH 文件浏览浮窗:同机去重,close 即销毁 -->
+    <SshFileBrowserWindow v-for="(b, i) in sshBrowsers" :key="b.serverId" :server-id="b.serverId" :name="b.name"
+      :cascade-index="sshTerminals.openWindows.length + i" @close="closeBrowser(b.serverId)" />
   </section>
 </template>

@@ -4128,6 +4128,15 @@
     "credKeyMissing": "凭据密钥不可用,请重新录入凭据",
     "sessionTerminated": "会话已终止(网关重启或超时),点击重连",
     "replayedBadge": "已回放",
-    "reconnect": "重连"
+    "reconnect": "重连",
+    "fileTitle": "文件 · {name}",
+    "upload": "上传",
+    "download": "下载",
+    "uploadLimit": "单文件上限 512MB",
+    "pathMissing": "路径不存在",
+    "emptyDir": "空目录",
+    "badName": "文件名「{name}」不合法(不可含 / \\ .. 或为 .)",
+    "uploaded": "已上传 {name}",
+    "uploadFailed": "上传失败"
   }
 }
