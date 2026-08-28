@@ -327,3 +327,26 @@ test('clampTraceStep:小结果原样返回(同引用);超限截断带标记;非 
   assert.ok(o.result.startsWith('{"resource"'))
   assert.equal(clampTraceStep({ type: 'tool_start', name: 't', args: {}, ts: 1 }).type, 'tool_start', 'tool_start 瞬态不动')
 })
+
+// ── 2026-08-28 compact+余量 T2:裁剪预算注入(窗口 70% 派生,60K 固定线退役)──
+test('createAgent budgetChars 注入:trimMessages 用注入预算而非 60K 缺省', async () => {
+  // 预算 300 字符:2 条 user 各 160 字 → 总 320 > 300,最旧 user 应被丢
+  const seen = []
+  const chat = async (messages) => { seen.push(messages.map(m => m.content)); return { role: 'assistant', content: 'ok' } }
+  const run = createAgent({ chat, execTool: async () => 'x', budgetChars: 300 }).run
+  await run({ history: [
+    { role: 'user', content: 'A'.repeat(160) },
+    { role: 'assistant', content: 'B'.repeat(1) },
+    { role: 'user', content: 'C'.repeat(160) },
+  ] })
+  const firstRound = seen[0]
+  assert.ok(!firstRound.some(c => String(c).startsWith('A'.repeat(20))), '超注入预算,最旧 user 被裁')
+  assert.ok(firstRound.some(c => String(c).startsWith('C'.repeat(20))), '最新 user 保留')
+})
+
+test('createAgent 未注入 budgetChars → 维持 60K 缺省(既有单测兼容)', async () => {
+  // 60k 缺省下小对话不裁;断言经由已有 trimMessages 行为(此处仅锁 createAgent 不因缺参抛错)
+  const run = createAgent({ chat: async () => ({ role: 'assistant', content: 'ok' }), execTool: async () => 'x' }).run
+  const out = await run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, 'ok')
+})

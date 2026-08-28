@@ -80,7 +80,7 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   return { messages: out, truncated: true }
 }
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, maxSteps = MAX_STEPS }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
@@ -154,7 +154,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       steps++
       let truncated = false
       if (messages.length > 1) {
-        const t = trimMessages(messages)
+        const t = trimMessages(messages, budgetChars)
         messages = t.messages; truncated = t.truncated
       }
       // T5:每轮 chat 前重置 messages[0]——@-ref 漂移修复:让 LLM 每轮看到 ref 的最新状态(由 run/resumeConversation 注入的 refreshSystem 钩子)。

@@ -4,6 +4,7 @@
 // 线程终态 → bus 事件序列(eventsForResult 在 conv-events.mjs,纯函数已可单测)。
 // busEmit/busDispose 作 factory dep 注入(与 createAgentRunner 同理,便于单测 stub)。
 import { buildHistory, appendMessage, getConversation, getProject, updateConversation, appendTrace, appendHistory } from './workbench-projects.mjs'
+import { contextWindowFor, trimBudgetChars } from './model-context.mjs'
 import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
@@ -146,6 +147,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
+        budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -222,6 +224,7 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
+        budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }

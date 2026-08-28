@@ -464,3 +464,14 @@ test('trace 工具结果超限截断:DB 与 SSE step 事件均存截断版,LLM f
   const stepEvt = events.find(e => e.type === 'step' && e.step?.type === 'tool')
   assert.equal(stepEvt.step.resultTruncated, true, 'SSE step 事件同步截断')
 })
+
+// T2:裁剪预算注入到达 runner(llmClient.model → 窗口 → 70% 折算)
+test('runConversation: budgetChars 按 llmClient.model 派生传入 runner', async () => {
+  const { db, conv, busEmit, busDispose } = setup()
+  let capturedBudget = null
+  const createAgentRunner = (opts) => { capturedBudget = opts.budgetChars; return { run: async () => ({ status: 'done', content: 'ok', steps: 1, messages: [], queue: [], denied: [] }) } }
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const llmClient = { chat: async () => ({}), model: 'qwen-max' }   // 128k 窗口
+  await agent.runConversation(conv.id, llmClient)
+  assert.equal(capturedBudget, 179_200, '128k×0.7×2=179200 字符')
+})
