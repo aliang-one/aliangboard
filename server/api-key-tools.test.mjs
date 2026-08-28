@@ -19,8 +19,10 @@ function makeDb() {
 const cluster = { id: 'c1', apiServer: 'https://10.0.0.1:6443', authHeader: 'Bearer admin', ca: null, cert: null, key: null, insecure: true }
 
 // mock requestFn:覆盖 issuer / token / log / list / get / events / Deployment 单体 / ReplicaSet 列表(rollout 用)
-function mockRequestFn({ logBody = 'line1\nline2\nline3', deployment = null, replicasets = null } = {}) {
+function mockRequestFn({ logBody = 'line1\nline2\nline3', deployment = null, replicasets = null, getResourceBody = null } = {}) {
   return async (ctx, path, init = {}) => {
+    // 脱敏 T3:覆盖任意 namespaced 单体 GET 返回体(默认 null 不生效,不影响既有分支)
+    if (getResourceBody && (init.method === 'GET' || !init.method) && /\/namespaces\/[^/]+\/[^/]+\/[^/]+$/.test(path)) return { body: getResourceBody }
     if (init.method === 'PATCH' && path.endsWith('/scale')) return { body: { spec: { replicas: JSON.parse(init.body).spec.replicas } } }
     if (init.method === 'PATCH') return { body: { ok: true } } // restart 等 PATCH
     if (init.method === 'DELETE') return { body: { kind: 'Status', status: 'Success' } }
@@ -841,4 +843,28 @@ test('update_image: 镜像引用清空白("img:9 " → "img:9",内嵌空格也�
   const out = await tools.callTool(k, cluster, 'update_image', { namespace: 'ns', kind: 'deployments', name: 'd1', container: 'c1', image: ' ghcr.io/x/y:1.0.10 \n' })
   assert.equal(out.newImage, 'ghcr.io/x/y:1.0.10')
   assert.deepEqual(patched, { spec: { template: { spec: { containers: [{ name: 'c1', image: 'ghcr.io/x/y:1.0.10' }] } } } })
+})
+
+// ── 脱敏 T3:MCP 读 Secret 值全掩码(D2:MCP 一致掩码)──
+test('get_resource/describe_resource/get_resource_yaml:Secret 值掩码指纹,明文/base64 不出现', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const b64pw = Buffer.from('s3cr3t-hunter2').toString('base64')
+  const secretBody = { kind: 'Secret', metadata: { name: 'db-cred', namespace: 'ns' },
+    data: { password: b64pw }, stringData: { tok: 'plain-tok' } }
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn({ getResourceBody: secretBody }) })
+  // get_resource
+  const out = await tools.callTool(k, cluster, 'get_resource', { namespace: 'ns', kind: 'secrets', name: 'db-cred' })
+  assert.equal(out.resource.kind, 'Secret')
+  assert.ok(!JSON.stringify(out).includes('s3cr3t-hunter2') && !JSON.stringify(out).includes(b64pw), '明文/base64 不出现')
+  assert.match(out.resource.data.password, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/)
+  assert.match(out.resource.stringData.tok, /\(9 chars,/)
+  // describe_resource
+  const d = await tools.callTool(k, cluster, 'describe_resource', { namespace: 'ns', kind: 'secrets', name: 'db-cred' })
+  assert.ok(!JSON.stringify(d).includes('s3cr3t-hunter2') && !JSON.stringify(d).includes(b64pw), 'describe 明文不出现')
+  assert.match(d.resource.data.password, /#[0-9a-f]{8}/)
+  // get_resource_yaml
+  const y = await tools.callTool(k, cluster, 'get_resource_yaml', { namespace: 'ns', path: '/api/v1/namespaces/ns/secrets/db-cred' })
+  assert.ok(!y.yaml.includes('s3cr3t-hunter2') && !y.yaml.includes(b64pw), 'yaml 明文不出现')
+  assert.match(y.yaml, /#[0-9a-f]{8}/)
 })

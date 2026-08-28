@@ -8,6 +8,7 @@ import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
 import { toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
+import { maskSecretResource } from './secret-mask.mjs'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 import { listApiPath, getApiPath } from './kind-paths.mjs'
@@ -175,7 +176,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         fn: async (saCtx) => {
           const { body } = await requestFn(saCtx, getter)
           if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
-          return oversizedJson(body) || { resource: body }
+          const masked = maskSecretResource(body) // 脱敏 T3:Secret 值掩码后再算体积/返回
+          return oversizedJson(masked) || { resource: masked }
         } })
     },
     get_resource_yaml: async (keyRow, cluster, a, source) => runBoundedTool({
@@ -185,7 +187,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         assertPathInNs(a.path, effectiveNamespaces(keyRow))
         const { body } = await requestFn(saCtx, a.path)
         if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
-        const full = yamlDump(body)
+        const full = yamlDump(maskSecretResource(body)) // 脱敏 T3:Secret 值掩码后再 dump
         const originalBytes = Buffer.byteLength(full, 'utf8')
         const truncated = originalBytes > LOG_BYTE_MAX
         const yaml = truncated ? Buffer.from(full, 'utf8').subarray(0, LOG_BYTE_MAX).toString('utf8') : full
@@ -212,6 +214,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         fn: async (saCtx) => {
           const { body: resBody } = await requestFn(saCtx, getter)
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
+          const maskedBody = maskSecretResource(resBody) // 脱敏 T3:Secret 值掩码
           let events = []
           try {
             const eventsUrl = `/api/v1/namespaces/${enc(a.namespace)}/events?fieldSelector=${enc('involvedObject.name=' + a.name)}`
@@ -219,7 +222,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
             events = (evtBody?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
           } catch { /* events 拉取失败不阻塞 */ }
           const eventsOut = { count: events.length, items: events }
-          return oversizedJson(resBody) ? { ...oversizedJson(resBody), events: eventsOut } : { resource: resBody, events: eventsOut }
+          return oversizedJson(maskedBody) ? { ...oversizedJson(maskedBody), events: eventsOut } : { resource: maskedBody, events: eventsOut }
         } })
     },
     can_i: async (keyRow, cluster, a, source) => runBoundedTool({
