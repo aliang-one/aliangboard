@@ -23,3 +23,12 @@ const _gateway = createRateLimiter({
   refillPerSec: Number(process.env.RATE_LIMIT_REFILL_PER_SEC || 1),
 })
 export function checkRate(key) { return _gateway.check(key) }
+
+// 登录限流(2026-08-28 CSO 审计 #3):与 API-key 限流分离的更紧桶——预算 5 次、10s 回 1 token。
+// 键 = `${ip}|${username}`(routes/auth.mjs 组装;IP 取 socket 直连地址,不信任 XFF)。
+// env 可调:LOGIN_RATE_CAPACITY / LOGIN_RATE_REFILL_PER_SEC。重启清空(与网关单例同妥协)。
+const _login = createRateLimiter({
+  capacity: Number(process.env.LOGIN_RATE_CAPACITY || 5),
+  refillPerSec: Number(process.env.LOGIN_RATE_REFILL_PER_SEC || 0.1),
+})
+export function checkLoginRate(key) { return _login.check(key) }

@@ -14,12 +14,12 @@ import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
-import { createAuditSchema } from './audit.mjs'
+import { createAuditSchema, writeAudit } from './audit.mjs'
 import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
-import { checkRate } from './rate-limit.mjs'
+import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
@@ -39,12 +39,13 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, readFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
@@ -191,16 +192,21 @@ function verifyPassword(password, stored) {
     return timingSafeEqual(expected, actual)
   } catch { return false }
 }
-// 首次启动 admin 种子
-function seedAdminIfNeeded() {
-  const count = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin'").get().c
-  if (count > 0) return
-  const adminUser = process.env.ADMIN_USERNAME
-  const adminPass = process.env.ADMIN_PASSWORD
-  if (!adminUser || !adminPass) { console.warn('[auth] 未设置 ADMIN_USERNAME/ADMIN_PASSWORD，无法创建管理员；旧 K8s 直连模式仍可用'); return }
-  db.prepare('INSERT INTO platform_users (id, username, passwordHash, role, displayName, createdAt) VALUES (?,?,?,?,?,?)')
-    .run(randomUUID(), adminUser, hashPassword(adminPass), 'admin', 'Administrator', Date.now())
-  console.log(`[auth] 已创建管理员: ${adminUser}`)
+// 首次启动 admin 种子(强化逻辑抽到 ./admin-seed.mjs 可单测;2026-08-28 CSO 审计 #3):
+// 弱口令拒绝播种;未设口令自动生成(一次性明文仅打日志 + 落数据盘 0600 凭证文件,与 DB 同信任边界)。
+function seedAdminFromEnv() {
+  const out = seedAdminIfNeeded(db, process.env)
+  if (out.action === 'skipped') return
+  if (out.action === 'noop') { console.warn('[auth] 未设置 ADMIN_USERNAME，无法创建管理员；旧 K8s 直连模式仍可用'); return }
+  if (out.action === 'rejected-weak') { console.error(`[auth] ${out.refuse}`); return }
+  if (out.action === 'seeded') { console.log(`[auth] 已创建管理员: ${out.username}`); return }
+  const credFile = join(__dirname, '..', 'data', 'first-admin-credentials.txt')
+  try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密并删除本文件)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) { console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message) }
+  console.log('══════════════════════════════════════════════════')
+  console.log(`[auth] 已创建管理员(口令自动生成): ${out.username}`)
+  console.log(`[auth] 一次性密码: ${out.password}`)
+  console.log(`[auth] 凭证已写入 ${credFile}(0600;登录后请修改密码并删除该文件)`)
+  console.log('══════════════════════════════════════════════════')
 }
 // 平台 session（内存 Map + SQLite 持久化）
 const platformSessions = new Map()  // token -> {userId, username, role, createdAt, k8sSessionToken}
@@ -1312,6 +1318,10 @@ async function handle(req, res) {
           const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.updateImageUnsupported', { k }))
           if (!image) throw new Error(msg(req, 'api.imageRequired'))
+          // 镜像引用任何位置空格都非法(K8s Pod 校验拒绝 "repo:tag " 尾空格 → Pod 永远 Pending)。
+          // LLM 参数/前端粘贴的 tag 常带首尾空白,patch 前全量清(2026-08-28 生产事故:1.0.10 尾空格)。
+          image = String(image).replace(/\s+/g, '')
+          if (!image) throw new Error(msg(req, 'api.imageRequired'))
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/${k}/${enc(name)}`)
           const body = resp?.body
           if (!body) throw new Error(msg(req, 'api.workloadNotFound', { k, name }))
@@ -1386,6 +1396,7 @@ async function handle(req, res) {
     db, sendJson, readBody, requirePlatform,
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
+    checkLoginRate, writeAudit,
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
@@ -1876,7 +1887,11 @@ async function handle(req, res) {
 
   // 镜像仓库可用版本：查询 registry v2 /v2/<repo>/tags/list
   // 支持自签证书（跳过 TLS 校验）、明文 http 自动回退、可选 basic auth（私有仓库）
+  // 鉴权(2026-08-28 CSO 审计 #2):此前是全文件唯一漏挂 session 的端点——host 由 input.image 派生,
+  // 未认证调用者可借网关探测内网(401/404/502/unreachable 可区分)。与相邻端点对齐补 session 门禁。
   if (req.method === 'POST' && url.pathname === '/api/registry/tags') {
+    const session = sessionFromRequest(req)
+    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
     try {
       const input = await readBody(req)
       const ref = parseImageRef(String(input.image || ''))
@@ -2058,7 +2073,7 @@ httpServer.on('upgrade', (req, socket, head) => {
 })
 
 loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不掉线）
-seedAdminIfNeeded()
+seedAdminFromEnv()
 loadPersistedPlatformSessions()
 
 httpServer.listen(port, host, () => {

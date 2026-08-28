@@ -59,12 +59,18 @@ spec:
           env:
             - name: PORT
               value: "8787"
-            # 首装管理员种子:仅首次启动播种(库里有 admin 后改 env 不生效)
-            # 生产环境 apply 前务必改成强口令
-            - name: ADMIN_USERNAME
-              value: "admin"
-            - name: ADMIN_PASSWORD
-              value: "admin"
+            # 首装管理员种子:仅首次启动播种(库里有 admin 后改 env 不生效)。
+            # 出厂不再带默认口令(2026-08-28 安全审计:admin/admin+登录无限速曾构成完整暴力破解链)。两种安全开法:
+            # ① 只设 ADMIN_USERNAME(不设 ADMIN_PASSWORD)→ 平台自动生成强口令,
+            #    首启日志 / 数据盘 first-admin-credentials.txt(0600)可查,登录后改密并删文件;
+            # ② secret 注入(推荐,口令确定性):
+            #    kubectl -n aliangboard create secret generic aliangboard-admin \
+            #      --from-literal=ADMIN_USERNAME=admin --from-literal=ADMIN_PASSWORD='<≥8位强口令>'
+            #    再把上面 envFrom 替换为:
+            #    envFrom: [{ secretRef: { name: aliangboard-admin } }]
+            # 注意:显式 ADMIN_PASSWORD 若弱(<8 字符或字面 "admin")会拒绝播种并在日志说明原因。
+            # - name: ADMIN_USERNAME
+            #   value: "admin"
             # 可选:LLM 接入(也可登录后在管理后台「LLM 配置」里设)
             # - name: LLM_BASE_URL
             #   value: "https://api.deepseek.com/v1"

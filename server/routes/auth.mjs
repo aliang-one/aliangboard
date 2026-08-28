@@ -9,6 +9,7 @@ export function createAuthRoutes(deps) {
     db, sendJson, readBody, requirePlatform,
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
+    checkLoginRate, writeAudit,
   } = deps
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -20,18 +21,30 @@ export function createAuthRoutes(deps) {
     }
 
     // POST /api/auth/login — 平台登录(用户名/密码 → 平台 session)
+    // 安全(2026-08-28 CSO 审计 #3):按 IP+用户名限流(防无限速暴力破解,checkRate 此前只挂 /api/key/*);
+    // 失败/成功均写审计(tool=platform_login)——用户名不存在同样消耗预算,防枚举式并行爆破。
     if (url.pathname === '/api/auth/login' && req.method === 'POST') {
       try {
         const { username, password } = await readBody(req)
         if (!username || !password) { sendJson(res, 400, { message: msg(req, 'auth.emptyCredentials') }); return true }
+        const ip = req.socket?.remoteAddress || 'unknown'
+        const rl = checkLoginRate(`${ip}|${username}`)
+        if (!rl.allowed) {
+          writeAudit?.(db, { owner: String(username), verb: 'login', tool: 'platform_login', result: 'ratelimited', reason: 'too-many-attempts', requestSummary: `ip=${ip}`, source: 'platform' })
+          sendJson(res, 429, { message: msg(req, 'auth.rateLimited'), retryAfter: rl.retryAfter })
+          return true
+        }
+        const auditLogin = (result, reason = null) => writeAudit?.(db, { owner: String(username), verb: 'login', tool: 'platform_login', result, reason, requestSummary: `ip=${ip}`, source: 'platform' })
         const user = db.prepare('SELECT * FROM platform_users WHERE username=?').get(username)
         if (!user || user.disabled || !verifyPassword(password, user.passwordHash)) {
+          auditLogin('denied', 'bad-credentials')
           sendJson(res, 401, { message: msg(req, 'auth.badCredentials') }); return true
         }
         const token = randomUUID()
         const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
         platformSessions.set(token, ps)
         db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
+        auditLogin('ok')
         sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }

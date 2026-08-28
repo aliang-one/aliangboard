@@ -65,13 +65,14 @@ test('Deployment: 安全上下文(runAsNonRoot/fsGroup 1000/收能力)', () => {
   assert.deepEqual(container.securityContext.capabilities.drop, ['ALL'])
 })
 
-test('Deployment: 首装管理员种子 env 与容器加固', () => {
-  const adminUser = container.env.find((e) => e.name === 'ADMIN_USERNAME')
+test('Deployment: 管理员凭证不落明文默认值 + 容器加固', () => {
+  // 2026-08-28 CSO 审计 #3:出厂清单曾带字面 admin/admin(配合登录无限速=完整暴力破解链)。
+  // 新姿态:清单不落任何 ADMIN_PASSWORD 字面值;ADMIN_* 只以注释引导 secretRef/自动生成。
   const adminPass = container.env.find((e) => e.name === 'ADMIN_PASSWORD')
-  assert.ok(adminUser, '必须有 ADMIN_USERNAME env')
-  assert.ok(adminPass, '必须有 ADMIN_PASSWORD env')
-  assert.equal(adminUser.value, 'admin')
-  assert.equal(adminPass.value, 'admin')
+  assert.ok(!adminPass, '清单不得带 ADMIN_PASSWORD 明文 env(用 secretRef 或留空自动生成)')
+  for (const e of container.env) {
+    assert.ok(!(e.name === 'ADMIN_USERNAME' && e.value === 'admin' && adminPass), '不得同时出厂用户名+口令字面值')
+  }
   assert.equal(container.securityContext.allowPrivilegeEscalation, false)
   assert.equal(container.securityContext.runAsUser, 1000)
 })
