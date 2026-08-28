@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { usePageRefresh } from '@/composables/usePageRefresh'
@@ -8,6 +8,10 @@ import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
 
 const router = useRouter()
+const route = useRoute()
+// 工作台胶囊激活态:/workbench 前缀覆盖 shell、台账、项目详情
+// (docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md)
+const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
 const store = useClusterStore()
 const authStore = useAuthStore()
 const { bump: bumpRefresh } = usePageRefresh()
@@ -267,11 +271,22 @@ async function logout() {
       </div>
     </div>
     <div class="flex items-center gap-md">
+      <!-- 工作台入口:品牌描边胶囊(方案 C3,docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md)
+           ——导航级入口排工具按钮前;shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
+      <button
+        @click="router.push('/workbench')"
+        :aria-label="$t('nav.workbench')"
+        :title="$t('nav.workbench')"
+        class="flex items-center gap-sm rounded-full px-md py-1.5 border transition-colors text-body-sm font-semibold shrink-0"
+        :class="isWorkbenchActive
+          ? 'border-primary bg-primary-container text-on-primary-container'
+          : 'border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10'"
+      >
+        <span class="material-symbols-outlined text-lg">workspaces</span>
+        {{ $t('nav.workbench') }}
+      </button>
       <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
-      </button>
-      <button @click="router.push('/workbench')" :aria-label="$t('workbench.shell.title')" :title="$t('workbench.shell.title')" class="p-sm text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">
-        <span class="material-symbols-outlined">workspaces</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
       <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" :title="$t('nav.logout')">

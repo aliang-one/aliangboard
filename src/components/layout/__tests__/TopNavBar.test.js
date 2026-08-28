@@ -6,7 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
-vi.mock('vue-router', () => ({ useRoute: () => ({}), useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/cluster' }), useRouter: () => ({ push: vi.fn() }) }))
 
 import TopNavBar from '@/components/layout/TopNavBar.vue'
 import { useClusterStore } from '@/stores/cluster'
