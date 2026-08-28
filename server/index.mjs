@@ -50,6 +50,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
+import { maskSecretResource } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -1160,7 +1161,8 @@ async function fetchRefContext(references, k8sSession) {
     if (!path) return `${label}: (不支持的 kind)`
     try {
       const res = await withTimeout(requestKubernetes(k8sSession, path), 5000, `ref ${ref.kind}/${ref.name}`)
-      return `${label}:\n${JSON.stringify(res.body, null, 2)}`
+      const body = maskSecretResource(res?.body)
+      return `${label}:\n${JSON.stringify(body, null, 2)}`
     } catch { return `${label}: (not found / 已删除)` }
   })
   const blocks = await Promise.all(tasks)
@@ -1267,7 +1269,7 @@ async function handle(req, res) {
           if (resBody?.metadata?.managedFields) delete resBody.metadata.managedFields
           let events = []
           try { const evtResp = await requestKubernetes(k8sSession, `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}`); events = (evtResp?.body?.items || []).slice(0, 20).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp })) } catch {}
-          return { resource: resBody, events: { count: events.length, items: events } }
+          return { resource: maskSecretResource(resBody), events: { count: events.length, items: events } }
         },
         // 轻量 GET:单个资源完整对象(无 events),适合 ConfigMap/Service/Secret 等不需要事件的场景
         getResource: async (namespace, kind, name) => {
@@ -1278,7 +1280,7 @@ async function handle(req, res) {
           const resp = await requestKubernetes(k8sSession, getter)
           const body = resp?.body
           if (body?.metadata?.managedFields) delete body.metadata.managedFields
-          return { resource: body }
+          return { resource: maskSecretResource(body) }
         },
         getEvents: async (namespace, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
