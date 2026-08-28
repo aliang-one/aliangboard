@@ -298,6 +298,27 @@ function scheduleLoadRevive(convId) {
   }, 5000)
 }
 
+// ── 编辑重发(2026-08-28 spec §3.3):编辑态=锚+暂存草稿;发送走 edit 端点就地截断重跑 ──
+const editing = ref(null) // { messageId, draft, draftRefs }
+function startEdit(turn) {
+  if (sending.value) return
+  editing.value = { messageId: turn.messageId, draft: input.value, draftRefs: [...refs.value] }
+  input.value = turn.content
+  refs.value = (turn.refs || []).map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
+  nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
+}
+function cancelEdit() {
+  if (!editing.value) return
+  input.value = editing.value.draft
+  refs.value = editing.value.draftRefs
+  editing.value = null
+}
+const editAfterCount = computed(() => {
+  if (!editing.value) return 0
+  const i = turns.value.findIndex(t => t.messageId === editing.value.messageId)
+  return i < 0 ? 0 : turns.value.length - 1 - i
+})
+
 // Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
 watch(() => props.conversationId, async (convId) => {
   stopPolling()
@@ -310,6 +331,7 @@ watch(() => props.conversationId, async (convId) => {
   recap.value = ''
   pendingApproval.value = null
   errorBanner.value = ''
+  editing.value = null   // 切对话:编辑态(锚+暂存草稿)不跨对话
   netLost.value = false
   pollFailStreak = 0
   lastApproval.value = null   // 切对话:旧对话的未决审批不得跟过来(黄条重开入口换对话即失效)
@@ -374,7 +396,7 @@ async function pollOnce(id) {
         const msgs = conv.messages
         for (const m of msgs) {
           if (m.role === 'user') {
-            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs) })
+            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id })
           } else {
             // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
             turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace: applyLegacyTs(tryParseTrace(m.trace), m.createdAt), steps: 0, _createdAt: m.createdAt })
@@ -680,6 +702,34 @@ async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
   if (!msg || sending.value) return
+  // 编辑重发分支(spec §3.3):编辑态发送走 edit 端点(服务端截断锚之后重跑),本地就地截断+新轮
+  if (editing.value && props.activeConversationId) {
+    const ed = editing.value
+    const refsSnapshot = refs.value.length ? [...refs.value] : null
+    const userIdx = turns.value.findIndex(t => t.messageId === ed.messageId)
+    if (userIdx < 0) { editing.value = null; return }
+    try {
+      const payload = { messageId: ed.messageId, content: msg }
+      if (refsSnapshot) payload.references = refsSnapshot.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
+      const resp = await workbenchApi.conversations.edit(props.activeConversationId, payload)
+      if (unmounted) return
+      turns.value.splice(userIdx)                       // 锚及之后全删
+      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: ed.messageId, refs: refsSnapshot ? [...refsSnapshot] : undefined })
+      turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+      editing.value = null
+      resetInput()
+      conversationId.value = props.activeConversationId
+      convStatus.value = 'running'
+      if (resp?.context) ctxInfo.value = resp.context
+      sending.value = true
+      await scrollToBottom()
+      startStreaming(props.activeConversationId)
+    } catch (e) {
+      errorBanner.value = e?.message || t('workbench.chat.agentFailed')   // 编辑态保留可重试(spec §4)
+      if (!unmounted) sending.value = false
+    }
+    return
+  }
   // 「历史被顶掉」防线(2026-08-25):对话存在但从未成功加载(网关抖动→loadFailed 空态)时,
   // 直接发消息会让本地 turns 只剩本轮——观感即"历史全消失"。先补一次加载,仍失败则拦下发。
   if (conversationId.value && !turns.value.length) {
@@ -692,7 +742,7 @@ async function send() {
   const userId = ++turnSeq
   const agentId = ++turnSeq
   const refsSnapshot = refs.value.length ? [...refs.value] : null // P0(B):失败回滚用
-  turns.value.push({ _id: userId, role: 'user', content: msg, refs: refsSnapshot ? [...refsSnapshot] : undefined })
+  turns.value.push({ _id: userId, role: 'user', content: msg, refs: refsSnapshot ? [...refsSnapshot] : undefined, messageId: null })
   turns.value.push({ _id: agentId, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
   resetInput()
   sending.value = true
@@ -862,7 +912,9 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <div v-for="(turn, i) in turns" :key="turn._id">
           <ChatTurn :turn="turn"
             :show-regenerate="turn.role === 'assistant' && i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
+            :show-edit="turn.role === 'user' && !sending && !editing && !!turn.messageId"
             @regenerate="regenerate"
+            @edit="startEdit(turn)"
             @reopen-approval="() => { if (lastApproval && !pendingApproval) pendingApproval = lastApproval }" />
         </div>
 
@@ -897,6 +949,13 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <span class="text-body-xs text-on-surface-variant/60 hidden md:inline" :title="t('workbench.chat.context.detailHint')">
           {{ t('workbench.chat.context.recapUpTo', { n: ctxInfo.recapUpTo }) }}<template v-if="ctxInfo.willTrim"> · {{ t('workbench.chat.context.willTrim') }}</template>
         </span>
+      </div>
+
+      <!-- 编辑态提示条(spec §3.3):发送即删锚后 N 条;取消还原暂存草稿 -->
+      <div v-if="editing" data-testid="edit-banner" class="flex items-center gap-sm mb-sm px-md py-xs bg-status-warning/10 border border-status-warning/30 rounded-lg">
+        <span class="material-symbols-outlined text-base text-status-warning">edit</span>
+        <span class="text-body-xs text-status-warning flex-1">{{ t('workbench.chat.editBanner', { n: editAfterCount }) }}</span>
+        <button @click="cancelEdit" class="text-body-xs text-on-surface-variant hover:text-on-surface underline">{{ t('workbench.chat.editCancel') }}</button>
       </div>
 
       <!-- @-ref chips -->

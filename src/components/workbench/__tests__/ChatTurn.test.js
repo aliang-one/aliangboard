@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ChatTurn from '../ChatTurn.vue'
 
-const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成', reasoningTitle: '思考过程', maxStepsReached: '已达到最大执行步数' } } } } })
+const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { copy: '复制' }, workbench: { chat: { roleYou: '你', roleAgent: 'Agent', regenerate: '重新生成', reasoningTitle: '思考过程', maxStepsReached: '已达到最大执行步数', editTitle: '编辑并重发' } } } } })
 
 test('ChatTurn: agent done 渲染 markdown(v-html)', () => {
   const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '**hi**' } }, global: { plugins: [i18n] } })
@@ -173,4 +173,15 @@ test('ChatTurn: 交错模式文本块渲染 markdown(粗体成 strong,非原字�
   expect(flow.html()).toContain('<strong>资源状态</strong>')   // markdown 已渲染,非字面 **
   expect(flow.html()).not.toContain('**资源状态**')
   expect(flow.html()).toContain('<code>apiVersion</code>')      // 行内代码成 code 元素
+})
+
+// 编辑重发 T3:user turn hover 编辑按钮(showEdit prop + edit emit)
+test('user turn:showEdit 时出编辑按钮并 emit edit;默认不显示', async () => {
+  const w = mount(ChatTurn, { props: { turn: { role: 'user', content: 'q' }, showEdit: true }, global: { plugins: [i18n] } })
+  const btn = w.find('[data-testid="edit-msg-btn"]')
+  expect(btn.exists()).toBe(true)
+  await btn.trigger('click')
+  expect(w.emitted('edit')).toHaveLength(1)
+  const w2 = mount(ChatTurn, { props: { turn: { role: 'user', content: 'q' } }, global: { plugins: [i18n] } })
+  expect(w2.find('[data-testid="edit-msg-btn"]').exists()).toBe(false)
 })

@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
     cancel: vi.fn(),
     regenerate: vi.fn(),
     compact: vi.fn(),
+    edit: vi.fn(),
   },
   search: vi.fn(),
 }))
@@ -44,6 +45,7 @@ const i18n = createI18n({
     userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)',
     stop: '停止', stopped: '已停止', loadFailed: '对话加载失败,请检查网络后重试',
     reasoningTitle: '思考过程',
+    editTitle: '编辑并重发', editBanner: '正在编辑此消息，发送后将删除其后 {n} 条对话', editCancel: '取消编辑',
     convStatus: { running: '执行中', paused: '待审批', done: '完成', failed: '失败', cancelled: '已取消' },
   } } } },
 })
@@ -64,6 +66,7 @@ beforeEach(() => {
   api.conversations.approve.mockClear()
   api.conversations.deny.mockClear()
   api.conversations.compact.mockClear()
+  api.conversations.edit.mockClear()
 })
 
 test('send() calls conversations.create when no activeConversationId', async () => {
@@ -837,5 +840,49 @@ test('压缩失败(非 2xx):errorBanner 显示错误、modal 保持打开、comp
   expect(w.vm.compacting, 'compacting 复位').toBe(false)
   expect(goBtn().attributes('disabled'), '确认按钮可再点').toBeUndefined()
   expect(w.find('[data-testid="context-compact-modal"] textarea').element.value, '指令不清空').toBe('保留结论')
+  w.unmount()
+})
+
+// ── 编辑重发 T3:编辑态/取消/发送(spec §3.3)──
+test('编辑流:点编辑→回填+banner(N 计数)→取消还原草稿', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1 },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  await w.find('textarea').setValue('未发送的草稿')
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  expect(w.find('[data-testid="edit-banner"]').exists()).toBe(true)
+  expect(w.find('[data-testid="edit-banner"]').text()).toContain('1')  // 其后 1 条(assistant)
+  expect(w.find('textarea').element.value).toBe('原始问题')
+  await w.findAll('button').find(b => b.text().includes('取消编辑')).trigger('click')
+  expect(w.find('[data-testid="edit-banner"]').exists()).toBe(false)
+  expect(w.find('textarea').element.value).toBe('未发送的草稿', '取消还原暂存草稿')
+  w.unmount()
+})
+
+test('编辑发送:调 edit 端点+本地截断+新 user turn+thinking', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1 },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  api.conversations.edit.mockResolvedValueOnce({ status: 'running', context: { estTokens: 800, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  // 测试环境无 EventSource → startStreaming 降级立即 pollOnce,会用旧 get 数据把 thinking 覆成 done。
+  // 编辑后让降级轮询失败(静默,仅 netLost),锁定本地截断+thinking 的新状态。
+  api.conversations.get.mockRejectedValue(new Error('offline'))
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  await w.find('textarea').setValue('改过的问题')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(api.conversations.edit).toHaveBeenCalledWith('c-e', expect.objectContaining({ messageId: 'm1', content: '改过的问题' }))
+  expect(w.text()).toContain('改过的问题')
+  expect(w.text()).not.toContain('答', '锚之后的本地 turns 已截断')
+  expect(w.vm.turns.at(-1).status).toBe('thinking')
+  expect(w.find('[data-testid="edit-banner"]').exists()).toBe(false, '发送后编辑态退出')
   w.unmount()
 })

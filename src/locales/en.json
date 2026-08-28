@@ -3420,7 +3420,10 @@
       },
       "reconnecting": "Connection lost, retrying automatically…",
       "maxStepsReached": "Maximum agent steps reached without a final answer. Try \"Regenerate\", or continue with a follow-up prompt.",
-      "reopenApproval": "Click to reopen the approval dialog"
+      "reopenApproval": "Click to reopen the approval dialog",
+      "editTitle": "Edit & resend",
+      "editBanner": "Editing this message — sending will remove {n} messages after it",
+      "editCancel": "Cancel edit"
     },
     "shell": {
       "title": "Workbench",

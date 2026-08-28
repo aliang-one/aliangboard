@@ -245,6 +245,8 @@ export const workbenchApi = {
     delete: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     rename: (id, title) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) }),
     compact: (id, instruction) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/compact`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction: instruction || '' }) }),
+    // 编辑重发(spec §3.3):body { messageId, content, references? } → { status:'running', context }
+    edit: (id, body) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/edit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     // 悬浮入口:跨项目活跃对话原料(running/paused + 24h 内终态;未读判定在前端)
     active: () => platformHttp.request('/api/workbench/conversations/active'),
   },

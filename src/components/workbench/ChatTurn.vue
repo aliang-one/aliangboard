@@ -11,8 +11,8 @@ import ToolTimeline from './ToolTimeline.vue'
 import ToolRow from './ToolRow.vue'
 import ResourceCard from '@/components/common/ResourceCard.vue'
 
-const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false } })
-const emit = defineEmits(['regenerate', 'reopen-approval'])
+const props = defineProps({ turn: { type: Object, required: true }, showRegenerate: { type: Boolean, default: false }, showEdit: { type: Boolean, default: false } })
+const emit = defineEmits(['regenerate', 'reopen-approval', 'edit'])
 const { t } = useI18n()
 
 const root = ref(null)
@@ -228,6 +228,14 @@ function onRootClick(e) {
           class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 transition-opacity"
           :title="t('workbench.chat.regenerate')">
           <span class="material-symbols-outlined text-sm">refresh</span>
+        </button>
+      </span>
+      <!-- 编辑重发(T3):user 消息 hover 编辑入口,emit edit(载荷=turn) -->
+      <span v-if="turn.role === 'user' && showEdit" class="ml-auto flex items-center gap-xs">
+        <button data-testid="edit-msg-btn" @click.stop="emit('edit')" type="button"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          :title="t('workbench.chat.editTitle')">
+          <span class="material-symbols-outlined text-sm">edit</span>
         </button>
       </span>
     </div>
