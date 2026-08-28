@@ -17,6 +17,7 @@ import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
 import { isNearBottomCalc } from '@/logic/chatScroll'
 import { getDraft, setDraft } from '@/logic/chatDrafts'
+import { notify } from '@/composables/useToast'
 
 const props = defineProps({
   projectId: String,
@@ -644,8 +645,12 @@ async function doCompact() {
     if (r?.ok) {
       showCompact.value = false; compactInstruction.value = ''
       if (r.context) ctxInfo.value = r.context   // compact 响应自带新口径,先行更新余量条
+      notify('success', t('workbench.chat.context.compactDone'))
       await pollOnce(conversationId.value)   // recap/context 重算,顶部摘要卡+余量条更新
     }
+  } catch (e) {
+    // 非 2xx(platformHttp 抛错):modal 保持打开、指令不清空,供重试;banner+错误信息即反馈
+    if (!unmounted) errorBanner.value = e?.message || t('workbench.chat.context.compactFailed')
   } finally { if (!unmounted) compacting.value = false }
 }
 

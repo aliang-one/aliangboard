@@ -815,3 +815,27 @@ test('压缩流程:按钮→modal(可选指令)→compact 成功→刷新', asyn
   expect(w.find('[data-testid="context-meter"]').text(), '压缩后余量刷新').toContain('20k')
   w.unmount()
 })
+
+// ── 终审修复:compact 失败路径(非 2xx 抛错)──
+// 修复前 doCompact 只有 finally 无 catch:platformHttp 抛错变 unhandled rejection,
+// modal 卡开、用户零反馈。修复契约:banner 显示错误信息、modal 保持打开(确认钮仍在,
+// 可重试)、指令不清空、compacting 复位。
+test('压缩失败(非 2xx):errorBanner 显示错误、modal 保持打开、compacting 复位可重试', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(150_000) })
+  api.conversations.compact.mockRejectedValueOnce(new Error('LLM 挂了'))
+  const w = await mountChat({ conversationId: 'c-ctx', activeConversationId: 'c-ctx' })
+  await flushPromises()
+  await w.find('[data-testid="context-compact-btn"]').trigger('click')
+  expect(w.find('[data-testid="context-compact-modal"]').exists()).toBe(true)
+  await w.find('[data-testid="context-compact-modal"] textarea').setValue('保留结论')
+  const goBtn = () => w.findAll('button').find(b => b.text().includes('workbench.chat.context.compactGo'))
+  await goBtn().trigger('click')
+  await flushPromises()
+  expect(w.vm.errorBanner).toContain('LLM 挂了')
+  expect(w.find('[data-testid="context-compact-modal"]').exists(), 'modal 保持打开可重试').toBe(true)
+  expect(w.vm.compacting, 'compacting 复位').toBe(false)
+  expect(goBtn().attributes('disabled'), '确认按钮可再点').toBeUndefined()
+  expect(w.find('[data-testid="context-compact-modal"] textarea').element.value, '指令不清空').toBe('保留结论')
+  w.unmount()
+})

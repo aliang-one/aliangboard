@@ -3394,6 +3394,7 @@
         "compactInstruction": "压缩时侧重保留（可选）",
         "compactGo": "压缩",
         "compactDone": "上下文已压缩",
+        "compactFailed": "压缩失败，请稍后重试",
         "compactBusy": "对话运行中，结束后再压缩"
       },
       "convStatus": {

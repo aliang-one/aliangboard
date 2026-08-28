@@ -14,6 +14,7 @@ test('contextWindowFor:家族 substring 匹配(小写化)', () => {
   assert.equal(contextWindowFor('deepseek-reasoner'), 128_000)
   assert.equal(contextWindowFor('qwen-max'), 128_000)
   assert.equal(contextWindowFor('qwen3-235b-a22b'), 128_000)
+  assert.equal(contextWindowFor('qwen-long'), 10_000_000, 'qwen-long 例外:长上下文 10M,不被 qwen 家族吞')
   assert.equal(contextWindowFor('glm-4.5-air'), 128_000)
   assert.equal(contextWindowFor('moonshot-v1-8k'), 128_000)
   assert.equal(contextWindowFor('kimi-k2'), 128_000)

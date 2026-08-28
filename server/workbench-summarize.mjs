@@ -84,6 +84,7 @@ export async function compactConversation(db, convId, llmClient, instruction = '
     updateConversation(db, convId, { recap, summarizedUpTo: maxSeq - COMPACT_KEEP_RECENT }, { touch: false })
     return { ok: true, recap }
   } catch (e) {
+    console.error('[compact] 摘要失败:', e?.message || e)
     return { ok: false, status: 502, message: 'wbc.compactFailed' }
   }
 }

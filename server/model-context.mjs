@@ -17,6 +17,8 @@ const MODEL_WINDOWS = [
   ['o4', 200_000],
   ['claude', 200_000],
   ['deepseek', 128_000],
+  // qwen-long 例外(spec 明示不并入 qwen 家族):长上下文档位,真实 10M;须列在 'qwen' 前防 substring 吞
+  ['qwen-long', 10_000_000],
   ['qwen', 128_000],
   ['glm', 128_000],
   ['moonshot', 128_000],

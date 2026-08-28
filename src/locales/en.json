@@ -3394,6 +3394,7 @@
         "compactInstruction": "Focus on preserving (optional)",
         "compactGo": "Compact",
         "compactDone": "Context compacted",
+        "compactFailed": "Compaction failed; please retry later",
         "compactBusy": "Conversation running; compact after it finishes"
       },
       "convStatus": {
