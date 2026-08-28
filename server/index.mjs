@@ -40,6 +40,7 @@ import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
+import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -250,6 +251,43 @@ function requireAdmin(req, res) {
   if (ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'api.adminRequired') }); return null }
   return ps
 }
+
+// === 路由鉴权门(2026-08-28 架构治理第二项):单一 chokepoint ===
+// ROUTE_AUTH(route-auth-map.mjs)是唯一事实源;门外规则:未登记的 /api/* 或 /mcp → 404(强制登记,
+// 登记动作强迫作者声明鉴权 class——2026-08-28 registry/tags 漏鉴权事故的结构性根治)。
+// 按 class 统一预检,响应 shape 与原内联检查逐字一致;解析结果缓存到 req.ab* 供 handler 复用。
+// 模块路由(auth/admin/workbench/version/ingress)内层的 requireX 保留为纵深防御(门=地板,内层可更严)。
+const authGate = createAuthGate({
+  sendJson,
+  verifiers: {
+    session: (req, res) => {
+      const session = sessionFromRequest(req)
+      if (!session) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') }); return false }
+      req.abSession = session
+      return true
+    },
+    platform: (req, res) => {
+      const ps = platformUserFromRequest(req)
+      if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return false }
+      req.abPlatform = ps
+      return true
+    },
+    admin: (req, res) => {
+      const ps = platformUserFromRequest(req)
+      if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return false }
+      if (ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'api.adminRequired') }); return false }
+      req.abPlatform = ps
+      return true
+    },
+    apikey: (req, res) => {
+      const keyRow = resolveApiKey(db, req)
+      if (!keyRow) { sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') }); return false }
+      req.abKeyRow = keyRow
+      return true
+    },
+    mcp: () => true, // 门放行:JSON-RPC 错误 shape 与 mcp_enabled=off 的 503 优先级都在 mcp.mjs 内层
+  },
+})
 // 持久化一个会话（仅存可序列化字段；dispatcher 是运行期对象，重载时重建）
 function persistSession(token, session) {
   try {
@@ -292,6 +330,9 @@ if (process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true') {
   console.warn('WARNING: Kubernetes TLS certificate verification is disabled')
 }
 
+// CORS 单源(2026-08-28 架构治理):此前 4 处手拼同一表达式,漂移即事故;收敛于此。
+function corsOrigin() { return process.env.CORS_ORIGIN || '*' }
+
 function sendJson(res, status, payload) {
   // 2026-08-16 断流修复·进程级免疫:响应已发 headers(如 SSE 流)后绝不能再 writeHead——
   // 旧实现直接抛 ERR_HTTP_HEADERS_SENT,经 handle().catch 变 unhandledRejection 把整个网关
@@ -301,7 +342,7 @@ function sendJson(res, status, payload) {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
-    'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
+    'access-control-allow-origin': corsOrigin(),
     'access-control-allow-headers': 'content-type, authorization',
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   })
@@ -1126,6 +1167,14 @@ async function handle(req, res) {
   if (req.method === 'OPTIONS') return sendJson(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
+  // 路由鉴权门:未登记的 /api/* 或 /mcp 一律 404(新路由必须先在 ROUTE_AUTH 声明鉴权 class;
+  // 守卫测试 route-auth-map.test.mjs 静态扫源码路径字面量交叉强制)。非 /api 非 /mcp 路径走静态服务,不进门。
+  if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') {
+    const cls = authClassFor(req.method, url.pathname)
+    if (!cls) return sendJson(res, 404, { message: `not found: ${req.method} ${url.pathname}` })
+    if (!(await authGate(cls, req, res))) return
+  }
+
   // === MCP server(T12:Streamable HTTP /mcp,外部 AI 用 API key 连)===
   if (url.pathname === '/mcp') {
     if (req.method !== 'OPTIONS' && getSetting('mcp_enabled') === 'false') return sendJson(res, 503, { jsonrpc: '2.0', error: { code: -32000, message: 'MCP service disabled by admin' } })
@@ -1450,8 +1499,7 @@ async function handle(req, res) {
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
   // 鉴权:Authorization: Bearer <apikey>(路径 /api/key/* 与浏览器 gateway 鉴权隔离)。
   if (url.pathname.startsWith('/api/key/') && req.method === 'GET') {
-    const keyRow = resolveApiKey(db, req)
-    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') })
+    const keyRow = req.abKeyRow // 路由鉴权门已预检并缓存
     const _rl = checkRate(keyRow.id)
     if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const m = url.pathname.match(/^\/api\/key\/([^/]+)\/namespaces\/([^/]+)\/pods\/([^/]+)\/logs$/)
@@ -1476,8 +1524,7 @@ async function handle(req, res) {
   // === API-key 工具派发(T9:POST {tool,args} → callTool;T12 MCP server 复用此入口)===
   const callMatch = req.method === 'POST' && url.pathname.match(/^\/api\/key\/([^/]+)\/call$/)
   if (callMatch) {
-    const keyRow = resolveApiKey(db, req)
-    if (!keyRow) return sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') })
+    const keyRow = req.abKeyRow // 路由鉴权门已预检并缓存
     const _rl = checkRate(keyRow.id)
     if (!_rl.allowed) return sendJson(res, 429, { error: 'RATE_LIMITED', retryAfter: _rl.retryAfter })
     const clusterId = decodeURIComponent(callMatch[1])
@@ -1539,8 +1586,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/session') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     return sendJson(res, 200, {
       cluster: { apiServer: session.apiServer.toString().replace(/\/$/, ''), version: session.version || 'unknown' },
     })
@@ -1557,8 +1603,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/apply') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
       const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''))
@@ -1575,8 +1620,7 @@ async function handle(req, res) {
 
   // 端口转发管理（创建 / 列表 / 停止）
   if (url.pathname === '/api/portforward') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization.replace(/^Bearer\s+/i, '')
     if (req.method === 'POST') {
       try {
@@ -1594,8 +1638,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/portforward/')) {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const id = decodeURIComponent(url.pathname.slice('/api/portforward/'.length))
     const removed = stopForward(id)
     return sendJson(res, removed ? 200 : 404, { ok: removed })
@@ -1603,8 +1646,7 @@ async function handle(req, res) {
 
   // PVC 文件浏览（helper busybox Pod 只读挂载 + exec ls/cat；只读，不支持写入）
   if (url.pathname.startsWith('/api/pvcfile/')) {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const action = url.pathname.slice('/api/pvcfile/'.length)
     try {
       const input = await readBody(req)
@@ -1638,8 +1680,7 @@ async function handle(req, res) {
 
   // Pod 文件浏览（基于一次性 exec：ls / cat / 写入）
   if (url.pathname.startsWith('/api/podfile/')) {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const action = url.pathname.slice('/api/podfile/'.length)
     try {
       // upload:二进制流式(元信息走查询串,请求体 pipe → exec stdin,不经 base64/不整包缓冲)。
@@ -1713,7 +1754,7 @@ async function handle(req, res) {
         const base = ((path.split('/').pop() || 'download').replace(/[^\w.-]/g, '_')) || 'download'
         try {
           // CORS 头沿用原 download 分支(setHeader 与 streamDownload 内的 writeHead 合并下发)
-          res.setHeader('access-control-allow-origin', process.env.CORS_ORIGIN || '*')
+          res.setHeader('access-control-allow-origin', corsOrigin())
           res.setHeader('access-control-expose-headers', 'content-disposition')
           await streamDownload({
             statBytes, limitBytes: getPodfileLimitBytes(), res, filename: base,
@@ -1742,8 +1783,7 @@ async function handle(req, res) {
   // PATCH  /api/terminals/:id       → 更新（重命名 / 最小化 / 恢复）
   // DELETE /api/terminals/:id       → 关闭并删除
   if (url.pathname === '/api/terminals') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     try {
       if (req.method === 'GET') {
@@ -1768,8 +1808,7 @@ async function handle(req, res) {
     } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.terminalOpFailed') }) }
   }
   if (url.pathname.startsWith('/api/terminals/')) {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const id = decodeURIComponent(url.pathname.slice('/api/terminals/'.length))
     try {
@@ -1802,8 +1841,7 @@ async function handle(req, res) {
   }
   // === 文件浏览窗口管理(任务栏:CRUD + 持久化,与 terminals 同构;无 WS 会话,DELETE 仅删行) ===
   if (url.pathname === '/api/file-browsers') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     try {
       if (req.method === 'GET') {
@@ -1826,8 +1864,7 @@ async function handle(req, res) {
     } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.fileBrowserOpFailed') }) }
   }
   if (url.pathname.startsWith('/api/file-browsers/')) {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const id = decodeURIComponent(url.pathname.slice('/api/file-browsers/'.length))
     try {
@@ -1851,8 +1888,7 @@ async function handle(req, res) {
 
   // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像
   if (req.method === 'POST' && url.pathname === '/api/pod/debug') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
       if (!input.namespace || !input.pod || !input.image) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodImage') })
@@ -1873,8 +1909,7 @@ async function handle(req, res) {
 
   // 手动触发 CronJob（kubectl create job --from）
   if (req.method === 'POST' && url.pathname === '/api/cronjob/trigger') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
       if (!input.namespace || !input.name) return sendJson(res, 400, { message: msg(req, 'api.missingNsName') })
@@ -1890,8 +1925,7 @@ async function handle(req, res) {
   // 鉴权(2026-08-28 CSO 审计 #2):此前是全文件唯一漏挂 session 的端点——host 由 input.image 派生,
   // 未认证调用者可借网关探测内网(401/404/502/unreachable 可区分)。与相邻端点对齐补 session 门禁。
   if (req.method === 'POST' && url.pathname === '/api/registry/tags') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
       const ref = parseImageRef(String(input.image || ''))
@@ -1925,8 +1959,7 @@ async function handle(req, res) {
 
   // 资源归属拓扑（ownerReferences 链）
   if (req.method === 'GET' && url.pathname === '/api/resource/tree') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const ns = url.searchParams.get('namespace')
     const kind = url.searchParams.get('kind')
     const name = url.searchParams.get('name')
@@ -1951,8 +1984,7 @@ async function handle(req, res) {
   // 多路复用 watch 通道：单连接聚合 7 资源 watch 事件（浏览器同源 ~6 并发上限根治）。
   // 必须在 isK8s/isPlatform 分发门之前（/api/k8s-watch 不匹配 /api/k8s/ 前缀，会被 404 吞掉）。
   if (req.method === 'GET' && url.pathname === '/api/k8s-watch') {
-    const session = sessionFromRequest(req)
-    if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+    const session = req.abSession // 路由鉴权门已预检并缓存
     const { list, invalid } = parseResources(url)
     if (list.length === 0) return sendJson(res, 400, { message: msg(req, 'api.watchMuxNoResources') })
     if (invalid.length) return sendJson(res, 400, { message: msg(req, 'api.watchMuxBadResource', { names: invalid.join(', ') }) })
@@ -1960,7 +1992,7 @@ async function handle(req, res) {
       'content-type': 'application/x-ndjson',
       'cache-control': 'no-cache',
       'x-accel-buffering': 'no',
-      'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
+      'access-control-allow-origin': corsOrigin(),
     })
     res.flushHeaders?.()
     // 上游凭据/dispatcher 复用既有流式透传分支同一机制（session.authHeader + currentDispatcher）
@@ -1984,8 +2016,7 @@ async function handle(req, res) {
   } // end if (!isK8s && !isPlatform)
 
   if (isK8s) {
-  const session = sessionFromRequest(req)
-  if (!session) return sendJson(res, 401, { message: msg(req, 'api.notLoggedInOrExpired') })
+  const session = req.abSession // 路由鉴权门已预检并缓存
 
   const kubernetesPath = decodeURIComponent(url.pathname.slice('/api/k8s'.length)) + (url.search || '')
 
@@ -2011,7 +2042,7 @@ async function handle(req, res) {
         'content-type': upstream.headers.get('content-type') || 'application/json',
         'cache-control': 'no-cache',
         'x-accel-buffering': 'no',
-        'access-control-allow-origin': process.env.CORS_ORIGIN || '*',
+        'access-control-allow-origin': corsOrigin(),
       })
       const pipe = Readable.fromWeb(upstream.body)
       pipe.on('data', chunk => res.write(chunk))
