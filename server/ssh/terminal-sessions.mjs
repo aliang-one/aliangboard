@@ -5,6 +5,8 @@ export function createRingBuffer(maxLines = 4000) {
   let tail = ''                       // 半行残段(跨 chunk)
   return {
     push(chunk) {
+      // ring 按 utf8 行切分:跨 chunk 的多字节字符由 tail 拼接兜底;但二进制流回放可能有损(按行重 join)。
+      // 仅影响 CH_REPLAY 快照;直播帧(CH_STDOUT)原样转发不受影响。
       const text = (typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
       const parts = (tail + text).split('\n')
       tail = parts.pop()
