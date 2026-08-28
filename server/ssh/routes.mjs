@@ -107,12 +107,22 @@ export function createSshRoutes(deps) {
     const audit = (verb, tool, result, extra = {}) =>
       writeAudit?.(db, { owner: extra.owner || 'system', verb, tool, result,
         requestSummary: extra.summary || null, source: 'platform', ...extra.fields })
+    // 试连失败按 errorKind 组装本地化 message(spec §9:不把原始英文 ssh2 错误怼给用户);errorKind 原样保留供前端分流(hostkey 触发重置确认)
+    const localizeTestError = (req, out) => {
+      const m = out?.errorKind === 'unreachable' ? msg(req, 'ssh.testUnreachable', { kind: out.message })
+        : out?.errorKind === 'auth' ? msg(req, 'ssh.testAuthFailed')
+        : out?.errorKind === 'hostkey' ? msg(req, 'ssh.testHostkey')
+        : msg(req, 'ssh.testGeneric', { message: out?.message || 'unknown' })
+      return m
+    }
     try {
       // POST /api/ssh/test — 未保存表单试连(body 含明文凭据,仅内存使用不落库)
       if (url.pathname === '/api/ssh/test' && req.method === 'POST') {
         const ps = requireAdmin(req, res); if (!ps) return true
         const input = await readBody(req)
-        const out = await sshTestConnection(null, input)
+        let out = await sshTestConnection(null, input)
+        writeAudit(db, { owner: ps.username, verb: 'test', tool: 'ssh_server', result: out.ok ? 'ok' : 'error', reason: out.ok ? null : out.errorKind, requestSummary: 'form', source: 'platform' })
+        if (!out.ok) out = { ...out, message: localizeTestError(req, out) }
         sendJson(res, 200, out)
         return true
       }
@@ -142,7 +152,8 @@ export function createSshRoutes(deps) {
           try { creds = materializeCreds(db, cryptKey, id) }
           catch { sendJson(res, 409, { message: msg(req, 'ssh.credKeyMissing') }); return true }
           const out = await sshTestConnection(row, creds)
-          sendJson(res, 200, out)
+          writeAudit(db, { owner: ps.username, verb: 'test', tool: 'ssh_server', result: out.ok ? 'ok' : 'error', reason: out.ok ? null : out.errorKind, requestSummary: row.name, source: 'platform' })
+          sendJson(res, 200, out.ok ? out : { ...out, message: localizeTestError(req, out) })
           return true
         }
         if (!tail && req.method === 'PUT') {

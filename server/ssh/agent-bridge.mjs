@@ -45,6 +45,9 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     if (r.row.aiApprovalPolicy === 'none') return false
     if (r.row.aiApprovalPolicy === 'readonly') {
       if (name === 'wb_ssh_read_file') return false
+      // sudo=true = 以 root 执行:readonly 分类器只看命令文本,不看提权位。
+      // 「cat /etc/shadow + sudo」在纯文本分类下无害,实际是 root 读取 → 一律人审(2026-08-28 审批旁路修复)。
+      if (args?.sudo === true) return true
       return !classifyReadonly(args?.command)
     }
     return true                                   // always
@@ -77,7 +80,10 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
         // 总定时器挂在 exec 调用外层:覆盖「cb 永不回调」的死连接场景(2026-08-28 审查),而非仅流内。
         timer = setTimeout(() => {
           try { stream?.close?.() } catch {}
-          try { conn.client.end?.() } catch {}   // 死连接兜底:连流都没拿到时也要拆客户端
+          // 仅「exec 回调都还没触发」(stream 为 null = 疑似死连接)才拆整条池化客户端;
+          // stream 已拿到 = 只是这条命令慢,close 流即可——池按 server 复用,client.end 会
+          // 杀掉该服务器上所有用户共享的连接(2026-08-28 跨会话杀伤修复)。
+          if (stream == null) { try { conn.client.end?.() } catch {} }
           settle({ exitCode: null, timedOut: true, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'), durationMs: Date.now() - started })
         }, timeoutMs)
         conn.client.exec(cmd, (err, s) => {

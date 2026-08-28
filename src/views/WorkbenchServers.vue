@@ -53,7 +53,19 @@ async function onSubmit(payload) {
 }
 async function onTest(s) {
   testResult.value = { name: s.name, ok: null, message: t('ssh.testing') }
-  try { const r = await sshApi.testSaved(s.id); testResult.value = { name: s.name, ok: r.ok, message: r.ok ? t('ssh.testOk') : r.message } }
+  try {
+    const r = await sshApi.testSaved(s.id)
+    // 主机密钥变更(spec §5/§9):确认后清旧指纹并自动重试一次(重连时重录新指纹);拒绝则保留防护
+    if (!r.ok && r.errorKind === 'hostkey') {
+      if (window.confirm(t('ssh.hostKeyChangedConfirm', { name: s.name }))) {
+        await sshApi.update(s.id, { hostKeyFingerprint: '' })
+        const r2 = await sshApi.testSaved(s.id)
+        testResult.value = { name: s.name, ok: r2.ok, message: r2.ok ? t('ssh.testOk') : r2.message }
+        return
+      }
+    }
+    testResult.value = { name: s.name, ok: r.ok, message: r.ok ? t('ssh.testOk') : r.message }
+  }
   catch (e) { testResult.value = { name: s.name, ok: false, message: e?.message } }
 }
 async function onDelete(s) {

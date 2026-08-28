@@ -56,6 +56,9 @@ test('needsApproval: always→true;readonly→分类器放行 cat/拦 rm;none→
   assert.equal(await mk('always').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'ls' }), true)
   assert.equal(await mk('none').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'ls' }), false)
   assert.equal(await mk('readonly').needsApproval('wb_ssh_exec', { server: 'ghost', command: 'ls' }), true)
+  // 审批旁路修复(2026-08-28):readonly 策略 + sudo:true = root 执行,一律人审(分类器只看命令文本不看提权位)
+  assert.equal(await mk('readonly').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'cat /etc/hostname', sudo: true }), true)
+  assert.equal(await mk('none').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'cat /etc/hostname', sudo: true }), false)  // none 政策本就免审,不因 sudo 变严
 })
 
 test('exec: 组装 pool.acquire(serverId, wb:<projectId>);sudo 包装 + 密码写 stdin;结果不含密码', async () => {
@@ -119,6 +122,25 @@ test('exec 超时兜底:exec 回调永不触发(死连接)→ timedOut:true + re
   assert.equal(r.timedOut, true); assert.equal(r.exitCode, null)
   assert.ok(calls.some(c => c[0] === 'release'))   // 池句柄归还,不泄漏
   assert.ok(calls.some(c => c[0] === 'end'))       // 死连接客户端被拆
+}, { timeout: 5000 })
+
+test('exec 超时但 stream 已存在(命令慢):只关流,不拆池化客户端(跨会话杀伤修复)', async () => {
+  const calls = []
+  const pool = {
+    acquire: async () => ({
+      client: {
+        exec: (cmd, cb) => { const s = new EventEmitter(); s.stderr = new EventEmitter(); s.write = () => {}; s.close = () => calls.push(['stream-close']); cb(null, s) /* 流拿到但永不 close/end */ },
+        end: () => calls.push(['end']),
+      },
+      release: () => calls.push(['release']),
+    }),
+  }
+  const bridge = createSshAgentBridge({ db: fakeDb(), key: KEY, pool, projectId: 'p1' })
+  const r = await bridge.exec({ server: 'dev-1', command: 'sleep 999', timeoutSec: 1 })
+  assert.equal(r.timedOut, true)
+  assert.ok(calls.some(c => c[0] === 'stream-close'))       // 本命令的流被关
+  assert.ok(calls.some(c => c[0] === 'release'))            // 池句柄归还
+  assert.ok(!calls.some(c => c[0] === 'end'))               // 共享客户端未被拆(其他用户终端存活)
 }, { timeout: 5000 })
 
 test('exec 截断:>32KB stdout → stdoutTruncated:true 且恰截到 32768;恰好满上限不误报', async () => {

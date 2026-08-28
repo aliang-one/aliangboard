@@ -47,16 +47,6 @@ export function validateSshServerInput(input = {}) {
 const SECRET_MAP = { password: 'encPassword', privateKey: 'encPrivateKey', passphrase: 'encPassphrase', sudoPassword: 'encSudoPassword' }
 const norm = v => (v === '' ? undefined : v)
 
-function encSecrets(db, key, input) {
-  const out = {}
-  for (const [inField, col] of Object.entries(SECRET_MAP)) {
-    const v = norm(input[inField])
-    if (v === undefined) continue
-    out[col] = v === null ? null : encryptField(key, v)
-  }
-  return out
-}
-
 export function sanitizeSshServer(r) {
   if (!r) return null
   return {
@@ -100,6 +90,11 @@ export function updateSshServer(db, key, id, patch = {}) {
   }
   if (patch.exposeToAi !== undefined) { sets.push('exposeToAi=?'); args.push(patch.exposeToAi ? 1 : 0) }
   if (patch.tags !== undefined) { sets.push('tags=?'); args.push(JSON.stringify(Array.isArray(patch.tags) ? patch.tags : [])) }
+  // 主机密钥重置路径(spec §5/§9):null/'' = 清除旧指纹(重装后重连重录);非空字符串 = 人工确认后写入新指纹
+  if (patch.hostKeyFingerprint !== undefined) {
+    sets.push('hostKeyFingerprint=?')
+    args.push(patch.hostKeyFingerprint == null || patch.hostKeyFingerprint === '' ? '' : String(patch.hostKeyFingerprint))
+  }
   for (const [inField, col] of Object.entries(SECRET_MAP)) {
     const v = norm(patch[inField])
     if (v === undefined) continue

@@ -2108,6 +2108,18 @@ async function handleSshTerminal(ws, ps, url) {
       // 先 ensure 再开 shell:打开窗口期进来的第二个连接走重连分支,await extra.ready 等同一结果
       session = sshTerminals.ensure(sid, { serverId, userId: ps.username },
         () => ({ ready, sockets: new Set() }))
+      // 竞态守卫:get 判空到 ensure 之间隔着整个 await acquire(最长 15s 握手)。若 ensure
+      // 返回的是并发首连方 factory 产出的会话(extra.ready !== 自己的 ready),本连接非属主:
+      // 立即归还自己多余的池句柄(不覆盖 extra.release,否则首连方引用永不归零),转走
+      // 「等首连 ready」路径——同一 sid 永远只有一条 shell 通道、一个有效 release(2026-08-28 修复)。
+      if (session.extra.ready !== ready) {
+        try { release() } catch { /* noop */ }
+        try { await session.extra.ready } catch (e) {
+          wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+          try { ws.close() } catch {}
+          return
+        }
+      } else {
       session.extra.release = release
       client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
         if (err) return shellFail(err)
@@ -2131,6 +2143,7 @@ async function handleSshTerminal(ws, ps, url) {
         throw shellErr
       }
       writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+      }
     } else if (!session.extra.channel) {
       // 首连 shell 打开窗口期进来的连接:等首连方开 shell 的结果;失败则本 ws 收 ERROR,会话归首连方收尾
       try { await session.extra.ready } catch (e) {
