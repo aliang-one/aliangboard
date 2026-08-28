@@ -13,10 +13,12 @@ vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
 
 import NsIngress from '../NsIngress.vue'
 
+// CreateWithYamlButton 须 stub:其内嵌 CreateFromYamlDialog 的 Modal 也吃下面的 Modal stub,
+// 且 DOM 序在创建 Modal 之前 → w.find('[data-testid="modal-x"]') 会命中 YAML 弹窗的 X 而非创建弹窗的。
 function mountDlg() {
   setActivePinia(createPinia())
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return mount(NsIngress, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]], stubs: { Modal: { props: ['modelValue','title','width'], emits: ['update:modelValue','cancel'], template: '<div><slot/><slot name="actions"/><button data-testid="modal-x" @click="$emit(\'cancel\'); $emit(\'update:modelValue\', false)">x</button></div>' }, Breadcrumbs: true, Pagination: true, PortSelect: true, AnnotationKeySelect: true, DataTable: true } } })
+  return mount(NsIngress, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]], stubs: { Modal: { props: ['modelValue','title','width'], emits: ['update:modelValue','cancel'], template: '<div><slot/><slot name="actions"/><button data-testid="modal-x" @click="$emit(\'cancel\'); $emit(\'update:modelValue\', false)">x</button></div>' }, Breadcrumbs: true, Pagination: true, PortSelect: true, AnnotationKeySelect: true, DataTable: true, CreateWithYamlButton: true } } })
 }
 
 test('选 traefik + 填 entrypoints → addIngress 注解带 traefik 前缀、无 nginx 键', async () => {
