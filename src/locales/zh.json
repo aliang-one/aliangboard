@@ -3396,6 +3396,64 @@
         "compactFailed": "压缩失败，请稍后重试",
         "compactBusy": "对话运行中，结束后再压缩"
       },
+      "slash": {
+        "title": "命令与剧本",
+        "noMatch": "无匹配的命令或剧本",
+        "actCompact": "压缩上下文",
+        "actCompactDesc": "把全部历史重摘要,释放余量(对话空闲时可用)",
+        "pb": {
+          "imagepull": {
+            "name": "排查 ImagePullBackOff",
+            "desc": "镜像拉取失败:事件→凭据→仓库逐层定位",
+            "body": "排查命名空间【ns】里 Pod【pod 名】(或该 ns 全部 Pod)的 ImagePullBackOff:先 describe 看 events 里的镜像名与失败原因(NotFound/BackOff/鉴权),再检查所用 secret/镜像仓库凭据是否正确挂载,必要时读取相关 Secret 的 key 名核对(值已脱敏)。逐步执行,先说结论再给命令级建议。"
+          },
+          "crashloop": {
+            "name": "排查 CrashLoopBackOff",
+            "desc": "反复崩溃:上一次日志+退出码定位崩溃点",
+            "body": "排查命名空间【ns】里 Pod【pod 名】的 CrashLoopBackOff:先取 previous 日志看崩溃前的最后输出,describe 看退出码/重启次数,结合容器启动命令判断是配置缺失、依赖不可达还是程序错误。逐步执行,先说结论再给命令级建议。"
+          },
+          "pending": {
+            "name": "排查 Pod 一直 Pending",
+            "desc": "调度失败:资源/亲和/PVC/配额",
+            "body": "排查命名空间【ns】里一直 Pending 的 Pod【pod 名】:describe 看 events 里调度失败的具体原因(资源不足/节点选择器/亲和性/PVC 未绑定/资源配额),逐项核对并给出可执行的解除建议。逐步执行,先说结论再给命令级建议。"
+          },
+          "svcunreachable": {
+            "name": "服务访问不通五步排查",
+            "desc": "endpoints→就绪→网络策略→ingress→验证",
+            "body": "命名空间【ns】里 Service【svc 名】访问不通,按五步排查:①Service 的 endpoints 是否有 IP(选择器是否匹配到 Pod);②后端 Pod 是否 Ready(探针);③NetworkPolicy 是否挡流;④Ingress 后端与路由是否正确;⑤逐层给出验证方法。逐步执行,先说结论再给命令级建议。"
+          },
+          "rolloutstuck": {
+            "name": "排查滚动发布卡住",
+            "desc": "rollout 状态/新旧 RS 对比/探针分析",
+            "body": "命名空间【ns】里 Deployment【名称】滚动发布卡住:看 rollout 状态与历史,对比新旧 ReplicaSet 的副本与镜像差异,检查就绪探针/minReadySeconds/资源是否让新 Pod 起不来,判断是否需要回滚并给出依据。逐步执行,先说结论再给命令级建议。"
+          },
+          "quota": {
+            "name": "资源配额与限制排查",
+            "desc": "quota/limitrange 对照请求量找超限项",
+            "body": "排查命名空间【ns】的资源配额问题:读取该 ns 的 ResourceQuota 与 LimitRange,对照当前工作负载的 requests/limits 总量,找出被拒或截断的具体维度(cpu/memory/pods/存储),并给出调整建议。逐步执行,先说结论再给命令级建议。"
+          },
+          "capacity": {
+            "name": "集群容量盘点",
+            "desc": "节点分配率/可调度余量/建议",
+            "body": "盘点集群容量:读取节点资源容量与已分配量(requests 口径),计算各节点 cpu/memory 分配率与可调度余量,标出最紧张的节点与资源维度,给出扩容或调度的建议。逐步执行,先说结论再给命令级建议。"
+          },
+          "oomkilled": {
+            "name": "排查 OOMKilled",
+            "desc": "退出原因/内存限制与实际用量对比",
+            "body": "排查命名空间【ns】里 Pod【pod 名】的 OOMKilled:describe 确认 reason 与最后退出状态,对比容器内存限制与实际用量趋势(可看重启前日志),判断是限制过低还是内存泄漏,给出调整建议。逐步执行,先说结论再给命令级建议。"
+          },
+          "dns": {
+            "name": "DNS 解析问题排查",
+            "desc": "同 ns 短名/FQDN/跨 ns 逐级测",
+            "body": "排查命名空间【ns】里的 DNS 解析问题:按 同 ns Service 短名 → FQDN → 跨 ns 全名 逐级测试解析(可用 exec 在同 ns 的 Pod 里测),都不通则检查 CoreDNS 相关 Pod 状态与配置。逐步执行,先说结论再给命令级建议。"
+          },
+          "healthsweep": {
+            "name": "全景健康巡检",
+            "desc": "ns 内红色项汇总+分级报告",
+            "body": "对命名空间【ns】做一次全景健康巡检:列出全部 workload 与 Pod 的异常项(CrashLoop/Pending/ImagePull/重启次数高/OOM)、Warning 事件热点,按 严重/警告/提示 三级汇总成报告,并给出最优先要处理的 3 件事。逐步执行,先说结论再给命令级建议。"
+          }
+        }
+      },
       "convStatus": {
         "running": "执行中",
         "paused": "待审批",

@@ -3396,6 +3396,64 @@
         "compactFailed": "Compaction failed; please retry later",
         "compactBusy": "Conversation running; compact after it finishes"
       },
+      "slash": {
+        "title": "Commands & playbooks",
+        "noMatch": "No matching command or playbook",
+        "actCompact": "Compact context",
+        "actCompactDesc": "Re-summarize history to free context (available when idle)",
+        "pb": {
+          "imagepull": {
+            "name": "Diagnose ImagePullBackOff",
+            "desc": "Image pull failure: events→credentials→registry layer-by-layer",
+            "body": "Diagnose ImagePullBackOff for Pod【pod name】(or all Pods in the namespace【ns】): first describe to check the image name and failure reason in events (NotFound/BackOff/auth), then verify the used secret/registry credentials are correctly mounted, and if needed read the relevant Secret key names to verify (values are redacted). Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "crashloop": {
+            "name": "Diagnose CrashLoopBackOff",
+            "desc": "Repeated crashes: last logs+exit code locate crash point",
+            "body": "Diagnose CrashLoopBackOff for Pod【pod name】in namespace【ns】: first fetch previous logs to see the last output before crash, describe to check exit code/restart count, combine with container start command to determine if it's config missing, dependency unreachable, or program error. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "pending": {
+            "name": "Diagnose Pending Pod",
+            "desc": "Scheduling failure: resources/affinity/PVC/quota",
+            "body": "Diagnose consistently Pending Pod【pod name】in namespace【ns】: describe to see the specific scheduling failure reason in events (insufficient resources/node selector/affinity/PVC not bound/resource quota), verify each item and give executable suggestions to resolve. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "svcunreachable": {
+            "name": "Service unreachable five-step diagnosis",
+            "desc": "endpoints→readiness→network policy→ingress→validation",
+            "body": "Service【service name】in namespace【ns】is unreachable; diagnose in five steps: ①Does Service have endpoints IPs (selector matches Pods); ②Are backend Pods Ready (probes); ③Does NetworkPolicy block traffic; ④Are Ingress backend and routes correct; ⑤Provide validation methods for each layer. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "rolloutstuck": {
+            "name": "Diagnose stuck rollout",
+            "desc": "rollout status/old vs new RS/probe analysis",
+            "body": "Deployment【name】in namespace【ns】has stuck rollout: check rollout status and history, compare replica and image differences between old and new ReplicaSets, verify readiness probe/minReadySeconds/resources prevent new Pods from starting, determine if rollback is needed and provide rationale. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "quota": {
+            "name": "Resource quota & limits diagnosis",
+            "desc": "quota/limitrange vs requests find over-limit items",
+            "body": "Diagnose resource quota issues in namespace【ns】: read the namespace's ResourceQuota and LimitRange, compare against current workload requests/limits totals, identify the specific dimension being rejected or truncated (cpu/memory/pods/storage), and provide adjustment suggestions. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "capacity": {
+            "name": "Cluster capacity survey",
+            "desc": "Node allocation/schedulable headroom/recommendations",
+            "body": "Survey cluster capacity: read node resource capacity and allocated amount (requests basis), calculate each node's cpu/memory allocation rate and schedulable headroom, mark the most紧张的 node and resource dimension, provide scaling or scheduling suggestions. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "oomkilled": {
+            "name": "Diagnose OOMKilled",
+            "desc": "Exit reason/memory limit vs actual usage comparison",
+            "body": "Diagnose OOMKilled for Pod【pod name】in namespace【ns】: describe to confirm reason and last exit state, compare container memory limit against actual usage trend (check pre-restart logs), determine if limit is too low or memory leak, provide adjustment suggestions. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "dns": {
+            "name": "DNS resolution problem diagnosis",
+            "desc": "Same-ns shortname/FQDN/cross-ns tiered test",
+            "body": "Diagnose DNS resolution problems in namespace【ns】: test resolution tiered as 同 ns Service shortname → FQDN → 跨 ns full name (can exec within a Pod in the same ns to test), if all fail check CoreDNS related Pod status and configuration. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          },
+          "healthsweep": {
+            "name": "Panoramic health sweep",
+            "desc": "ns red item summary+tiered report",
+            "body": "Perform a panoramic health sweep for namespace【ns】: list all workload and Pod anomalies (CrashLoop/Pending/ImagePull/high restart count/OOM), Warning event hotspots, summarize into a 严重/警告/提示 three-tier report, and give the top 3 priority issues to address. Execute step by step; first state the conclusion, then provide command-level suggestions."
+          }
+        }
+      },
       "convStatus": {
         "running": "Running",
         "paused": "Awaiting Approval",
