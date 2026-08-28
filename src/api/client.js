@@ -188,6 +188,30 @@ export const podFileApi = {
   },
 }
 
+// SSH 服务器管理(Task 3 REST;全部 admin-only)。行经服务端脱敏:只有 hasPassword 等布尔,无凭据本体。
+export const sshApi = {
+  list: () => platformHttp.request('/api/ssh/servers'),
+  create: payload => platformHttp.request('/api/ssh/servers', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id, patch) => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  remove: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  testSaved: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  testForm: payload => platformHttp.request('/api/ssh/test', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
+// SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。
+// upload 服务端拒绝名字含 / \ .. . → 前端同名校验先行;409=凭据密钥不可用(message 来自服务端)。
+export const sshFileApi = {
+  list: (serverId, path) => platformHttp.request('/api/sshfile/list', { method: 'POST', body: JSON.stringify({ serverId, path }) }),
+  // 流式下载(进度):完成返回 Blob(content-length 缺失 → total=0 不确定态)
+  downloadStream: ({ serverId, path }, { onProgress, signal } = {}) =>
+    platformHttp.downloadStream('/api/sshfile/download', { body: { serverId, path }, onProgress, signal }),
+  // 流式上传(进度):元信息查询串 + 原始文件体
+  uploadStream: ({ serverId, path, name }, file, { onProgress, signal } = {}) => {
+    const q = new URLSearchParams({ serverId, path, name })
+    return platformHttp.uploadBinary(`/api/sshfile/upload?${q}`, file, { onProgress, signal })
+  },
+}
+
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。
 export const podDebugApi = {
   attach: payload => k8sHttp.request('/api/pod/debug', { method: 'POST', body: JSON.stringify(payload) }),
@@ -365,6 +389,45 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
   }
   return {
     send: data => frame(1, data),
+    resize: ({ cols, rows }) => frame(2, JSON.stringify({ cols, rows })),
+    close: () => { try { ws.close() } catch { /* noop */ } },
+    get isOpen() { return ws.readyState === 1 },
+  }
+}
+
+// SSH 终端双向通道:浏览器 WS ↔ 网关保活会话(浏览器断开不杀 shell,~10min 保活窗口)。
+// 帧同 exec + 下行 6=回放(重连同 sid 时网关先发快照再续直播);上行 1=stdin、2=resize。鉴权走平台 token。
+export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdout, onReplay, onError, onClose } = {}) {
+  const token = getPlatformToken()
+  const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
+  const host = globalThis.location?.host || '127.0.0.1:8787'
+  const params = new URLSearchParams({ serverId, sid, cols: String(cols), rows: String(rows) })
+  if (token) params.set('session', token)
+  const ws = new WebSocket(`${proto}://${host}/api/ssh/terminal?${params}`)
+  ws.binaryType = 'arraybuffer'
+  const utf8 = new TextDecoder()
+  ws.onmessage = ev => {
+    const buf = new Uint8Array(ev.data)
+    if (!buf.length) return
+    const type = buf[0]
+    const payload = buf.subarray(1)
+    if (type === 1) onStdout?.(payload)
+    else if (type === 6) onReplay?.(payload)
+    else if (type === 4) onError?.(utf8.decode(payload))
+  }
+  ws.onerror = () => onError?.(i18n.global.t('ssh.sessionTerminated'))
+  ws.onclose = () => onClose?.()
+  const encoder = new TextEncoder()
+  function frame(type, data) {
+    if (ws.readyState !== 1) return
+    const body = typeof data === 'string' ? encoder.encode(data) : data
+    const out = new Uint8Array(body.length + 1)
+    out[0] = type
+    out.set(body, 1)
+    ws.send(out.buffer)
+  }
+  return {
+    send: d => frame(1, d),
     resize: ({ cols, rows }) => frame(2, JSON.stringify({ cols, rows })),
     close: () => { try { ws.close() } catch { /* noop */ } },
     get isOpen() { return ws.readyState === 1 },

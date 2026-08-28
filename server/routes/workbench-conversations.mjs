@@ -4,6 +4,7 @@
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
 import { registry } from '../tool-registry.mjs'
+import { listSshServers } from '../ssh/store.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -97,6 +98,18 @@ export function createWorkbenchConvRoutes(deps) {
     return { ctx: `${REFS_CTX_HEADER}${blocks.join('\n\n')}`, resources }
   }
 
+  // 提示词可用的 SSH 清单(仅 id/name/description/clusterRef,凭据不进 prompt)。
+  // 防御式:ssh_servers 表可能尚未建(旧库/测试夹具)——SSH 清单不可用不该让对话创建
+  // 或 admin 预览整体 500,失败降级为空清单(= 提示词无 SSH 段,零暴露语义不变)。
+  function sshPromptServers() {
+    try {
+      return listSshServers(db, { exposedOnly: true }).map(s => ({ id: s.id, name: s.name, description: s.description, clusterRef: s.clusterRef }))
+    } catch (e) {
+      console.error('[wb-conversations] SSH 清单读取失败,提示词按无 SSH 服务器装配:', e?.message || e)
+      return []
+    }
+  }
+
   // 匹配工作台对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   // 注:原 index.mjs 各分支用 `return sendJson(...)` 早退 + 终结响应;此处等价改为
   // `sendJson(...); return true`(sendJson 已 res.end,只需告知 dispatcher 已处理)。
@@ -107,8 +120,9 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const cfg = getWorkbenchAiConfig(db)
       const disabled = new Set(cfg.disabledTools)
+      const sshServers = sshPromptServers()
       sendJson(res, 200, {
-        effectivePrompt: buildWorkbenchSystemPrompt(cfg),
+        effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers }),
         tools: registry.workbenchTools().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
         additionalInstructions: cfg.additionalInstructions,
         model: getLlmConfig().model,
@@ -134,7 +148,8 @@ export function createWorkbenchConvRoutes(deps) {
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
-        const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
+        const sshServers = sshPromptServers()
+        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers })
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。

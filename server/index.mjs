@@ -45,6 +45,13 @@ import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
+import { createSshRoutes } from './ssh/routes.mjs'
+import { ensureSshSchema } from './ssh/store.mjs'
+import { loadOrCreateKey } from './ssh/crypt.mjs'
+import { createSshPool } from './ssh/pool.mjs'
+import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
+import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
+import { attachSocketToSession, broadcastToSockets } from './ssh/terminal-wire.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -159,6 +166,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
 )`)
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
+// SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
+ensureSshSchema(db)
+const sshCryptKey = loadOrCreateKey(join(dirname(dbPath), 'ssh-crypt.key'))
+// SSH 连接池(Task 5):试连走真 ssh2;row=null(未保存表单)时 creds 即表单,池内归一为表单行
+const sshPool = createSshPool({ db, key: sshCryptKey })
+const sshTestConnection = (row, creds) => sshPool.testConnection(row || creds, row ? null : creds)
 // === 审计日志(按人审计 + 链哈希,codex #9) ===
 // seq AUTOINCREMENT:单调序号(链锚点 + 排序,行 id 不重用)。
 // status:started(执行前先写,崩溃可追溯)→ finalized(执行后补结果)。codex #9 的两阶段。
@@ -184,6 +197,11 @@ function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_se
 // Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
 function getPodfileLimitBytes() {
   const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
+  return mb * 1024 * 1024
+}
+// SSH 文件传输限额(单文件,上传下载共用):默认 512MB,admin 可经设置调整(键 sshfile.limitMb)
+function getSshfileLimitBytes() {
+  const mb = limitMbFromValue(getSetting('sshfile.limitMb')) ?? 512
   return mb * 1024 * 1024
 }
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
@@ -740,7 +758,7 @@ function buildKubeConfig(KubeConfig, session) {
 
 // exec 浏览器↔网关 二进制帧首字节（流标识），客户端按首字节解帧
 const CH_STDIN = 1, CH_RESIZE = 2
-const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5
+const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5, CH_REPLAY = 6   // 6 = ssh 终端重连快照(直播前发)
 
 // 把 exec 的 stdout/stderr 字节流写入浏览器 WS（带通道前缀）；
 // 兼具「可缩放」语义（rows/columns + resize 事件）以触发 client-node 自动转发终端尺寸。
@@ -1379,6 +1397,9 @@ async function handle(req, res) {
           }
         },
       },
+      // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 工具经 agent-runner ctx.ssh 到达;
+      // 池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbench-agent 会 excludeTools 隐藏两工具。
+      ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id }),
       k8sSession,
     }
   }
@@ -1447,6 +1468,8 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
+  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes })
+  if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return
@@ -2049,10 +2072,106 @@ const httpServer = createServer((req, res) => {
   })
 })
 
-// WebSocket 升级：仅 /api/exec（exec 终端需要双向通道）
+// ===== SSH 服务器终端(/api/ssh/terminal) =====
+// 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
+const sshTerminals = createTerminalRegistry({ idleReapMs: Number(process.env.SSH_IDLE_REAP_MS || 10 * 60 * 1000) })
+// 60s 空闲 sweep:关 channel + 释放池句柄 + 审计(条目只含 serverId/sid/用户名,无凭据)
+setInterval(() => sshTerminals.reapIdle(s => {
+  try { s.extra.channel?.close?.() } catch {}
+  try { s.extra.release?.() } catch {}
+  writeAudit(db, { owner: s.userId, verb: 'close', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
+}), 60000).unref?.()
+// 池本身无内置定时器:同频 sweep 连接池空闲句柄
+setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
+
+async function handleSshTerminal(ws, ps, url) {
+  const serverId = url.searchParams.get('serverId')
+  const sid = url.searchParams.get('sid') || crypto.randomUUID()
+  const cols = Math.min(Math.max(parseInt(url.searchParams.get('cols')) || 80, 20), 500)
+  const rows = Math.min(Math.max(parseInt(url.searchParams.get('rows')) || 24, 5), 300)
+  if (!serverId) { wsSend(ws, CH_ERROR, 'missing serverId'); return ws.close() }
+  try {
+    // 已有会话(刷新重连):复用 channel,只回放+接线
+    let session = sshTerminals.get(sid)
+    if (!session) {
+      const { client, release } = await sshPool.acquire(serverId, ps.userId)
+      let shellOk, shellFail
+      const ready = new Promise((res, rej) => { shellOk = res; shellFail = rej })
+      // 先 ensure 再开 shell:打开窗口期进来的第二个连接走重连分支,await extra.ready 等同一结果
+      session = sshTerminals.ensure(sid, { serverId, userId: ps.username },
+        () => ({ ready, sockets: new Set() }))
+      // 竞态守卫:get 判空到 ensure 之间隔着整个 await acquire(最长 15s 握手)。若 ensure
+      // 返回的是并发首连方 factory 产出的会话(extra.ready !== 自己的 ready),本连接非属主:
+      // 立即归还自己多余的池句柄(不覆盖 extra.release,否则首连方引用永不归零),转走
+      // 「等首连 ready」路径——同一 sid 永远只有一条 shell 通道、一个有效 release(2026-08-28 修复)。
+      if (session.extra.ready !== ready) {
+        try { release() } catch { /* noop */ }
+        try { await session.extra.ready } catch (e) {
+          wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+          try { ws.close() } catch {}
+          return
+        }
+      } else {
+      session.extra.release = release
+      client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
+        if (err) return shellFail(err)
+        session.extra.channel = channel
+        // 直播帧广播到该会话所有附加浏览器(不能闭包死绑首个 ws——否则重连者无直播)
+        channel.on('data', d => { session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
+        channel.stderr?.on?.('data', d => { session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
+        channel.on('close', () => {
+          broadcastToSockets(session, wsSend, CH_ERROR, 'channel closed')
+          for (const s of session.extra.sockets) { try { s.close() } catch {} }
+          session.extra.sockets.clear()
+          // shell 已死:撤登记+还池句柄;重连同 sid 走全新会话(否则会接到死 channel 挂死)
+          sshTerminals.close(sid, s => s.extra.release?.())
+        })
+        shellOk()
+      })
+      try { await ready } catch (shellErr) {
+        // 首连失败清理:ensure 已登记、release 已挂,须撤登记+还池句柄,防泄漏
+        // (窗口期进来的第二个连接 await 同一个 ready 被拒,自然收 ERROR,不动已删会话)
+        sshTerminals.close(sid, s => s.extra.release?.())
+        throw shellErr
+      }
+      writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+      }
+    } else if (!session.extra.channel) {
+      // 首连 shell 打开窗口期进来的连接:等首连方开 shell 的结果;失败则本 ws 收 ERROR,会话归首连方收尾
+      try { await session.extra.ready } catch (e) {
+        wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+        try { ws.close() } catch {}
+        return
+      }
+    }
+    sshTerminals.attach(sid)
+    // 回放 → 直播:snapshot 先发、再注册进 sockets——单线程内顺序成立,无竞态
+    attachSocketToSession(ws, session, {
+      send: wsSend,
+      touch: () => sshTerminals.touch(sid),
+      onDetach: () => sshTerminals.detachBrowser(sid),
+      types: { stdin: CH_STDIN, resize: CH_RESIZE, replay: CH_REPLAY },
+    })
+  } catch (e) {
+    wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+    try { ws.close() } catch {}
+  }
+}
+
+// WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)
 const wsServer = new WebSocketServer({ noServer: true })
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+  if (url.pathname === '/api/ssh/terminal') {
+    const token = url.searchParams.get('session')
+    const ps = token ? platformSessions.get(token) : null
+    if (!ps || Date.now() - ps.createdAt > sessionTtl) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    return wsServer.handleUpgrade(req, socket, head, ws => handleSshTerminal(ws, ps, url))
+  }
   if (url.pathname !== '/api/exec') { socket.destroy(); return }
   const token = url.searchParams.get('session')
   const session = token ? sessions.get(token) : null

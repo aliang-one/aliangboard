@@ -84,7 +84,8 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
-  // needsApproval(name) => bool:写工具遇 checkpoint(不自动执行,交人审)
+  // needsApproval(name, args) => bool | Promise<bool>:写工具遇 checkpoint(不自动执行,交人审);
+  //   可异步(runner 注入 dynamicApproval 按运行时策略裁决,如 SSH 按服务器放宽)
   // run({ system, history, onStep, resume }):
   //   resume = { messages, queue, denied, steps, toolCallId, approved } —— 续跑某个 pending 写工具
 
@@ -124,7 +125,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         const isResumeTarget = resumeToolCallId && id === resumeToolCallId
 
         // 写操作且非本次 resume 目标 → checkpoint,把队列(含本条)交还客户端
-        if (needsApproval(name) && !isResumeTarget) {
+        if (await needsApproval(name, args) && !isResumeTarget) {
           return { status: 'pending_approval', messages, pending: { toolCallId: id, name, args }, queue: [...queue], denied, steps }
         }
 
@@ -132,7 +133,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         resumeToolCallId = null // 该 resume 已消费(后续同队列的写工具会再次 checkpoint)
 
         // 写工具走到这说明它是被批准的 resume 目标;被拒则记 denied 喂回 LLM
-        if (needsApproval(name) && !resumeApproved) {
+        if (await needsApproval(name, args) && !resumeApproved) {
           denied.push({ name, args })
           messages.push({ role: 'tool', tool_call_id: id, content: `用户拒绝了该操作(${name})` })
           onStep?.({ type: 'denied', name, args, ts: Date.now() })

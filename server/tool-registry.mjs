@@ -173,6 +173,16 @@ const WB = [
     promptHint: '容器内一次性诊断命令(30s 超时,非交互)。Service 通不通(nc -zv / curl)、DB 连不连得上(mysql -e \'select 1\')、进程/端口(ps / netstat)。命令会展示给用户,人批了才跑;一句话说明跑它要验证什么。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '非交互命令,如 "nc -zv mysql-svc 3306"、"curl -s -o /dev/null -w \\"%{http_code}\\" http://svc:80/healthz"' } }, required: ['namespace', 'pod', 'command'] },
     exec: async (ctx, args) => { try { return await ctx.wb.execInPod(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_exec', requiresApproval: true,
+    description: '在平台托管的 SSH 服务器上执行一次性命令(非交互,默认 30s 超时,stdout 截 32KB)。服务器由用户预先配置并授权;凭据对 AI 不可见,server 用服务器名称。审批策略随服务器配置(必审/只读免审/免审)。不适用于 tail -f 等长驻命令。',
+    promptHint: 'SSH 服务器上执行一次性诊断命令(30s 超时)。用户说"去某台服务器看看/查一下/重启个服务"时用;server=服务器名称;命令按该服务器策略可能展示给用户审批。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称(见系统提示清单)' }, command: { type: 'string', description: '非交互命令,如 "df -h"、"systemctl status nginx"' }, timeoutSec: { type: 'number', description: '默认 30,上限 120' }, sudo: { type: 'boolean', description: 'true=以 sudo 执行(需该服务器已存 sudo 密码)' } }, required: ['server', 'command'] },
+    exec: async (ctx, args) => { try { return await ctx.ssh.exec(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_read_file', requiresApproval: true,
+    description: '读取平台托管 SSH 服务器上的文件(SFTP,只读,默认 64KB 上限,最大 1MB)。凭据对 AI 不可见。看远端配置文件/日志用。',
+    promptHint: '读 SSH 服务器上文件(SFTP 只读,默认 64KB)。排查远端配置/日志时用;server=服务器名称。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称' }, path: { type: 'string', description: '绝对路径,如 /etc/nginx/nginx.conf' }, maxBytes: { type: 'number' } }, required: ['server', 'path'] },
+    exec: async (ctx, args) => { try { return await ctx.ssh.readFile(args) } catch (e) { return { error: e.message } } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]

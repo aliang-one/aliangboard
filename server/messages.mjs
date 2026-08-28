@@ -11,8 +11,9 @@ import { TABLE as auth } from './messages/auth.mjs'
 import { TABLE as admin } from './messages/admin.mjs'
 import { TABLE as wbc } from './messages/wbc.mjs'
 import { TABLE as wbp } from './messages/wbp.mjs'
+import { TABLE as ssh } from './messages/ssh.mjs'
 
-export const tables = { ...api, ...auth, ...admin, ...wbc, ...wbp }
+export const tables = { ...api, ...auth, ...admin, ...wbc, ...wbp, ...ssh }
 
 // en 开头（en / en-US / en-GB…）→ en；其余（含无头/zh）→ zh
 export function pickLang(req) {
