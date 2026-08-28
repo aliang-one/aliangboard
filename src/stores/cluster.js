@@ -17,6 +17,10 @@ import { applyWatchEvent } from '@/composables/useK8sQuery'
 import { createWatchController } from '@/composables/useClusterWatch'
 import { createYamlDomain } from './cluster/yaml'
 import { createCrudDomain } from './cluster/crud'
+import { createWatchDomain } from './cluster/watch'
+import { createMetricsDomain } from './cluster/metrics'
+import { createRbacDomain } from './cluster/rbac'
+import { createClustersDomain } from './cluster/clusters'
 export { hpaPatchFn } from './cluster/crud'
 import { invalidateResource, invalidateAllClusterQueries } from './cluster/invalidate'
 import { recordListRv, getListRv, clearWatchRegistry } from '@/composables/watchRegistry'
@@ -61,7 +65,6 @@ export const useClusterStore = defineStore('cluster', () => {
   const currentCluster = ref('')
   const connectionState = ref('')
   // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
-  let prevClusterMetrics = { cpu: null, mem: null }
   // Pod/Event Watch 兼容布尔（旧消费方 NsPods/NsEvents/AuditLogs/MonitoringCenter 读）；
   // 真值现由 watchStates 驱动（见下方 Workload 族 Watch 区块）
   const podWatchLive = ref(false)
@@ -93,6 +96,18 @@ export const useClusterStore = defineStore('cluster', () => {
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     deleteWorkload, getWorkloadForEdit, updateWorkload } = createCrudDomain({ aliangTag, currentCluster, namespaceList, fetchWorkload, generateYAML, generateExtraYAML })
+
+  // === Watch 域(Plan 5 第二波,./cluster/watch.js):多路复用 watch + 状态机 ===
+  const { watchStates, startWorkloadFamilyWatch, stopWorkloadFamilyWatch, watchStateOf, startPodWatch, stopPodWatch, startEventWatch, stopEventWatch } = createWatchDomain({ currentCluster, podWatchLive, eventWatchLive })
+
+  // === 指标域(./cluster/metrics.js):refreshMetrics + 15min 采样器 + computeClusterMetrics ===
+  const { refreshMetrics, computeClusterMetrics, cpuSamples, memSamples, metricsSampling, metricsLastRefresh, startMetricsSampling, stopMetricsSampling, sampleNow, setMetricsHold, reloadMetricsWindow: _metricsReloadWindow } = createMetricsDomain({ cluster, clusterList, currentCluster, nodeList, namespaceList })
+
+  // === RBAC 域(./cluster/rbac.js):Role 手写 CRUD + checkAccess 本地推演 ===
+  const { addRole, updateRole, deleteRole, checkAccess } = createRbacDomain({ remoteCreate, remoteUpdate, generateYAML })
+
+  // === 多集群域(./cluster/clusters.js):switchCluster/连接登记 + 端口转发 ===
+  const { switchCluster, removeSavedClusterStore, setConnectedCluster, portForwards, addPortForward, removePortForward, refreshPortForwards } = createClustersDomain({ cluster, activeApiServerRef, apiReachable, connectionState, currentCluster, currentNamespace, savedClusters, hydrateCriticalResources, startWorkloadFamilyWatch, stopWorkloadFamilyWatch, startHealthCheck, setMetricsHold, metricsReloadWindow: _metricsReloadWindow })
   // === Namespace 作用域的计算属性 ===
 
   // === Actions ===
@@ -358,298 +373,11 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   function stopHealthCheck() { if (healthTimer) clearInterval(healthTimer); healthTimer = null }
 
-  // === Workload 族 Watch：多路复用单通道(网关 /api/k8s-watch)增量写 Vue Query canonical key ===
-  // spec §5.3:deployments/statefulsets/daemonsets 三流 merge 进同一 'workloads' key;
-  // 断线由 createWatchController 退避重连/410 relist/降级轮询接管。
-  // 下面的 controllerFor 直连流仅供旧手动开关(startPodWatch 等)使用,family 主路走 familyChannel。
-  const WATCH_CONFIGS = [
-    { key: 'pods', queryKey: 'pods', watchPath: '/api/v1/pods', mapFn: mapPod },
-    { key: 'events', queryKey: 'events', watchPath: '/api/v1/events', mapFn: mapEvent },
-    { key: 'deployments', queryKey: 'workloads', watchPath: '/apis/apps/v1/deployments', mapFn: i => mapWorkload(i, 'Deployment') },
-    { key: 'statefulsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/statefulsets', mapFn: i => mapWorkload(i, 'StatefulSet') },
-    { key: 'daemonsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/daemonsets', mapFn: i => mapWorkload(i, 'DaemonSet') },
-    { key: 'services', queryKey: 'services', watchPath: '/api/v1/services', mapFn: mapService },
-    { key: 'ingresses', queryKey: 'ingresses', watchPath: '/apis/networking.k8s.io/v1/ingresses', mapFn: mapIngress },
-  ]
-  const watchStates = reactive(Object.fromEntries(WATCH_CONFIGS.map(c => [c.key, 'off'])))
-  const watchControllers = new Map()
-
-  function relistQueryKey(queryKey) {
-    return queryClient.refetchQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === queryKey })
-  }
-
-  function controllerFor(cfg) {
-    if (watchControllers.has(cfg.key)) return watchControllers.get(cfg.key)
-    const ctl = createWatchController({
-      connect: ({ onOpen, onError, onClose }) => {
-        const rv = getListRv(cfg.watchPath)
-        return k8sStream(`${cfg.watchPath}?watch=true${rv ? `&resourceVersion=${encodeURIComponent(rv)}` : ''}`, {
-          onOpen,
-          onClose,
-          onError,
-          onMessage: line => {
-            try {
-              const evt = JSON.parse(line)
-              if (evt.object?.metadata?.resourceVersion) recordListRv(cfg.watchPath, evt.object.metadata.resourceVersion)
-              const _cid = currentCluster.value || 'cluster'
-              queryClient.setQueryData(['cluster', _cid, cfg.queryKey], old => applyWatchEvent(old || [], evt.type, cfg.mapFn(evt.object)))
-            } catch { /* 忽略非 JSON 心跳行 */ }
-          },
-        })
-      },
-      relist: () => relistQueryKey(cfg.queryKey),
-      onState: s => {
-        watchStates[cfg.key] = s
-        if (cfg.key === 'pods') podWatchLive.value = s === 'live'
-        if (cfg.key === 'events') eventWatchLive.value = s === 'live'
-      },
-    })
-    watchControllers.set(cfg.key, ctl)
-    return ctl
-  }
-
-  // === 多路复用单通道:7 watch 归 1 连接(根治浏览器 HTTP/1.1 同源 6 连接上限饿死) ===
-  // 网关 /api/k8s-watch 聚合 7 路上游为单条 NDJSON;每行 {r,t,o} 或 {r,err}。
-  // 任一路 {r,err}(含 RV 失效 410)时网关整条关闭 → 这里 relist 该资源拿新 RV 再重连。
-  let familyChannelHandle = null
-  let familyChannelEnded = false   // err 行已触发 abort 后防重复处理
-  let familyChannelNotify = null   // connect 注入的 { onError, onClose },err 行 abort 后显式通知控制器
-
-  function handleChannelLine(line) {
-    if (familyChannelEnded) return
-    let evt
-    try { evt = JSON.parse(line) } catch { return /* 心跳/非 JSON 行 */ }
-    if (!evt || !evt.r) return
-    const cfg = WATCH_CONFIGS.find(c => c.key === evt.r)
-    if (evt.err) {
-      // 上游失败(含 410 RV 失效):relist 该资源拿新 RV,再关掉通道交给控制器重连。
-      // 注意:k8sChannel 的 abort 是静默的(不会回调 onClose),控制器必须被显式通知,
-      // 否则 err 行后永不重连。410 走 onError({status:410}) 的不计失败 relist 路径
-      // (RV 过期是正常生命周期,计失败会在 churn 下误降级);其余 err 走 onClose 计失败退避。
-      if (!cfg) return
-      familyChannelEnded = true
-      relistQueryKey(cfg.queryKey)          // fire-and-forget:refetch 刷新注册表 RV,重连即可续接
-      familyChannelHandle?.abort()
-      if (evt.err === 410) familyChannelNotify?.onError?.({ status: 410 })
-      else familyChannelNotify?.onClose?.()
-      return
-    }
-    if (!cfg || !evt.t) return
-    recordListRv(cfg.watchPath, evt.o?.metadata?.resourceVersion)
-    const _cid = currentCluster.value || 'cluster'
-    queryClient.setQueryData(['cluster', _cid, cfg.queryKey], old => applyWatchEvent(old || [], evt.t, cfg.mapFn(evt.o)))
-  }
-
-  const familyChannel = createWatchController({
-    connect: ({ onOpen, onError, onClose }) => {
-      familyChannelEnded = false
-      familyChannelNotify = { onError, onClose }
-      const rvParams = WATCH_CONFIGS
-        .map(c => { const rv = getListRv(c.watchPath); return rv ? `&rv_${c.key}=${encodeURIComponent(rv)}` : '' })
-        .join('')
-      familyChannelHandle = k8sChannel(`/api/k8s-watch?resources=${WATCH_CONFIGS.map(c => c.key).join(',')}${rvParams}`, {
-        onOpen,
-        onError,
-        onClose,
-        onMessage: handleChannelLine,
-      })
-      return familyChannelHandle
-    },
-    // HTTP 410(整条通道层)→ 全家族 relist
-    relist: () => Promise.all([...new Set(WATCH_CONFIGS.map(c => c.queryKey))].map(relistQueryKey)),
-    // mux 下 7 资源同生共死:状态联动写全 7 key + pods/events live refs
-    onState: s => {
-      for (const cfg of WATCH_CONFIGS) {
-        watchStates[cfg.key] = s
-        if (cfg.key === 'pods') podWatchLive.value = s === 'live'
-        if (cfg.key === 'events') eventWatchLive.value = s === 'live'
-      }
-    },
-  })
-
-  // 多路 watch 总开关(默认开):watchFamily 现走多路复用单连接(网关 /api/k8s-watch),
-  // 浏览器只占 1 条常驻连接,无 6 连接上限风险。'0' 为 kill-switch:强制回落轮询世界(60s 兜底)。
-  function watchFamilyEnabled() {
-    try { return localStorage.getItem('aliangboard.watchFamily') !== '0' } catch { return true }
-  }
-  function startWorkloadFamilyWatch() {
-    if (!watchFamilyEnabled()) return
-    familyChannel.start()
-  }
-  function stopWorkloadFamilyWatch() {
-    familyChannel.stop()
-    familyChannelHandle = null
-    for (const ctl of watchControllers.values()) ctl.stop()
-    clearWatchRegistry()
-  }
-  // canonical queryKey 聚合态:全 live 才 live;任一 degraded 即 degraded
-  function watchStateOf(queryKey) {
-    const ss = WATCH_CONFIGS.filter(c => c.queryKey === queryKey).map(c => watchStates[c.key])
-    if (!ss.length || ss.every(s => s === 'off')) return 'off'
-    if (ss.some(s => s === 'degraded')) return 'degraded'
-    if (ss.some(s => s === 'reconnecting')) return 'reconnecting'
-    if (ss.every(s => s === 'live')) return 'live'
-    return 'off'
-  }
-  // 旧入口兼容(NsPods toggleLive / NsEvents / AuditLogs / MonitoringCenter 既存调用点)
-  // 注意:family 通道已携带这些资源的事件,这些手动开关只控制「额外」的单资源直连流。
-  function startPodWatch() { controllerFor(WATCH_CONFIGS[0]).start() }
-  function stopPodWatch() { controllerFor(WATCH_CONFIGS[0]).stop() }
-  function startEventWatch() { controllerFor(WATCH_CONFIGS[1]).start() }
-  function stopEventWatch() { controllerFor(WATCH_CONFIGS[1]).stop() }
   // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
 
-  // 轻量 metrics 刷新：只重拉 metrics.k8s.io nodes+pods → 就地更新现有 nodeList 指标字段 → 重算集群汇总。
-  // 供监控中心高频轮询；不重拉 nodes/pods 列表（结构不变）。失败静默（保留上次 metricsAvailable，下次全量 hydrate 纠正）。
-  async function refreshMetrics() {
-    try {
-      const [nodeMetricsData, podMetricsData] = await Promise.all([
-        api.k8s('/apis/metrics.k8s.io/v1beta1/nodes'),
-        api.k8s('/apis/metrics.k8s.io/v1beta1/pods'),
-      ])
-      const metricsAvailable = Boolean(nodeMetricsData && podMetricsData)
-      const nodeMetricMap = new Map()
-      for (const it of (nodeMetricsData?.items || [])) nodeMetricMap.set(it.metadata?.name, { cpuMilli: cpuToMilli(it.usage?.cpu), memKi: memToKi(it.usage?.memory) })
-      const podMetricMap = new Map()
-      for (const it of (podMetricsData?.items || [])) {
-        let cpuMilli = 0, memKi = 0
-        for (const c of (it.containers || [])) { cpuMilli += cpuToMilli(c.usage?.cpu); memKi += memToKi(c.usage?.memory) }
-        podMetricMap.set(`${it.metadata?.namespace}/${it.metadata?.name}`, { cpuMilli, memKi })
-      }
-      const pct = (used, alloc) => (used != null && alloc > 0 ? Math.min(100, Math.round((used / alloc) * 100)) : null)
-      for (const n of nodeList.value) {
-        const m = metricsAvailable ? (nodeMetricMap.get(n.name) || null) : null
-        n.usedCpu = m ? m.cpuMilli : null
-        n.usedMem = m ? m.memKi : null
-        n.cpu = pct(n.usedCpu, n.allocCpu)
-        n.memory = pct(n.usedMem, n.allocMem)
-      }
-      // P2-B:pod 级指标不再写孤儿 podList——NsPods 等由 fetchPods 的 Query 轮询携带 podMetric;
-      // podMetricMap 仅用于 metricsAvailable 探测(pods metrics 端点可达性)。
-      computeClusterMetrics(metricsAvailable)
-    } catch { /* 静默：保留上次 metricsAvailable */ }
-  }
-
-  // === 集群指标采样(全局共享,15min 窗口按集群持久化) ===
-  // ClusterOverview/MonitoringCenter 引用计数共享:切页不清零、不双倍轮询;
-  // 恢复窗口来自 localStorage,图表首屏即有最近 15 分钟历史。
-  const cpuSamples = ref([])
-  const memSamples = ref([])
-  const metricsSampling = ref(false)
-  const metricsLastRefresh = ref(null)
-  let metricsTimer = null
-  let metricsConsumers = 0
-  let metricsVisListener = null
-  // 切集群竞态双守卫:
-  // - metricsEpoch:窗口代数。reloadMetricsWindow 真重载时 ++;tick 入口捕获、await 后
-  //   不等则丢弃本次 push/persist——杀变体 A(tick 挂起间切集群,恢复后旧集群值进新窗口/新 key)。
-  // - metricsHold:switchCluster 入口置 true、自身 finally 必清(hydrateCriticalResources
-  //   的 finally 也兜底清)。hold 期间 tick 直接 return——杀变体 B(nodeList 未换血前,
-  //   旧节点配新集群 metrics 算出 0% 假样本并持久化)。
-  let metricsEpoch = 0
-  let metricsHold = false
-  // 当前内存窗口所属集群:reloadMetricsWindow 同集群时跳过重载——隐私模式/配额下
-  // (localStorage 读写退化)页面导航 stop/start 不再清窗,会话内窗口得以延续。
-  const metricsWindowCluster = ref(null)
-
-  function metricsStorageKey() {
-    return currentCluster.value ? `aliangboard.metrics.${encodeURIComponent(currentCluster.value)}.v1` : null
-  }
-  function persistMetricsWindow() {
-    const key = metricsStorageKey()
-    if (!key) return
-    try { localStorage.setItem(key, JSON.stringify(persistPayload(cpuSamples.value, memSamples.value))) } catch { /* 配额/隐私模式:退化为会话内窗口 */ }
-  }
-  // 从 localStorage 恢复当前集群窗口(切集群/首个消费者上线时调用)。
-  // 窗口已属于当前集群时跳过:隐私模式/配额下导航不清窗(降级持久化模式)。
-  function reloadMetricsWindow() {
-    if (metricsWindowCluster.value === currentCluster.value) return
-    metricsEpoch++   // 翻代:挂起中的旧 tick 恢复后按代数不等自弃
-    const key = metricsStorageKey()
-    let cpu = [], mem = []
-    if (key) {
-      try {
-        const raw = JSON.parse(localStorage.getItem(key) || 'null')
-        const now = Date.now()
-        cpu = restoreSamples(raw?.cpu, { now })
-        mem = restoreSamples(raw?.mem, { now })
-      } catch { cpu = []; mem = [] }
-    }
-    cpuSamples.value = cpu
-    memSamples.value = mem
-    metricsLastRefresh.value = null
-    metricsWindowCluster.value = currentCluster.value
-  }
-  async function metricsTick() {
-    if (document.hidden) return
-    if (metricsSampling.value) return   // 重入守卫:慢 fetch 上一轮未完,本轮直接跳过(与 sampleNow 亦去重)
-    if (metricsHold) return             // 切集群水合中:不采样,防旧 nodeList 算出假样本
-    const epoch = metricsEpoch
-    metricsSampling.value = true
-    try {
-      await refreshMetrics()
-      if (epoch !== metricsEpoch) return   // await 间切了集群:丢弃本次 push/persist
-      const now = Date.now()
-      const cpu = cluster.value.cpuUsage
-      const mem = cluster.value.memoryUsage
-      if (cpu != null) cpuSamples.value = pushSample(cpuSamples.value, { t: now, v: cpu })
-      if (mem != null) memSamples.value = pushSample(memSamples.value, { t: now, v: mem })
-      if (cpu != null || mem != null) {
-        metricsLastRefresh.value = now
-        persistMetricsWindow()
-      }
-    } finally { metricsSampling.value = false }
-  }
-  function startMetricsSampling() {
-    metricsConsumers++
-    if (metricsConsumers === 1) {
-      reloadMetricsWindow()
-      metricsVisListener = () => { if (!document.hidden && metricsTimer) metricsTick() }
-      document.addEventListener('visibilitychange', metricsVisListener)
-      metricsTick()   // 立即一轮(不 await)
-      metricsTimer = setInterval(metricsTick, 10000)
-    }
-  }
-  function stopMetricsSampling() {
-    metricsConsumers = Math.max(0, metricsConsumers - 1)
-    if (metricsConsumers === 0) {
-      if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null }
-      if (metricsVisListener) { document.removeEventListener('visibilitychange', metricsVisListener); metricsVisListener = null }
-    }
-  }
-  function sampleNow() { return metricsTick() }
 
   // (NetworkPolicies / HPAs / ResourceQuotas / LimitRanges CRUD 已进工厂)
 
-  // === CRUD: RBAC (Role 手写——Cluster/Namespace 双 scope；ServiceAccount/RoleBinding 已进工厂)===
-  async function addRole(role) {
-    return remoteCreate(generateYAML('role', role), `${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'}/${role.name}`, () => invalidateResource('roles'))
-  }
-
-  async function updateRole(name, ns, updates) {
-    // Role 双 scope：优先 namespace Role，失败则试 ClusterRole
-    let cur = null
-    if (ns) cur = await fetchRole(name, ns).catch(() => null)
-    if (!cur) cur = await fetchClusterRole(name).catch(() => null)
-    if (!cur) { invalidateResource('roles'); return }
-    const merged = { ...cur, ...updates }
-    await remoteUpdate(generateYAML('role', merged), 'Role')
-    invalidateResource('roles')
-  }
-
-  async function deleteRole(name, ns) {
-    // P2-B:ns 空 = ClusterRole。旧版读孤儿 roleList 判 scope(恒 undefined)→ 删 ClusterRole
-    // 永远错走 namespaced 路径 404(RBAC 页 clusterrole 行的删除曾必失败)。
-    const path = ns
-      ? `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/roles/${encodeURIComponent(name)}`
-      : `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(name)}`
-    try {
-      await api.k8s(path, { method: 'DELETE' })
-      invalidateResource('roles') // fetchRoles 合并 roles+clusterroles,单 key 覆盖双端点
-    } catch (e) {
-      notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: `Role/${name}`, msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
-    }
-  }
 
   // (ServiceAccount / RoleBinding CRUD 已进工厂)
 
@@ -723,62 +451,6 @@ export const useClusterStore = defineStore('cluster', () => {
     await remoteDelete(`/api/v1/namespaces/${encodeURIComponent(name)}`, namespaceList, n => n.name === name)
   }
 
-  // === 多集群 ===
-  // 切换活跃集群：写入该集群 token 为活跃 → 重新水合（后端 session 仍在内存中即可直接复用）
-  async function switchCluster(apiServer) {
-    const c = savedClusters.value.find(x => x.apiServer === apiServer)
-    if (!c) return
-    metricsHold = true   // 水合期间挂起 tick(变体 B);try/finally 必清,不会永久卡死采样
-    try {
-      // 切集群前停止旧集群的实时监听并清空命名空间作用域，避免旧 ns 残留 / 旧 watch 带失效 token 报错
-      try { stopWorkloadFamilyWatch() } catch { /* 未启动时忽略 */ }
-      currentNamespace.value = ''
-      setActiveToken(c.token)
-      activeApiServerRef.value = c.apiServer
-      currentCluster.value = c.name
-      reloadMetricsWindow()   // epoch++:挂起中的旧 tick 恢复后自弃(变体 A)
-      cluster.value = { ...cluster.value, name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy' }
-      connectionState.value = 'loading'
-      try { queryClient.clear(); await hydrateCriticalResources() } catch { connectionState.value = 'error' }
-      apiReachable.value = true
-      startHealthCheck()
-      startWorkloadFamilyWatch()
-    } finally { metricsHold = false }
-  }
-  // 移除已保存集群
-  function removeSavedClusterStore(apiServer) {
-    // 孤儿清理:按 apiServer 反查集群 name,连带删该集群的 metrics 持久化窗口 key
-    const c = savedClusters.value.find(x => x.apiServer === apiServer)
-    if (c) {
-      try { localStorage.removeItem(`aliangboard.metrics.${encodeURIComponent(c.name)}.v1`) } catch { /* 静默:隐私模式等 */ }
-    }
-    removeSavedCluster(apiServer)
-    savedClusters.value = getSavedClusters()
-  }
-
-  function setConnectedCluster(info) {
-    // 先停旧 watch:换集群不灭旧流会留 7 条僵尸连接(与 switchCluster 对称)
-    try { stopWorkloadFamilyWatch() } catch { /* noop */ }
-    connectionState.value = 'loading'
-    let name = info.name
-    try { name = name || new URL(info.apiServer).hostname } catch { name = name || info.apiServer }
-    // 持久化到「已保存集群」（多集群）：token 取当前活跃会话
-    addSavedCluster({ name, apiServer: info.apiServer, token: getSessionToken(), version: info.version, authMethod: info.authMethod })
-    savedClusters.value = getSavedClusters()
-    activeApiServerRef.value = info.apiServer
-    currentCluster.value = name
-    reloadMetricsWindow()
-    cluster.value = {
-      ...cluster.value,
-      name,
-      apiServer: info.apiServer,
-      version: info.version || cluster.value.version,
-      status: 'Healthy',
-    }
-    apiReachable.value = true
-    startHealthCheck()
-    startWorkloadFamilyWatch()
-  }
 
   async function fetchCRDs() { const d = await api.k8s('/apis/apiextensions.k8s.io/v1/customresourcedefinitions?limit=500'); return (d?.items || []).map(mapCRD) }
   async function fetchCRD(name) { const d = await api.k8s(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${encodeURIComponent(name)}`); return d ? mapCRD(d) : null }
@@ -816,44 +488,6 @@ export const useClusterStore = defineStore('cluster', () => {
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
   // 入参 metricsAvailable：调用前 nodeList 的 metric 字段须已就绪
   // （hydrate 经 mapNode/mapPod 设置；refreshMetrics 就地更新）。hydrate 与 refreshMetrics 共用本函数。
-  function computeClusterMetrics(metricsAvailable) {
-    let cpuUsage = null, memoryUsage = null
-    if (metricsAvailable) {
-      let usedCpu = 0, allocCpu = 0, usedMem = 0, allocMem = 0
-      for (const n of nodeList.value) {
-        if (n.usedCpu != null) usedCpu += n.usedCpu
-        if (n.allocCpu > 0) allocCpu += n.allocCpu
-        if (n.usedMem != null) usedMem += n.usedMem
-        if (n.allocMem > 0) allocMem += n.allocMem
-      }
-      cpuUsage = allocCpu > 0 ? Math.min(100, Math.round((usedCpu / allocCpu) * 100)) : null
-      memoryUsage = allocMem > 0 ? Math.min(100, Math.round((usedMem / allocMem) * 100)) : null
-    }
-    const trendOf = (cur, prev) => {
-      if (cur == null || prev == null) return { trend: '—', up: false }
-      const d = cur - prev
-      return { trend: (d >= 0 ? '+' : '') + d.toFixed(1) + '%', up: d > 0 }
-    }
-    const cpuT = trendOf(cpuUsage, prevClusterMetrics.cpu)
-    const memT = trendOf(memoryUsage, prevClusterMetrics.mem)
-    prevClusterMetrics = { cpu: cpuUsage, mem: memoryUsage }
-    const _cid = currentCluster.value || 'cluster'
-    const counts = deriveClusterCounts({
-      nodes: queryClient.getQueryData(['cluster', _cid, 'nodes']),
-      pods: queryClient.getQueryData(['cluster', _cid, 'pods']),
-      events: queryClient.getQueryData(['cluster', _cid, 'events']),
-    })
-    cluster.value = {
-      ...cluster.value,
-      nodeCount: counts.nodeCount ?? nodeList.value.length,
-      podCount: counts.podCount ?? 0,
-      activeEvents: counts.activeEvents ?? 0,
-      metricsAvailable,
-      cpuUsage, memoryUsage,
-      cpuTrend: cpuT.trend, cpuTrendUp: cpuT.up,
-      memoryTrend: memT.trend, memoryTrendUp: memT.up,
-    }
-  }
 
   // 关键路径水合：仅 namespaces + nodes（2 请求），替代原 12 路全量 hydrateCoreResources。
   // clusterHealth 只需 nodeList（Ready/controlPlane），不需 metrics。
@@ -888,91 +522,14 @@ export const useClusterStore = defineStore('cluster', () => {
       // if (!opts.lite) { try { await hydrateExtendedResources() } catch (e) { ... } }
       if (!opts.silent) connectionState.value = 'connected'
       return { failed: requests.filter(r => r.status === 'rejected').length }
-    } finally { metricsHold = false }   // 兜底:任何置 hold 后走水合的路径,水合结束必释放
+    } finally { setMetricsHold(false) }   // 兜底:任何置 hold 后走水合的路径,水合结束必释放
   }
 
   function getCurrentCluster() {
     return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
   }
 
-  // === 端口转发（kubectl port-forward 语义）===
-  const portForwards = ref([])
-  async function addPortForward({ kind, name, namespace, port, localPort }) {
-    const fwd = await portForwardApi.create({ kind, name, namespace, port, localPort })
-    const pf = { id: fwd.id, kind, name, namespace, port, pod: fwd.pod, targetPort: fwd.targetPort, localPort: fwd.localPort, host: fwd.host, status: 'Forwarding' }
-    portForwards.value.push(pf)
-    return pf
-  }
-  async function removePortForward(id) {
-    try { await portForwardApi.remove(id) } catch { /* 已停止或会话过期 */ }
-    const idx = portForwards.value.findIndex(p => p.id === id)
-    if (idx !== -1) portForwards.value.splice(idx, 1)
-  }
-  async function refreshPortForwards() {
-    try {
-      const { forwards } = await portForwardApi.list()
-      portForwards.value = forwards.map(f => ({
-        id: f.id, kind: f.kind, name: f.name, namespace: f.namespace,
-        port: f.targetPort, pod: f.pod, targetPort: f.targetPort, localPort: f.localPort, host: f.host, status: 'Forwarding',
-      }))
-    } catch { /* 忽略 */ }
-  }
 
-  // === RBAC 权限模拟（kubectl auth can-i 语义）===
-  // 根据 subject 匹配的 RoleBinding/ClusterRoleBinding → Role/ClusterRole 的 rules，
-  // 判断该 subject 能否对指定 resource 执行指定 verb。纯前端基于本地缓存数据推演。
-  const RESOURCE_TO_APIGROUP = {
-    pods: '', services: '', configmaps: '', secrets: '', endpoints: '', namespaces: '', nodes: '',
-    persistentvolumeclaims: '', persistentvolumes: '',
-    deployments: 'apps', statefulsets: 'apps', daemonsets: 'apps', replicasets: 'apps',
-    ingresses: 'networking.k8s.io', networkpolicies: 'networking.k8s.io',
-    roles: 'rbac.authorization.k8s.io', rolebindings: 'rbac.authorization.k8s.io',
-    clusterroles: 'rbac.authorization.k8s.io', clusterrolebindings: 'rbac.authorization.k8s.io',
-    jobs: 'batch', cronjobs: 'batch', horizontalpodautoscalers: 'autoscaling',
-    serviceaccounts: '', persistentvolumeclaims2: '',
-  }
-  function checkAccess({ subjectKind, subjectName, verb, resource, namespace }) {
-    const group = RESOURCE_TO_APIGROUP[resource] ?? ''
-    // P2-B:读 Vue Query 缓存(RbacCanI 挂载即预热;旧读孤儿三表恒空 → 模拟器永远拒绝)。
-    const _cid = currentCluster.value || 'cluster'
-    const roles = queryClient.getQueryData(['cluster', _cid, 'roles']) || []
-    const rb = queryClient.getQueryData(['cluster', _cid, 'rolebindings']) || []
-    const crb = queryClient.getQueryData(['cluster', _cid, 'clusterrolebindings']) || []
-    // 命名空间级 RoleBinding 仅在所属 ns 生效；ClusterRoleBinding 全局生效
-    const bindings = [
-      ...rb.filter(b => !namespace || b.namespace === namespace).map(b => ({ ...b, bindingKind: 'RoleBinding' })),
-      ...crb.map(b => ({ ...b, bindingKind: 'ClusterRoleBinding' })),
-    ]
-    for (const b of bindings) {
-      const subs = b.subjects || []
-      // 精确匹配 subject 名称（subjectName 为空表示通配查询）；类型一致或未指定
-      const hit = subs.some(s => {
-        if (subjectName && s.name !== subjectName) return false
-        if (subjectKind && s.kind && s.kind !== subjectKind) return false
-        return true
-      })
-      if (!hit) continue
-      const wantCluster = (b.roleKind || 'Role') === 'ClusterRole' || b.bindingKind === 'ClusterRoleBinding'
-      const role = roles.find(r => r.name === b.roleName && (wantCluster ? r.scope === 'Cluster' : r.scope !== 'Cluster' && (!b.namespace || r.namespace === b.namespace)))
-      if (!role) continue
-      for (const rule of (role.rules || [])) {
-        const groups = rule.apiGroups || ['']
-        const resources = rule.resources || []
-        const verbs = rule.verbs || []
-        const groupOk = groups.includes('*') || groups.includes(group)
-        const resOk = resources.includes('*') || resources.includes(resource)
-        const verbOk = verbs.includes('*') || verbs.includes(verb)
-        if (groupOk && resOk && verbOk) {
-          return {
-            allowed: true,
-            matchedBy: `${b.bindingKind} "${b.name}" → ${role.scope === 'Cluster' ? 'ClusterRole' : 'Role'} "${role.name}"`,
-            rule,
-          }
-        }
-      }
-    }
-    return { allowed: false, matchedBy: null, rule: null }
-  }
 
   return {
     // 基础数据
