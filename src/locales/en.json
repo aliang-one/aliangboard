@@ -3435,7 +3435,7 @@
           "capacity": {
             "name": "Cluster capacity survey",
             "desc": "Node allocation/schedulable headroom/recommendations",
-            "body": "Survey cluster capacity: read node resource capacity and allocated amount (requests basis), calculate each node's cpu/memory allocation rate and schedulable headroom, mark the most紧张的 node and resource dimension, provide scaling or scheduling suggestions. Execute step by step; first state the conclusion, then provide command-level suggestions."
+            "body": "Survey cluster capacity: read node resource capacity and allocated amount (requests basis), calculate each node's cpu/memory allocation rate and schedulable headroom, mark the most constrained nodes and resource dimensions, provide scaling or scheduling suggestions. Execute step by step; first state the conclusion, then provide command-level suggestions."
           },
           "oomkilled": {
             "name": "Diagnose OOMKilled",
@@ -3445,12 +3445,12 @@
           "dns": {
             "name": "DNS resolution problem diagnosis",
             "desc": "Same-ns shortname/FQDN/cross-ns tiered test",
-            "body": "Diagnose DNS resolution problems in namespace【ns】: test resolution tiered as 同 ns Service shortname → FQDN → 跨 ns full name (can exec within a Pod in the same ns to test), if all fail check CoreDNS related Pod status and configuration. Execute step by step; first state the conclusion, then provide command-level suggestions."
+            "body": "Diagnose DNS resolution problems in namespace【ns】: test resolution tiered as same-namespace Service short name → FQDN → cross-namespace full name (can exec within a Pod in the same ns to test), if all fail check CoreDNS related Pod status and configuration. Execute step by step; first state the conclusion, then provide command-level suggestions."
           },
           "healthsweep": {
             "name": "Panoramic health sweep",
             "desc": "ns red item summary+tiered report",
-            "body": "Perform a panoramic health sweep for namespace【ns】: list all workload and Pod anomalies (CrashLoop/Pending/ImagePull/high restart count/OOM), Warning event hotspots, summarize into a 严重/警告/提示 three-tier report, and give the top 3 priority issues to address. Execute step by step; first state the conclusion, then provide command-level suggestions."
+            "body": "Perform a panoramic health sweep for namespace【ns】: list all workload and Pod anomalies (CrashLoop/Pending/ImagePull/high restart count/OOM), Warning event hotspots, summarize into a critical / warning / info three-tier report, and give the top 3 priority issues to address. Execute step by step; first state the conclusion, then provide command-level suggestions."
           }
         }
       },

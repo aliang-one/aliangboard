@@ -942,6 +942,7 @@ test('slash:/compact 选中→开压缩 modal;禁用态不可选', async () => {
   await w.find('textarea').setValue('/compact')
   const item = w.find('[data-testid="slash-item"]')
   expect(item.classes()).toContain('slash-item-disabled')
+  expect(item.attributes('title')).toContain('workbench.chat.context.compactBusy', '禁用态 title 提示原因')
   await item.trigger('mousedown')
   expect(w.find('[data-testid="context-compact-modal"]').exists()).toBe(false, '禁用不可选')
   w.unmount()
@@ -955,5 +956,37 @@ test('slash:↓+Enter 键盘导航跳过禁用项,Enter 落在首个可用剧本
   await w.find('textarea').trigger('keydown', { key: 'Enter' })
   expect(w.find('textarea').element.value).toContain('排查命名空间', 'Enter 落在剧本而非禁用的 compact')
   expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false)
+  w.unmount()
+})
+
+// ── slash 终审修复:全禁用态 Enter 不发送/Esc 关面板;compact 可用路径 ──
+test('slash:全禁用态(无对话 /compact)Enter 不发送、关面板留输入', async () => {
+  const w = await mountChat()   // 无对话 → compact 禁用且为唯一命中项
+  await w.find('textarea').setValue('/compact')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(true)
+  await w.find('textarea').trigger('keydown', { key: 'Escape' })
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false, 'Esc 全禁用态也关面板')
+  expect(w.find('textarea').element.value).toBe('/compact')
+  await w.find('textarea').setValue('')        // 清后再输:同值 setValue 不触发 watch
+  await w.find('textarea').setValue('/compact')   // 重新打开
+  await w.find('textarea').trigger('keydown', { key: 'Enter' })
+  expect(api.conversations.create, '字面 /compact 不得被发送').not.toHaveBeenCalled()
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false, 'Enter 关面板')
+  expect(w.find('textarea').element.value).toBe('/compact', '输入保留')
+  w.unmount()
+})
+
+test('slash:对话 done 时 /compact 可选→清输入+开压缩 modal', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-ok', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(150_000) })
+  const w = await mountChat({ conversationId: 'c-ok', activeConversationId: 'c-ok' })
+  await flushPromises()
+  await w.find('textarea').setValue('/compact')
+  const item = w.find('[data-testid="slash-item"]')
+  expect(item.classes()).not.toContain('slash-item-disabled')
+  expect(item.attributes('title')).toBeUndefined()   // 可用态不带禁用提示 title
+  await item.trigger('mousedown')
+  expect(w.find('textarea').element.value).toBe('', '/compact token 被清')
+  expect(w.find('[data-testid="context-compact-modal"]').exists()).toBe(true)
   w.unmount()
 })

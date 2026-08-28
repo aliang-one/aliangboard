@@ -863,13 +863,16 @@ function onKeydown(e) {
   // @-mention / 斜杠下拉打开时:↑↓ 移动选中(斜杠只在可用项间移动),Enter/Tab 选中项,Esc 关闭
   if (slashOpen.value && slashItems.value.length) {
     const usable = slashItems.value.map((it, i) => isSlashDisabled(it) ? -1 : i).filter(i => i >= 0)
+    if (e.key === 'Escape') { e.preventDefault(); clearSlash(); return }
     if (usable.length) {
       const pos = usable.indexOf(slashActive.value)
       if (e.key === 'ArrowDown') { e.preventDefault(); slashActive.value = usable[(pos + 1 + usable.length) % usable.length]; return }
       if (e.key === 'ArrowUp') { e.preventDefault(); slashActive.value = usable[(pos - 1 + usable.length) % usable.length]; return }
-      if ((e.key === 'Enter' || e.key === 'Tab') && slashActive.value >= 0) { e.preventDefault(); selectSlashItem(slashItems.value[slashActive.value]); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectSlashItem(slashItems.value[slashActive.value]); return }
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      // 全禁用(如无对话时 /compact):不发送字面命令,关面板保留输入
+      e.preventDefault(); clearSlash(); return
     }
-    if (e.key === 'Escape') { e.preventDefault(); clearSlash(); return }
   }
   if (searchOpen.value && mentionItems.value.length) {
     const n = mentionItems.value.length
@@ -1032,6 +1035,7 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           </div>
           <div v-if="!slashItems.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.slash.noMatch') }}</div>
           <button v-for="(item, i) in slashItems" :key="item.id" type="button" data-testid="slash-item"
+            :title="isSlashDisabled(item) ? t('workbench.chat.context.compactBusy') : undefined"
             :class="[i === slashActive ? 'bg-primary/10' : 'hover:bg-primary/5', isSlashDisabled(item) ? 'slash-item-disabled opacity-40 cursor-not-allowed' : '']"
             class="w-full flex items-start gap-sm text-left px-md py-sm transition-colors"
             @mousedown.prevent="() => { if (!isSlashDisabled(item)) { slashActive = i; selectSlashItem(item) } }">
