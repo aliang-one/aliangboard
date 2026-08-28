@@ -41,6 +41,7 @@ import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
+import { acquireSingleProcessLock } from './single-process-lock.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -65,6 +66,15 @@ const sessionTtl = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.ALIANG_DB || join(__dirname, '..', 'data', 'aliangboard.db')
 mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
+// 单进程不变式(2026-08-28 架构治理):开库前抢独占锁。SQLite 单连接 + 内存会话/限流 Map + 审计链哈希
+// 都假设唯一写入者;双进程同库 = 静默脑裂。持锁者活着 → 拒启(exit 1);死 pid → 接管。语义见
+// server/single-process-lock.mjs(+单测)。水平扩展须先做状态外移 ADR,见 CLAUDE.md「架构约束」。
+const _singleProcessLock = acquireSingleProcessLock(`${dbPath}.lock`)
+if (!_singleProcessLock.ok) {
+  console.error(`[startup] 拒绝启动:${_singleProcessLock.error}`)
+  process.exit(1)
+}
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { _singleProcessLock.release() } catch { /* noop */ } process.exit(0) })
 const db = new DatabaseSync(dbPath)
 // 工作台 repo 根目录(per-project repo + cluster ledger 的 git repo 落在这下面)
 const WORKBENCH_DIR = process.env.ALIANG_WORKBENCH_DIR || join(__dirname, '..', 'data', 'workbench')

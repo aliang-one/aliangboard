@@ -23,6 +23,11 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 - 提交作者恒为 `aliangone <aliangone@gmail.com>`;**禁止**在提交信息中加 `Co-Authored-By: Claude` 尾注(用户 2026-08-26 明确要求,GitHub 会把尾注渲染成共同作者)。
 - **禁止改写已推送的历史**、禁止 force push(多会话并行开发,改写历史会使并行会话推送被拒);任何清理/修整只允许作用于**未推送的本地提交**。
 
+## 架构约束
+
+- **网关单进程不变式**(2026-08-28 显式化):`server/` 网关以「单进程 + 单 SQLite 库」为前提——`node:sqlite` 单连接同步写、会话/限流/看门狗全在内存 Map、审计链哈希(prevHash 单调)假设唯一写入者。双进程同库 = 静默脑裂。防线:启动时抢 `<db>.lock` 独占锁(`server/single-process-lock.mjs`,持锁者活着拒启、死 pid 接管);部署侧固定 `replicas: 1 + Recreate`(deployment.yaml)。**要水平扩展必须先做状态外移(会话/限流/审计锚点)的 ADR,禁止默认可扩。**
+- **路由鉴权单一事实源**:新端点必须先在 `server/route-auth-map.mjs` 的 `ROUTE_AUTH` 声明鉴权 class(none/session/platform/admin/apikey/mcp)——表外 `/api/*` 一律 404,守卫测试静态扫源码路径字面量强制登记。
+
 ## 测试
 
 - 服务端 + 纯逻辑：`npm test`（含 `scripts/test.mjs` 自研零依赖运行器 + `node --test server/*.test.mjs`）。
