@@ -18,12 +18,14 @@ export function resolveServerRef(rows, ref) {
   if (byId) return byId.exposeToAi ? { ok: true, row: byId } : { ok: false, reason: 'not-exposed', candidates: [] }
   const named = rows.filter(x => x.name === r)
   if (named.length === 0) return { ok: false, reason: 'not-found', candidates: [] }
-  // 同名多台(含未暴露)即歧义——AI 无法自证指向哪台;候选只列暴露行(不泄露未暴露行)。
+  // 同名多台且至少一台暴露 → 歧义(AI 无法自证指向哪台),候选只列暴露行(不泄露未暴露行);
+  // 同名全未暴露 → not-exposed(不给存在性预言机,也不产「候选 id:」空文案)。
+  const exposedNamed = named.filter(x => x.exposeToAi)
   if (named.length > 1) {
-    const exposed = named.filter(x => x.exposeToAi)
-    return { ok: false, reason: 'ambiguous', candidates: exposed.map(x => ({ id: x.id, name: x.name })) }
+    if (exposedNamed.length === 0) return { ok: false, reason: 'not-exposed', candidates: [] }
+    return { ok: false, reason: 'ambiguous', candidates: exposedNamed.map(x => ({ id: x.id, name: x.name })) }
   }
-  return named[0].exposeToAi ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
+  return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
 }
 
 export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent' }) {
@@ -67,20 +69,37 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     catch (e) { return { error: `SSH 连接失败(${e.errorKind || 'unknown'})` } }
     try {
       return await new Promise(resolveP => {
-        conn.client.exec(cmd, (err, stream) => {
-          if (err) return resolveP({ error: String(err.message || err) })
+        // 单次结算门闩:超时/exec 回调/close/error 谁先到谁赢,迟到者幂等 no-op(防死连接 cb 迟到重入)。
+        let done = false, stream = null, timer = null
+        let out = Buffer.alloc(0), errBuf = Buffer.alloc(0), outTruncated = false, errTruncated = false
+        const settle = r => { if (done) return; done = true; if (timer) clearTimeout(timer); resolveP(r) }
+        // 总定时器挂在 exec 调用外层:覆盖「cb 永不回调」的死连接场景(2026-08-28 审查),而非仅流内。
+        timer = setTimeout(() => {
+          try { stream?.close?.() } catch {}
+          try { conn.client.end?.() } catch {}   // 死连接兜底:连流都没拿到时也要拆客户端
+          settle({ exitCode: null, timedOut: true, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'), durationMs: Date.now() - started })
+        }, timeoutMs)
+        conn.client.exec(cmd, (err, s) => {
+          if (err) return settle({ error: String(err.message || err) })
+          stream = s
           if (stdinPassword != null) stream.write(stdinPassword + '\n')
-          let out = Buffer.alloc(0), errBuf = Buffer.alloc(0), exitCode = null, done = false
-          const finish = () => { if (done) return; done = true
-            resolveP({ exitCode, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'),
-              stdoutTruncated: out.length >= STDOUT_MAX, stderrTruncated: errBuf.length >= STDERR_MAX,
-              durationMs: Date.now() - started }) }
-          const timer = setTimeout(() => { done = true; try { stream.close() } catch {}; resolveP({ exitCode: null, timedOut: true, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'), durationMs: Date.now() - started }) }, timeoutMs)
-          stream.on('data', d => { if (out.length < STDOUT_MAX) out = Buffer.concat([out, d]).subarray(0, STDOUT_MAX) })
-          stream.stderr?.on?.('data', d => { if (errBuf.length < STDERR_MAX) errBuf = Buffer.concat([errBuf, d]).subarray(0, STDERR_MAX) })
+          let exitCode = null
+          const finish = () => settle({ exitCode, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'),
+            stdoutTruncated: outTruncated, stderrTruncated: errTruncated, durationMs: Date.now() - started })
+          // 截断标志 = 「实际丢弃过字节」:恰好满上限不误报(2026-08-28 审查)。
+          stream.on('data', d => {
+            if (out.length + d.length <= STDOUT_MAX) { out = Buffer.concat([out, d]); return }
+            outTruncated = true
+            out = Buffer.concat([out, d]).subarray(0, STDOUT_MAX)
+          })
+          stream.stderr?.on?.('data', d => {
+            if (errBuf.length + d.length <= STDERR_MAX) { errBuf = Buffer.concat([errBuf, d]); return }
+            errTruncated = true
+            errBuf = Buffer.concat([errBuf, d]).subarray(0, STDERR_MAX)
+          })
           stream.on('exit', code => { exitCode = code })
-          stream.on('close', () => { clearTimeout(timer); finish() })
-          stream.on('error', e2 => { clearTimeout(timer); done = true; resolveP({ error: String(e2.message || e2) }) })
+          stream.on('close', finish)
+          stream.on('error', e2 => settle({ error: String(e2.message || e2) }))
         })
       })
     } finally { try { conn.release() } catch {} }
@@ -99,11 +118,21 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     try {
       const sftp = await new Promise((res2, rej2) => conn.client.sftp((e, s) => e ? rej2(e) : res2(s)))
       const data = await new Promise((res2, rej2) => {
-        const chunks = []; let size = 0; let truncated = false
+        const chunks = []; let size = 0; let truncated = false; let settled = false
         const rs = sftp.createReadStream(path)
-        rs.on('data', d => { size += d.length; if (size <= maxBytes) chunks.push(d); else truncated = true; if (size > maxBytes) rs.destroy() })
-        rs.on('end', () => res2({ content: Buffer.concat(chunks).toString('utf8'), truncated, size }))
-        rs.on('error', e2 => rej2(e2))
+        const ok = () => { if (settled) return; settled = true; res2({ content: Buffer.concat(chunks).toString('utf8'), truncated, size }) }
+        rs.on('data', d => {
+          size += d.length
+          if (size <= maxBytes) { chunks.push(d); return }
+          // 超限:先以已累计内容结算再销毁流——destroy 后只发 'close' 不发 'end' 且无 error,
+          // 等 'close' 结算曾致 promise 永挂 + 池句柄泄漏(2026-08-28 审查 Critical)。
+          truncated = true
+          ok()
+          try { rs.destroy() } catch {}
+        })
+        rs.on('end', ok)
+        rs.on('close', ok)      // end/destroy 两路都会到 close;幂等门闩保证单次结算
+        rs.on('error', e2 => { if (settled) return; settled = true; rej2(e2) })
       })
       return { server: row.name, path, content: data.content, truncated: data.truncated, size: data.size, durationMs: Date.now() - started }
     } catch (e) {
