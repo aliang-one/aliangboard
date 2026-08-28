@@ -266,3 +266,51 @@ test('regenWatermark:水位盖住末轮 user 时钳到 lastUserSeq-1,buildHistor
   assert.ok(q2, '钳制后原问题进全文(不被"已进 recap"跳过)')
   assert.equal(history[0].role, 'system', 'recap 段仍在最前')
 })
+
+// ── T3:GET /:id 带 context 字段(余量口径见 spec §4.3)──
+// 本文件既有测试均为 DB 直调;HTTP 层沿用 workbench-conv-routes.test.mjs 的
+// handle-direct 桩 harness(真 :memory: db + 桩 deps),断言按 brief 逐字。
+import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
+
+function makeHttpHarness() {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  db.exec(`CREATE TABLE IF NOT EXISTS clusters (
+    id TEXT PRIMARY KEY, name TEXT, apiServer TEXT, authMethod TEXT, authHeader TEXT,
+    ca TEXT, cert TEXT, key TEXT, insecure INTEGER, version TEXT, createdBy TEXT, createdAt INTEGER)`)
+  db.prepare("INSERT INTO clusters (id,name,apiServer,createdAt) VALUES ('c1','c1','http://k8s',?)").run(Date.now())
+  const pid = createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' }).id
+  const sent = []
+  const res = { writeHead: () => {}, end: () => {} }
+  const routes = createWorkbenchConvRoutes({
+    db,
+    sendJson: (r, status, json) => { sent.push({ status, json }) },
+    readBody: async () => ({}),
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'mock-1' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+  })
+  return { db, pid, sent, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
+}
+
+test('GET /:id 返回 context:estTokens/windowTokens/budgetTokens/recapUpTo/willTrim', async () => {
+  const h = makeHttpHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '工作台提示词', userMessage: '帮我看看 pod' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: '帮我看看 pod' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '找到 3 个 pod', trace: '[]' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  // 注:LLM 配置 model=mock-1(未命中表)→ 窗口 200k
+  assert.ok(await h.call('GET', `/api/workbench/conversations/${conv.id}`), '路由命中')
+  const r = h.sent[h.sent.length - 1].json
+  assert.ok(r.context, 'context 字段存在')
+  assert.equal(r.context.windowTokens, 200_000, '未知模型默认 200k')
+  assert.equal(r.context.budgetTokens, 140_000, '200k×0.7')
+  assert.equal(typeof r.context.estTokens, 'number')
+  assert.ok(r.context.estTokens > 0, '含 system+history 估算')
+  assert.equal(r.context.recapUpTo, conv.summarizedUpTo ?? 0)
+  assert.equal(r.context.willTrim, r.context.estTokens > r.context.budgetTokens)
+})

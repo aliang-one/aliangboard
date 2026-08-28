@@ -8,7 +8,9 @@ import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
   truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
+  buildHistory,
 } from '../workbench-projects.mjs'
+import { contextWindowFor, estTokens } from '../model-context.mjs'
 import { maybeSummarize } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
 import { msg } from '../messages.mjs'
@@ -53,6 +55,17 @@ export function createWorkbenchConvRoutes(deps) {
       .filter(e => e && typeof e === 'object' && (e.ts || 0) > lastTs && e.type !== 'tool_start')
       .map(e => e.type === 'assistant' ? { type: 'assistant', content: e.message?.content || '', ts: e.ts } : e)
     return { content: conv.content || '', reasoning: conv.reasoning || '', trace, steps: conv.steps ?? 0 }
+  }
+
+  // 上下文余量(spec §4.3,服务端单一计算源):estTokens ≈ buildHistory 装配 + conv.system
+  // 的总字符 × 折中比例。近似说明:@refs 每轮重拉的注入长度未计(通常远小于正文,spec 已记录)。
+  function contextInfo(conv) {
+    const history = buildHistory(db, conv)
+    const chars = conv.system.length + history.reduce((n, m) => n + JSON.stringify(m).length, 0)
+    const windowTokens = contextWindowFor(getLlmConfig().model)
+    const est = estTokens(chars)
+    const budgetTokens = Math.floor(windowTokens * 0.7)
+    return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
   }
 
   async function buildRefsContext(project, references) {
@@ -126,7 +139,7 @@ export function createWorkbenchConvRoutes(deps) {
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
         appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程(k8sSession 由 runConversation 内部按 conv.projectId 重建)
-        sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources })
+        sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, conv.id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.createFailed') }); return true }
     }
@@ -178,7 +191,7 @@ export function createWorkbenchConvRoutes(deps) {
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
-        sendJson(res, 200, { status: 'running', references: fetchedResources })
+        sendJson(res, 200, { status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.resumeFailed') }); return true }
     }
@@ -233,6 +246,7 @@ export function createWorkbenchConvRoutes(deps) {
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
         system: conv.system, // 透明面板:本对话创建时烘焙的提示词(逐对话审计)
+        context: contextInfo(conv),
         // 出参剥掉历史版本烤进 user content 的 refsCtx 前缀(库内原文不动,agent/摘要不受
         // 影响)——旧数据免迁移,刷新后不再把引用资源 JSON 当消息正文显示。
         messages: listMessages(db, id).map(m => m.role === 'user' ? { ...m, content: stripRefsContext(m.content) } : m),
