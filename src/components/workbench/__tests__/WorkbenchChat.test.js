@@ -47,6 +47,12 @@ const i18n = createI18n({
     reasoningTitle: '思考过程',
     editTitle: '编辑并重发', editBanner: '正在编辑此消息，发送后将删除其后 {n} 条对话', editCancel: '取消编辑',
     convStatus: { running: '执行中', paused: '待审批', done: '完成', failed: '失败', cancelled: '已取消' },
+    slash: {
+      title: '命令与剧本', noMatch: '无匹配的命令或剧本',
+      actCompact: '压缩上下文', actCompactDesc: '压缩对话历史',
+      pb: { imagepull: { name: '排查 ImagePullBackOff', desc: '镜像拉取失败', body: '排查命名空间【ns】里 Pod 的 ImagePullBackOff 镜像拉取失败' },
+        crashloop: { name: '排查 CrashLoopBackOff', desc: '反复崩溃', body: '排查命名空间【ns】里 Pod 的 CrashLoopBackOff 反复崩溃' } },
+    },
   } } } },
 })
 
@@ -904,5 +910,50 @@ test('编辑发送:删光全部 chips 后 references 传空数组(非缺省)', a
   await w.find('button.bg-primary').trigger('click')
   await flushPromises()
   expect(api.conversations.edit).toHaveBeenCalledWith('c-e', { messageId: 'm1', content: '改过的问题', references: [] })
+  w.unmount()
+})
+
+// ── slash T2:行首 / 命令面板(spec §3.2)──
+test('slash:行首 / 弹面板,输入过滤;非行首 / 不触发', async () => {
+  const w = await mountChat()
+  await w.find('textarea').setValue('/image')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(true)
+  expect(w.findAll('[data-testid="slash-item"]').length).toBe(1)
+  await w.find('textarea').setValue('看下 https://x.com/a')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false, '非行首 / 不触发')
+  w.unmount()
+})
+
+test('slash:选中剧本→替换输入框为剧本正文;Esc 关闭保留输入', async () => {
+  const w = await mountChat()
+  await w.find('textarea').setValue('/imagepull')
+  await w.find('[data-testid="slash-item"]').trigger('mousedown')
+  expect(w.find('textarea').element.value).toContain('ImagePullBackOff')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false)
+  await w.find('textarea').setValue('/')
+  await w.find('textarea').trigger('keydown', { key: 'Escape' })
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false)
+  expect(w.find('textarea').element.value).toBe('/')
+  w.unmount()
+})
+
+test('slash:/compact 选中→开压缩 modal;禁用态不可选', async () => {
+  const w = await mountChat()   // 无对话 → canCompact=false → 禁用
+  await w.find('textarea').setValue('/compact')
+  const item = w.find('[data-testid="slash-item"]')
+  expect(item.classes()).toContain('slash-item-disabled')
+  await item.trigger('mousedown')
+  expect(w.find('[data-testid="context-compact-modal"]').exists()).toBe(false, '禁用不可选')
+  w.unmount()
+})
+
+test('slash:↓+Enter 键盘导航跳过禁用项,Enter 落在首个可用剧本', async () => {
+  const w = await mountChat()   // 空查询:compact(禁用)+10 剧本
+  await w.find('textarea').setValue('/')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(true)
+  await w.find('textarea').trigger('keydown', { key: 'ArrowDown' })
+  await w.find('textarea').trigger('keydown', { key: 'Enter' })
+  expect(w.find('textarea').element.value).toContain('排查命名空间', 'Enter 落在剧本而非禁用的 compact')
+  expect(w.find('[data-testid="slash-panel"]').exists()).toBe(false)
   w.unmount()
 })

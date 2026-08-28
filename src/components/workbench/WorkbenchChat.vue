@@ -15,6 +15,7 @@ import AiConfigPanel from './AiConfigPanel.vue'
 import { applyStreamEvent, ensureFinalAnswerBlock } from './conv-stream'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
+import { filterSlashItems } from '@/logic/chatPlaybooks'
 import { isNearBottomCalc } from '@/logic/chatScroll'
 import { getDraft, setDraft } from '@/logic/chatDrafts'
 import { notify } from '@/composables/useToast'
@@ -83,6 +84,22 @@ const AT_RE = /@(\w*)$/
 let debounceTimer = null
 function clearSearch() { searchOpen.value = false; searchResults.value = []; kindHints.value = []; activeIndex.value = -1 }
 
+// ── 斜杠面板(2026-08-28 spec §3.2):行首 / 触发,与 @-mention 互斥 ──
+const SLASH_RE = /^\/(\w*)$/m
+const slashOpen = ref(false)
+const slashItems = ref([])
+const slashActive = ref(-1)
+function clearSlash() { slashOpen.value = false; slashItems.value = []; slashActive.value = -1 }
+function isSlashDisabled(item) { return !!(item.enabled && !item.enabled({ canCompact: !compactDisabled.value })) }
+function firstUsableSlashIndex(items) { const i = items.findIndex(it => !isSlashDisabled(it)); return i }
+function selectSlashItem(item) {
+  if (isSlashDisabled(item)) return   // 禁用动作不可选
+  if (item.id === 'compact') { input.value = input.value.replace(/^\/\w*$/m, '').trimEnd(); clearSlash(); showCompact.value = true; return }
+  input.value = t(item.bodyKey)     // 剧本:替换整个输入框(spec D1,插入后可编辑)
+  clearSlash()
+  nextTick(() => { if (taEl.value) { taEl.value.style.height = 'auto'; taEl.value.focus?.() } })
+}
+
 async function doSearch(kind, q, ns) {
   searching.value = true
   searchOpen.value = true
@@ -98,7 +115,16 @@ async function doSearch(kind, q, ns) {
 
 watch(input, (val) => {
   if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null }
-  if (!val) { clearSearch(); return }
+  if (!val) { clearSearch(); clearSlash(); return }
+  const slashMatch = val.match(SLASH_RE)
+  if (slashMatch && !(val.match(MENTION_RE) || val.match(AT_RE))) {
+    if (searchOpen.value) clearSearch()          // 互斥:后触发关前者
+    slashItems.value = filterSlashItems(slashMatch[1])
+    slashOpen.value = true
+    slashActive.value = firstUsableSlashIndex(slashItems.value)
+    return
+  }
+  if (slashOpen.value) clearSlash()
   const m = val.match(MENTION_RE)
   if (m) {
     // @kind:query — search resources of this kind
@@ -834,7 +860,17 @@ function onKeydown(e) {
   // 中文输入法组合期(按住回车选词/确认候选):按键属 IME,不触发发送/选中。
   // keyCode 229 为旧浏览器 IME 标记,双保险。
   if (e.isComposing || e.keyCode === 229) return
-  // @-mention 下拉打开时:↑↓ 移动选中,Enter/Tab 选中项,Esc 关闭
+  // @-mention / 斜杠下拉打开时:↑↓ 移动选中(斜杠只在可用项间移动),Enter/Tab 选中项,Esc 关闭
+  if (slashOpen.value && slashItems.value.length) {
+    const usable = slashItems.value.map((it, i) => isSlashDisabled(it) ? -1 : i).filter(i => i >= 0)
+    if (usable.length) {
+      const pos = usable.indexOf(slashActive.value)
+      if (e.key === 'ArrowDown') { e.preventDefault(); slashActive.value = usable[(pos + 1 + usable.length) % usable.length]; return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); slashActive.value = usable[(pos - 1 + usable.length) % usable.length]; return }
+      if ((e.key === 'Enter' || e.key === 'Tab') && slashActive.value >= 0) { e.preventDefault(); selectSlashItem(slashItems.value[slashActive.value]); return }
+    }
+    if (e.key === 'Escape') { e.preventDefault(); clearSlash(); return }
+  }
   if (searchOpen.value && mentionItems.value.length) {
     const n = mentionItems.value.length
     if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex.value = (activeIndex.value + 1) % n; return }
@@ -986,6 +1022,24 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <div class="flex justify-end mt-xs">
           <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary transition-colors">
             <span class="material-symbols-outlined text-sm">tune</span>{{ t('workbench.chat.aiConfig.open') }}
+          </button>
+        </div>
+
+        <!-- 斜杠面板:行首 / 触发;动作禁用置灰不可选 -->
+        <div v-if="slashOpen" data-testid="slash-panel" class="absolute bottom-full left-0 right-0 mb-xs bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xl max-h-64 overflow-y-auto z-30">
+          <div class="px-md py-xs text-body-xs text-on-surface-variant border-b border-outline-variant flex items-center gap-xs">
+            <span class="material-symbols-outlined text-sm">bolt</span>{{ t('workbench.chat.slash.title') }}
+          </div>
+          <div v-if="!slashItems.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ t('workbench.chat.slash.noMatch') }}</div>
+          <button v-for="(item, i) in slashItems" :key="item.id" type="button" data-testid="slash-item"
+            :class="[i === slashActive ? 'bg-primary/10' : 'hover:bg-primary/5', isSlashDisabled(item) ? 'slash-item-disabled opacity-40 cursor-not-allowed' : '']"
+            class="w-full flex items-start gap-sm text-left px-md py-sm transition-colors"
+            @mousedown.prevent="() => { if (!isSlashDisabled(item)) { slashActive = i; selectSlashItem(item) } }">
+            <span class="material-symbols-outlined text-base text-primary mt-0.5">{{ item.icon }}</span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-body-sm font-semibold text-on-surface truncate">{{ t(item.nameKey) }}</span>
+              <span class="block text-body-xs text-on-surface-variant truncate">{{ t(item.descKey) }}</span>
+            </span>
           </button>
         </div>
 
