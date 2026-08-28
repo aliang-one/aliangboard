@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
     deny: vi.fn(),
     cancel: vi.fn(),
     regenerate: vi.fn(),
+    compact: vi.fn(),
   },
   search: vi.fn(),
 }))
@@ -62,6 +63,7 @@ beforeEach(() => {
   api.conversations.get.mockClear()
   api.conversations.approve.mockClear()
   api.conversations.deny.mockClear()
+  api.conversations.compact.mockClear()
 })
 
 test('send() calls conversations.create when no activeConversationId', async () => {
@@ -752,5 +754,64 @@ test('审批决策 400(已被别处决策,CAS)→ 不恢复 modal;pollOnce 对�
   await flushPromises()
   expect(approveBtn(), 'CAS 冲突:审批已被别处决策,不恢复 modal').toBeFalsy()
   expect(w.vm.convStatus, '本地状态对齐服务端 running').toBe('running')
+  w.unmount()
+})
+
+// ── T5:上下文余量条 + 压缩(spec §4.5)──
+const ctx = (est, win = 200_000) => ({ estTokens: est, windowTokens: win, budgetTokens: Math.floor(win * 0.7), recapUpTo: 0, willTrim: est > Math.floor(win * 0.7) })
+
+test('余量条:常驻渲染;<70% 灰 / ≥70% 黄+压缩钮 / ≥90% 红', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(30_000) })
+  const w = await mountChat({ conversationId: 'c-ctx', activeConversationId: 'c-ctx' })
+  await flushPromises()
+  let meter = w.find('[data-testid="context-meter"]')
+  expect(meter.exists(), '余量条常驻').toBe(true)
+  expect(meter.text()).toContain('30k')
+  expect(meter.text()).toContain('200k')
+  expect(meter.find('[data-testid="context-compact-btn"]').exists(), '<70% 无压缩钮').toBe(false)
+  expect(meter.classes()).toContain('text-on-surface-variant')
+  // 75% → 黄 + 压缩钮
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(150_000) })
+  await w.vm.pollOnce('c-ctx'); await flushPromises()
+  meter = w.find('[data-testid="context-meter"]')
+  expect(meter.find('[data-testid="context-compact-btn"]').exists(), '≥70% 出压缩钮').toBe(true)
+  expect(meter.classes()).toContain('text-status-warning')
+  // 95% → 红
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(190_000) })
+  await w.vm.pollOnce('c-ctx'); await flushPromises()
+  meter = w.find('[data-testid="context-meter"]')
+  expect(meter.classes()).toContain('text-error')
+  w.unmount()
+})
+
+test('running 态压缩钮 disabled + title 提示', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-run', status: 'running', content: '', trace: '[]', steps: 1, recap: '', messages: [{ role: 'user', content: 'q', createdAt: 1 }], context: ctx(150_000) })
+  const w = await mountChat({ conversationId: 'c-run', activeConversationId: 'c-run' })
+  await flushPromises()
+  const btn = w.find('[data-testid="context-compact-btn"]')
+  expect(btn.exists()).toBe(true)
+  expect(btn.attributes('disabled')).toBeDefined()
+  expect(btn.attributes('title')).toContain('workbench.chat.context.compactBusy')
+  w.unmount()
+})
+
+test('压缩流程:按钮→modal(可选指令)→compact 成功→刷新', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(150_000) })
+  api.conversations.compact.mockResolvedValueOnce({ ok: true, recap: '新摘要', context: ctx(20_000) })
+  const w = await mountChat({ conversationId: 'c-ctx', activeConversationId: 'c-ctx' })
+  await flushPromises()
+  await w.find('[data-testid="context-compact-btn"]').trigger('click')
+  const modal = w.find('[data-testid="context-compact-modal"]')
+  expect(modal.exists()).toBe(true)
+  await modal.find('textarea').setValue('保留结论')
+  // 压缩后服务端 GET 返回新口径(20k);与真实行为一致(compact 响应也带,轮询为准)
+  api.conversations.get.mockResolvedValue({ id: 'c-ctx', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '新摘要', messages: [{ role: 'assistant', content: 'ok', createdAt: 1 }], context: ctx(20_000) })
+  await w.findAll('button').find(b => b.text().includes('workbench.chat.context.compactGo')).trigger('click')
+  await flushPromises()
+  expect(api.conversations.compact).toHaveBeenCalledWith('c-ctx', '保留结论')
+  expect(w.find('[data-testid="context-meter"]').text(), '压缩后余量刷新').toContain('20k')
   w.unmount()
 })

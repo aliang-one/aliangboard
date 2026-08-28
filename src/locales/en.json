@@ -3383,6 +3383,19 @@
       "collapse": "Collapse",
       "toolDenied": "denied",
       "recapSummary": "Earlier (summary)",
+      "context": {
+        "title": "Context usage (estimated)",
+        "detailHint": "Tokens are estimated (~chars/2); window follows the configured model, unknown models default to 200k",
+        "recapUpTo": "First {n} messages folded into summary",
+        "willTrim": "Over trim budget — oldest history will be dropped next round; compacting recommended",
+        "compact": "Compact",
+        "compactTitle": "Compact context",
+        "compactDesc": "Re-summarize all history (incl. old recap) into one summary, keeping only the last 2 messages in full. On-screen messages are not deleted.",
+        "compactInstruction": "Focus on preserving (optional)",
+        "compactGo": "Compact",
+        "compactDone": "Context compacted",
+        "compactBusy": "Conversation running; compact after it finishes"
+      },
       "convStatus": {
         "running": "Running",
         "paused": "Awaiting Approval",

@@ -53,6 +53,8 @@ let turnSeq = 0
 const conversationId = ref(null)
 const pollTimer = ref(null)
 const convStatus = ref(null)
+// 服务端下发的上下文余量(Task 3 口径:{ estTokens, windowTokens, budgetTokens, recapUpTo, willTrim })
+const ctxInfo = ref(null)
 const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
 
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
@@ -303,6 +305,7 @@ watch(() => props.conversationId, async (convId) => {
   turns.value = []
   conversationId.value = null
   convStatus.value = null
+  ctxInfo.value = null
   recap.value = ''
   pendingApproval.value = null
   errorBanner.value = ''
@@ -356,6 +359,8 @@ async function pollOnce(id) {
   try {
     const conv = await workbenchApi.conversations.get(id)
     convStatus.value = conv.status
+    // 上下文余量(Task 3 口径):服务端每轮下发 estTokens/windowTokens/recapUpTo/willTrim
+    if (conv.context) ctxInfo.value = conv.context
     recap.value = conv.recap || ''
     // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
     let rebuiltFromMessages = false
@@ -623,6 +628,27 @@ async function regenerate() {
   }
 }
 
+// ── 上下文余量 + 手动压缩(T5,spec §4.4/§4.5)──
+const showCompact = ref(false)
+const compactInstruction = ref('')
+const compacting = ref(false)
+const ctxPct = computed(() => ctxInfo.value ? Math.min(100, Math.round(ctxInfo.value.estTokens / ctxInfo.value.windowTokens * 100)) : 0)
+const ctxLevel = computed(() => ctxPct.value >= 90 ? 'red' : ctxPct.value >= 70 ? 'yellow' : 'gray')
+const compactDisabled = computed(() => !['done', 'failed', 'cancelled'].includes(convStatus.value))
+async function doCompact() {
+  if (!conversationId.value || compacting.value) return
+  compacting.value = true
+  try {
+    const r = await workbenchApi.conversations.compact(conversationId.value, compactInstruction.value.trim())
+    if (unmounted) return
+    if (r?.ok) {
+      showCompact.value = false; compactInstruction.value = ''
+      if (r.context) ctxInfo.value = r.context   // compact 响应自带新口径,先行更新余量条
+      await pollOnce(conversationId.value)   // recap/context 重算,顶部摘要卡+余量条更新
+    }
+  } finally { if (!unmounted) compacting.value = false }
+}
+
 // 停止运行中的对话(输错内容→停止→修改重发):调 cancel 端点;本地即刻停流/停轮询、
 // thinking turn 置停止态,并把最后一条 user 消息回填输入框供修改重发。
 // 竞态:agent 恰在 cancel 前完成 → cancel 返 400 → pollOnce 对齐终态。
@@ -848,6 +874,26 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
     <!-- Input area(与阅读列同宽对齐,消息/输入左右边缘一致) -->
     <div class="shrink-0 border-t border-outline-variant p-md bg-surface-container-lowest">
       <div class="mx-auto w-full max-w-3xl">
+      <!-- 上下文余量条(常驻,spec §4.5):灰 <70% / 黄 ≥70%(=预算线,出压缩钮) / 红 ≥90%(超线裁剪中) -->
+      <div v-if="ctxInfo" data-testid="context-meter" class="flex items-center gap-sm mb-sm group relative"
+        :class="{ 'text-on-surface-variant': ctxLevel === 'gray', 'text-status-warning': ctxLevel === 'yellow', 'text-error': ctxLevel === 'red' }">
+        <div class="flex-1 h-1 rounded-full bg-surface-container overflow-hidden">
+          <div data-testid="context-meter-bar" class="h-full rounded-full transition-all"
+            :class="ctxLevel === 'red' ? 'bg-error' : ctxLevel === 'yellow' ? 'bg-status-warning' : 'bg-on-surface-variant/40'"
+            :style="{ width: ctxPct + '%' }"></div>
+        </div>
+        <span data-testid="context-meter-label" class="text-body-xs font-mono shrink-0">≈{{ Math.round(ctxInfo.estTokens / 1000) }}k / {{ Math.round(ctxInfo.windowTokens / 1000) }}k ({{ ctxPct }}%)</span>
+        <button v-if="ctxPct >= 70" data-testid="context-compact-btn" @click="showCompact = true"
+          :disabled="compactDisabled" :title="compactDisabled ? t('workbench.chat.context.compactBusy') : t('workbench.chat.context.compactTitle')"
+          class="shrink-0 px-sm py-0.5 border border-outline-variant rounded-lg text-body-xs hover:bg-surface-container disabled:opacity-40 flex items-center gap-xs">
+          <span class="material-symbols-outlined text-sm">compress</span>{{ t('workbench.chat.context.compact') }}
+        </button>
+        <!-- 详情(hover/点击展开;简化为 title + 常驻明细行) -->
+        <span class="text-body-xs text-on-surface-variant/60 hidden md:inline" :title="t('workbench.chat.context.detailHint')">
+          {{ t('workbench.chat.context.recapUpTo', { n: ctxInfo.recapUpTo }) }}<template v-if="ctxInfo.willTrim"> · {{ t('workbench.chat.context.willTrim') }}</template>
+        </span>
+      </div>
+
       <!-- @-ref chips -->
       <div v-if="refs.length" class="flex flex-wrap gap-xs mb-sm">
         <div v-for="(r, i) in refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
@@ -937,6 +983,20 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
       <template #actions>
         <button @click="decideApproval(false)" :disabled="sending" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ t('workbench.chat.reject') }}</button>
         <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ t('workbench.chat.approve') }}</button>
+      </template>
+    </Modal>
+
+    <!-- 上下文压缩 Modal(spec §4.4):全部历史(含旧摘要)重压为一份摘要,仅留最近 2 条全文 -->
+    <Modal :modelValue="showCompact" :title="t('workbench.chat.context.compactTitle')"
+      @update:model-value="v => showCompact = v">
+      <div v-if="showCompact" data-testid="context-compact-modal" class="flex flex-col gap-md">
+        <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.context.compactDesc') }}</p>
+        <textarea v-model="compactInstruction" rows="2" :placeholder="t('workbench.chat.context.compactInstruction')"
+          class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm resize-none outline-none focus:border-primary/40"></textarea>
+      </div>
+      <template #actions>
+        <button @click="showCompact = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ t('common.cancel') }}</button>
+        <button @click="doCompact" :disabled="compacting" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ t('workbench.chat.context.compactGo') }}</button>
       </template>
     </Modal>
     <AiConfigPanel v-model="showAiConfig" :conversation-id="conversationId" />
