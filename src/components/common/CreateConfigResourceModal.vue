@@ -12,12 +12,15 @@ import DataKeysEditor from './DataKeysEditor.vue'
 import KeyValueRowsEditor from './KeyValueRowsEditor.vue'
 import { SECRET_TYPES, buildSecretData, secretFieldsComplete } from '@/utils/secretTemplates'
 import { encodeSecretData } from '@/composables/useResourceMappers'
+import { yamlTemplates } from '@/utils/yamlTemplates'
 import { useClusterStore } from '@/stores/cluster'
 
 const props = defineProps({
   kind: { type: String, default: 'configmap' }, // 'configmap' | 'secret'
   modelValue: { type: Boolean, default: false },
   namespace: { type: String, default: '' },
+  // 「从 YAML 开始」直达:打开即 YAML tab 编辑模式并预填对应 kind 模板(粘贴创建一等入口)
+  startInYaml: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'created'])
 
@@ -64,13 +67,21 @@ watch(
       secretTypeId.value = 'Opaque'
       labels.value = []
       annotations.value = []
-      activeTab.value = 'data'
-      yamlMode.value = 'preview'
       // secretTypeId 同值赋值不触发 watch(secretTypeId)（如上次已是 Opaque 或 configmap），
       // 必须显式重置，否则上次填的键值残留跨会话
       resetTypeData()
+      if (props.startInYaml) {
+        activeTab.value = 'yaml'
+        yamlMode.value = 'edit'
+        rawYaml.value = yamlTemplates[isSecret.value ? 'Secret' : 'ConfigMap'](props.namespace || 'default')
+      } else {
+        activeTab.value = 'data'
+        yamlMode.value = 'preview'
+      }
     }
   },
+  // immediate:组件可能以 modelValue=true 直接挂载(测试/父组件先开再渲染),此时也须初始化起始态
+  { immediate: true },
 )
 
 // ---- 校验 ----

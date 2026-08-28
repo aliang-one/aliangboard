@@ -11,6 +11,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import CreateConfigResourceModal from '@/components/common/CreateConfigResourceModal.vue'
+import SplitButton from '@/components/common/SplitButton.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const route = useRoute()
@@ -58,6 +59,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
 
 // Create Secret（富 Modal：类型模板/校验/组装均在 CreateConfigResourceModal + secretTemplates 内）
 const showCreateModal = ref(false)
+// 「从 YAML 创建」次级项 → Modal 以 YAML 编辑模式打开(同一 Modal 同一路径,仅起始态不同)
+const startCreateYaml = ref(false)
 function onCreated() {
   queryClient.invalidateQueries({ queryKey: secretsKey })
 }
@@ -111,9 +114,13 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.secrets.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.secrets.subtitle', { count: nsSecrets.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button data-testid="open-create" @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.secrets.new') }}
-      </button>
+      <SplitButton
+        data-testid="open-create"
+        :label="t('ns.secrets.new')"
+        icon="add"
+        :main-action="() => { startCreateYaml = false; showCreateModal = true }"
+        :items="[{ label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { startCreateYaml = true; showCreateModal = true } }]"
+      />
     </div>
 
     <!-- Type Filter + Search -->
@@ -179,7 +186,7 @@ function goDetail(row) {
   </section>
 
   <!-- Create Secret Modal（富组件：类型模板/固定字段/YAML 均在其中） -->
-  <CreateConfigResourceModal v-model="showCreateModal" kind="secret" :namespace="route.params.namespace" @created="onCreated" />
+  <CreateConfigResourceModal v-model="showCreateModal" kind="secret" :namespace="route.params.namespace" :start-in-yaml="startCreateYaml" @created="onCreated" />
 
   <!-- Delete Modal -->
   <Modal v-model="showDeleteModal" :title="t('ns.secrets.deleteTitle')" width="max-w-md">

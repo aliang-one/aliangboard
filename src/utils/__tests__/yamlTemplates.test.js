@@ -2,11 +2,11 @@ import { test, expect } from 'vitest'
 import { load as yamlLoad } from 'js-yaml'
 import { yamlTemplates, CLUSTER_SCOPED_KINDS } from '@/utils/yamlTemplates'
 
-test('共 14 个 kind 模板,键即 K8s kind 名', () => {
+test('共 16 个 kind 模板,键即 K8s kind 名', () => {
   expect(Object.keys(yamlTemplates).sort()).toEqual([
-    'ClusterRole', 'ClusterRoleBinding', 'Deployment', 'HorizontalPodAutoscaler',
+    'ClusterRole', 'ClusterRoleBinding', 'ConfigMap', 'Deployment', 'HorizontalPodAutoscaler',
     'Ingress', 'LimitRange', 'Namespace', 'PersistentVolumeClaim', 'PodDisruptionBudget',
-    'ResourceQuota', 'Role', 'RoleBinding', 'Service', 'ServiceAccount',
+    'ResourceQuota', 'Role', 'RoleBinding', 'Secret', 'Service', 'ServiceAccount',
   ])
 })
 
@@ -38,4 +38,13 @@ test('RoleBinding 模板 subjects 的 SA 主体带当前 ns', () => {
   const doc = yamlLoad(yamlTemplates.RoleBinding('demo-ns'))
   expect(doc.roleRef.kind).toBe('Role')
   expect(doc.subjects[0].namespace).toBe('demo-ns')
+})
+
+test('Secret 模板用 stringData(粘贴可读,免 base64);ConfigMap 用 data', () => {
+  const secret = yamlLoad(yamlTemplates.Secret('demo-ns'))
+  expect(secret.type).toBe('Opaque')
+  expect(secret.stringData).toBeTruthy()
+  expect(secret.data).toBeUndefined()
+  const cm = yamlLoad(yamlTemplates.ConfigMap('demo-ns'))
+  expect(cm.data).toBeTruthy()
 })
