@@ -46,6 +46,7 @@ import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema } from './ssh/store.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
+import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -753,7 +754,7 @@ function buildKubeConfig(KubeConfig, session) {
 
 // exec 浏览器↔网关 二进制帧首字节（流标识），客户端按首字节解帧
 const CH_STDIN = 1, CH_RESIZE = 2
-const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5
+const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5, CH_REPLAY = 6   // 6 = ssh 终端重连快照(直播前发)
 
 // 把 exec 的 stdout/stderr 字节流写入浏览器 WS（带通道前缀）；
 // 兼具「可缩放」语义（rows/columns + resize 事件）以触发 client-node 自动转发终端尺寸。
@@ -2069,10 +2070,82 @@ const httpServer = createServer((req, res) => {
   })
 })
 
-// WebSocket 升级：仅 /api/exec（exec 终端需要双向通道）
+// ===== SSH 服务器终端(/api/ssh/terminal) =====
+// 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
+const sshTerminals = createTerminalRegistry({ idleReapMs: Number(process.env.SSH_IDLE_REAP_MS || 30 * 60 * 1000) })
+// 60s 空闲 sweep:关 channel + 释放池句柄 + 审计(条目只含 serverId/sid/用户名,无凭据)
+setInterval(() => sshTerminals.reapIdle(s => {
+  try { s.extra.channel?.close?.() } catch {}
+  try { s.extra.release?.() } catch {}
+  writeAudit(db, { owner: s.userId, verb: 'close', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
+}), 60000).unref?.()
+// 池本身无内置定时器:同频 sweep 连接池空闲句柄
+setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
+
+async function handleSshTerminal(ws, ps, url) {
+  const serverId = url.searchParams.get('serverId')
+  const sid = url.searchParams.get('sid') || crypto.randomUUID()
+  const cols = Math.min(Math.max(parseInt(url.searchParams.get('cols')) || 80, 20), 500)
+  const rows = Math.min(Math.max(parseInt(url.searchParams.get('rows')) || 24, 5), 300)
+  if (!serverId) { wsSend(ws, CH_ERROR, 'missing serverId'); return ws.close() }
+  try {
+    // 已有会话(刷新重连):直接复用 channel,只回放+接线
+    let session = sshTerminals.get(sid)
+    if (!session) {
+      const { client, release } = await sshPool.acquire(serverId, ps.userId)
+      session = sshTerminals.ensure(sid, { serverId, userId: ps.username }, () => ({}))
+      session.extra.release = release
+      try {
+        await new Promise((resolve, reject) => {
+          client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
+            if (err) return reject(err)
+            session.extra.channel = channel
+            channel.on('data', d => { session.ring.push(d); wsSend(ws, CH_STDOUT, d) })
+            channel.on('close', () => { wsSend(ws, CH_ERROR, 'channel closed'); try { ws.close() } catch {} })
+            channel.stderr?.on?.('data', d => { session.ring.push(d); wsSend(ws, CH_STDOUT, d) })
+            resolve()
+          })
+        })
+      } catch (shellErr) {
+        // 首连失败清理:ensure 已登记、release 已挂,须撤登记+还池句柄,防泄漏
+        sshTerminals.close(sid, s => s.extra.release?.())
+        throw shellErr
+      }
+      writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+    }
+    sshTerminals.attach(sid)
+    // 回放 → 直播(顺序保证:snapshot 在单线程内先于 data 回调接线,无竞态)
+    const snap = session.ring.snapshot()
+    if (snap.length) wsSend(ws, CH_REPLAY, snap)
+    ws.on('message', data => {
+      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data)
+      if (buf.length < 1) return
+      const type = buf[0], payload = buf.subarray(1)
+      if (type === CH_STDIN) { sshTerminals.touch(sid); try { session.extra.channel?.write?.(payload) } catch {} }
+      else if (type === CH_RESIZE) { try { const { cols: c, rows: r } = JSON.parse(payload.toString('utf8')); session.extra.channel?.setWindow?.(r, c, 0, 0) } catch {} }
+    })
+    ws.on('close', () => { sshTerminals.detachBrowser(sid) })
+    ws.on('error', () => { sshTerminals.detachBrowser(sid) })
+  } catch (e) {
+    wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+    try { ws.close() } catch {}
+  }
+}
+
+// WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)
 const wsServer = new WebSocketServer({ noServer: true })
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+  if (url.pathname === '/api/ssh/terminal') {
+    const token = url.searchParams.get('session')
+    const ps = token ? platformSessions.get(token) : null
+    if (!ps || Date.now() - ps.createdAt > sessionTtl) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    return wsServer.handleUpgrade(req, socket, head, ws => handleSshTerminal(ws, ps, url))
+  }
   if (url.pathname !== '/api/exec') { socket.destroy(); return }
   const token = url.searchParams.get('session')
   const session = token ? sessions.get(token) : null

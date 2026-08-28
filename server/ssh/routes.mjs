@@ -1,5 +1,5 @@
 // SSH 服务器 REST(工厂模式同 routes/auth.mjs)。CRUD admin-only(基础设施凭据);
-// test 端点 platform 用户即可。所有响应经 sanitizeSshServer——明文凭据永不出路由。
+// test 端点同 requireAdmin(admin-only)。所有响应经 sanitizeSshServer——明文凭据永不出路由。
 import {
   createSshServer, updateSshServer, deleteSshServer, listSshServers,
   materializeCreds, getSshServerRow,
