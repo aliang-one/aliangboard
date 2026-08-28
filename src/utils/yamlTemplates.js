@@ -188,4 +188,23 @@ kind: Namespace
 metadata:
   name: my-namespace
 `,
+  // 以下两模板供 CreateConfigResourceModal 的「从 YAML 开始」直达入口预填
+  // (Secret 用 stringData:粘贴可读免 base64,K8s 服务端 apply 原生转换)
+  ConfigMap: ns => `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-configmap
+  namespace: ${ns}
+data:
+  key: value
+`,
+  Secret: ns => `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: ${ns}
+type: Opaque
+stringData:
+  key: value
+`,
 }

@@ -250,3 +250,37 @@ test('纯 YAML kind 不对 → 创建禁用 + 错误提示', async () => {
   expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
   expect(w.find('[data-testid="ccm-yaml-error"]').exists()).toBe(true)
 })
+
+// ---- 「从 YAML 开始」直达入口(2026-08-28:粘贴创建升一等入口,同一 Modal 同一路径)----
+
+test('startInYaml: 打开即 YAML 编辑模式,预填 ConfigMap 模板且可直接提交', () => {
+  const w = mountModal('configmap', { startInYaml: true })
+  const input = w.find('[data-testid="ccm-yaml-input"]')
+  expect(input.exists()).toBe(true)
+  expect(input.element.value).toContain('kind: ConfigMap')
+  expect(input.element.value).toContain('name: my-configmap')
+  expect(input.element.value).toContain('namespace: default')
+  // 编辑模式:预览节点不在;模板 kind 匹配 → 创建可直接点(一等入口)
+  expect(w.find('[data-testid="ccm-yaml-preview"]').exists()).toBe(false)
+  expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeUndefined()
+})
+
+test('startInYaml: secret 模板用 stringData(粘贴免 base64)', () => {
+  const w = mountModal('secret', { startInYaml: true })
+  const input = w.find('[data-testid="ccm-yaml-input"]')
+  expect(input.exists()).toBe(true)
+  expect(input.element.value).toContain('kind: Secret')
+  expect(input.element.value).toContain('stringData')
+})
+
+test('无 startInYaml: 默认数据 tab(现状);startInYaml 开→关重开后回数据 tab(重置契约)', async () => {
+  const w = mountModal('configmap')
+  expect(w.find('[data-testid="ccm-yaml-input"]').exists()).toBe(false)
+  expect(w.find('[data-testid="ccm-yaml-preview"]').exists()).toBe(false)
+  const w2 = mountModal('configmap', { startInYaml: true })
+  expect(w2.find('[data-testid="ccm-yaml-input"]').exists()).toBe(true)
+  await w2.find('[data-testid="ccm-cancel"]').trigger('click')
+  await w2.setProps({ modelValue: false })
+  await w2.setProps({ modelValue: true, startInYaml: false })
+  expect(w2.find('[data-testid="ccm-yaml-input"]').exists()).toBe(false)
+})
