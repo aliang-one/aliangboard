@@ -142,12 +142,18 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       }
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
+      // SSH 接线(Task 11,2026-08-28):动态审批按服务器策略(needsApproval 纯函数,checkpoint/resume 两处
+      // 都会被咨询,不得有副作用);零暴露服务器时直接隐藏 wb_ssh_* 两工具。
+      const sshBridge = ctx.ssh || null
+      const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
       const { run } = createAgentRunner({
         llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
+        dynamicApproval: sshBridge ? (n, args) => sshBridge.needsApproval(n, args) : undefined,
+        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file']) : null,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -219,12 +225,17 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
       const { ctx } = buildWbCtx(project)
+      // SSH 接线同 runConversation(resume 侧同样咨询 needsApproval——必须纯/幂等)。
+      const sshBridge = ctx.ssh || null
+      const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
       const { run } = createAgentRunner({
         llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
+        dynamicApproval: sshBridge ? (n, args) => sshBridge.needsApproval(n, args) : undefined,
+        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file']) : null,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }

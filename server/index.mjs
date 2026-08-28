@@ -46,6 +46,7 @@ import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema } from './ssh/store.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
+import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
 import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
 import { attachSocketToSession, broadcastToSockets } from './ssh/terminal-wire.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -1385,6 +1386,9 @@ async function handle(req, res) {
           }
         },
       },
+      // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 工具经 agent-runner ctx.ssh 到达;
+      // 池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbench-agent 会 excludeTools 隐藏两工具。
+      ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id }),
       k8sSession,
     }
   }
