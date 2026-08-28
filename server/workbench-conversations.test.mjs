@@ -315,7 +315,112 @@ test('GET /:id 返回 context:estTokens/windowTokens/budgetTokens/recapUpTo/will
   assert.equal(r.context.willTrim, r.context.estTokens > r.context.budgetTokens)
 })
 
-// ── T4:POST /:id/compact HTTP 契约(全量重摘要+自定义指令)──
+// ── 编辑重发 T2:POST /:id/edit 契约(spec §3.1)──
+// 复用 makeHttpHarness 骨架,readBody 可注入 body;能自建多条消息/refs/置终态。
+function makeEditHarness() {
+  const h = makeHttpHarness()
+  const sent = []
+  const res = { writeHead: () => {}, end: () => {} }
+  const body = { v: {} } // 可变引用:各断言阶段覆写请求体
+  const routes = createWorkbenchConvRoutes({
+    db: h.db,
+    sendJson: (r, status, json) => { sent.push({ status, json }) },
+    readBody: async () => body.v,
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'mock-1' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+  })
+  return { db: h.db, pid: h.pid, sent, body, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
+}
+
+// 建一条 done 对话:user(带 refs)/assistant/user 三条,返回 { conv, anchorId }
+function seedEditConv(db, pid, refs = [{ kind: 'pods', namespace: 'ns', name: 'p1' }]) {
+  const conv = createConversation(db, { projectId: pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q1', refs })             // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' }) // seq2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q2-原问题' })           // seq3 = 锚(无 refs,测沿用需给锚本身 refs)
+  db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  const anchorId = db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND seq=3").get(conv.id).id
+  return { conv, anchorId }
+}
+
+test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => {
+  const h = makeEditHarness()
+  const anchorRefs = [{ kind: 'pods', namespace: 'ns', name: 'p1' }]
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  // 锚消息自带 refs(编辑缺省 references 时沿用锚的)
+  h.db.prepare('UPDATE workbench_messages SET refs=? WHERE id=?').run(JSON.stringify(anchorRefs), anchorId)
+  // 水位已盖住锚(seq3)→ 钳到 keptMinSeq-1
+  updateConversation(h.db, conv.id, { recap: '早期摘要', summarizedUpTo: 3 })
+  h.body.v = { messageId: anchorId, content: '改过的问题' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`), '路由命中')
+  const ok = h.sent[h.sent.length - 1]
+  assert.equal(ok.status, 200)
+  assert.equal(ok.json.status, 'running')
+  assert.ok(ok.json.context.windowTokens, '响应带 context')
+  // GET messages:前 2 条保留,末条为新 user,内容=改后,refs 沿用锚原值
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 3, 'seq3 起截断后重 append 一条 user')
+  assert.equal(msgs[0].content, 'q1')
+  assert.equal(msgs[1].content, 'a1')
+  assert.equal(msgs[2].content, '改过的问题')
+  assert.deepEqual(JSON.parse(msgs[2].refs), anchorRefs, 'refs 缺省沿用锚消息原值')
+  const after = getConversation(h.db, conv.id)
+  assert.equal(after.status, 'running')
+  // 水位钳制(spec §3.1):summarizedUpTo <= keptMinSeq-1;本例前缀 seq 1,2 → keptMinSeq=1 → 钳到 0
+  // (保守侧:kept 消息永不被"已进 recap"跳过)
+  const keptMin = Math.min(...listMessages(h.db, conv.id).filter(m => m.seq < 3).map(m => m.seq))
+  assert.ok(after.summarizedUpTo <= keptMin - 1, `水位钳制: ${after.summarizedUpTo} <= keptMinSeq(${keptMin})-1`)
+  assert.ok(JSON.parse(after.references).some(r => r.kind === 'pods' && r.name === 'p1'), '对话级 references 含原 ref')
+})
+
+test('POST edit:references 替换(非沿用)', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  h.body.v = { messageId: anchorId, content: 'x', references: [{ kind: 'services', namespace: 'ns', name: 'svc1' }] }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 200)
+  const msgs = listMessages(h.db, conv.id)
+  assert.deepEqual(JSON.parse(msgs[2].refs), [{ kind: 'services', namespace: 'ns', name: 'svc1' }])
+})
+
+test('POST edit:running → 400;锚非 user/不存在/跨对话 → 400;空内容 → 400', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  // running 拒绝
+  updateConversation(h.db, conv.id, { status: 'running' })
+  h.body.v = { messageId: anchorId, content: 'x' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400, 'running → 400')
+  updateConversation(h.db, conv.id, { status: 'done' })
+  // 锚是 assistant(seq2)→ 400
+  const asstId = h.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND seq=2").get(conv.id).id
+  h.body.v = { messageId: asstId, content: 'x' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400, '锚非 user → 400')
+  // 锚不存在
+  h.body.v = { messageId: 'no-such-msg', content: 'x' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400, '锚不存在 → 400')
+  // 跨对话锚:另一对话的 user 消息 id
+  const c2 = seedEditConv(h.db, h.pid)
+  h.body.v = { messageId: c2.anchorId, content: 'x' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400, '跨对话锚 → 400')
+  // 空内容
+  h.body.v = { messageId: anchorId, content: '  ' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(h.sent[h.sent.length - 1].status, 400, '空内容 → 400')
+  // 上述拒绝均未截断:消息仍 3 条、末条仍原文
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 3, '拒绝路径零副作用')
+  assert.equal(msgs[2].content, 'q2-原问题')
+})
+
 function makeCompactHarness() {
   const h = makeHttpHarness()
   // 覆写 readBody/createLlmClient:带 instruction + 固定摘要返回
@@ -356,4 +461,27 @@ test('POST compact:成功 → { ok, recap, context };running → 400', async () 
   updateConversation(h.db, conv2.id, { status: 'running' })
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv2.id}/compact`))
   assert.equal(h.sent[h.sent.length - 1].status, 400)
+})
+
+test('POST edit:非归属用户 → 403', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  // 覆写 requireAdmin 为第二个普通用户(非 owner u1、非 admin)
+  const sent = []
+  const res = { writeHead: () => {}, end: () => {} }
+  const routes = createWorkbenchConvRoutes({
+    db: h.db,
+    sendJson: (r, status, json) => { sent.push({ status, json }) },
+    readBody: async () => ({ messageId: anchorId, content: 'x' }),
+    requireAdmin: () => ({ userId: 'u2', username: 'u2', role: 'user' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'mock-1' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+  })
+  assert.ok(await routes.handle({ method: 'POST', on: () => {} }, res, new URL(`http://x/api/workbench/conversations/${conv.id}/edit`)))
+  assert.equal(sent[sent.length - 1].status, 403, '非归属普通用户 → 403')
+  assert.equal(listMessages(h.db, conv.id).length, 3, '403 零副作用')
 })

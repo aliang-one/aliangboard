@@ -8,7 +8,7 @@ import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
   truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
-  buildHistory,
+  buildHistory, truncateFromMessage,
 } from '../workbench-projects.mjs'
 import { contextWindowFor, estTokens } from '../model-context.mjs'
 import { maybeSummarize, compactConversation } from '../workbench-summarize.mjs'
@@ -244,6 +244,49 @@ export function createWorkbenchConvRoutes(deps) {
       if (!out.ok) { sendJson(res, out.status, { message: msg(req, out.message) }); return true }
       sendJson(res, 200, { ok: true, recap: out.recap, context: contextInfo(getConversation(db, id)) })
       return true
+    }
+
+    // POST /api/workbench/conversations/:id/edit — 编辑已发消息重发(spec 2026-08-28 §3.1):
+    // 截断锚消息及其后全部 → 以新内容 append(refs 缺省沿用)→ 复位运行态 → 重跑。
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/edit$/) && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const conv = getConversation(db, id)
+      if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true }
+      const project = getProject(db, conv.projectId)
+      if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
+      if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+      try {
+        const input = await readBody(req)
+        const content = String(input.messageId ? input.content || '' : '')
+        if (!content.trim()) { sendJson(res, 400, { message: msg(req, 'wbc.editContentRequired') }); return true }
+        const anchor = db.prepare('SELECT id, seq, refs FROM workbench_messages WHERE id=? AND conversationId=? AND role=?').get(String(input.messageId || ''), id, 'user')
+        if (!anchor) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
+        const t = truncateFromMessage(db, id, anchor.id)
+        if (!t) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
+        // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)
+        let refsValue = Array.isArray(input.references) ? input.references : null
+        if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
+        setActiveConversation(db, conv.projectId, id)
+        // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款)
+        let mergedRefs = []
+        try { mergedRefs = JSON.parse(conv.references || '[]') } catch { mergedRefs = [] }
+        const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
+        const seen = new Set(mergedRefs.map(key))
+        for (const r of (refsValue || [])) { const k = key(r); if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) } }
+        appendMessage(db, { conversationId: id, role: 'user', content, refs: refsValue ? refsValue.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name })) : null })
+        updateConversation(db, id, {
+          status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
+          summarizedUpTo: Math.min(conv.summarizedUpTo ?? 0, t.keptMinSeq == null ? 0 : t.keptMinSeq - 1),
+        })
+        const llmClient = createLlmClient(cfg)
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
+        sendJson(res, 200, { status: 'running', context: contextInfo(getConversation(db, id)) })
+        return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.editFailed') }); return true }
     }
 
     // GET /api/workbench/conversations/active — 悬浮入口原料:近期动态模型(running/paused 永在 +

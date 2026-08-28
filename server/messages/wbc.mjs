@@ -20,4 +20,7 @@ export const TABLE = {
   'wbc.compactShort': { zh: '对话太短,无需压缩', en: 'Conversation too short to compact' },
   'wbc.compactBusy': { zh: '对话运行中/待审批,不能压缩', en: 'Conversation running/paused, cannot compact' },
   'wbc.compactFailed': { zh: '摘要失败', en: 'Summarization failed' },
+  'wbc.editContentRequired': { zh: '消息内容不能为空', en: 'Message content required' },
+  'wbc.editAnchorInvalid': { zh: '编辑目标无效:须为本对话的 user 消息', en: 'Invalid edit target: must be a user message in this conversation' },
+  'wbc.editFailed': { zh: '编辑重发失败', en: 'Edit-resend failed' },
 }
