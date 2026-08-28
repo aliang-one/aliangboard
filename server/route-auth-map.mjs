@@ -24,6 +24,7 @@ export const ROUTE_AUTH = [
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
+  { method: 'GET',  pattern: '/api/ssh/terminal',        auth: 'platform' }, // WS 升级(ssh 终端):upgrade 时自校验平台 session,门登记为地板
   { method: 'GET',  pattern: '/api/my-clusters',        auth: 'platform' },
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
@@ -45,6 +46,9 @@ export const ROUTE_AUTH = [
   { prefix: '/api/podfile/',     auth: 'session' },
   { prefix: '/api/terminals',    auth: 'session' },   // 精确 + /:id 子路径
   { prefix: '/api/file-browsers',auth: 'session' },
+  // --- SSH 服务器管理(2026-08-28 ssh-management 合并后补登记:regex dispatch 逃过字面量扫描,门外 404) ---
+  { prefix: '/api/sshfile/', auth: 'platform' },  // 文件浏览/下载:内层 requirePlatform
+  { prefix: '/api/ssh/',     auth: 'admin' },     // servers CRUD/test:内层 requireAdmin
   // --- 管理员(全部 /api/admin/*:llm-config/clusters/apikeys/audit-log/users/…) ---
   { prefix: '/api/admin/', auth: 'admin' },
   // --- 工作台(混合层:地板=platform;records/distill/conv 等内层 requireAdmin 收严) ---
