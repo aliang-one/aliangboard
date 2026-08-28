@@ -1042,7 +1042,7 @@ if (entry.value.defaultMode == null) entry.value.defaultMode = ''
 <span v-if="cardLevel !== 'ok'" data-testid="status-dot" class="h-2 w-2 rounded-full shrink-0" :class="dotCls[cardLevel]" />
 ```
 
-2. 所有受字段约束的输入把 `:class="fld"` 换成 `:class="[fld, issueCls('<field>')]"`,field 对应:target 下拉 `'target'`、PVC/CM/Secret/hostPath 来源控件 `'source'`、server/nfsPath `'nfsPath'`、mountPath `'mountPath'`、subPath `'subPath'`、defaultMode 控件 `'defaultMode'`;items 的 key 下拉与 path 输入用行级 `:class="[fld, issueCls('itemsPath:' + idx)]"`(issueCls 已用前缀匹配覆盖)。
+2. 所有受字段约束的输入把 `:class="fld"` 换成 `:class="[fld, issueCls('<field>')]"`,**field 与校验器的 `field` 值严格对齐**:target 下拉 `'target'`;PVC/CM/Secret 下拉 `'source'`(sourceRequired/sourceNotFound/orphanMount 均发 `'source'`);hostPath 输入 `[issueCls('source'), issueCls('hostPath')]'(来源缺失发 'source'、敏感路径发 'hostPath');NFS server 输入 `'source'`、NFS path 输入 `'nfsPath'`(nfsPathRoot/nfsPathInvalid 发 `'nfsPath'`);mountPath `'mountPath'`;subPath `'subPath'`;defaultMode 控件 `'defaultMode'`;items 的 key 下拉与 path 输入用行级 `:class="[fld, issueCls('itemsPath:' + idx)]"`(issueCls 已用前缀匹配覆盖)。`issueCls` 内部用 `issuesFor` 前缀匹配,传 `'source'` 即可覆盖全部来源类 issue。
 3. 每个受约束字段下方加行内文案(以 mountPath 为例,其余同型):
 
 ```html
@@ -1081,6 +1081,8 @@ items 行内:`<p v-for="(i, ii) in rowIssues(idx)" ...>` — script 里补 `cons
 ```
 
 6. readOnly 复选框旁的 hint 行内文案同 3(issuesFor('readOnly'))。
+7. **头部卷名错误态**(漏项补齐):头部 `entry.name` 的 `<span>` 加 `:class="issuesFor('name').some(i => i.level === 'error') ? 'text-error' : ''"`,其下渲染 `issuesFor('name')` 行内文案(volumeNameDuplicate)。
+8. **items 区级问题展示位**(漏项补齐):keyMappingHint 那行 `<p>` 下方渲染 `issuesFor('items')` 行内文案(itemsIncomplete/itemsHideRest;issueMsg 支持 `{n}`/`{first}` 参数)。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -1231,7 +1233,7 @@ Expected: FAIL(未导出)。
 
 - [ ] **Step 3: 实现**
 
-① `volumeMountValidation.js`:把 Task 3 的 `GATE_KEY` 换成完整映射并导出,另导出 error 级 code 清单:
+① `volumeMountValidation.js`:把 Task 3 的 `GATE_KEY` 换成完整映射并导出,另导出 error 级 code 清单。**同时更新 Task 3 留下的那条 fallback 断言**——`systemPathRuntime` 进入默认映射后,`fvme([{ ...base, mountPath: '/proc' }], ['main'])` 的期望 key 从 fallback `'deploy.volumeSourceRequired'` 改为 `'deploy.volumeSystemPathRuntime'`(该测试的意图「未映射 code 才走 fallback」由 KEYS 用例继续覆盖):
 
 ```js
 // 门禁/部署校验共用的 code → i18n key 映射(仅 error 级;warn/hint 不拦)。{n} 参数。
