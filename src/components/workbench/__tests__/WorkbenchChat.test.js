@@ -886,3 +886,23 @@ test('编辑发送:调 edit 端点+本地截断+新 user turn+thinking', async (
   expect(w.find('[data-testid="edit-banner"]').exists()).toBe(false, '发送后编辑态退出')
   w.unmount()
 })
+
+// 终审修复:删光全部 @-chips 再发送 → references 必须以空数组显式下发(缺省键服务端会沿用锚 refs,「删」路静默失效)
+test('编辑发送:删光全部 chips 后 references 传空数组(非缺省)', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1, refs: JSON.stringify([{ kind: 'pod', namespace: 'default', name: 'web' }]) },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  api.conversations.edit.mockResolvedValueOnce({ status: 'running', context: null })
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  expect(w.vm.refs.length, '进入编辑态回填锚消息的 chips').toBe(1)
+  w.vm.refs = []   // 用户删光全部 chips
+  await w.find('textarea').setValue('改过的问题')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(api.conversations.edit).toHaveBeenCalledWith('c-e', { messageId: 'm1', content: '改过的问题', references: [] })
+  w.unmount()
+})

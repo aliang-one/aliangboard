@@ -705,23 +705,23 @@ async function send() {
   // 编辑重发分支(spec §3.3):编辑态发送走 edit 端点(服务端截断锚之后重跑),本地就地截断+新轮
   if (editing.value && props.activeConversationId) {
     const ed = editing.value
-    const refsSnapshot = refs.value.length ? [...refs.value] : null
+    const refsSnapshot = [...refs.value]
     const userIdx = turns.value.findIndex(t => t.messageId === ed.messageId)
     if (userIdx < 0) { editing.value = null; return }
+    sending.value = true   // 前置(终审):await 期间双击不得双发;失败 catch 复位
     try {
-      const payload = { messageId: ed.messageId, content: msg }
-      if (refsSnapshot) payload.references = refsSnapshot.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name }))
+      // references 恒传(含空数组):删光全部 @-chips 再发送时省略该键,服务端会沿用锚 refs——「删」路静默失效
+      const payload = { messageId: ed.messageId, content: msg, references: refsSnapshot.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name })) }
       const resp = await workbenchApi.conversations.edit(props.activeConversationId, payload)
       if (unmounted) return
       turns.value.splice(userIdx)                       // 锚及之后全删
-      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: ed.messageId, refs: refsSnapshot ? [...refsSnapshot] : undefined })
+      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: ed.messageId, refs: refsSnapshot.length ? [...refsSnapshot] : undefined })
       turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
       editing.value = null
       resetInput()
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
       if (resp?.context) ctxInfo.value = resp.context
-      sending.value = true
       await scrollToBottom()
       startStreaming(props.activeConversationId)
     } catch (e) {
