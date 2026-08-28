@@ -12,8 +12,7 @@ import { workloadCounts, isWorkloadTransitioning } from '@/logic/workloadTransit
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
-import SplitButton from '@/components/common/SplitButton.vue'
-import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const { t } = useI18n()
@@ -47,7 +46,6 @@ watch([fastMode, wlState], ([f, s]) => {
 }, { immediate: true })
 
 // 创建负载分割按钮：从 YAML 创建 / 复制 workload（弹窗状态）
-const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
 
 const servicesKey = ['cluster', cid, 'services']
@@ -253,16 +251,15 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
         <button @click="router.push({ name: 'NsLayers', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors" :title="t('ns.namespaceOverview.adjustGroupTitle')">
           <span class="material-symbols-outlined text-sm">layers</span><span class="hidden sm:inline">{{ t('ns.namespaceOverview.adjustGroup') }}</span>
         </button>
-        <SplitButton
+        <CreateWithYamlButton
           :label="t('ns.namespaceOverview.deploy')"
           icon="add"
           :main-action="() => router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })"
-          :items="[
-            { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
-            { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
-          ]"
+          yaml-template="Deployment"
+          :namespace="route.params.namespace"
+          :extra-items="[{ label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } }]"
+          @applied="workloadsQuery.refetch()"
         />
-        <CreateFromYamlDialog v-model="showYamlDialog" :namespace="route.params.namespace" @applied="workloadsQuery.refetch()" />
         <CopyWorkloadDialog v-model="showCopyDialog" target-route-name="NsDeploy" :default-target-namespace="route.params.namespace" :target-namespace="route.params.namespace" />
       </div>
     </div>
@@ -374,15 +371,15 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
     <div v-else class="rounded-xl border border-dashed border-outline-variant/50 py-xl text-center">
       <span class="material-symbols-outlined text-3xl text-surface-container-high">workspaces</span>
       <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('ns.namespaceOverview.emptyDeploy') }}</p>
-      <SplitButton
+      <CreateWithYamlButton
         class="mt-md"
         :label="t('ns.namespaceOverview.deployApp')"
         icon="rocket_launch"
         :main-action="() => router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })"
-        :items="[
-          { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
-          { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
-        ]"
+        yaml-template="Deployment"
+        :namespace="route.params.namespace"
+        :extra-items="[{ label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } }]"
+        @applied="workloadsQuery.refetch()"
       />
     </div>
 

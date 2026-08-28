@@ -13,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 import { cpuToMilli, milliToCpu, formatCpu } from '@/composables/useResourceFormat'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -127,9 +128,7 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.resourceQuotas.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.resourceQuotas.subtitle', { n: nsResourceQuotas.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.resourceQuotas.newBtn') }}
-      </button>
+      <CreateWithYamlButton :label="t('ns.resourceQuotas.newBtn')" :main-action="() => { showCreateModal = true }" yaml-template="ResourceQuota" :namespace="route.params.namespace" />
     </div>
 
     <DataTable :headers="headers" :rows="paginated" column-key="nsResourceQuotas" @row-click="goDetail">

@@ -9,6 +9,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useTableColumns } from '@/composables/useTableColumns'
 
@@ -48,6 +49,19 @@ const nsRoleBindings = computed(() => (roleBindingsQuery.data.value || []).filte
 const nsServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === ns.value))
 
 const activeTab = ref('roles')
+
+// 创建入口随 tab:roles/clusterroles 复用 Role modal(scope 用户自选);rolebindings 无表单 → 直开 YAML(断链顺修)。
+const RBAC_TAB_KINDS = { roles: 'Role', serviceaccounts: 'ServiceAccount', rolebindings: 'RoleBinding', clusterroles: 'ClusterRole', clusterrolebindings: 'ClusterRoleBinding' }
+const rbacYamlTemplate = computed(() => RBAC_TAB_KINDS[activeTab.value] || 'Role')
+const rbacMainAction = computed(() => {
+  switch (activeTab.value) {
+    case 'roles':
+    case 'clusterroles': return () => { showCreateRoleModal.value = true }
+    case 'serviceaccounts': return () => { showCreateSAModal.value = true }
+    case 'clusterrolebindings': return () => { showCreateCRBModal.value = true }
+    default: return undefined // rolebindings:mainOpensYaml 接管
+  }
+})
 
 const roleHeaders = computed(() => tableColumns('nsRbacRoles'))
 
@@ -156,14 +170,13 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     ]" />
     <div class="flex justify-between items-end mt-sm mb-md">
       <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.rbac.title') }}</h2>
-      <div class="flex gap-sm">
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createRoleBtn') }}
-        </button>
-        <button @click="showCreateSAModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant font-semibold rounded-lg text-body-sm hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createSaBtn') }}
-        </button>
-      </div>
+      <CreateWithYamlButton
+        :label="$t('common.create')"
+        :main-action="rbacMainAction"
+        :main-opens-yaml="activeTab === 'rolebindings'"
+        :yaml-template="rbacYamlTemplate"
+        :namespace="route.params.namespace"
+      />
     </div>
     <div class="flex flex-wrap border-b border-outline-variant mb-md">
       <button @click="activeTab = 'roles'" class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors" :class="activeTab === 'roles' ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">{{ $t('ns.rbac.rolesTab') }}</button>
@@ -212,11 +225,6 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
     <!-- RoleBindings Tab -->
     <div v-if="activeTab === 'rolebindings'" class="flex flex-col gap-md">
-      <div class="flex justify-end">
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant font-semibold rounded-lg text-body-sm hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-sm">add</span> Create RoleBinding
-        </button>
-      </div>
       <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">
           <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
@@ -250,9 +258,6 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-primary">public</span>
           <p class="text-body-sm text-on-surface">{{ $t('ns.rbac.clusterWideHint') }}</p>
         </div>
-        <button @click="showCreateRoleModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
-          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBtn') }}
-        </button>
       </div>
       <DataTable :headers="roleHeaders" :rows="paginated" column-key="nsRbacRoles">
         <template #name="{ row }">
@@ -280,9 +285,6 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <span class="material-symbols-outlined text-primary">public</span>
           <p class="text-body-sm text-on-surface">{{ $t('ns.rbac.clusterRoleBindingHint') }}</p>
         </div>
-        <button @click="showCreateCRBModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors text-body-sm">
-          <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.rbac.createClusterRoleBindingBtn') }}
-        </button>
       </div>
       <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">

@@ -12,8 +12,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
-import SplitButton from '@/components/common/SplitButton.vue'
-import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const router = useRouter()
@@ -38,7 +37,6 @@ const workloadList = computed(() => workloadsQuery.data.value || [])
 // 进页即触发 metrics 拉取 + 集群汇总刷新,让顶部 CPU%/podCount 显示真实值(computeClusterMetrics 从缓存派生)
 onMounted(() => { store.refreshMetrics().catch(() => {}) })
 
-const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
 
 const namespaceFilter = ref('All Namespaces')
@@ -136,16 +134,13 @@ const nodeHealthPct = computed(() => {
           <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
             <span class="material-symbols-outlined">file_download</span> {{ t('common.export') }}
           </button>
-          <SplitButton
+          <CreateWithYamlButton
             :label="t('ns.workloads.new')"
             icon="rocket_launch"
             :main-action="() => router.push('/deploy')"
-            :items="[
-              { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
-              { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
-            ]"
+            yaml-template="Deployment"
+            :extra-items="[{ label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } }]"
           />
-          <CreateFromYamlDialog v-model="showYamlDialog" />
           <CopyWorkloadDialog v-model="showCopyDialog" target-route-name="Deploy" />
         </div>
       </div>

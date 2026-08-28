@@ -11,6 +11,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -111,9 +112,7 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.limitRanges.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.limitRanges.subtitle', { n: nsLimitRanges.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.limitRanges.newBtn') }}
-      </button>
+      <CreateWithYamlButton :label="t('ns.limitRanges.newBtn')" :main-action="() => { showCreateModal = true }" yaml-template="LimitRange" :namespace="route.params.namespace" />
     </div>
 
     <DataTable :headers="headers" :rows="paginated" column-key="nsLimitRanges" @row-click="goDetail">

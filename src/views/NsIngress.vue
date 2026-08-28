@@ -17,6 +17,7 @@ import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, val
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { hostsToK8sSpec, ingressHostsErrors } from '@/composables/useIngressRules'
 import { notify } from '@/composables/useToast'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -181,9 +182,7 @@ async function handleDelete() {
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.ingress.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.ingress.subtitle', { count: nsIngress.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined">add</span> {{ t('ns.ingress.new') }}
-      </button>
+      <CreateWithYamlButton :label="t('ns.ingress.new')" :main-action="() => { showCreateModal = true }" yaml-template="Ingress" :namespace="route.params.namespace" />
     </div>
 
     <!-- 搜索框 -->

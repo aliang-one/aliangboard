@@ -14,8 +14,7 @@ import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
-import SplitButton from '@/components/common/SplitButton.vue'
-import CreateFromYamlDialog from '@/components/common/CreateFromYamlDialog.vue'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 import WatchStateChip from '@/components/common/WatchStateChip.vue'
 
@@ -29,7 +28,6 @@ const store = useClusterStore()
 store.setNamespace(route.params.namespace)
 const queryClient = useQueryClient()
 
-const showYamlDialog = ref(false)
 const showCopyDialog = ref(false)
 
 // Workloads 走 Vue Query（cluster-wide deploy+sts+ds + 按 ns 过滤）：watch live 零轮询，降级 60s 兜底。
@@ -131,16 +129,15 @@ async function handleDelete() {
         </div>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.workloads.subtitle', { count: nsWorkloads.length, ns: route.params.namespace }) }}</p>
       </div>
-      <SplitButton
+      <CreateWithYamlButton
         :label="t('ns.workloads.new')"
         icon="rocket_launch"
         :main-action="() => router.push({ name: 'NsDeploy', params: { namespace: route.params.namespace } })"
-        :items="[
-          { label: t('component.splitButton.createFromYaml'), icon: 'description', action: () => { showYamlDialog = true } },
-          { label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } },
-        ]"
+        yaml-template="Deployment"
+        :namespace="route.params.namespace"
+        :extra-items="[{ label: t('component.splitButton.copyWorkload'), icon: 'content_copy', action: () => { showCopyDialog = true } }]"
+        @applied="workloadsQuery.refetch()"
       />
-      <CreateFromYamlDialog v-model="showYamlDialog" :namespace="route.params.namespace" @applied="workloadsQuery.refetch()" />
       <CopyWorkloadDialog v-model="showCopyDialog" target-route-name="NsDeploy" :default-target-namespace="route.params.namespace" :target-namespace="route.params.namespace" />
     </div>
 

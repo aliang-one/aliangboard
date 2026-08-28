@@ -12,6 +12,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { notify } from '@/composables/useToast'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -142,12 +143,7 @@ function submitDelete() {
           <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.namespaces.syncing') : t('common.sync') }}
           </button>
-          <button
-            class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity"
-            @click="openCreate"
-          >
-            <span class="material-symbols-outlined text-base">add</span> {{ t('ns.namespaces.new') }}
-          </button>
+          <CreateWithYamlButton :label="t('ns.namespaces.new')" :main-action="openCreate" yaml-template="Namespace" />
         </div>
       </div>
     </div>

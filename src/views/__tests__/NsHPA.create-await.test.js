@@ -33,7 +33,12 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { namespace: 'anydoor' }, name: 'NsHPA', path: '/ns/anydoor/hpa' }),
   useRouter: () => ({ push: vi.fn() }),
 }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (k) => k }) }))
+// 保留 vue-i18n 真实导出(createI18n 等):视图经 CreateWithYamlButton→CreateFromYamlDialog→useResourceApply
+// 拉入真实 '@/i18n',其顶层调 createI18n——mock 若只给 useI18n 会在 import 期炸整个测试文件。
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, useI18n: () => ({ t: (k) => k }) }
+})
 
 import NsHPA from '../NsHPA.vue'
 

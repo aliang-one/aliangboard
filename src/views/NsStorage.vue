@@ -15,6 +15,7 @@ import { usePagination } from '@/composables/usePagination'
 import { usePvcUsage } from '@/composables/usePvcUsage'
 import { formatBytes } from '@/utils/bytes'
 import { useI18n } from 'vue-i18n'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -146,9 +147,7 @@ function goSCDetail(row) {
           <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.storage.pvcTab') }}</h2>
           <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.storage.pvcCount', { n: nsPVCs.length }) }} <span class="text-primary font-medium">{{ route.params.namespace }}</span></p>
         </div>
-        <button @click="showCreatePVC = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> {{ t('ns.storage.newPVC') }}
-        </button>
+        <CreateWithYamlButton :label="t('ns.storage.newPVC')" :main-action="() => { showCreatePVC = true }" yaml-template="PersistentVolumeClaim" :namespace="route.params.namespace" />
       </div>
 
       <!-- Summary -->

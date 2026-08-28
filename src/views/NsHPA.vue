@@ -12,6 +12,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const { t } = useI18n()
 const { tableColumns } = useTableColumns()
@@ -113,9 +114,7 @@ function goDetail(row) {
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.hpa.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.hpa.subtitle', { n: nsHPAs.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
-        <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.hpa.createBtn') }}
-      </button>
+      <CreateWithYamlButton :label="t('ns.hpa.createBtn')" :main-action="() => { showCreateModal = true }" yaml-template="HorizontalPodAutoscaler" :namespace="route.params.namespace" />
     </div>
 
     <DataTable :headers="headers" :rows="paginated" column-key="nsHPA" @row-click="goDetail">

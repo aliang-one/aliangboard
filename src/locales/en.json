@@ -72,7 +72,8 @@
     },
     "createFromYaml": {
       "title": "Create from YAML",
-      "hint": "Paste or edit YAML then create. Namespace follows metadata.namespace in the YAML.",
+      "hint": "Paste or edit YAML then create. Explicit metadata.namespace wins; documents without it are created in the current namespace.",
+      "nsHint": "Documents without metadata.namespace will be created in {ns}",
       "create": "Create",
       "parseError": "YAML parse failed"
     },
@@ -1404,8 +1405,6 @@
     },
     "rbac": {
       "title": "RBAC",
-      "createRoleBtn": "Create Role",
-      "createSaBtn": "Create SA",
       "rolesTab": "Roles",
       "serviceAccountsTab": "ServiceAccounts",
       "roleBindingsTab": "RoleBindings",

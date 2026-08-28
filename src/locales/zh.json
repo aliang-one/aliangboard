@@ -72,7 +72,8 @@
     },
     "createFromYaml": {
       "title": "从 YAML 创建",
-      "hint": "粘贴或编辑 YAML 后创建。namespace 以 YAML 内 metadata.namespace 为准。",
+      "hint": "粘贴或编辑 YAML 后创建。显式写的 metadata.namespace 优先;未写则创建到当前命名空间。",
+      "nsHint": "未写 metadata.namespace 的文档将创建到 {ns}",
       "create": "创建",
       "parseError": "YAML 解析失败"
     },
@@ -1404,8 +1405,6 @@
     },
     "rbac": {
       "title": "RBAC",
-      "createRoleBtn": "创建 Role",
-      "createSaBtn": "创建 ServiceAccount",
       "rolesTab": "Roles",
       "serviceAccountsTab": "ServiceAccounts",
       "roleBindingsTab": "RoleBindings",

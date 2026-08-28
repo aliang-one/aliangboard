@@ -96,7 +96,7 @@ for (const [path, loader] of Object.entries(modules)) {
         shallow: true,
         global: {
           plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
-          stubs: { RouterLink: true, RouterView: true },
+          stubs: { RouterLink: true, RouterView: true, CreateWithYamlButton: true },
         },
       })
     } catch (e) {

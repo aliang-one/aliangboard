@@ -15,6 +15,7 @@ import PortSelect from '@/components/common/PortSelect.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useQueryClient } from '@tanstack/vue-query'
+import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -218,9 +219,7 @@ async function handleDelete() {
         <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" :title="t('ns.services.endpointsTitle')">
           <span class="material-symbols-outlined text-base">cable</span> {{ t('ns.services.endpoints') }}
         </button>
-        <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined">add</span> {{ t('common.create') }} {{ t('ns.services.title') }}
-        </button>
+        <CreateWithYamlButton :label="`${t('common.create')} ${t('ns.services.title')}`" :main-action="() => { showCreateModal = true }" yaml-template="Service" :namespace="route.params.namespace" />
       </div>
     </div>
 
