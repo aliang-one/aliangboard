@@ -2406,7 +2406,10 @@
       "checkFailed": "检测失败(内网或限流)",
       "devBuild": "开发构建",
       "upgradeGuide": "版本与升级",
-      "copyCommand": "复制命令"
+      "copyCommand": "复制命令",
+      "lastChecked": "上次检查",
+      "upToDate": "已是最新版本",
+      "foundUpdate": "发现新版本"
     }
   },
   "storage": {

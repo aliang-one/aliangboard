@@ -4,6 +4,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppVersion } from '@/composables/useAppVersion'
+import { notify } from '@/composables/useToast'
 
 const { t } = useI18n()
 const { query, checkNow } = useAppVersion()
@@ -15,10 +16,25 @@ const current = computed(() => query.data.value?.current || 'dev')
 const latest = computed(() => query.data.value?.latest || null)
 const loaded = computed(() => !!query.data.value)
 const isDev = computed(() => current.value === 'dev')
+// 检测失败 = 服务端降级(latest:null)或端点本身不可达(query 错误)——都不该停在「检测中…」
+const failed = computed(() => query.isError.value || (loaded.value && latest.value === null))
+const lastChecked = computed(() => {
+  const ts = query.data.value?.checkedAt
+  if (!ts) return ''
+  try { return new Date(ts).toLocaleTimeString() } catch { return '' }
+})
 
 async function onCheck() {
   checking.value = true
-  try { await checkNow() } finally { checking.value = false }
+  try {
+    await checkNow()
+    // 结果反馈:检查必须可见地"有反应"(2026-08-28 报障:点立即检查零反馈)
+    if (!latest.value) notify('error', t('settings.about.checkFailed'))
+    else if (!query.data.value?.hasUpdate) notify('success', t('settings.about.upToDate'))
+    else notify('success', `${t('settings.about.foundUpdate')} v${latest.value}`)
+  } catch {
+    notify('error', t('settings.about.checkFailed'))
+  } finally { checking.value = false }
 }
 
 // 升级指引:镜像 tag = 规范形(与 CI semver 产物一致,无 v 前缀);deployment.yaml 现状单副本 latest
@@ -52,7 +68,7 @@ async function copyCmd() {
       <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
         <span class="text-body-sm text-on-surface-variant">{{ t('settings.about.latestVersion') }}</span>
         <span v-if="latest" class="font-mono text-code-sm">{{ `v${latest}` }}</span>
-        <span v-else-if="loaded" class="text-on-surface-variant text-body-sm">{{ t('settings.about.checkFailed') }}</span>
+        <span v-else-if="failed" class="text-on-surface-variant text-body-sm">{{ t('settings.about.checkFailed') }}</span>
         <span v-else class="text-on-surface-variant text-body-sm">{{ t('settings.about.checking') }}</span>
       </div>
       <div class="flex justify-between items-center py-sm">
@@ -63,6 +79,7 @@ async function copyCmd() {
           {{ checking ? t('settings.about.checking') : t('settings.about.checkNow') }}
         </button>
       </div>
+      <p v-if="lastChecked" class="-mt-sm text-xs text-on-surface-variant">{{ t('settings.about.lastChecked') }} {{ lastChecked }}</p>
       <div v-if="cmd" class="rounded-lg bg-surface-container-low p-sm flex items-center gap-sm">
         <code class="flex-1 font-mono text-code-sm break-all">{{ cmd }}</code>
         <button @click="copyCmd" class="material-symbols-outlined text-base hover:text-primary cursor-pointer"

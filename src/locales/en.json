@@ -2406,7 +2406,10 @@
       "checkFailed": "Check failed (offline or rate-limited)",
       "devBuild": "Dev build",
       "upgradeGuide": "Version & upgrade",
-      "copyCommand": "Copy command"
+      "copyCommand": "Copy command",
+      "lastChecked": "Last checked",
+      "upToDate": "Already up to date",
+      "foundUpdate": "New version available"
     }
   },
   "storage": {
