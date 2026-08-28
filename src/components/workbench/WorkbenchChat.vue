@@ -12,7 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import AiConfigPanel from './AiConfigPanel.vue'
-import { applyStreamEvent } from './conv-stream'
+import { applyStreamEvent, ensureFinalAnswerBlock } from './conv-stream'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
 import { isNearBottomCalc } from '@/logic/chatScroll'
@@ -459,8 +459,17 @@ async function pollOnce(id) {
       stopPolling()
       stopWatchdog()
       lastApproval.value = null   // 离开 paused:黄条重开入口下线
-      // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流
-      if (agentTurn) updateTurn(agentTurn._id, { status: 'done', content: conv.content || t('workbench.chat.noAnswer'), reasoning: conv.reasoning || agentTurn.reasoning || '', steps: conv.steps ?? agentTurn.steps })
+      // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流。
+      // 终答兜底(2026-08-28):交错模式终答显示唯一依赖 trace 的 assistant 终答块;本对齐路径
+      // (看门狗/降级轮询,SSE 死亡窗口后)本地 trace 缺终答块时,只写 content 会让终答在交错
+      // 模式无处渲染——ensureFinalAnswerBlock 补块(回退布局不受影响)。
+      if (agentTurn) updateTurn(agentTurn._id, ensureFinalAnswerBlock({
+        ...agentTurn,
+        status: 'done',
+        content: conv.content || t('workbench.chat.noAnswer'),
+        reasoning: conv.reasoning || agentTurn.reasoning || '',
+        steps: conv.steps ?? agentTurn.steps,
+      }))
       sending.value = false
       await followBottom()
     } else if (conv.status === 'failed') {

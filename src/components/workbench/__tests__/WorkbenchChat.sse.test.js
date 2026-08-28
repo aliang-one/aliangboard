@@ -183,3 +183,47 @@ test('断连横幅亮起后,SSE 终态事件到达即熄灭(不再永久残留)'
     vi.useRealTimers()
   }
 })
+
+// ── 2026-08-28 终答丢失审计(用户实测:1.0.9 对话完成后最后一段不显示,刷新才有)──
+// 场景复刻:SSE 在最后一个 step.assistant(终答块)前死亡 → 看门狗 10s 对齐到 done。
+// 交错模式下终答显示唯一依赖 trace 终答块;对齐路径只写 content → 终答无处渲染。
+// 修复契约:done 对齐后终答文本必须出现在页面上。
+test('SSE 死亡后看门狗对齐 done:交错模式终答必须可见(不只活在 content 里)', async () => {
+  vi.useFakeTimers()
+  try {
+    const w = await mountChat()
+    api.conversations.create.mockResolvedValue({ id: 'conv-1', status: 'running' })
+    await w.find('textarea').setValue('诊断一下')
+    await w.find('button.bg-primary').trigger('click')
+    await flushPromises()
+    const es = FakeEventSource.instances.at(-1)
+    expect(es).toBeTruthy()
+
+    // 流式中:中间轮 assistant 文本块 + 工具事件(交错模式确立);终答 delta 流到一半
+    es.emit({ type: 'step', step: { type: 'assistant', content: '我先看看资源状态', ts: 1 } })
+    es.emit({ type: 'delta', text: '根据检查结果' })
+    await flushPromises()
+    // SSE 死亡(终答块事件从未到达)——浏览器侧无感知,连接僵尸
+    es.readyState = 2
+    es.onmessage = null
+
+    // 看门狗 10s 对齐:服务端已 done,conv.content=完整终答
+    api.conversations.get.mockResolvedValue({
+      id: 'conv-1', status: 'done', content: '根据检查结果,问题是镜像拉取失败,已修复。',
+      reasoning: '', trace: '[]', steps: 3,
+      messages: [
+        { role: 'user', content: '诊断一下' },
+        { role: 'assistant', content: '根据检查结果,问题是镜像拉取失败,已修复。' },
+      ],
+    })
+    await vi.advanceTimersByTimeAsync(11_000)
+    await flushPromises()
+
+    // 终态到达且终答可见(修复前:交错模式只显示中间轮,终答无处渲染)
+    expect(w.html()).toContain('已修复')
+    expect(w.html()).toContain('我先看看资源状态')   // 中间轮仍在
+    expect(w.html()).not.toContain('progress_activity')  // 不再转圈
+  } finally {
+    vi.useRealTimers()
+  }
+})

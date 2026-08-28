@@ -3,6 +3,23 @@
 // 入参 state 是 agentTurn 当前快照;返回新 state(不可变)。
 import { sanitizeChatError } from '@/logic/chatErrors'
 
+// 交错渲染终答兜底(2026-08-28 终答丢失审计):交错模式的终答显示唯一依赖 trace 的
+// assistant 终答块;而对齐路径(SSE 终态 snapshot / pollOnce done / 看门狗)只对齐
+// content 不补块——SSE 死亡窗口(最后一个 step.assistant 前)后对齐到 done 时,
+// 终答活在 content 里却在交错模式无处渲染(「最后一段没展示就结束了」的直接根因;
+// 刷新走消息级 trace 重建才完整)。本函数在 done 时刻自愈:trace 已有中间轮文本块
+// (交错模式生效)且 content 非空且末块非同文 assistant → 追加终答块。
+// 正常 SSE 路径不触发(step.assistant 已把 content 清零,终答块本就在 trace)。
+export function ensureFinalAnswerBlock(state) {
+  const trace = state.trace || []
+  const content = state.content || ''
+  if (!content) return state
+  if (!trace.some(e => e?.type === 'assistant' && e.content)) return state // 回退布局:content 自会渲染
+  const last = trace[trace.length - 1]
+  if (last?.type === 'assistant' && last.content === content) return state  // 终答块已在
+  return { ...state, trace: [...trace, { type: 'assistant', content }] }
+}
+
 export function applyStreamEvent(state, evt) {
   if (!evt || typeof evt !== 'object') return state
   switch (evt.type) {
@@ -51,7 +68,7 @@ export function applyStreamEvent(state, evt) {
     case 'status': {
       // 对话状态变更(running/paused/done/failed/cancelled);终态清 tool_start 残留(execTool 抛错直 failed 等)
       const clean = st => ({ ...st, trace: (st.trace || []).filter(x => x?.type !== 'tool_start') })
-      if (evt.status === 'done') return clean({ ...state, status: 'done' })
+      if (evt.status === 'done') return ensureFinalAnswerBlock(clean({ ...state, status: 'done' }))
       if (evt.status === 'paused') return clean({ ...state, status: 'pending_approval' })
       // failed 的 error 可能是上游网关整页 HTML(nginx 502 等)——显示前净化
       if (evt.status === 'failed') return clean({ ...state, status: 'error', error: sanitizeChatError(evt.error) })

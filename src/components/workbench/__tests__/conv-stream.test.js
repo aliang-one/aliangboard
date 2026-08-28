@@ -193,3 +193,49 @@ test('snapshot:空 content 不覆写 live 文本;有值才对齐', () => {
   expect(s.content).toBe('检查点文本')       // 非空 = 对齐
   expect(s.trace.length).toBe(1)
 })
+
+// ── 2026-08-28 终答丢失审计:交错渲染的对齐缺口 ──
+// 交错模式终答显示唯一依赖 trace 的 assistant 终答块;对齐路径(SSE 终态 snapshot /
+// pollOnce done)只对齐 content 不补块——SSE 死亡窗口后对齐到 done 时,终答(content)
+// 在交错模式无处渲染(「最后一段没展示就结束了」的根因;刷新走消息级 trace 才完整)。
+test('done:trace 有中间轮文本块但缺终答块 + content 非空 → 补终答块', () => {
+  const state = {
+    status: 'thinking',
+    content: '最终答案全文',
+    trace: [
+      { type: 'assistant', content: '先看一下资源', ts: 1 },
+      { type: 'tool', name: 'list', args: {}, result: 'ok', ts: 2 },
+    ],
+  }
+  const next = applyStreamEvent(state, { type: 'status', status: 'done' })
+  const last = next.trace[next.trace.length - 1]
+  expect(last.type).toBe('assistant')
+  expect(last.content).toBe('最终答案全文')
+  // 中间块保留
+  expect(next.trace).toHaveLength(3)
+})
+
+test('done:trace 末块已是终答(与 content 同文)→ 不重复追加', () => {
+  const state = {
+    status: 'thinking',
+    content: '终答',
+    trace: [
+      { type: 'assistant', content: '中间轮', ts: 1 },
+      { type: 'assistant', content: '终答', ts: 2 },
+    ],
+  }
+  const next = applyStreamEvent(state, { type: 'status', status: 'done' })
+  expect(next.trace).toHaveLength(2)
+})
+
+test('done:trace 无 assistant 文本块(回退布局)→ 不追加,content 由回退布局渲染', () => {
+  const state = { status: 'thinking', content: '终答', trace: [{ type: 'tool', name: 'x', args: {}, result: 'ok', ts: 1 }] }
+  const next = applyStreamEvent(state, { type: 'status', status: 'done' })
+  expect(next.trace).toHaveLength(1)
+})
+
+test('done:content 为空(正常 SSE 路径,step.assistant 已清零)→ 不追加', () => {
+  const state = { status: 'thinking', content: '', trace: [{ type: 'assistant', content: '中间轮', ts: 1 }] }
+  const next = applyStreamEvent(state, { type: 'status', status: 'done' })
+  expect(next.trace).toHaveLength(1)
+})
