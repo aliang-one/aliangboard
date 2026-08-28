@@ -4,6 +4,7 @@
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
 import { registry } from '../tool-registry.mjs'
+import { listSshServers } from '../ssh/store.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -104,8 +105,9 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const cfg = getWorkbenchAiConfig(db)
       const disabled = new Set(cfg.disabledTools)
+      const sshServers = listSshServers(db, { exposedOnly: true }).map(s => ({ id: s.id, name: s.name, description: s.description, clusterRef: s.clusterRef }))
       sendJson(res, 200, {
-        effectivePrompt: buildWorkbenchSystemPrompt(cfg),
+        effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers }),
         tools: registry.workbenchTools().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
         additionalInstructions: cfg.additionalInstructions,
         model: getLlmConfig().model,
@@ -131,7 +133,8 @@ export function createWorkbenchConvRoutes(deps) {
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
-        const system = buildWorkbenchSystemPrompt(getWorkbenchAiConfig(db))
+        const sshServers = listSshServers(db, { exposedOnly: true }).map(s => ({ id: s.id, name: s.name, description: s.description, clusterRef: s.clusterRef }))
+        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers })
 
         const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。

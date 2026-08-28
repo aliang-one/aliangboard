@@ -44,9 +44,19 @@ test('registry.workbenchToolDefs(disabled):过滤 + 未知名忽略 + 无参兼�
   assert.deepEqual(registry.workbenchToolDefs().map(t => t.function.name), all)
 })
 
-test('registry.workbenchTools():19 个 WB 工具,每个带 promptHint', () => {
+test('registry.workbenchTools():21 个 WB 工具,每个带 promptHint', () => {
   const tools = registry.workbenchTools()
-  assert.equal(tools.length, 19)
+  assert.equal(tools.length, 21)
   assert.ok(tools.every(t => typeof t.promptHint === 'string' && t.promptHint.length > 0))
   assert.ok(tools.some(t => t.name === 'wb_exec' && t.requiresApproval === true))
+})
+
+test('sshServers 注入:非空清单出现 id/名称/集群/凭据不可见指引;空清单不出现该段', () => {
+  const withList = buildWorkbenchSystemPrompt({ sshServers: [{ id: 'abc', name: 'prod-web', description: 'web 节点', clusterRef: 'prod' }] })
+  assert.ok(withList.includes('## 可管理的 SSH 服务器'))
+  assert.ok(withList.includes('prod-web') && withList.includes('abc') && withList.includes('prod'))
+  assert.ok(withList.includes('wb_ssh_exec'))
+  assert.ok(withList.includes('不可见'))
+  const without = buildWorkbenchSystemPrompt({})
+  assert.ok(!without.includes('可管理的 SSH 服务器'))
 })

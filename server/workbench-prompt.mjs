@@ -27,8 +27,8 @@ const FIXED = `你是 aliangboard 工作台助手,一个经验丰富的 K8s SRE 
 - 不要假装调用了工具——要么调用,要么说明你需要什么信息。
 - 用户 @-mention 的资源已在上下文里,直接引用。`
 
-// { additionalInstructions, disabledTools } 均可缺省;disabledTools 接受数组或 Set(未成名在 registry 侧已被滤掉,这里只管条目过滤)。
-export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabledTools = [] } = {}) {
+// { additionalInstructions, disabledTools, sshServers } 均可缺省;disabledTools 接受数组或 Set(未成名在 registry 侧已被滤掉,这里只管条目过滤)。
+export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabledTools = [], sshServers = [] } = {}) {
   const disabled = disabledTools instanceof Set ? disabledTools : new Set(disabledTools)
   const tools = registry.workbenchTools().filter(t => !disabled.has(t.name))
   const ro = tools.filter(t => !t.requiresApproval)
@@ -37,6 +37,17 @@ export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabl
   for (const t of ro) lines.push(`- **${t.name}**:${t.promptHint}`)
   lines.push('', '## 需人审工具(调用会展示给用户,批准后才执行)')
   for (const t of rw) lines.push(`- **${t.name}**:${t.promptHint}`)
+
+  // SSH 服务器清单(仅 id/name/description/clusterRef,不含 host/port/credentials)
+  const list = Array.isArray(sshServers) ? sshServers.filter(s => s && s.name) : []
+  if (list.length) {
+    lines.push('', '## 可管理的 SSH 服务器(用户已授权 AI 使用;凭据与地址你不可见,也无需询问,平台自动鉴权)')
+    for (const s of list) {
+      lines.push(`- **${s.name}**(id:${s.id})${s.description ? `:${s.description}` : ''}${s.clusterRef ? ` · 关联集群:${s.clusterRef}` : ''}`)
+    }
+    lines.push('用户提到这些服务器时,用 wb_ssh_exec 执行命令 / wb_ssh_read_file 读文件,server 参数用服务器名称;名称对应多台时先向用户确认。')
+  }
+
   const extra = String(additionalInstructions || '').trim()
   if (extra) lines.push('', '## 管理员追加指令', extra)
   return lines.join('\n')
