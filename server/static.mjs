@@ -49,7 +49,17 @@ export function serveStatic(req, res, url, { root } = {}) {
   if (!st.isFile()) return false
 
   const ct = MIME[extname(filePath).toLowerCase()] || 'application/octet-stream'
-  const headers = { 'Content-Type': ct, 'Content-Length': st.size }
+  // 安全头(2026-08-28 架构治理):CSP 收窄 XSS 战果(CodeViewer 事故的纵深防御层)。
+  // 依据:资产全部 self(fontsource 自托管/Vite 外链 CSS);style unsafe-inline = xterm/echarts/内联 style 属性;
+  // img data:/blob: = 文件预览;connect ws/wss = /api/exec 终端。无 Worker、无远程图(已排查)。
+  // 仅生产静态服务生效(vite dev 不经此路径);若日后引入远程资产,先改此处再上手。
+  const headers = {
+    'Content-Type': ct, 'Content-Length': st.size,
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+  }
   if (filePath.endsWith('index.html')) headers['Cache-Control'] = 'no-cache'
   else if (rel.startsWith('/assets/')) headers['Cache-Control'] = 'public, max-age=31536000, immutable'
 
