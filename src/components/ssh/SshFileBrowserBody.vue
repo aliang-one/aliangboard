@@ -42,7 +42,7 @@ async function load(p) {
     entries.value = r.entries || []
   } catch (e) {
     entries.value = []
-    error.value = /ENOENT|not found|不存在/i.test(e?.message || '') ? t('ssh.pathMissing') : (e?.message || t('ssh.pathMissing'))
+    error.value = /ENOENT|not found|\u4e0d\u5b58\u5728/i.test(e?.message || '') ? t('ssh.pathMissing') : (e?.message || t('ssh.pathMissing'))
   } finally { loading.value = false }
 }
 const refresh = () => load(path.value)
