@@ -64,6 +64,9 @@ test('classifyConnectError: 五类映射', () => {
   assert.equal(classifyConnectError({ level: 'client-auth' }), 'auth')
   assert.equal(classifyConnectError({ message: 'All configured authentication methods failed' }), 'auth')
   assert.equal(classifyConnectError({ message: 'host key mismatch' }), 'hostkey')
+  // code 优先于文案:传输层错误即使 message 碰含 auth 字样也归传输层
+  assert.equal(classifyConnectError({ code: 'ECONNRESET', message: 'authentication reset by peer' }), 'unreachable')
+  assert.equal(classifyConnectError({ code: 'ETIMEDOUT', message: 'weird' }), 'timeout')
   assert.equal(classifyConnectError({ message: 'weird' }), 'unknown')
 })
 
@@ -131,6 +134,44 @@ test('acquire: host key 不符 → errorKind=hostkey 且不落指纹;认证失�
 })
 
 function behaviorClient(behavior) { return () => FakeClient(behavior) }
+
+test('acquire: 并发首连去重——两调用者共享同一连接(且只记录一次指纹,TOFU 无竞态)', async () => {
+  reset()
+  const fps = []
+  const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient,
+    onFingerprint: (id, fp) => fps.push([id, fp]), knownFp: () => '' })
+  const [h1, h2] = await Promise.all([pool.acquire('s1', 'u1'), pool.acquire('s1', 'u1')])
+  assert.equal(FakeClient.created.length, 1, '并发首连只建一条')
+  assert.equal(h1.client, h2.client, '同一 client 实例')
+  assert.equal(fps.length, 1, '只有一个 connectWith 走 known/recordFp(TOFU 竞态被去重消除)')
+  h1.release(); h2.release()   // refs 2→0 进空闲
+})
+
+test('acquire: ready 后连接 emit error 不崩网关,且死连接被逐出(再取新建)', async () => {
+  reset()
+  const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient,
+    onFingerprint: () => {}, knownFp: () => '' })
+  const h = await pool.acquire('s1', 'u1')
+  assert.doesNotThrow(() => h.client.emit('error', new Error('keepalive timeout')), 'error 监听器必须常驻')
+  const h2 = await pool.acquire('s1', 'u1')
+  assert.equal(FakeClient.created.length, 2, '死连接已逐出,再取新建')
+  h.release(); h2.release()
+})
+
+test('acquire: 建连失败后 pending 清位——重试再次尝试(不卡死在失败 Promise)', async () => {
+  reset()
+  let n = 0
+  const flaky = () => {
+    n++
+    return FakeClient(n === 1 ? { error: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' } } : {})
+  }
+  const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: flaky,
+    onFingerprint: () => {}, knownFp: () => '' })
+  await assert.rejects(() => pool.acquire('s1', 'u1'), e => e.errorKind === 'unreachable')
+  const h = await pool.acquire('s1', 'u1')
+  assert.equal(n, 2, '重试新建')
+  h.release()
+})
 
 test('acquire: 不存在的 server → errorKind=unreachable', async () => {
   reset()
