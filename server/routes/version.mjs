@@ -19,7 +19,9 @@ export function createVersionRoutes(deps) {
     })
     if (!res.ok) throw new Error(`github ${res.status}`)
     const data = await res.json()
-    return pickLatest(Array.isArray(data?.tags) ? data.tags.map(t => t?.name) : [])
+    // GitHub /repos/{o}/{r}/tags 返回**顶层 JSON 数组** [{name,commit,...}](2026-08-28 生产事故:
+    // 曾按 registry 形状 {tags:[...]} 解析,GitHub 恒解析出空→latest 恒 null→更新检测全哑)。
+    return pickLatest(Array.isArray(data) ? data.map(t => t?.name) : [])
   }
 
   async function respond(res, { force = false } = {}) {

@@ -7,10 +7,11 @@ const U = p => new URL(p, 'http://x')
 const OK_TTL = 60 * 60_000
 const ERR_TTL = 5 * 60_000
 
-// okFetch:GitHub tags 响应桩;calls 记录调用次数
+// okFetch:GitHub tags 响应桩。**真实形状 = 顶层 JSON 数组** [{name,commit,...}]
+// (2026-08-28 生产事故:mock 曾凭猜写成 {tags:[...]}(registry 形状),实现跟着错,GitHub 恒解析出空)。
 const okFetch = (names, calls = { n: 0 }) => {
   calls.n = 0
-  return { calls, fn: async () => { calls.n++; return { ok: true, json: async () => ({ tags: names.map(name => ({ name })) }) } } }
+  return { calls, fn: async () => { calls.n++; return { ok: true, json: async () => names.map(name => ({ name, commit: { sha: 'x' } })) } } }
 }
 
 function harness({ fetchImpl, requirePlatform, current = '1.0.0', nowVal = 1_000_000 } = {}) {
@@ -76,7 +77,7 @@ test('网络失败/非 200:降级 latest:null 恒 200;错误态 5min 内不重�
   let fail = true
   const calls = { n: 0 }
   const { routes, sent, tick } = harness({
-    fetchImpl: async () => { calls.n++; if (fail) throw new Error('offline'); return { ok: true, json: async () => ({ tags: [{ name: 'v1.2.0' }] }) } },
+    fetchImpl: async () => { calls.n++; if (fail) throw new Error('offline'); return { ok: true, json: async () => ([{ name: 'v1.2.0' }]) } },
   })
   await routes.handle({ method: 'GET' }, null, U('/api/version'))
   assert.equal(sent[0].status, 200)
