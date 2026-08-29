@@ -1,16 +1,24 @@
 <script setup>
-// 底部任务栏(Windows taskbar 式)三分区:终端 | 文件窗口 | 传输(百分比汇总,点击开面板)。
-// 「全部关闭」作用于终端+文件窗口;传输清理在 TransfersPanel。
-import { computed } from 'vue'
+// 底部任务栏(Windows taskbar 式)四分区:终端(pod) | 文件窗口 | SSH 服务器 | 传输。
+// 2026-08-29 任务栏化改造:
+// - 新增 SSH 服务器分区:同服务器多终端聚合成分组 chip(dns 图标 + ×N),chip 身上的
+//   「+」随时新开终端(多开入口常驻任务栏);count>1 时点 chip 弹会话菜单。
+// - 折叠三层(src/utils/taskbarFit.js 纯函数决策):①名称收窄为图标 ②尾部 chip 逐个
+//   折进「⋯ n」下拉 ③空间回富逆向回收。pod/文件分区保持平铺(量少)。
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore, fmtBytes } from '@/stores/transfers'
+import { useSshTerminalStore } from '@/stores/sshTerminals'
+import { nextFitStep } from '@/utils/taskbarFit'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
+const sshStore = useSshTerminalStore()
 
 function onTermClick(item) {
   if (item.status === 'external') {
@@ -19,8 +27,66 @@ function onTermClick(item) {
   else termStore.focusTerminal(item.id)
 }
 function onFilesClick(b) { b.status === 'minimized' ? fbStore.restoreBrowser(b.id) : fbStore.focusBrowser(b.id) }
+function onSshItemClick(w) { w.status === 'minimized' ? sshStore.restoreWindow(w.id) : sshStore.focusWindow(w.id) }
 
-const sessionCount = computed(() => termStore.terminals.length + fbStore.browsers.length)
+// —— SSH 分组 chip ——
+const sshChips = computed(() => sshStore.groups.map(g => ({
+  kind: 'ssh', id: g.serverId, name: g.name, count: g.count,
+  status: g.windows.some(w => w.status === 'open') ? 'open' : 'minimized', windows: g.windows,
+})))
+const menuOpenFor = ref('')   // 打开会话菜单的 serverId(同时最多一个)
+function onSshChipClick(chip) {
+  if (chip.count === 1) return onSshItemClick(chip.windows[0])
+  menuOpenFor.value = menuOpenFor.value === chip.id ? '' : chip.id
+}
+const onSshNew = chip => sshStore.openNew({ id: chip.id, name: chip.name })
+
+// —— 三类 chip 拍平(折叠按此顺序从尾部吃)——
+const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status })))
+const fileChips = computed(() => fbStore.browsers.map(b => ({ kind: 'file', id: b.id, name: b.name, status: b.status })))
+const flat = computed(() => [...podChips.value, ...fileChips.value, ...sshChips.value])
+const flatSig = computed(() => flat.value.map(c => `${c.kind}:${c.id}:${c.status}`).join('|'))
+
+// —— 三层折叠(refit:决策器给 step,组件下一帧测量再执行)——
+const wrap = ref(null)
+const iconMode = ref(false)
+const overflowCount = ref(0)
+const overflowOpen = ref(false)
+const visible = computed(() => flat.value.slice(0, flat.value.length - overflowCount.value))
+const folded = computed(() => flat.value.slice(flat.value.length - overflowCount.value))
+let raf = 0
+function scheduleRefit() {
+  if (raf) cancelAnimationFrame(raf)
+  raf = requestAnimationFrame(() => { raf = 0; refit() })
+}
+async function refit() {
+  const el = wrap.value
+  if (!el || typeof el.scrollWidth !== 'number') return
+  for (let i = 0; i < 60; i++) {
+    const step = nextFitStep({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, iconMode: iconMode.value, overflowCount: overflowCount.value, total: flat.value.length })
+    if (step.action === 'done') return
+    if (step.action === 'set-icon') iconMode.value = true
+    else if (step.action === 'unset-icon') iconMode.value = false
+    else if (step.action === 'fold-one') { overflowCount.value++; overflowOpen.value = false }
+    else if (step.action === 'unfold-one') overflowCount.value--
+    await nextTick()
+  }
+}
+watch(flatSig, () => { overflowOpen.value = false; scheduleRefit() })
+watch(iconMode, scheduleRefit)
+let ro = null
+onMounted(() => {
+  scheduleRefit()
+  if (typeof ResizeObserver !== 'undefined' && wrap.value) {
+    ro = new ResizeObserver(() => scheduleRefit())
+    ro.observe(wrap.value)
+  } else {
+    window.addEventListener('resize', scheduleRefit)
+  }
+})
+onUnmounted(() => { if (ro) ro.disconnect(); else window.removeEventListener('resize', scheduleRefit); if (raf) cancelAnimationFrame(raf) })
+
+const sessionCount = computed(() => termStore.terminals.length + fbStore.browsers.length + sshStore.windows.length)
 const hasAny = computed(() => sessionCount.value > 0 || trStore.tasks.length > 0)
 const agg = computed(() => trStore.aggregate)
 // 单任务直显名称+%;多任务汇总「done/count · 加权%」
@@ -40,39 +106,89 @@ function closeAll() {
   if (confirm(t('transfers.closeAllConfirm', { count: sessionCount.value }))) {
     [...termStore.terminals].forEach(item => termStore.closeTerminal(item.id))
     ;[...fbStore.browsers].forEach(b => fbStore.closeBrowser(b.id))
+    ;[...sshStore.windows].forEach(w => sshStore.closeWindow(w.id))
   }
 }
 </script>
 
 <template>
-  <div v-if="hasAny" class="flex items-center gap-xs px-md bg-surface-container-highest border-t border-outline-variant shadow-lg shrink-0" style="height: 32px">
+  <div v-if="hasAny" class="relative flex items-center gap-xs px-md bg-surface-container-highest border-t border-outline-variant shadow-lg shrink-0" style="height: 32px">
     <button v-if="sessionCount" @click="closeAll" class="flex items-center gap-xs px-sm py-0.5 rounded-md text-body-xs bg-error/10 text-error hover:bg-error/20 border border-error/20 transition-colors shrink-0" :title="t('terminal.closeAllTitle')">
       <span class="material-symbols-outlined text-sm">delete_sweep</span>{{ t('terminal.closeAll') }}
     </button>
     <span v-if="sessionCount" class="w-px h-4 bg-outline-variant/40 shrink-0"></span>
-    <!-- 分区1:终端 -->
-    <button v-for="item in termStore.terminals" :key="'t-' + item.id" @click="onTermClick(item)"
-      class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
-      :class="item.status === 'open' ? 'bg-primary/15 text-primary border border-primary/30' : item.status === 'external' ? 'bg-secondary/10 text-secondary border border-secondary/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
-      :title="`${item.name}（${item.status === 'open' ? t('terminal.statusFloating') : item.status === 'external' ? t('terminal.statusExternal') : t('terminal.statusMinimized')}）`">
-      <span class="material-symbols-outlined text-sm">{{ item.status === 'open' ? 'terminal' : item.status === 'external' ? 'open_in_new' : 'hide_source' }}</span>
-      <span class="truncate">{{ item.name }}</span>
-      <span @click.stop="termStore.closeTerminal(item.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
-        <span class="material-symbols-outlined" style="font-size:13px">close</span>
-      </span>
-    </button>
-    <!-- 分区2:文件窗口 -->
-    <button v-for="b in fbStore.browsers" :key="'f-' + b.id" @click="onFilesClick(b)"
-      class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
-      :class="b.status === 'open' ? 'bg-tertiary-container/15 text-tertiary-container border border-tertiary-container/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
-      :title="`${b.name}（${b.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized')}）`">
-      <span class="material-symbols-outlined text-sm">{{ b.status === 'open' ? 'folder_open' : 'hide_source' }}</span>
-      <span class="truncate">{{ b.name }}</span>
-      <span @click.stop="fbStore.closeBrowser(b.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
-        <span class="material-symbols-outlined" style="font-size:13px">close</span>
-      </span>
-    </button>
-    <!-- 分区3:传输(百分比) -->
+    <!-- 可折叠区:pod 终端 | 文件窗口 | SSH 服务器分组 chip -->
+    <div ref="wrap" class="flex-1 flex items-center gap-xs overflow-hidden min-w-0">
+      <template v-for="chip in visible" :key="chip.kind + '-' + chip.id">
+        <!-- pod 终端 -->
+        <button v-if="chip.kind === 'pod'" @click="onTermClick(termStore.terminals.find(x => x.id === chip.id))"
+          class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
+          :class="chip.status === 'open' ? 'bg-primary/15 text-primary border border-primary/30' : chip.status === 'external' ? 'bg-secondary/10 text-secondary border border-secondary/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
+          :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : chip.status === 'external' ? t('terminal.statusExternal') : t('terminal.statusMinimized')}）`">
+          <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'terminal' : chip.status === 'external' ? 'open_in_new' : 'hide_source' }}</span>
+          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span @click.stop="termStore.closeTerminal(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
+            <span class="material-symbols-outlined" style="font-size:13px">close</span>
+          </span>
+        </button>
+        <!-- 文件窗口 -->
+        <button v-else-if="chip.kind === 'file'" @click="onFilesClick(fbStore.browsers.find(x => x.id === chip.id))"
+          class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
+          :class="chip.status === 'open' ? 'bg-tertiary-container/15 text-tertiary-container border border-tertiary-container/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
+          :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized')}）`">
+          <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'folder_open' : 'hide_source' }}</span>
+          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span @click.stop="fbStore.closeBrowser(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
+            <span class="material-symbols-outlined" style="font-size:13px">close</span>
+          </span>
+        </button>
+        <!-- SSH 服务器分组 chip(secondary 色系,与 pod/files 三色分明) -->
+        <div v-else-if="chip.kind === 'ssh'" class="relative flex items-center shrink-0">
+          <button @click="onSshChipClick(chip)"
+            class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
+            :class="chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
+            :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）`">
+            <span class="material-symbols-outlined text-sm">dns</span>
+            <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+            <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
+            <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>
+            <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
+              <span class="material-symbols-outlined" style="font-size:13px">close</span>
+            </span>
+          </button>
+          <!-- 会话菜单:count>1 时点 chip 弹出 -->
+          <div v-if="menuOpenFor === chip.id" class="absolute bottom-full mb-xs left-0 min-w-[200px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal }">
+            <button v-for="(w, i) in chip.windows" :key="w.id" @click="onSshItemClick(w); menuOpenFor = ''"
+              class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+              <span class="material-symbols-outlined text-sm" :class="w.status === 'open' ? 'text-secondary' : 'text-on-surface-variant/50'">{{ w.status === 'open' ? 'terminal' : 'hide_source' }}</span>
+              <span class="truncate flex-1 font-mono">#{{ i + 1 }} · {{ w.name }}</span>
+              <span class="text-on-surface-variant/50">{{ w.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized') }}</span>
+              <span @click.stop="sshStore.closeWindow(w.id)" class="p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error">
+                <span class="material-symbols-outlined" style="font-size:13px">close</span>
+              </span>
+            </button>
+            <button @click="onSshNew(chip); menuOpenFor = ''" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-secondary hover:bg-secondary/10 border-t border-outline-variant/40 mt-xs pt-sm">
+              <span class="material-symbols-outlined text-sm">add</span>{{ t('terminal.sshNewTerminal') }}
+            </button>
+          </div>
+        </div>
+      </template>
+      <!-- 溢出收纳「⋯ n」:折进来的 chip 点即恢复(SSH 分组恢复/弹菜单按原语义) -->
+      <button v-if="folded.length" @click="overflowOpen = !overflowOpen"
+        class="flex items-center gap-xs px-sm py-0.5 rounded-md text-body-xs shrink-0 bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent"
+        :title="t('terminal.overflowMore', { n: folded.length })">
+        <span class="material-symbols-outlined text-sm">more_horiz</span>{{ folded.length }}
+      </button>
+    </div>
+    <!-- 溢出下拉面板 -->
+    <div v-if="overflowOpen && folded.length" class="absolute bottom-full right-md mb-xs min-w-[220px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal }">
+      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip)"
+        class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+        <span class="material-symbols-outlined text-sm" :class="chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
+        <span class="truncate flex-1">{{ chip.name }}<span v-if="chip.count > 1" class="text-on-surface-variant/60 ml-xs">×{{ chip.count }}</span></span>
+      </button>
+    </div>
+    <!-- 分区:传输(百分比) -->
     <button v-if="trStore.tasks.length" @click="trStore.openPanel()"
       class="flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs shrink-0 transition-all max-w-[260px]"
       :class="agg.activeCount ? 'bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20' : 'bg-surface-container-low text-on-surface-variant border border-transparent hover:bg-surface-container'"
