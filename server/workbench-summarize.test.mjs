@@ -216,3 +216,68 @@ test('compactConversation:消息 ≤3 → 拒绝;running/paused → 拒绝', asy
   assert.equal(out.status, 400, 'running 拒绝')
   assert.equal(out.message, 'wbc.compactBusy')
 })
+
+// ── 项目记忆 T1(spec §3.1/3.2)──
+import { maybeSummarizeProject } from './workbench-summarize.mjs'
+import { unsummarizedProjectHistory } from './workbench-projects.mjs'
+
+// 显式 ts 裸 INSERT(appendHistory 用 Date.now() 不可控)
+function insertHistory(db, projectId, role, content, ts) {
+  db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)')
+    .run(projectId, role, content, ts)
+}
+
+test('maybeSummarizeProject:未满 8 条不动;满 8 条滚动合并旧摘要并推进水位;失败不动库', async () => {
+  const db = freshDb()
+  const project = { id: p1Id(db) }
+  // 不足阈值:7 条 history → false,projectRecap 仍 null
+  for (let i = 0; i < 7; i++) insertHistory(db, project.id, 'user', `q${i}`, 1000 + i)
+  const llm = { chat: async () => { throw new Error('不该调') } }
+  assert.equal(await maybeSummarizeProject(db, project.id, llm), false)
+  let row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
+  assert.equal(row.projectRecap, null)
+
+  // 满 8:预置旧摘要+水位 0,再 8 条新(显式 ts)→ true
+  db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=0 WHERE id=?').run('旧摘要:定了用 nginx', project.id)
+  const llmOk = { chat: async ({ messages }) => {
+    const transcript = messages[1].content
+    return { content: '新摘要:并入「' + (transcript.includes('旧摘要') ? '旧摘要' : '') + '决定3' + '」' }
+  } }
+  for (let i = 0; i < 8; i++) insertHistory(db, project.id, 'assistant', `决定${i}`, 2000 + i)
+  assert.equal(await maybeSummarizeProject(db, project.id, llmOk), true)
+  row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
+  assert.ok(row.projectRecap.includes('旧摘要') || row.projectRecap.includes('决定'), '滚动合并')
+  assert.equal(row.historyWatermark, 2007, '水位=本批最大 ts')
+
+  // 幂等边界:再调一次(0 条未摘要)→ false,库不变
+  const before = row
+  assert.equal(await maybeSummarizeProject(db, project.id, { chat: async () => ({ content: 'x' }) }), false)
+  row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
+  assert.equal(row.projectRecap, before.projectRecap)
+  assert.equal(row.historyWatermark, before.historyWatermark)
+})
+
+test('maybeSummarizeProject:LLM 抛错 → 不动库返回 false', async () => {
+  const db = freshDb()
+  const project = { id: p1Id(db) }
+  db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=?').run('旧', 42, project.id)
+  for (let i = 0; i < 8; i++) insertHistory(db, project.id, 'user', `m${i}`, 3000 + i)
+  const llm = { chat: async () => { throw new Error('LLM down') } }
+  assert.equal(await maybeSummarizeProject(db, project.id, llm), false)
+  const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
+  assert.equal(row.projectRecap, '旧')
+  assert.equal(row.historyWatermark, 42)
+})
+
+test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  insertHistory(db, id, 'user', 'a', 100)
+  insertHistory(db, id, 'assistant', 'b', 200)
+  insertHistory(db, id, 'user', 'c', 300)
+  assert.deepEqual(unsummarizedProjectHistory(db, id).map(r => r.ts), [100, 200, 300], '水位 0 全量升序')
+  db.prepare('UPDATE workbench_projects SET historyWatermark=? WHERE id=?').run(200, id)
+  const rows = unsummarizedProjectHistory(db, id)
+  assert.equal(rows.length, 1)
+  assert.deepEqual(rows.map(r => r.content), ['c'])
+})

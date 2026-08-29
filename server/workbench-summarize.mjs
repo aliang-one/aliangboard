@@ -6,6 +6,8 @@ import {
   getMaxSeq,
   updateConversation,
   getConversation,
+  getProject,
+  unsummarizedProjectHistory,
 } from './workbench-projects.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
@@ -87,4 +89,32 @@ export async function compactConversation(db, convId, llmClient, instruction = '
     console.error('[compact] 摘要失败:', e?.message || e)
     return { ok: false, status: 502, message: 'wbc.compactFailed' }
   }
+}
+
+// 项目级滚动摘要(2026-08-29 spec §3.2):新增未摘要 history ≥ 阈值时,旧摘要+新增历史滚动重摘要。
+// 成功才落库(workbench_projects 无 updatedAt,直 UPDATE);失败/空产出静默 false(append 路由 fire,下轮重试)。
+const PROJECT_SUMMARY_THRESHOLD = 8
+export async function maybeSummarizeProject(db, projectId, llmClient) {
+  const project = getProject(db, projectId)
+  if (!project) return false
+  const pending = unsummarizedProjectHistory(db, projectId)
+  if (pending.length < PROJECT_SUMMARY_THRESHOLD) return false
+  const transcript = [
+    ...(project.projectRecap ? [`(此前项目摘要)\n${project.projectRecap}`] : []),
+    ...pending.map(h => `${h.role}: ${String(h.content || '').slice(0, 800)}`),
+  ].join('\n')
+  try {
+    const out = await llmClient.chat({
+      messages: [
+        { role: 'system', content: '你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。输出只有摘要本身。' },
+        { role: 'user', content: transcript },
+      ],
+    })
+    const recap = out?.content?.trim()
+    if (!recap) return false
+    // 落库前防并发回退:只推进水位(取 pending 最大 ts 与现值较大者)
+    const maxTs = pending[pending.length - 1].ts
+    db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=MAX(COALESCE(historyWatermark,0),?) WHERE id=?').run(recap, maxTs, projectId)
+    return true
+  } catch { return false }
 }

@@ -14,6 +14,9 @@ export function createWorkbenchSchema(db) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workbench_projects_owner ON workbench_projects(ownerId)`)
   // 迁移加列:项目当前活跃对话(每项目一条)。idempotent——列已存在时 ALTER 抛错被吞。
   try { db.exec('ALTER TABLE workbench_projects ADD COLUMN activeConversationId TEXT') } catch { /* 列已存在 */ }
+  // 项目记忆(2026-08-29 spec §3.1):滚动摘要 + history 水位
+  try { db.exec('ALTER TABLE workbench_projects ADD COLUMN projectRecap TEXT') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE workbench_projects ADD COLUMN historyWatermark INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
   // 项目对话历史(跨会话;不进 git repo——决策 5:隐私 + repo 只放工程产物)
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_history (
     projectId TEXT NOT NULL,
@@ -180,6 +183,11 @@ export function getProject(db, id) {
 // 项目对话历史(跨会话)。append 一条;recent 取最近 n 条(最旧在前,喂给 agent 当 history)。
 export function appendHistory(db, projectId, role, content) {
   db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)').run(projectId, role, String(content ?? ''), Date.now())
+}
+// 未并入项目摘要的 history(ts > 水位,升序)——条数判定与摘要输入共用(项目记忆 T1)
+export function unsummarizedProjectHistory(db, projectId) {
+  const wm = db.prepare('SELECT historyWatermark FROM workbench_projects WHERE id=?').get(projectId)?.historyWatermark ?? 0
+  return db.prepare('SELECT role, content, ts FROM workbench_history WHERE projectId=? AND ts>? ORDER BY ts ASC').all(projectId, wm)
 }
 export function recentHistory(db, projectId, n = 30) {
   const rows = db.prepare('SELECT role,content FROM workbench_history WHERE projectId=? ORDER BY ts DESC LIMIT ?').all(projectId, n)
