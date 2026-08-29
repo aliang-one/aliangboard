@@ -35,6 +35,13 @@ const routes = [
     meta: { titleKey: 'route.terminal' }
   },
   {
+    // SSH 终端独立弹窗(新标签页):同 sid 接网关保活会话,打开即回放续跑
+    path: '/ssh-terminal-popup',
+    name: 'SshTerminalPopup',
+    component: () => import('@/views/SshTerminalPopup.vue'),
+    meta: { titleKey: 'nav.workbench' }
+  },
+  {
     // 独立日志页（新浏览器标签页打开），不走 AppLayout（无侧栏/顶栏，全屏日志）
     path: '/log-popup',
     name: 'LogPopup',

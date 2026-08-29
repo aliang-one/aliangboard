@@ -114,7 +114,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <!-- 浮动终端窗口：用 v-show（不销毁）而非 v-if，最小化时保持 exec WS + xterm buffer 活跃 -->
     <TerminalWindow v-for="t in termStore.allTerminals" :key="t.id" :terminal="t" v-show="t.status === 'open'" />
     <!-- SSH 服务器终端窗口:同款 v-show 保活(WS 在网关侧保活,浏览器侧重连即回放) -->
-    <SshTerminalWindow v-for="w in sshStore.windows" :key="w.id" :window="w" v-show="w.status === 'open'" />
+    <SshTerminalWindow v-for="w in sshStore.attachedWindows" :key="w.id" :window="w" v-show="w.status === 'open'" />
     <!-- 浮动文件浏览窗口:v-show 保持挂载,最小化状态同步 -->
     <FileBrowserWindow v-for="b in fbStore.browsers" :key="b.id" :browser="b" v-show="b.status === 'open'" />
     <!-- 传输面板:按需挂载(关闭即销毁,状态在 transfers store) -->
