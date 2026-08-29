@@ -2,7 +2,8 @@
 // 铁律:凭据只在 pool/连接闭包内;结果/错误只含 exitCode/stdout/stderr/durationMs,绝不含凭据;
 // not-exposed 与 not-found 的文案不得回显 host(不泄露未暴露服务器的存在细节)。
 // needsApproval 必须纯(无 IO 副作用/日志/审计)——agent.mjs 在 checkpoint 与 resume 两处都会调它。
-import { listSshServers, materializeCreds } from './store.mjs'
+import { listSshServers, materializeCreds, updateSshServer } from './store.mjs'
+import { renderServerLedger } from './ledger.mjs'
 import { classifyReadonly, buildSudoCommand } from './readonly-classifier.mjs'
 import { withSftp, sftpReadFile } from './sftp.mjs'
 
@@ -29,7 +30,7 @@ export function resolveServerRef(rows, ref) {
   return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
 }
 
-export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent' }) {
+export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent', getSetting = () => '', setSetting = () => {} }) {
   // AI 可见清单:仅暴露行,仅元数据字段(无 host/凭据列)。
   const listExposed = () => listSshServers(db, { exposedOnly: true })
     .map(s => ({ id: s.id, name: s.name, description: s.description || '', clusterRef: s.clusterRef || '' }))
@@ -40,6 +41,7 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
   }
   // 纯(仅同步 DB 读):静态 requiresApproval 命中后由 agent-runner 咨询。
   async function needsApproval(name, args) {
+    if (name === 'write_server_notes') return true   // 台账写恒人审(平台级,不走服务器策略)
     const r = resolve(args?.server)
     if (!r.ok) return true                        // 解析失败:安全默认走人审(错误信息随后由 exec 给出)
     if (r.row.aiApprovalPolicy === 'none') return false
@@ -130,7 +132,27 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
       return { error: /No such file/i.test(m) ? `文件不存在: ${path}` : /permission/i.test(m) ? `无权限读取: ${path}` : `读取失败: ${m.slice(0, 120)}` }
     } finally { try { conn.release() } catch {} }
   }
-  return { listExposed, needsApproval, exec, readFile }
+  // 台账:结构层读取时生成(服务器变化自动同步);自由层 notes 是 AI/人的可编辑区
+  function readLedger() {
+    const servers = listSshServers(db, { exposedOnly: true })
+    return {
+      count: servers.length,
+      markdown: renderServerLedger(servers, getSetting('ssh.globalNotes') || '', { exposedOnly: true }),
+    }
+  }
+  function writeNotes(args) {
+    const scope = String(args?.scope || '').trim()
+    const notes = String(args?.notes ?? '')
+    if (notes.length > 64 * 1024) return { error: 'notes 超长(上限 64KB)' }
+    if (scope === '__global__') { setSetting('ssh.globalNotes', notes); return { ok: true, scope: '__global__' } }
+    if (!scope) return { error: 'scope 必填(服务器名称或 __global__)' }
+    const all = db.prepare('SELECT id,name,exposeToAi FROM ssh_servers').all()
+    const r = resolveServerRef(all, scope)
+    if (!r.ok) return { error: refusal(r) }
+    updateSshServer(db, key, r.row.id, { notes })
+    return { ok: true, server: r.row.name }
+  }
+  return { listExposed, needsApproval, exec, readFile, readLedger, writeNotes }
 }
 
 // 错误文案:not-found 不回显 ref 以外的细节;not-exposed 不回显 host(存在性最小泄露)。

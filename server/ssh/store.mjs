@@ -22,6 +22,7 @@ export function ensureSshSchema(db) {
     osId TEXT,
     osName TEXT,
     lastTestedAt INTEGER,
+    notes TEXT,
     description TEXT,
     clusterRef  TEXT,
     exposeToAi INTEGER NOT NULL DEFAULT 0,
@@ -39,6 +40,7 @@ export function ensureSshSchema(db) {
     ['osId', 'TEXT'],
     ['osName', 'TEXT'],
     ['lastTestedAt', 'INTEGER'],
+    ['notes', 'TEXT'],
   ]) {
     if (!cols.has(col)) db.exec(`ALTER TABLE ssh_servers ADD COLUMN ${col} ${ddl}`)
   }
@@ -74,6 +76,7 @@ export function sanitizeSshServer(r) {
     osId: r.osId || '',
     osName: r.osName || '',
     lastTestedAt: r.lastTestedAt || null,
+    notes: r.notes || '',
     hasPassword: !!r.encPassword, hasPrivateKey: !!r.encPrivateKey,
     hasPassphrase: !!r.encPassphrase, hasSudoPassword: !!r.encSudoPassword,
     createdBy: r.createdBy || '', createdAt: r.createdAt, updatedAt: r.updatedAt,
@@ -103,7 +106,7 @@ export function updateSshServer(db, key, id, patch = {}) {
   if (!row) return null
   const sets = [], args = []
   const plain = { name: 'name', host: 'host', port: 'port', username: 'username', authMethod: 'authMethod',
-    description: 'description', clusterRef: 'clusterRef', aiApprovalPolicy: 'aiApprovalPolicy' }
+    description: 'description', clusterRef: 'clusterRef', aiApprovalPolicy: 'aiApprovalPolicy', notes: 'notes' }
   for (const [f, col] of Object.entries(plain)) {
     if (patch[f] !== undefined) { sets.push(`${col}=?`); args.push(f === 'name' || f === 'host' || f === 'username' ? String(patch[f]).trim() : patch[f]) }
   }
@@ -131,7 +134,7 @@ export function deleteSshServer(db, id) {
   return r.changes > 0
 }
 
-const SANITIZE_COLS = 'id,name,host,port,username,authMethod,description,clusterRef,exposeToAi,aiApprovalPolicy,tags,hostKeyFingerprint,status,osId,osName,lastTestedAt,encPassword,encPrivateKey,encPassphrase,encSudoPassword,createdBy,createdAt,updatedAt'
+const SANITIZE_COLS = 'id,name,host,port,username,authMethod,description,clusterRef,exposeToAi,aiApprovalPolicy,tags,hostKeyFingerprint,status,osId,osName,lastTestedAt,notes,encPassword,encPrivateKey,encPassphrase,encSudoPassword,createdBy,createdAt,updatedAt'
 
 export function listSshServers(db, { exposedOnly = false } = {}) {
   const rows = db.prepare(`SELECT ${SANITIZE_COLS} FROM ssh_servers ${exposedOnly ? 'WHERE exposeToAi=1' : ''} ORDER BY name`).all()

@@ -8,9 +8,10 @@ import {
 import { msg } from '../messages.mjs'
 import { withSftp, sftpReaddir, sftpStatSize, sftpStreamSession } from './sftp.mjs'
 import { streamUpload, streamDownload } from '../podfile-stream.mjs'
+import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
-  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes } = deps
+  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting } = deps
 
   async function handle(req, res, url) {
     // /api/sshfile/* 先于 /api/ssh/ 前缀判定('/api/sshfile/x' 严格说并不匹配 '/api/ssh/',但先行分支杜绝任何误配/阅读歧义)
@@ -117,6 +118,32 @@ export function createSshRoutes(deps) {
       return m
     }
     try {
+      // GET /api/ssh/ledger — 台账(结构层实时生成 + 自由层 notes);admin-only
+      if (url.pathname === '/api/ssh/ledger' && req.method === 'GET') {
+        const ps = requireAdmin(req, res); if (!ps) return true
+        const servers = listSshServers(db, {})
+        const globalNotes = getSetting('ssh.globalNotes') || ''
+        sendJson(res, 200, {
+          globalNotes, servers: servers.map(x => ({ id: x.id, name: x.name, notes: x.notes || '' })),
+          markdown: renderServerLedger(servers, globalNotes, { exposedOnly: false }),
+        })
+        return true
+      }
+      // PUT /api/ssh/ledger — 改自由层({scope:'__global__'|serverId, notes});结构层不可写(读取时生成)
+      if (url.pathname === '/api/ssh/ledger' && req.method === 'PUT') {
+        const ps = requireAdmin(req, res); if (!ps) return true
+        const { scope, notes } = await readBody(req)
+        if (typeof notes !== 'string' || notes.length > 64 * 1024) { sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: 'notes' }) }); return true }
+        if (scope === '__global__') {
+          setSetting('ssh.globalNotes', notes)
+        } else {
+          if (!getSshServerRow(db, scope)) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
+          updateSshServer(db, cryptKey, scope, { notes })
+        }
+        audit('write', 'ssh_ledger', 'ok', { owner: ps.username, summary: scope })
+        sendJson(res, 200, { ok: true })
+        return true
+      }
       // POST /api/ssh/test — 未保存表单试连(body 含明文凭据,仅内存使用不落库)
       if (url.pathname === '/api/ssh/test' && req.method === 'POST') {
         const ps = requireAdmin(req, res); if (!ps) return true

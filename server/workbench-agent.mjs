@@ -161,7 +161,7 @@ const CK_TIME_MS = 500
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         dynamicApproval: sshBridge ? (n, args) => sshBridge.needsApproval(n, args) : undefined,
-        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file']) : null,
+        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes']) : null,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -249,7 +249,7 @@ const CK_TIME_MS = 500
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         dynamicApproval: sshBridge ? (n, args) => sshBridge.needsApproval(n, args) : undefined,
-        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file']) : null,
+        excludeTools: exposedCount === 0 ? new Set(['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes']) : null,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }

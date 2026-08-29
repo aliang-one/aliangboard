@@ -10,10 +10,10 @@ import { reserveAudit, finalizeAudit } from './audit.mjs'
 // 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
 // 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
 // 仅当传入 audit={db,owner,clusterId} 时启用(workbench 路径);API key 路径不传 → 不重复审计。
-const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'wb_exec', 'wb_ssh_exec', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger'])
+const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'wb_exec', 'wb_ssh_exec', 'write_server_notes', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger'])
 function wbAuditIntent(audit, name, args) {
   let resource = null
-  if (args?.server) resource = `SshServer/${args.server}`          // SSH 工具(2026-08-28):按服务器归因
+  if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`          // SSH 工具(2026-08-28):按服务器归因
   else if (args?.kind && args?.name) resource = `${args.kind}/${args.name}`
   else if (args?.pod) resource = `Pod/${args.pod}`
   else if (args?.name) resource = args.name

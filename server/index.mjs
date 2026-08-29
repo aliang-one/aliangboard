@@ -1399,7 +1399,7 @@ async function handle(req, res) {
       },
       // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 工具经 agent-runner ctx.ssh 到达;
       // 池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbench-agent 会 excludeTools 隐藏两工具。
-      ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id }),
+      ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id, getSetting, setSetting }),
       k8sSession,
     }
   }
@@ -1468,7 +1468,7 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
-  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes })
+  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting })
   if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return

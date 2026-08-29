@@ -2,6 +2,7 @@
 // SSH 服务器表单(新增/编辑两用)。凭据字段编辑态恒空、placeholder「留空保持不变」;
 // exposeToAi 开关联动审批策略下拉。submit 只 emit,网络与关闭由父组件负责。
 import { reactive, computed } from 'vue'
+import ToggleSwitch from './ToggleSwitch.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -85,7 +86,7 @@ function onSubmit() {
       <input data-test="description" v-model="form.description" class="bg-surface-container-low border rounded-lg px-md py-sm text-body-sm" /></label>
     <div class="flex items-center gap-md p-sm rounded-lg bg-surface-container">
       <label class="flex items-center gap-sm cursor-pointer">
-        <input data-test="exposeToAi" v-model="form.exposeToAi" type="checkbox" class="w-4 h-4" />
+        <ToggleSwitch :checked="form.exposeToAi" data-test="exposeToAi" @update:checked="v => form.exposeToAi = v" />
         <span class="text-body-sm">{{ t('ssh.exposeToAi') }}</span>
       </label>
       <template v-if="form.exposeToAi">

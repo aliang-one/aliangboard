@@ -46,6 +46,7 @@ export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabl
       lines.push(`- **${s.name}**(id:${s.id})${s.description ? `:${s.description}` : ''}${s.clusterRef ? ` · 关联集群:${s.clusterRef}` : ''}`)
     }
     lines.push('用户提到这些服务器时,用 wb_ssh_exec 执行命令 / wb_ssh_read_file 读文件,server 参数用服务器名称;名称对应多台时先向用户确认。')
+    lines.push('服务器台账(read_server_ledger)记录每台的角色/职责/部署内容——涉及服务器的问题先读台账;在服务器上探测到或变更了角色与部署,用 write_server_notes 同步进去(需用户批准)。')
   }
 
   const extra = String(additionalInstructions || '').trim()

@@ -64,6 +64,24 @@ test('SSH CRUD + 脱敏 + 试连结构化错误', { timeout: 60000 }, async () =
   assert.equal(t2.ok, false)
   assert.equal(t2.errorKind, 'unreachable')
 
+  // 台账:GET(结构层+自由层)→ PUT 全局与服务器 notes → GET 验证
+  const lg0 = await (await fetch(`${BASE}/api/ssh/ledger`, { headers: H })).json()
+  assert.equal(lg0.globalNotes, '')
+  const made = await (await fetch(`${BASE}/api/ssh/servers`, { method: 'POST', headers: H,
+    body: JSON.stringify({ name: 'lg-1', host: '127.0.0.1', port: 1, username: 'ops', authMethod: 'password', password: 'pw' }) })).json()
+  const put1 = await fetch(`${BASE}/api/ssh/ledger`, { method: 'PUT', headers: H, body: JSON.stringify({ scope: '__global__', notes: '网关在 gw-1' }) })
+  assert.equal(put1.status, 200)
+  const put2 = await fetch(`${BASE}/api/ssh/ledger`, { method: 'PUT', headers: H, body: JSON.stringify({ scope: made.server.id, notes: '角色:入口网关' }) })
+  assert.equal(put2.status, 200)
+  const lg1 = await (await fetch(`${BASE}/api/ssh/ledger`, { headers: H })).json()
+  assert.equal(lg1.globalNotes, '网关在 gw-1')
+  const noteRow = lg1.servers.find(x => x.id === made.server.id)
+  assert.equal(noteRow.notes, '角色:入口网关')
+  assert.ok(lg1.markdown.includes('网关在 gw-1') && lg1.markdown.includes('角色:入口网关'))
+  const put404 = await fetch(`${BASE}/api/ssh/ledger`, { method: 'PUT', headers: H, body: JSON.stringify({ scope: 'nope', notes: 'x' }) })
+  assert.equal(put404.status, 404)
+  await fetch(`${BASE}/api/ssh/servers/${made.server.id}`, { method: 'DELETE', headers: H })
+
   // 更新(留空密码保持)+ PUT 非法 port 400 + 删除
   const up = await (await fetch(`${BASE}/api/ssh/servers/${created.server.id}`, { method: 'PUT', headers: H,
     body: JSON.stringify({ description: 'd2' }) })).json()
