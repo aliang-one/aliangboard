@@ -20,7 +20,7 @@ const { toast, dismissToast } = useToast()
         {{ toast.type === 'error' ? 'error' : 'check_circle' }}
       </span>
       <span class="text-body-sm font-medium break-words">{{ toast.message }}</span>
-      <button class="ml-sm p-xs rounded-lg hover:bg-black/5 transition-colors" @click="dismissToast" :aria-label="$t('common.close')">
+      <button class="ml-sm p-xs rounded-lg hover:bg-on-surface/5 transition-colors" @click="dismissToast" :aria-label="$t('common.close')">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>

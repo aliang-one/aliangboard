@@ -168,7 +168,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   username TEXT NOT NULL,
   role TEXT NOT NULL,
   createdAt INTEGER NOT NULL,
-  k8sSessionToken TEXT
+  k8sSessionToken TEXT,
+  ip TEXT,
+  userAgent TEXT,
+  lastSeenAt INTEGER
 )`)
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)

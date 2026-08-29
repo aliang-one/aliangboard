@@ -246,7 +246,7 @@ defineExpose({ servers })
       <p v-if="testResult" data-test="testResult" class="text-body-sm" :class="testResult.ok ? 'text-primary' : 'text-error'">
         [{{ testResult.name }}] {{ testResult.message }}</p>
 
-      <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showForm = false">
+      <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40" @click.self="showForm = false">
         <div class="bg-surface-container-low rounded-xl p-lg w-[720px] max-h-[90vh] overflow-y-auto">
           <h4 class="text-title-md font-bold mb-md">{{ editing ? t('ssh.editServer') : t('ssh.addServer') }}</h4>
           <SshServerForm :server="editing" :busy="busy" @submit="onSubmit" @cancel="showForm = false" />
@@ -255,7 +255,7 @@ defineExpose({ servers })
     </template>
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
     <!-- 台账弹窗:全局备注 + 每服务器备注(自由层编辑;结构层只读) -->
-    <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showLedger = false">
+    <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40" @click.self="showLedger = false">
       <div class="bg-surface-container-low rounded-xl p-lg w-[860px] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
         <h4 class="text-title-md font-bold">{{ t('ssh.ledger') }}</h4>
         <p class="text-body-xs text-on-surface-variant">{{ t('ssh.ledgerHint') }}</p>
