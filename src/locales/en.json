@@ -70,7 +70,9 @@
   "component": {
     "modal": {
       "cancel": "Cancel",
-      "confirm": "Confirm"
+      "confirm": "Confirm",
+      "maximize": "Maximize",
+      "restore": "Restore"
     },
     "createFromYaml": {
       "title": "Create from YAML",
