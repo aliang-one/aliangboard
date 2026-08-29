@@ -4291,7 +4291,6 @@
     "policyAlways": "Approve every command",
     "policyReadonly": "Skip approval for read-only commands",
     "policyNone": "No approval (dangerous)",
-    "popupTitle": "SSH Terminal · {name}",
     "testConnection": "Test Connection",
     "testing": "Testing…",
     "testOk": "Connection OK",
