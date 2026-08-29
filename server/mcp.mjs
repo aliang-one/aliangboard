@@ -31,7 +31,7 @@ function describeThrow(e) {
 }
 
 // 纯逻辑:处理一条 JSON-RPC 消息 → 响应对象(或 null=notification)。可单测,无 HTTP。
-export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
+export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db = null, sshBridgeFor = () => { throw new Error('ssh bridge unavailable') } }) {
   if (!msg || typeof msg !== 'object') return err(null, -32600, 'invalid request')
   if (Array.isArray(msg)) return err(null, -32600, 'invalid request: batch(JSON-RPC 数组)不支持,请逐条 POST') // 审计 P2:数组曾被当 notification 静默吞成 202
   if (msg.id == null) return null // notification(如 notifications/initialized)→ 无响应
@@ -55,8 +55,8 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
 
   if (method === 'tools/call') {
     const name = params?.name
-    if (!cluster) return ok(id, { isError: true, content: [{ type: 'text', text: '集群不存在(API key 绑定的集群已删除?)' }] })
-    // per-key SSH 工具:不走 K8s callTool,走 ssh 桥(keyMode 策略闸内建);审计 reserve/finalize
+    // per-key SSH 工具先于集群守卫分派:SSH 通道不依赖 K8s 集群(key 可只授 SSH 不绑集群)。
+    // 曾放反位置 → 「集群不存在」把 SSH 调用全数拦死(2026-08-29 e2e 实测抓出)。
     if (SSH_KEY_TOOLS.includes(name)) {
       if (!effectiveTools(keyRow).has(name)) return err(id, -32603, 'PERMISSION_DENIED(policy): 该 key 未授予 SSH 服务器访问')
       const bridge = sshBridgeFor(keyRow)
@@ -76,6 +76,7 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
         return ok(id, { isError: true, content: [{ type: 'text', text: describeThrow(e) }] })
       }
     }
+    if (!cluster) return ok(id, { isError: true, content: [{ type: 'text', text: '集群不存在(API key 绑定的集群已删除?)' }] })
     try {
       const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {}, 'mcp')
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
@@ -122,7 +123,7 @@ export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting
     try { msg = await readBody(req) } catch { return write(res, err(null, -32700, 'parse error'), 400) }
 
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
-    const resp = await handleMcpMessage(msg, { keyRow, cluster, apiKeyTools })
+    const resp = await handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db, sshBridgeFor })
     if (resp == null) { res.writeHead(202); return res.end() } // notification
     if (msg.method === 'initialize') return write(res, resp, 200, { 'Mcp-Session-Id': 'mcp-' + String(keyRow.id).slice(0, 8) })
     return write(res, resp)

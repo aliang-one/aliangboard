@@ -219,3 +219,13 @@ test('readLedger:渲染暴露服务器台账(含全局备注);writeNotes 全局/
   // 读免审(静态 requiresApproval=false,不会进 needsApproval;这里只防呆)
   assert.equal(await bridge.needsApproval('read_server_ledger', {}), true)   // resolve 无 server → true 安全默认,但该工具不进审批链
 })
+
+test('keyMode readonly + sudo 真值 → 拒绝(提权不经 key 通道)', async () => {
+  const { encryptField } = await import('./crypt.mjs')
+  const KEY = Buffer.alloc(32)
+  const ROW = { id: 'a', name: 'n1', exposeToAi: 1, aiApprovalPolicy: 'readonly', host: '1.1.1.1', encPassword: encryptField(KEY, 'pw') }
+  const db = { prepare: () => ({ all: () => [ROW], get: () => ROW, run: () => {} }) }
+  const bridge = createSshAgentBridge({ db, key: KEY, pool: { acquire: async () => { throw new Error('不应触网') } }, projectId: 'p', getSetting: () => '', setSetting: () => {}, keyMode: true })
+  const r = await bridge.exec({ server: 'n1', command: 'cat /etc/os-release', sudo: '1' })
+  assert.ok((r.error || '').includes('sudo'), '应拒 sudo')
+})

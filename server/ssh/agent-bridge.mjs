@@ -67,8 +67,12 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     if (keyMode) {
       const policy = row.aiApprovalPolicy || 'always'
       if (policy === 'always') return { error: `该服务器审批策略为 always(每条命令需人审),key 通道无人审不可执行;将策略调为 none/readonly 后重试` }
-      if (policy === 'readonly' && !classifyReadonly(String(args?.command || ''))) {
-        return { error: '该服务器审批策略为 readonly(仅只读命令免审),key 通道无人审,非只读命令已拒' }
+      if (policy === 'readonly') {
+        // sudo = root 提权,readonly 语义容不下(2026-08-29 e2e:cat+sudo="1" 曾绕过——keyGate 只查了命令文本)
+        if (args?.sudo) return { error: 'readonly 策略下 key 通道不接受 sudo(提权需人审);如需 sudo 执行,将策略调为 none' }
+        if (!classifyReadonly(String(args?.command || ''))) {
+          return { error: '该服务器审批策略为 readonly(仅只读命令免审),key 通道无人审,非只读命令已拒' }
+        }
       }
     }
     let cmd = String(args?.command || '')
