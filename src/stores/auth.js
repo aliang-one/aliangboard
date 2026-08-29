@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi, saveSession, clearSession, getSessionToken } from '@/api/client'
+import { usePreferencesStore } from '@/stores/preferences'
 
 const LAST_CLUSTER_KEY = 'aliangboard.lastCluster'
 
@@ -24,6 +25,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = res.token
     user.value = res.user
     localStorage.setItem('aliangboard.platform', res.token)
+    usePreferencesStore().hydrateFromServer(res.prefs)
     return res
   }
 
@@ -32,10 +34,13 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const res = await authApi.me()
       user.value = res.user
+      usePreferencesStore().hydrateFromServer(res.prefs)
       return res.user
-    } catch {
-      logout()
-      return null
+    } catch (e) {
+      // G6(2026-08-29):曾 catch-all 即登出——网关重启/网络抖动也把用户踢回登录页。
+      // 仅鉴权失效(401/403)才登出;其余错误保留会话交由调用方提示。
+      if (e?.status === 401 || e?.status === 403) { logout(); return null }
+      return user.value
     }
   }
 

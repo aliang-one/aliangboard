@@ -285,6 +285,12 @@ export const authApi = {
   login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => platformHttp.request('/api/auth/me'),
   logout: () => platformHttp.request('/api/auth/logout', { method: 'POST' }),
+  updateMe: patch => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+  changePassword: (currentPassword, newPassword) => platformHttp.request('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  listSessions: () => platformHttp.request('/api/auth/sessions'),
+  revokeSession: fp => platformHttp.request(`/api/auth/sessions/${encodeURIComponent(fp)}`, { method: 'DELETE' }),
+  revokeOtherSessions: () => platformHttp.request('/api/auth/sessions/others', { method: 'DELETE' }),
+  savePreferences: prefs => platformHttp.request('/api/auth/preferences', { method: 'PUT', body: JSON.stringify(prefs) }),
   myClusters: () => platformHttp.request('/api/my-clusters'),
   connectCluster: id => platformHttp.request('/api/connect-cluster', { method: 'POST', body: JSON.stringify({ clusterId: id }) }),
 }
