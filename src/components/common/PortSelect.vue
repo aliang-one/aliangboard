@@ -5,8 +5,11 @@
 //   下拉左侧出现 workload 筛选（全部 + 各工作负载），右侧列出该工作负载端口（含容器/来源），
 //   priorityGroup 指定的工作负载置顶并默认选中——用于「Service 优先展示其绑定 Deployment 的端口」。
 // inputClass 透传输入框样式以贴合各表单原有视觉。
-import { ref, computed, watch } from 'vue'
+// 下拉面板 Teleport 到 body + position:fixed（issue #4）：此前 absolute 渲染在输入框父级内，
+// 被 overflow 裁切链剪掉（IngressRulesEditor host 卡片 overflow-hidden、Modal overflow-y-auto）。
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 
@@ -102,11 +105,61 @@ function onBlur() {
   // 延迟关闭，确保 mousedown 点击候选先于失焦
   setTimeout(() => { focused.value = false }, 150)
 }
+
+// === 下拉传送定位（issue #4）===
+// 面板 Teleport 到 body、fixed 锚定输入框视口 rect，脱离 overflow 祖先的裁切。
+// 初始 visibility:hidden，placePanel 计算坐标后再显示，防首帧闪现在 (0,0)。
+const inputRef = ref(null)
+const panelRef = ref(null)
+const panelStyle = ref({ position: 'fixed', top: '0px', left: '0px', visibility: 'hidden', zIndex: Z.popover })
+
+function placePanel() {
+  const inp = inputRef.value, panel = panelRef.value
+  if (!inp || !panel) return
+  const r = inp.getBoundingClientRect()
+  const ph = panel.offsetHeight, pw = panel.offsetWidth
+  // 下方空间不足且上方放得下 → 向上翻（如 TLS 行贴近卡片/弹窗底部）
+  let top = r.bottom + 4
+  if (top + ph > window.innerHeight - 8 && r.top - ph - 4 >= 8) top = r.top - ph - 4
+  let left = r.left
+  if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8)
+  panelStyle.value = {
+    position: 'fixed',
+    top: `${top}px`,
+    left: `${left}px`,
+    visibility: 'visible',
+    zIndex: Z.popover,
+    // 平铺模式面板宽随输入框（原 absolute left-0 right-0 的等价）；分组模式固定 460px 由类承载
+    ...(hasGroups.value ? {} : { width: `${Math.max(r.width, 32)}px` }),
+  }
+}
+
+// scroll 用 capture：scroll 事件不冒泡，捕获阶段才能捕捉弹窗 overflow-y-auto 容器的滚动
+function onDocScroll() { placePanel() }
+function bindFollow() {
+  window.addEventListener('scroll', onDocScroll, { capture: true, passive: true })
+  window.addEventListener('resize', onDocScroll, { passive: true })
+}
+function unbindFollow() {
+  window.removeEventListener('scroll', onDocScroll, { capture: true })
+  window.removeEventListener('resize', onDocScroll)
+}
+watch(focused, async v => {
+  if (v) {
+    await nextTick()
+    placePanel()
+    bindFollow()
+  } else {
+    unbindFollow()
+  }
+})
+onBeforeUnmount(unbindFollow)
 </script>
 
 <template>
   <div class="relative">
     <input
+      ref="inputRef"
       :value="text"
       :placeholder="placeholder"
       @input="onInput"
@@ -115,36 +168,40 @@ function onBlur() {
       :class="['outline-none', inputClass]"
     />
 
-    <!-- 平铺模式 -->
-    <template v-if="!hasGroups">
-      <div
-        v-if="focused && filtered.length"
-        class="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-48 overflow-auto"
-      >
-        <button
-          v-for="o in filtered"
-          :key="String(o.value)"
-          type="button"
-          @mousedown.prevent="pick(o)"
-          class="w-full flex items-center justify-between gap-sm px-md py-sm text-body-sm hover:bg-primary-container/20 transition-colors text-left"
-        >
-          <span class="font-medium font-mono">{{ o.value }}</span>
-          <span v-if="o.label !== String(o.value)" class="text-[10px] text-on-surface-variant shrink-0">{{ o.label }}</span>
-        </button>
-      </div>
-      <div
-        v-else-if="focused && !normalized.length"
-        class="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg px-md py-sm text-body-sm text-on-surface-variant"
-      >
-        {{ emptyHint || t('component.portSelect.emptyHint') }}
-      </div>
-    </template>
+    <!-- 下拉面板：Teleport body + fixed 定位（issue #4，见脚本注释）。
+         外层壳只承载定位；视觉（背景/边框/阴影/滚动）在内部各面板上。 -->
+    <Teleport to="body">
+      <div v-if="focused" ref="panelRef" data-testid="port-select-panel" :style="panelStyle">
+        <!-- 平铺模式 -->
+        <template v-if="!hasGroups">
+          <div
+            v-if="filtered.length"
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-48 overflow-auto"
+          >
+            <button
+              v-for="o in filtered"
+              :key="String(o.value)"
+              type="button"
+              @mousedown.prevent="pick(o)"
+              class="w-full flex items-center justify-between gap-sm px-md py-sm text-body-sm hover:bg-primary-container/20 transition-colors text-left"
+            >
+              <span class="font-medium font-mono">{{ o.value }}</span>
+              <span v-if="o.label !== String(o.value)" class="text-[10px] text-on-surface-variant shrink-0">{{ o.label }}</span>
+            </button>
+          </div>
+          <div
+            v-else-if="!normalized.length"
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg px-md py-sm text-body-sm text-on-surface-variant"
+          >
+            {{ emptyHint || t('component.portSelect.emptyHint') }}
+          </div>
+        </template>
 
-    <!-- 分组模式：左 workload 筛选 | 右端口列表 -->
-    <div
-      v-else-if="focused"
-      class="absolute z-30 top-full left-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg flex w-[460px] max-w-[92vw]"
-    >
+        <!-- 分组模式：左 workload 筛选 | 右端口列表 -->
+        <div
+          v-else
+          class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg flex w-[460px] max-w-[92vw]"
+        >
       <!-- 左：workload 筛选 -->
       <div class="w-44 shrink-0 border-r border-outline-variant/50 max-h-60 overflow-y-auto py-xs">
         <button
@@ -186,6 +243,8 @@ function onBlur() {
         </button>
         <p v-if="!shownPorts.length" class="px-md py-sm text-body-sm text-on-surface-variant">{{ text ? t('component.portSelect.noMatchHint') : t('component.portSelect.noPortsHint') }}</p>
       </div>
-    </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
