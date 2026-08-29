@@ -1454,7 +1454,7 @@ async function handle(req, res) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword,
+    hashPassword, getSshSessionPolicy, writeAudit,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))

@@ -12,6 +12,7 @@ import { isPasswordOk } from '../password-policy.mjs'
 import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
+import { isValidMinutes } from '../ssh/reap-policy.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -19,7 +20,7 @@ export function createAdminRoutes(deps) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword,
+    hashPassword, getSshSessionPolicy, writeAudit,
   } = deps
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -141,6 +142,28 @@ export function createAdminRoutes(deps) {
         if (!mb) { sendJson(res, 400, { message: msg(req, 'admin.podfileLimitInvalid') }); return true }
         setSetting('podfile.limitMb', String(mb))
         sendJson(res, 200, { ok: true, limitMb: mb })
+        return true
+      } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+    // ====== SSH 会话回收策略(2026-08-29 spec):三阈值全局,分钟,0=禁用;改动 ≤60s 随 sweep 生效 ======
+    if (url.pathname === '/api/admin/ssh-session-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, getSshSessionPolicy())
+      return true
+    }
+    if (url.pathname === '/api/admin/ssh-session-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        // 部分更新语义:仅校验并落库出现的键;省略键保持现值
+        const keys = ['detachedIdleMin', 'attachedIdleMin', 'maxLifetimeMin']
+        for (const k of keys) {
+          if (input[k] === undefined) continue
+          if (!isValidMinutes(input[k])) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
+        }
+        for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.session.${k}`, String(input[k]))
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_session_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })
+        sendJson(res, 200, { ok: true, policy: getSshSessionPolicy() })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
     }

@@ -43,4 +43,5 @@ export const TABLE = {
   'admin.invalidJsonBody': { zh: '请求体不是有效 JSON(需要 application/json)', en: 'Request body is not valid JSON (application/json required)' },
   'admin.aiToolsNotArray': { zh: 'disabledTools 必须为字符串数组', en: 'disabledTools must be an array of strings' },
   'admin.aiToolUnknown': { zh: 'disabledTools 含未知工具名', en: 'disabledTools contains unknown tool name' },
+  'admin.sshPolicyInvalid': { zh: '非法的策略值:{field}(须为 0–10080 的整数分钟)', en: 'Invalid policy value: {field} (must be an integer 0–10080 minutes)' },
 }
