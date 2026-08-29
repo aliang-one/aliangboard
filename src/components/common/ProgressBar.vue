@@ -2,7 +2,7 @@
 // 进度条:MD3 token 渐变填充 + 高危(>80%)斜纹流动示警。阈值语义与旧版一致(>80 error / >60 tertiary)。
 // 渐变 hex 从 md-palette 取单一来源;props 契约与旧版完全一致(调用方零改动)。
 import { computed } from 'vue'
-import { tokenHex } from '@/styles/md-palette'
+import { tokenHexR } from '@/styles/theme'
 
 const props = defineProps({
   value: { type: Number, required: true },
@@ -31,7 +31,7 @@ const TO = {
 const stripes = computed(() => props.value > 80)
 const fillStyle = computed(() => {
   const tok = tier(props.value)
-  const grad = `linear-gradient(90deg, ${tokenHex(tok)} 0%, ${tokenHex(TO[tok] || 'primary-container')} 100%)`
+  const grad = `linear-gradient(90deg, ${tokenHexR(tok)} 0%, ${tokenHexR(TO[tok] || 'primary-container')} 100%)`
   return {
     width: `${Math.min(props.value, 100)}%`,
     backgroundImage: stripes.value

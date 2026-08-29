@@ -4,7 +4,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EChart from './EChart.vue'
-import { buildAreaLineOption, buildTimeAreaLineOption, tokenHex } from '@/lib/chart-options'
+import { buildAreaLineOption, buildTimeAreaLineOption } from '@/lib/chart-options'
+import { tokenHexR } from '@/styles/theme'
 
 const props = defineProps({
   series: { type: Array, default: () => [] },
@@ -41,7 +42,7 @@ const option = computed(() => props.samples != null
     <!-- refLines 图例 footer(沿用旧版 HTML 形式) -->
     <div v-if="refLines.length" class="flex flex-wrap gap-sm mt-xs">
       <span v-for="(r, i) in refLines" :key="i" class="flex items-center gap-0.5 text-xs text-on-surface-variant">
-        <span class="w-2.5 h-0.5 rounded" :style="{ background: tokenHex(r.color) }"></span>{{ r.label }} {{ r.value }}{{ unit }}
+        <span class="w-2.5 h-0.5 rounded" :style="{ background: tokenHexR(r.color) }"></span>{{ r.label }} {{ r.value }}{{ unit }}
       </span>
     </div>
   </div>

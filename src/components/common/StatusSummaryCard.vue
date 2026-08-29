@@ -4,7 +4,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EChart from './EChart.vue'
-import { buildStatusSegments, buildDonutOption, STATUS_COLORS, tokenHex } from '@/lib/chart-options'
+import { buildStatusSegments, buildDonutOption, STATUS_COLORS } from '@/lib/chart-options'
+import { tokenHexR } from '@/styles/theme'
 
 const props = defineProps({
   pods: { type: Array, default: () => [] },
@@ -16,7 +17,7 @@ const { t } = useI18n()
 const segments = computed(() => buildStatusSegments(props.pods))
 const total = computed(() => props.pods.length)
 const option = computed(() => buildDonutOption(segments.value))
-const dot = (status) => tokenHex(STATUS_COLORS[status] || STATUS_COLORS.Other)
+const dot = (status) => tokenHexR(STATUS_COLORS[status] || STATUS_COLORS.Other)
 function toggle(status) {
   emit('filter', props.statusFilter === status ? 'All' : status)
 }
