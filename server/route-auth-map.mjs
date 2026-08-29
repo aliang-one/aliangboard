@@ -24,6 +24,8 @@ export const ROUTE_AUTH = [
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
+  { method: 'PATCH', pattern: '/api/auth/me',              auth: 'platform' }, // 自助改 displayName
+  { method: 'PUT',   pattern: '/api/auth/preferences',     auth: 'platform' }, // 自助偏好(language/theme)
   { method: 'GET',  pattern: '/api/ssh/terminal',        auth: 'platform' }, // WS 升级(ssh 终端):upgrade 时自校验平台 session,门登记为地板
   { method: 'GET',  pattern: '/api/my-clusters',        auth: 'platform' },
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },

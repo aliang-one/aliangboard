@@ -13,6 +13,14 @@ export function createAuthRoutes(deps) {
     hashPassword, extractPlatformToken,
   } = deps
 
+  // 读用户 prefs:SELECT/parse 全程容错——存量库无 prefs 列、坏 JSON 均回 {}(node:sqlite 拒绝非法绑定,这里只读标量)。
+  function readPrefs(db, userId) {
+    try {
+      const row = db.prepare('SELECT prefs FROM platform_users WHERE id=?').get(userId)
+      return JSON.parse(row?.prefs || '{}') || {}
+    } catch { return {} }
+  }
+
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
     // GET /api/health — 无鉴权健康检查(负载均衡/存活探针)
@@ -48,7 +56,7 @@ export function createAuthRoutes(deps) {
         db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
           .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
         auditLogin('ok')
-        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
+        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName }, prefs: readPrefs(db, user.id) })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }
@@ -57,7 +65,36 @@ export function createAuthRoutes(deps) {
     if (url.pathname === '/api/auth/me' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
+      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId) })
+      return true
+    }
+
+    // PATCH /api/auth/me — 自助改显示名(2026-08-29 用户中心设计)
+    // 白名单:仅 displayName 可改;username/role/passwordHash 等字段静默忽略(防穿越)。
+    if (url.pathname === '/api/auth/me' && req.method === 'PATCH') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (input.displayName == null) { sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true }
+      const displayName = String(input.displayName).trim().slice(0, 64)
+      db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user })
+      return true
+    }
+
+    // PUT /api/auth/preferences — 自助偏好(language/theme;全有或全无校验,防半写)
+    const PREF_LANGS = ['en', 'zh']
+    const PREF_THEMES = ['light', 'dark', 'system']
+    if (url.pathname === '/api/auth/preferences' && req.method === 'PUT') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (input.language != null && !PREF_LANGS.includes(input.language)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.theme != null && !PREF_THEMES.includes(input.theme)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      const prefs = readPrefs(db, ps.userId)
+      if (input.language != null) prefs.language = input.language
+      if (input.theme != null) prefs.theme = input.theme
+      db.prepare('UPDATE platform_users SET prefs=? WHERE id=?').run(JSON.stringify(prefs), ps.userId)
+      sendJson(res, 200, { prefs })
       return true
     }
 
