@@ -4287,6 +4287,7 @@
     "policyAlways": "每条命令必审批",
     "policyReadonly": "只读命令免审批",
     "policyNone": "免审批(高危)",
+    "popupTitle": "SSH 终端 · {name}",
     "testConnection": "测试连接",
     "testing": "测试中…",
     "testOk": "连接成功",
