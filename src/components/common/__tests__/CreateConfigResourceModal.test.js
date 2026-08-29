@@ -316,9 +316,11 @@ test('最大化后 tab 容器与 YAML textarea 切撑满形态;还原回普通�
   expect(maxBtn).toBeTruthy()
   maxBtn.click()
   await nextTick()
-  expect(tabWrap().className).toContain('flex-1')
   expect(tabWrap().className).toContain('min-h-0')
   expect(ta().classList.contains('flex-1')).toBe(true)
+  // YAML 面板根在最大化时用 h-full（父级 block 滚动容器下 flex-1 无效）
+  const yamlPanel = document.querySelector('[data-testid="ccm-panel-yaml"]')
+  expect(yamlPanel.classList.contains('h-full')).toBe(true)
   // 还原
   const restoreBtn = document.querySelector('[data-testid="modal-restore-btn"]')
   expect(restoreBtn).toBeTruthy()

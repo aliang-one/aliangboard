@@ -296,7 +296,7 @@ function cancel() {
         </div>
 
         <!-- YAML tab -->
-        <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm" :class="maximized ? 'flex-1 min-h-0' : ''">
+        <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm" :class="maximized ? 'h-full min-h-0' : ''">
           <!-- 预览模式：实时派生（表单继续可改,computed 实时反映） -->
           <template v-if="yamlMode === 'preview'">
             <div class="flex items-center justify-between">
