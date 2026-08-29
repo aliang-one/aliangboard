@@ -3612,10 +3612,9 @@
       "title": "Workbench",
       "backToCluster": "Back to Cluster",
       "tabProjects": "Projects",
-      "tabConfig": "Config",
-      "tabGlobal": "Global",
       "tabRecords": "Records",
-      "tabServers": "Servers"
+      "tabServers": "Servers",
+      "tabKnowledge": "Knowledge"
     },
     "card": {
       "noProjects": "No projects yet. Click \"Create\" to make one.",
@@ -3630,19 +3629,6 @@
       "loadFailed": "Load failed",
       "createFailed": "Create failed",
       "created": "Created"
-    },
-    "config": {
-      "title": "Workbench Configuration",
-      "cluster": "Bound Cluster",
-      "projectRoot": "Project Root",
-      "distillStatus": "Distill Status",
-      "presenceTitle": "Floating Chat",
-      "presenceMaxItems": "Items shown",
-      "presenceWindowMin": "Hide after (min)",
-      "presenceSave": "Save",
-      "presenceSaved": "Floating chat config saved",
-      "presenceSaveFailed": "Failed to save floating chat config",
-      "presenceHint": "Running/paused conversations stay; terminal ones drop after the window with no activity. Takes effect within ~10s after saving."
     },
     "records": {
       "title": "Workbench Records",

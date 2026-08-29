@@ -3612,10 +3612,9 @@
       "title": "工作台",
       "backToCluster": "返回集群",
       "tabProjects": "项目",
-      "tabConfig": "配置",
-      "tabGlobal": "全局",
       "tabRecords": "记录",
-      "tabServers": "服务器"
+      "tabServers": "服务器",
+      "tabKnowledge": "知识"
     },
     "card": {
       "noProjects": "还没有项目,点击「新建」创建第一个",
@@ -3630,19 +3629,6 @@
       "loadFailed": "加载失败",
       "createFailed": "创建失败",
       "created": "创建成功"
-    },
-    "config": {
-      "title": "工作台配置",
-      "cluster": "绑定集群",
-      "projectRoot": "项目根目录",
-      "distillStatus": "蒸馏状态",
-      "presenceTitle": "悬浮对话",
-      "presenceMaxItems": "展示条数",
-      "presenceWindowMin": "隐去时间(分钟)",
-      "presenceSave": "保存",
-      "presenceSaved": "悬浮对话配置已保存",
-      "presenceSaveFailed": "悬浮对话配置保存失败",
-      "presenceHint": "运行中/待审批对话常驻;终态对话超过隐去时间无动态后不再显示。保存后约 10 秒内全端生效。"
     },
     "records": {
       "title": "工作台记录",
