@@ -8,7 +8,6 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { sshApi } from '@/api/client'
 import SshServerForm from '@/components/ssh/SshServerForm.vue'
-import SshTerminalWindow from '@/components/ssh/SshTerminalWindow.vue'
 import SshFileBrowserWindow from '@/components/ssh/SshFileBrowserWindow.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
@@ -108,7 +107,7 @@ defineExpose({ servers })
             </td>
             <td class="py-sm px-sm">
               <div class="flex gap-xs">
-                <button data-test="btnTerm" @click="sshTerminals.openTerminal(s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
+                <button data-test="btnTerm" @click="sshTerminals.openOrFocus(s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
                 <button data-test="btnFiles" @click="openFiles(s)" class="px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
                 <button v-if="isAdmin" data-test="btnTest" @click="onTest(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('ssh.testConnection') }}</button>
                 <button v-if="isAdmin" data-test="btnEdit" @click="openEdit(s)" class="px-sm py-xs rounded-lg bg-surface-container text-body-xs">{{ t('common.edit') }}</button>
@@ -129,10 +128,9 @@ defineExpose({ servers })
       </div>
     </template>
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
-    <!-- SSH 终端浮窗:每服务器一窗,sid 恒定(刷新回放续跑) -->
-    <SshTerminalWindow v-for="w in sshTerminals.openWindows" :key="w.id" :window="w" />
+    <!-- SSH 终端浮窗已迁 AppLayout 全局宿主(2026-08-29):切页/刷新不丢,进任务栏 SSH 分区 -->
     <!-- SSH 文件浏览浮窗:同机去重,close 即销毁 -->
     <SshFileBrowserWindow v-for="(b, i) in sshBrowsers" :key="b.serverId" :server-id="b.serverId" :name="b.name"
-      :cascade-index="sshTerminals.openWindows.length + i" @close="closeBrowser(b.serverId)" />
+      :cascade-index="i" @close="closeBrowser(b.serverId)" />
   </section>
 </template>

@@ -8,6 +8,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore } from '@/stores/transfers'
+import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { getSession } from '@/api/client'
 import { Z } from '@/styles/zScale'
@@ -20,6 +21,9 @@ const TerminalWindow = defineAsyncComponent(() => import('@/components/terminal/
 const FileBrowserWindow = defineAsyncComponent(() => import('@/components/common/FileBrowserWindow.vue'))
 // 传输面板同策略:仅 panelOpen 时才加载(任务列表轻,但保持一致)
 const TransfersPanel = defineAsyncComponent(() => import('@/components/common/TransfersPanel.vue'))
+// SSH 服务器终端窗口同策略懒加载(2026-08-29 全局宿主化:从 WorkbenchServers 迁入,
+// 切页/刷新不丢,进任务栏 SSH 分区)
+const SshTerminalWindow = defineAsyncComponent(() => import('@/components/ssh/SshTerminalWindow.vue'))
 // 悬浮 AI 对话入口:按钮本身极轻,直接静态引入;重货 ChatModal(内嵌 WorkbenchChat/
 // marked/dompurify)由 ChatPresence 内部 defineAsyncComponent 按需加载
 import ChatPresence from '@/components/workbench/ChatPresence.vue'
@@ -32,6 +36,7 @@ const store = useClusterStore()
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
+const sshStore = useSshTerminalStore()
 const { tick: refreshTick } = usePageRefresh()
 
 // 平台版本更新检测(横幅:每版本提示一次;未登录不进 AppLayout,query 天然不启用)
@@ -108,6 +113,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     </div>
     <!-- 浮动终端窗口：用 v-show（不销毁）而非 v-if，最小化时保持 exec WS + xterm buffer 活跃 -->
     <TerminalWindow v-for="t in termStore.allTerminals" :key="t.id" :terminal="t" v-show="t.status === 'open'" />
+    <!-- SSH 服务器终端窗口:同款 v-show 保活(WS 在网关侧保活,浏览器侧重连即回放) -->
+    <SshTerminalWindow v-for="w in sshStore.windows" :key="w.id" :window="w" v-show="w.status === 'open'" />
     <!-- 浮动文件浏览窗口:v-show 保持挂载,最小化状态同步 -->
     <FileBrowserWindow v-for="b in fbStore.browsers" :key="b.id" :browser="b" v-show="b.status === 'open'" />
     <!-- 传输面板:按需挂载(关闭即销毁,状态在 transfers store) -->
