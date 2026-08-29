@@ -3,7 +3,7 @@
 // /api/sshfile/*:平台用户可用自己可见服务器的 SFTP 文件浏览/上传/下载(复用 podfile 传输骨架与限额)。
 import {
   createSshServer, updateSshServer, deleteSshServer, listSshServers,
-  materializeCreds, getSshServerRow,
+  materializeCreds, getSshServerRow, recordTestResult,
 } from './store.mjs'
 import { msg } from '../messages.mjs'
 import { withSftp, sftpReaddir, sftpStatSize, sftpStreamSession } from './sftp.mjs'
@@ -153,6 +153,7 @@ export function createSshRoutes(deps) {
           try { creds = materializeCreds(db, cryptKey, id) }
           catch { sendJson(res, 409, { message: msg(req, 'ssh.credKeyMissing') }); return true }
           const out = await sshTestConnection(row, creds)
+          try { recordTestResult(db, id, { ok: out.ok, osId: out.osId, osName: out.osName }) } catch { /* 落库失败不影响试连应答 */ }
           audit('test', 'ssh_server', out.ok ? 'ok' : 'error', { owner: ps.username, reason: out.ok ? null : out.errorKind, summary: row.name })
           sendJson(res, 200, out.ok ? out : { ...out, message: localizeTestError(req, out) })
           return true
