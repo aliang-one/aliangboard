@@ -58,6 +58,7 @@ async function onTest(s) {
     if (!r.ok && r.errorKind === 'hostkey') {
       if (window.confirm(t('ssh.hostKeyChangedConfirm', { name: s.name }))) {
         await sshApi.update(s.id, { hostKeyFingerprint: '' })
+        qc.invalidateQueries({ queryKey: ['ssh', 'servers'] })   // 指纹列即时刷新
         const r2 = await sshApi.testSaved(s.id)
         testResult.value = { name: s.name, ok: r2.ok, message: r2.ok ? t('ssh.testOk') : r2.message }
         return

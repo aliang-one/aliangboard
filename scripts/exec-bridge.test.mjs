@@ -11,6 +11,8 @@ import { spawn } from 'node:child_process'
 import { WebSocket } from 'ws'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 let pass = 0, fail = 0
@@ -30,13 +32,19 @@ await new Promise(r => fakeK8s.listen(0, '127.0.0.1', r))
 const k8sUrl = `http://127.0.0.1:${fakeK8s.address().port}`
 
 // --- 启动真实 Gateway 子进程 ---
+// 隔离(2026-08-29):ALIANG_DB 指向临时目录——否则用默认 data/aliangboard.db,
+// 与正在运行的正式网关撞 DB 锁(「拒绝启动:另一网关进程正持有…」),全量验证被迫停网关。
+const DIR = mkdtempSync(join(tmpdir(), 'exec-bridge-'))
 const gwPort = 18000 + Math.floor(Math.random() * 2000)
 const gw = spawn('node', [join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, PORT: String(gwPort), HOST: '127.0.0.1' },
+  env: { ...process.env, PORT: String(gwPort), HOST: '127.0.0.1', ALIANG_DB: join(DIR, 'exec-bridge.db') },
 })
 gw.stderr.on('data', d => process.stderr.write(d))
+let gwStderr = ''
+gw.stderr.on('data', d => { gwStderr += String(d) })
 await new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('Gateway 启动超时')), 8000)
+  const timer = setTimeout(() => reject(new Error(`Gateway 启动超时\n${gwStderr.slice(-500)}`)), 8000)
+  gw.on('exit', code => { clearTimeout(timer); reject(new Error(`Gateway 提前退出(code=${code})\n${gwStderr.slice(-500)}`)) })
   gw.stdout.on('data', d => { if (String(d).includes('listening')) { clearTimeout(timer); resolve() } })
 })
 const gwBase = `http://127.0.0.1:${gwPort}`
@@ -49,7 +57,7 @@ async function http(path, opts = {}) {
   return { status: res.status, body }
 }
 
-const cleanUp = () => { try { gw.kill() } catch { /* noop */ }; try { fakeK8s.close() } catch { /* noop */ } }
+const cleanUp = () => { try { gw.kill() } catch { /* noop */ }; try { fakeK8s.close() } catch { /* noop */ }; setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch { /* noop */ } }, 300) }
 
 try {
   // 1) 登录拿 session

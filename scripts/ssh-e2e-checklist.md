@@ -50,3 +50,8 @@
 - [ ] 分类器短旗标组合(date -us/dmesg -cc)与 ping -f 不拦(审批闸非沙箱,显式可扩展 deny 表)
 - [ ] 手测清单全部条目(需真实 SSH 服务器环境)
 - [ ] 已知偶发:两个 spawn 真网关的集成测试(routes.test/ws-handshake.test)在全量并跑高负载下偶发竞态失败(单跑/复跑均绿,2026-08-28 合并日复现一次;必要时加启动重试或串行标注)
+
+## 已完成(2026-08-29 二轮清理)
+- [x] exec-bridge 测试隔离(ALIANG_DB 临时目录+失败早暴露)——正式网关运行中亦可全量验证
+- [x] routes.mjs 试连审计统一走 audit 助手(reason 字段入审计)
+- [x] 主机密钥清除后 invalidateQueries(指纹列即时刷新)
