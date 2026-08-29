@@ -28,6 +28,7 @@ const tabs = computed(() => [
   { key: 'about', label: t('settings.tabs.about'), icon: 'update' },
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
   ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
+  ...(auth.isAdmin ? [{ key: 'ssh', label: t('settings.tabs.ssh'), icon: 'dns' }] : []),
 ])
 
 // === Components: real cluster component health ===
@@ -62,7 +63,7 @@ async function loadComponents() {
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
 onMounted(() => {
   if (activeTab.value === 'components') loadComponents()
-  if (auth.isAdmin) { loadMcpConfig(); loadTransfersConfig() }
+  if (auth.isAdmin) { loadMcpConfig(); loadTransfersConfig(); loadSshPolicy() }
 })
 
 // === MCP Service toggle (admin only) ===
@@ -102,6 +103,25 @@ async function saveTransfersConfig() {
     tfLimit.value = r.limitMb; notify('success', t('settings.transfersSaved'))
   } catch (e) { notify('error', e.message || t('settings.transfersLoadFailed')) }
   finally { tfSaving.value = false }
+}
+
+// === SSH 会话回收策略 (admin only;2026-08-29 spec) ===
+const sshPolicy = ref({ detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 })
+const sshPolicySaving = ref(false)
+async function loadSshPolicy() {
+  try { sshPolicy.value = await adminApi.sshSessionPolicy.get() } catch { /* 非 admin 静默 */ }
+}
+async function saveSshPolicy() {
+  sshPolicySaving.value = true
+  try {
+    const r = await adminApi.sshSessionPolicy.update({
+      detachedIdleMin: Number(sshPolicy.value.detachedIdleMin) || 0,
+      attachedIdleMin: Number(sshPolicy.value.attachedIdleMin) || 0,
+      maxLifetimeMin: Number(sshPolicy.value.maxLifetimeMin) || 0,
+    })
+    sshPolicy.value = r.policy; notify('success', t('settings.sshPolicySaved'))
+  } catch (e) { notify('error', e.message || t('settings.sshPolicyInvalid')) }
+  finally { sshPolicySaving.value = false }
 }
 
 // === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
@@ -379,6 +399,24 @@ const { catalog, resetAll } = useTableColumns()
               </button>
             </div>
             <p class="text-body-xs text-on-surface-variant">{{ t('settings.transfersLimitHint') }}</p>
+          </div>
+        </div>
+
+        <!-- SSH 会话回收策略 tab (admin only;2026-08-29 spec) -->
+        <div v-if="activeTab === 'ssh'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">dns</span>
+            <span class="text-body-sm font-semibold">{{ t('settings.sshPolicyTitle') }}</span>
+          </div>
+          <div class="p-md space-y-md">
+            <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel']]" :key="f[0]" class="flex items-center gap-sm">
+              <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.' + f[1]) }}</label>
+              <input v-model="sshPolicy[f[0]]" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
+            </div>
+            <button @click="saveSshPolicy" :disabled="sshPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
+            <p class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyHint') }}</p>
+            <p class="text-body-xs text-error/80">{{ t('settings.sshPolicyNeverHint') }}</p>
           </div>
         </div>
       </div>

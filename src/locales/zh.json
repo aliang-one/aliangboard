@@ -2448,7 +2448,8 @@
       "customcols": "Custom Columns",
       "about": "关于",
       "mcp": "MCP 服务",
-      "transfers": "文件传输"
+      "transfers": "文件传输",
+      "ssh": "SSH"
     },
     "clusterInfo": "集群信息",
     "clusterName": "集群名称",
@@ -2503,6 +2504,15 @@
     "transfersSaved": "已保存",
     "transfersInvalid": "请输入 1-10240 的整数",
     "transfersLoadFailed": "读取配置失败",
+    "sshPolicyTitle": "SSH 会话回收策略",
+    "sshPolicyDetachedLabel": "无人附着闲置回收",
+    "sshPolicyAttachedLabel": "挂机回收(有浏览器但无活动)",
+    "sshPolicyMaxLifetimeLabel": "最长存活硬上限",
+    "sshPolicyUnit": "分钟(0 = 关闭)",
+    "sshPolicyHint": "改动自动生效(≤1 分钟),无需重启。「无人附着」指所有浏览器都断开后的保活窗口;「挂机回收」把有窗口但完全静默的终端也定时收掉,跑构建/看日志(有输出)不会被误杀。",
+    "sshPolicyNeverHint": "三项全部设为 0 = 永不自动关闭:会话将保留到手动终止或网关重启,请注意资源与安全风险。",
+    "sshPolicySaved": "SSH 会话策略已保存",
+    "sshPolicyInvalid": "策略保存失败",
     "about": {
       "title": "关于平台",
       "currentVersion": "当前版本",

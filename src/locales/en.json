@@ -2448,7 +2448,8 @@
       "customcols": "Custom Columns",
       "about": "About",
       "mcp": "MCP Service",
-      "transfers": "File Transfers"
+      "transfers": "File Transfers",
+      "ssh": "SSH"
     },
     "clusterInfo": "Cluster Information",
     "clusterName": "Cluster Name",
@@ -2503,6 +2504,15 @@
     "transfersSaved": "Saved",
     "transfersInvalid": "Enter an integer between 1 and 10240",
     "transfersLoadFailed": "Failed to load config",
+    "sshPolicyTitle": "SSH Session Reap Policy",
+    "sshPolicyDetachedLabel": "Reap when detached & idle",
+    "sshPolicyAttachedLabel": "Reap idle sessions (attached but silent)",
+    "sshPolicyMaxLifetimeLabel": "Max session lifetime",
+    "sshPolicyUnit": "minutes (0 = off)",
+    "sshPolicyHint": "Changes take effect automatically (≤1 min), no restart needed. “Detached” means all browsers have disconnected (keepalive/replay window); “idle reap” also collects attached terminals that are fully silent — active output (builds, logs) keeps them alive.",
+    "sshPolicyNeverHint": "Setting all three to 0 disables auto-close entirely: sessions live until manually terminated or gateway restart. Mind the resource & security implications.",
+    "sshPolicySaved": "SSH session policy saved",
+    "sshPolicyInvalid": "Failed to save SSH session policy",
     "about": {
       "title": "About",
       "currentVersion": "Current version",

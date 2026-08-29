@@ -351,6 +351,11 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/podfile-config'),
     update: limitMb => platformHttp.request('/api/admin/podfile-config', { method: 'PUT', body: JSON.stringify({ limitMb }) }),
   },
+  // SSH 会话回收策略(2026-08-29):GET 回显三阈值;PUT 部分更新(省略键保持现值)→ { ok, policy }
+  sshSessionPolicy: {
+    get: () => platformHttp.request('/api/admin/ssh-session-policy'),
+    update: patch => platformHttp.request('/api/admin/ssh-session-policy', { method: 'PUT', body: JSON.stringify(patch) }),
+  },
   // 工作台 AI 行为配置(2026-08-25):GET → {additionalInstructions, disabledTools, toolCatalog, effectivePreview};PUT ← 同名字段 → {ok}
   workbenchAiConfig: {
     get: () => platformHttp.request('/api/admin/workbench-ai-config'),
