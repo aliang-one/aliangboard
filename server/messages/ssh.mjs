@@ -13,4 +13,6 @@ export const TABLE = {
   'ssh.deleted':       { zh: 'SSH 服务器已删除', en: 'SSH server deleted' },
   'ssh.sessionNotFound': { zh: '终端会话不存在或已结束', en: 'Terminal session not found or already ended' },
   'ssh.sessionKilled':   { zh: '终端会话已终止', en: 'Terminal session terminated' },
+  'ssh.reapedAttached':   { zh: '会话因长时间无活动被策略关闭', en: 'Session closed by policy after inactivity' },
+  'ssh.reapedMaxLifetime':{ zh: '会话达到最长存活时间,被策略关闭', en: 'Session closed by max-lifetime policy' },
 }

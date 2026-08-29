@@ -52,6 +52,7 @@ import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
 import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
+import { resolvePolicy } from './ssh/reap-policy.mjs'
 import { attachSocketToSession, broadcastToSockets } from './ssh/terminal-wire.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
@@ -61,7 +62,7 @@ import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failov
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { maskSecretResource } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
-import { msg } from './messages.mjs'
+import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 import { createApplyYaml } from './apply-yaml.mjs'
 import { slimListBody } from './k8s-slim.mjs'
@@ -216,6 +217,9 @@ function getSshfileLimitBytes() {
   const mb = limitMbFromValue(getSetting('sshfile.limitMb')) ?? 512
   return mb * 1024 * 1024
 }
+// SSH 会话回收策略(2026-08-29 spec):设置>env SSH_IDLE_REAP_MS>内置默认;每跳现读,改动 ≤60s 生效
+const getSshSessionPolicy = () => resolvePolicy(getSetting, process.env)
+
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
   return {
@@ -2099,13 +2103,23 @@ const httpServer = createServer((req, res) => {
 
 // ===== SSH 服务器终端(/api/ssh/terminal) =====
 // 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
-const sshTerminals = createTerminalRegistry({ idleReapMs: Number(process.env.SSH_IDLE_REAP_MS || 10 * 60 * 1000) })
-// 60s 空闲 sweep:关 channel + 释放池句柄 + 审计(条目只含 serverId/sid/用户名,无凭据)
-setInterval(() => sshTerminals.reapIdle(s => {
-  try { s.extra.channel?.close?.() } catch {}
-  try { s.extra.release?.() } catch {}
-  writeAudit(db, { owner: s.userId, verb: 'close', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
-}), 60000).unref?.()
+const sshTerminals = createTerminalRegistry()
+// 60s sweep:每跳现读策略(改设置 ≤60s 生效,无需重启);命中即回收(关 channel+还池句柄+审计),
+// 有附着浏览器的(attached-idle/max-lifetime)先广播告知再关。detached-idle 无人可告,直接收。
+setInterval(() => {
+  try {
+    sshTerminals.reapByPolicy(getSshSessionPolicy(), (s, reason) => {
+      if (s.extra?.sockets?.size > 0) {
+        const key = reason === 'max-lifetime' ? 'ssh.reapedMaxLifetime' : 'ssh.reapedAttached'
+        try { broadcastToSockets(s, wsSend, CH_ERROR, t('zh', key)) } catch { /* 告知失败不阻断回收 */ }
+      }
+      try { s.extra?.channel?.close?.() } catch {}
+      try { s.extra?.release?.() } catch {}
+      writeAudit(db, { owner: s.userId, verb: 'close', tool: 'ssh_terminal', result: 'ok', reason,
+        requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
+    })
+  } catch (e) { console.error('[ssh] reap sweep failed:', e?.message || e) }
+}, 60000).unref?.()
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
 setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
 
@@ -2148,8 +2162,8 @@ async function handleSshTerminal(ws, ps, url) {
         if (err) return shellFail(err)
         session.extra.channel = channel
         // 直播帧广播到该会话所有附加浏览器(不能闭包死绑首个 ws——否则重连者无直播)
-        channel.on('data', d => { session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
-        channel.stderr?.on?.('data', d => { session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
+        channel.on('data', d => { sshTerminals.markOutput(sid); session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
+        channel.stderr?.on?.('data', d => { sshTerminals.markOutput(sid); session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
         channel.on('close', () => {
           broadcastToSockets(session, wsSend, CH_ERROR, 'channel closed')
           for (const s of session.extra.sockets) { try { s.close() } catch {} }
