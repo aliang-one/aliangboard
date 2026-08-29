@@ -12,19 +12,6 @@ const SA_TOKEN_PREFIX = '/var/run/secrets'                            // SA toke
 const SHADOW_PATHS = ['/etc', '/usr', '/bin', '/sbin', '/lib', '/root', '/var/lib'] // 整目录遮蔽
 const HOSTPATH_SENSITIVE = ['/', '/etc', '/var/run', '/var/run/docker.sock', '/root', '/home', '/proc', '/sys', '/dev']
 
-// 返回首个坏条目 { key, n }(n 为 1-based 序号,供 i18n 提示);全部合法 → null
-export function firstVolumeMountError(volumeMounts, validTargets) {
-  for (let i = 0; i < (volumeMounts || []).length; i++) {
-    const v = volumeMounts[i]
-    const src = SOURCE_FIELD[v.type]
-    if (src && !v[src]) return { key: 'deploy.volumeSourceRequired', n: i + 1 }
-    if (!v.mountPath || !String(v.mountPath).startsWith('/')) return { key: 'deploy.volumeMountRequired', n: i + 1 }
-    if (!(validTargets || []).includes(v.target)) return { key: 'deploy.volumeTargetInvalid', n: i + 1 }
-    if (volumeItemsIncomplete(v)) return { key: 'deploy.volumeItemsIncomplete', n: i + 1 }
-  }
-  return null
-}
-
 // items 键映射半填:key/path 须成对;全空行忽略(与 YAML 生成 it.key 过滤的「整行空=跳过」语义一致)
 export function volumeItemsIncomplete(entry) {
   return (entry?.items || []).some(it => (it.key || it.path) && !(it.key && it.path))
@@ -144,4 +131,74 @@ export function validateEntry(entry, ctx = {}) {
   }
 
   return issues
+}
+
+// —— 跨卡冲突 + 组装(spec §4 规则 13-16)——
+// byEntry[i] = validateEntry 结果 + 涉及 i 的 cross issue(视图按卡下标直接取)
+export function validateVolumeMounts(entries, ctx = {}) {
+  const list = entries || []
+  const byEntry = list.map(e => validateEntry(e, ctx))
+  const cross = []
+  const mp = e => (e.mountPath && String(e.mountPath).startsWith('/') ? normalizeMountPath(e.mountPath) : null)
+
+  // 13/14:同容器 mountPath 相等 / 父子嵌套(归一后比对)
+  const byTarget = new Map()
+  list.forEach((e, i) => {
+    const p = mp(e)
+    if (!p) return
+    if (!byTarget.has(e.target)) byTarget.set(e.target, [])
+    byTarget.get(e.target).push({ i, p })
+  })
+  for (const group of byTarget.values())
+    for (let a = 0; a < group.length; a++)
+      for (let b = a + 1; b < group.length; b++) {
+        const { i: i1, p: p1 } = group[a], { i: i2, p: p2 } = group[b]
+        if (p1 === p2) cross.push({ code: 'mountPathDuplicate', level: 'error', entries: [i1, i2], field: 'mountPath' })
+        else if (p1 !== '/' && p2 !== '/' && (p2.startsWith(p1 + '/') || p1.startsWith(p2 + '/')))
+          cross.push({ code: 'mountPathNested', level: 'warn', entries: [i1, i2], field: 'mountPath' })
+      }
+
+  // 15:卷名重复(生成端按 name 去重首见胜出 → 后者来源静默失效)
+  const byName = new Map()
+  list.forEach((e, i) => {
+    if (!e.name) return
+    if (byName.has(e.name)) cross.push({ code: 'volumeNameDuplicate', level: 'error', entries: [byName.get(e.name), i], field: 'name' })
+    else byName.set(e.name, i)
+  })
+
+  // 16:孤儿 mount —— mountPath 会进 volumeMounts 但来源字段空(卷定义被生成端丢弃 → 非法 YAML)
+  list.forEach((e, i) => {
+    const src = SOURCE_FIELD[e.type]
+    if (mp(e) && src && !e[src]) cross.push({ code: 'orphanMount', level: 'error', entries: [i], field: 'source' })
+  })
+
+  for (const c of cross) for (const i of c.entries) byEntry[i].push(c)
+  return { byEntry, cross }
+}
+
+// 门禁取首个 error 级 issue(条目顺序);无 → null
+export function firstError(audit) {
+  for (let i = 0; i < audit.byEntry.length; i++)
+    for (const issue of audit.byEntry[i])
+      if (issue.level === 'error') return { entryIdx: i, issue }
+  return null
+}
+
+// 兼容包装:返回首个坏条目 { key, n }。keyMap 缺省为旧 4 键(调用方行为不变);
+// 新 code 未在 keyMap 里时按前缀落到最接近的旧键(仅迁移过渡期触达)。
+const GATE_KEY = {
+  sourceRequired: 'deploy.volumeSourceRequired',
+  mountPathRequired: 'deploy.volumeMountRequired',
+  targetInvalid: 'deploy.volumeTargetInvalid',
+  itemsIncomplete: 'deploy.volumeItemsIncomplete',
+}
+const GATE_FALLBACK = code =>
+  code.startsWith('mountPath') || code.startsWith('subPath') || code.startsWith('systemPath') ? 'deploy.volumeMountRequired'
+    : code.startsWith('item') ? 'deploy.volumeItemsIncomplete'
+      : code === 'targetInvalid' ? 'deploy.volumeTargetInvalid'
+        : 'deploy.volumeSourceRequired'
+export function firstVolumeMountError(volumeMounts, validTargets, keyMap = GATE_KEY) {
+  const first = firstError(validateVolumeMounts(volumeMounts, { validTargets }))
+  if (!first) return null
+  return { key: keyMap[first.issue.code] || GATE_FALLBACK(first.issue.code), n: first.entryIdx + 1 }
 }

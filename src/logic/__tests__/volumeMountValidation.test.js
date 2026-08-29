@@ -1,6 +1,6 @@
 // 向导 step2 门禁纯函数:卷必须映射到容器(来源/mountPath/target 三查),堵静默丢弃洞。
 import { test, expect } from 'vitest'
-import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry } from '@/logic/volumeMountValidation'
+import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme } from '@/logic/volumeMountValidation'
 
 const OK = ['main', 'init:0', 'sidecar:0']
 const base = { name: 'vol-1', target: 'main', type: 'pvc', mountPath: '/data', subPath: '', readOnly: false, pvcName: 'my-pvc', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
@@ -16,7 +16,7 @@ test('来源缺失:按类型查字段,返回首坏序号', () => {
   expect(firstVolumeMountError([{ ...base, type: 'nfs', server: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
   expect(firstVolumeMountError([{ ...base, type: 'configMap', cmName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
   expect(firstVolumeMountError([{ ...base, type: 'secret', secretName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base }, { ...base, name: 'vol-2', pvcName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 2 })
+  expect(firstVolumeMountError([{ ...base }, { ...base, name: 'vol-2', pvcName: '', mountPath: '/data2' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 2 })
 })
 
 test('mountPath:空或非斜杠开头 → deploy.volumeMountRequired', () => {
@@ -148,4 +148,38 @@ test('validateEntry: 级别标注正确(error/warn/hint)', () => {
   const iss = validateEntry({ ...entryBase, mountPath: '/proc' }, ENTRY_CTX)
   expect(iss.find(i => i.code === 'systemPathRuntime').level).toBe('error')
   expect(validateEntry({ ...entryBase, mountPath: '/etc' }, ENTRY_CTX).find(i => i.code === 'systemPathShadow').level).toBe('warn')
+})
+
+// —— validateVolumeMounts(spec §4 规则 13-16)——
+test('validateVolumeMounts: 同容器 mountPath 相等 error / 父子嵌套 warn / 不同容器不判', () => {
+  const a = { ...base }, b = { ...base, name: 'vol-2' }
+  const dup = validateVolumeMounts([a, b], { validTargets: ['main'] })
+  expect(dup.cross.map(c => c.code)).toEqual(['mountPathDuplicate'])
+  expect(dup.cross[0].entries).toEqual([0, 1])
+  expect(dup.byEntry[0].map(i => i.code)).toContain('mountPathDuplicate') // 已并入 byEntry
+  const nested = validateVolumeMounts([{ ...base, mountPath: '/data' }, { ...base, name: 'vol-2', mountPath: '/data/sub' }], { validTargets: ['main'] })
+  expect(nested.cross[0]).toMatchObject({ code: 'mountPathNested', level: 'warn' })
+  const apart = validateVolumeMounts([{ ...base }, { ...base, name: 'vol-2', target: 'init:0' }], { validTargets: ['main', 'init:0'] })
+  expect(apart.cross).toEqual([])
+})
+
+test('validateVolumeMounts: 卷名重复 error;孤儿 mount(mountPath 有而来源空)error', () => {
+  const nameDup = validateVolumeMounts([{ ...base }, { ...base, mountPath: '/x2', pvcName: 'p2' }], { validTargets: ['main'] })
+  expect(nameDup.cross.find(c => c.code === 'volumeNameDuplicate').entries).toEqual([0, 1])
+  const orphan = validateVolumeMounts([{ ...base, pvcName: '' }], { validTargets: ['main'] })
+  expect(orphan.cross.map(c => c.code)).toContain('orphanMount')
+})
+
+test('firstError: 取首个 error 级;warn/hint 跳过', () => {
+  const audit = validateVolumeMounts([{ ...base, mountPath: '/data/' }, { ...base, name: 'v2', mountPath: '/d2' }], { validTargets: ['main'] })
+  expect(firstError(audit)).toBe(null) // 只有归一 hint
+  const bad = validateVolumeMounts([{ ...base, mountPath: '/proc' }], { validTargets: ['main'] })
+  expect(firstError(bad).issue.code).toBe('systemPathRuntime')
+})
+
+test('firstVolumeMountError: 旧 4 键默认映射不变;传 keyMap 走新键;warn/hint 不拦', () => {
+  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'])).toEqual({ key: 'deploy.volumeMountRequired', n: 1 }) // fallback(过渡期映射;Task 9 起 MOUNT_GATE_KEYS 为默认映射,此断言改为真实键)
+  const KEYS = { systemPathRuntime: 'deploy.volumeSystemPathRuntime' }
+  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'], KEYS)).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 })
+  expect(fvme([{ ...base, mountPath: '/data/' }], ['main'])).toBe(null) // hint 不拦
 })
