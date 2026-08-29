@@ -4237,6 +4237,7 @@
     "clusterRefHint": "可选,如 prod(便于 AI 理解语境)",
     "tags": "标签(逗号分隔)",
     "description": "描述",
+    "exposeToggleTitle": "切换是否暴露给 AI",
     "exposeToAi": "暴露给 AI",
     "exposeHint": "AI 仅可见名称/描述/关联集群,永不可见凭据与地址",
     "aiApprovalPolicy": "审批策略",

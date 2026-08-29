@@ -4237,6 +4237,7 @@
     "clusterRefHint": "Optional, e.g. prod (helps AI understand context)",
     "tags": "Tags (comma-separated)",
     "description": "Description",
+    "exposeToggleTitle": "Toggle AI exposure",
     "exposeToAi": "Expose to AI",
     "exposeHint": "AI can only see name/description/linked cluster, never credentials or addresses",
     "aiApprovalPolicy": "Approval Policy",
