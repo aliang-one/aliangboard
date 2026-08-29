@@ -140,3 +140,8 @@
 - F2:WS 消息语言跟随用户偏好。
 - F3:存量 10 处原生 `confirm()` 替换为 ConfirmDialog。
 - F4:审计查看器(MCP/API-key 调用 UI,既有独立需求,不受本期阻塞)。
+- F5(终审):主动 logout 不回收自身 k8sSessionToken(本特性已修「改密/吊销其他会话」路径的回收,主动登出路径为既有行为,同源缺口)。
+- F6(终审):SideNavBar 停靠坞/ns 带约 40 处手调绿 hex 暗色不翻转(对比度不塌,视觉为「亮岛」)——**合并前须真机暗色走查一次侧边栏并记录结论**;批量换 token 风险大于收益,暂保持。
+- F7(终审):ApiKeyManagement dotColor 三态固定语义色换 `tokenHexR('status-*')`(3 行,暗板已备提亮值)。
+- F8(终审):preferences `persist()` 加平台 token 存在性判断(当前不可达;未来任何 pre-login 调用方会触发 401→强跳登录)。
+- F9(终审):杂项——UserMenu 触发钮补 `aria-expanded`/`aria-haspopup`;ConfirmDialog `loading` 接入吊销/改密 pending;`tokenHex` 死代码与 `/profile` 路由死 `meta.icon` 清理;TopNavBar.test.js `logoutBtn` 变量名;chart-options「零依赖」注释弱化记档(经 theme.js 引 vue,node 仍可解析)。
