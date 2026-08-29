@@ -1500,7 +1500,7 @@ function podStatusBorder(s) {
               </div>
               <!-- 操作 -->
               <div class="flex items-center justify-end gap-0.5 mt-1 -mr-0.5">
-                <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-black/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
+                <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-on-surface/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
                 <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
                 <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>

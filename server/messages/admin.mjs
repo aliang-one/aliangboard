@@ -39,6 +39,7 @@ export const TABLE = {
   'admin.lastAdminProtected': { zh: '不能删除最后一个管理员', en: 'Cannot delete the last admin' },
   'admin.noUpdateFields': { zh: '无更新字段', en: 'No fields to update' },
   'admin.newPasswordRequired': { zh: '新密码不能为空', en: 'New password is required' },
+  'admin.passwordTooShort': { zh: '密码至少 8 位', en: 'Password must be at least 8 characters' },
   'admin.invalidJsonBody': { zh: '请求体不是有效 JSON(需要 application/json)', en: 'Request body is not valid JSON (application/json required)' },
   'admin.aiToolsNotArray': { zh: 'disabledTools 必须为字符串数组', en: 'disabledTools must be an array of strings' },
   'admin.aiToolUnknown': { zh: 'disabledTools 含未知工具名', en: 'disabledTools contains unknown tool name' },

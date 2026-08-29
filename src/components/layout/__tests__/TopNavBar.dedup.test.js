@@ -34,7 +34,7 @@ vi.mock('@/api/client', () => ({ api: {}, clearSession: vi.fn() }))
 
 import TopNavBar from '../TopNavBar.vue'
 
-const mountIt = () => mount(TopNavBar, { global: { mocks: { $t: (k) => k } } })
+const mountIt = () => mount(TopNavBar, { global: { mocks: { $t: (k) => k }, stubs: { ConfirmDialog: true } } })
 
 describe('TopNavBar 去重:仅留刷新', () => {
   it('已移除通知(活动记录)图标按钮', () => {

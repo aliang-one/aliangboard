@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- 字体已自托管(@fontsource,见 src/main.js),不再依赖 Google Fonts CDN —— 离线 / 内网可用 -->
+    <!-- 首帧防白闪:CSS 加载前按偏好挂 dark 类(localStorage 兜底,system 跟随系统)。
+         与 src/styles/theme.js 的 THEME_KEY 保持一致(aliangboard.theme)。 -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('aliangboard.theme') || 'system'
+          var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (e) { /* 无 storage/matchMedia 环境 */ }
+      })()
+    </script>
     <title>AliangBoard</title>
   </head>
   <body class="bg-surface font-sans text-on-surface antialiased">

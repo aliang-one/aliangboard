@@ -3,6 +3,7 @@
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
+import { isPasswordOk } from '../password-policy.mjs'
 
 export function createAuthRoutes(deps) {
   const {
@@ -10,7 +11,16 @@ export function createAuthRoutes(deps) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
+    hashPassword, extractPlatformToken,
   } = deps
+
+  // 读用户 prefs:SELECT/parse 全程容错——存量库无 prefs 列、坏 JSON 均回 {}(node:sqlite 拒绝非法绑定,这里只读标量)。
+  function readPrefs(db, userId) {
+    try {
+      const row = db.prepare('SELECT prefs FROM platform_users WHERE id=?').get(userId)
+      return JSON.parse(row?.prefs || '{}') || {}
+    } catch { return {} }
+  }
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
@@ -41,11 +51,13 @@ export function createAuthRoutes(deps) {
           sendJson(res, 401, { message: msg(req, 'auth.badCredentials') }); return true
         }
         const token = randomUUID()
-        const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
+        const psNow = Date.now()
+        const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent: String(req.headers['user-agent'] || ''), lastSeenAt: psNow }
         platformSessions.set(token, ps)
-        db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
+        db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
+          .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
         auditLogin('ok')
-        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
+        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }
@@ -53,8 +65,134 @@ export function createAuthRoutes(deps) {
     // GET /api/auth/me — 当前登录用户信息
     if (url.pathname === '/api/auth/me' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
-      const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
+      const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
+      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId) })
+      return true
+    }
+
+    // PATCH /api/auth/me — 自助改显示名(2026-08-29 用户中心设计)
+    // 白名单:仅 displayName 可改;username/role/passwordHash 等字段静默忽略(防穿越)。
+    if (url.pathname === '/api/auth/me' && req.method === 'PATCH') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (input.displayName == null) { sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true }
+      const displayName = String(input.displayName).trim().slice(0, 64)
+      db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user })
+      return true
+    }
+
+    // PUT /api/auth/preferences — 自助偏好(language/theme;全有或全无校验,防半写)
+    const PREF_LANGS = ['en', 'zh']
+    const PREF_THEMES = ['light', 'dark', 'system']
+    if (url.pathname === '/api/auth/preferences' && req.method === 'PUT') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (input.language != null && !PREF_LANGS.includes(input.language)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.theme != null && !PREF_THEMES.includes(input.theme)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      const prefs = readPrefs(db, ps.userId)
+      if (input.language != null) prefs.language = input.language
+      if (input.theme != null) prefs.theme = input.theme
+      db.prepare('UPDATE platform_users SET prefs=? WHERE id=?').run(JSON.stringify(prefs), ps.userId)
+      sendJson(res, 200, { prefs })
+      return true
+    }
+
+    // POST /api/auth/change-password — 自助改密(2026-08-29 设计:验旧密 → 新密 ≥8 → 吊销其他会话)
+    if (url.pathname === '/api/auth/change-password' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const { currentPassword, newPassword } = await readBody(req)
+        const user = db.prepare('SELECT * FROM platform_users WHERE id=?').get(ps.userId)
+        const auditChange = (result, reason = null, summary = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_change_password', result, reason, requestSummary: summary, source: 'platform' })
+        if (!user || !currentPassword || !verifyPassword(String(currentPassword), user.passwordHash)) {
+          auditChange('denied', 'bad-current-password')
+          sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true
+        }
+        if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
+        db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(String(newPassword)), ps.userId)
+        const currentToken = extractPlatformToken(req)
+        let revoked = 0
+        for (const [tok, s] of Array.from(platformSessions)) {
+          if (s.userId === ps.userId && tok !== currentToken) {
+            platformSessions.delete(tok)
+            try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+            // 吊销同时回收该会话接入的 K8s 凭据(2026-08-29 终审发现 4:否则被踢设备集群凭据存活至 TTL)
+            const k8sTok = s.k8sSessionToken
+            if (k8sTok) {
+              sessions.delete(k8sTok)
+              try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+            }
+            revoked++
+          }
+        }
+        auditChange('ok', null, `revoked=${revoked}`)
+        sendJson(res, 200, { ok: true, revoked })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.changePasswordFailed') }); return true }
+    }
+
+    // GET /api/auth/sessions — 当前用户活跃会话(权威源=内存 Map;token 仅回 8 位指纹)
+    if (url.pathname === '/api/auth/sessions' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      const list = []
+      for (const [tok, s] of platformSessions) {
+        if (s.userId !== ps.userId) continue
+        list.push({ fingerprint: tok.slice(0, 8), ip: s.ip || null, userAgent: s.userAgent || null, createdAt: s.createdAt, lastSeenAt: s.lastSeenAt || s.createdAt, current: tok === currentToken })
+      }
+      list.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
+      sendJson(res, 200, { sessions: list })
+      return true
+    }
+
+    // DELETE /api/auth/sessions/others — 原子吊销除当前外全部(先于 :fingerprint 匹配)
+    if (url.pathname === '/api/auth/sessions/others' && req.method === 'DELETE') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      let revoked = 0
+      for (const [tok, s] of Array.from(platformSessions)) {
+        if (s.userId !== ps.userId || tok === currentToken) continue
+        platformSessions.delete(tok)
+        try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+        // 同步回收被吊会话的 K8s 凭据(当前会话的保留)
+        const k8sTok = s.k8sSessionToken
+        if (k8sTok) {
+          sessions.delete(k8sTok)
+          try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+        }
+        revoked++
+      }
+      writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `revoked=${revoked}`, source: 'platform' })
+      sendJson(res, 200, { ok: true, revoked })
+      return true
+    }
+
+    // DELETE /api/auth/sessions/:fingerprint — 按 token 前缀指纹吊销指定会话;当前会话拒吊(防自锁)。
+    // 'others' 精确分支在上面已先行返回,此处 [^/]+ 不会误吞;归属过滤(userId)保证只能吊自己的。
+    const fpMatch = url.pathname.match(/^\/api\/auth\/sessions\/([^/]+)$/)
+    if (fpMatch && req.method === 'DELETE') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      const fp = fpMatch[1]
+      if (currentToken && currentToken.slice(0, 8) === fp) { sendJson(res, 400, { message: msg(req, 'auth.sessionCurrentNoRevoke') }); return true }
+      let hit = null
+      for (const [tok, s] of platformSessions) {
+        if (s.userId === ps.userId && tok.slice(0, 8) === fp) { hit = tok; break }
+      }
+      if (!hit) { sendJson(res, 404, { message: msg(req, 'auth.sessionNotFound') }); return true }
+      const revokedPs = platformSessions.get(hit)
+      platformSessions.delete(hit)
+      try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(hit) } catch { /* noop */ }
+      // 同步回收被吊会话的 K8s 凭据(当前会话已在上文 400 拒吊,不会走到这里)
+      const k8sTok = revokedPs?.k8sSessionToken
+      if (k8sTok) {
+        sessions.delete(k8sTok)
+        try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+      }
+      writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `fp=${fp}`, source: 'platform' })
+      sendJson(res, 200, { ok: true })
       return true
     }
 

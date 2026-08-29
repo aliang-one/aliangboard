@@ -1,8 +1,6 @@
 // ECharts option 纯函数构建器:不 import echarts、不碰 DOM(node 零依赖可测,scripts/test.mjs 覆盖)。
-// 颜色一律收 palette token 名(如 'primary'),由 tokenHex 解析——杜绝 var() 字符串。
-import { MD_PALETTE, tokenHex } from '../styles/md-palette.js'
-
-export { tokenHex }
+// 颜色一律收 palette token 名(如 'primary'),由 tokenHexR(响应式,随主题翻转)解析——杜绝 var() 字符串。
+import { tokenHexR } from '../styles/theme.js'
 
 export function hexToRgba(hex, alpha) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
@@ -21,7 +19,7 @@ export function relTimeLabel(indexFromEnd, intervalSec) {
 // series: number[];color/refLines[].color: palette token;refLines: [{label,value,color}]。
 // spark=true → KPI 卡迷你模式:无网格、无 markLine、贴边。
 export function buildAreaLineOption({ series = [], color = 'primary', unit = '', refLines = [], spark = false, smooth = true, sampleIntervalSec = 10 } = {}) {
-  const line = tokenHex(color)
+  const line = tokenHexR(color)
   const values = series.filter(v => typeof v === 'number' && !isNaN(v))
   const maxVal = Math.max(1, ...values, ...refLines.map(r => Number(r.value) || 0))
   const len = series.length
@@ -40,7 +38,7 @@ export function buildAreaLineOption({ series = [], color = 'primary', unit = '',
     yAxis: {
       type: 'value', max: maxVal,
       axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
-      splitLine: spark ? { show: false } : { lineStyle: { color: hexToRgba(MD_PALETTE['outline-variant'], 0.35), width: 1 } },
+      splitLine: spark ? { show: false } : { lineStyle: { color: hexToRgba(tokenHexR('outline-variant'), 0.35), width: 1 } },
     },
     series: [{
       id: 'main', type: 'line', smooth, symbol: 'none', data: series,
@@ -62,7 +60,7 @@ export function buildAreaLineOption({ series = [], color = 'primary', unit = '',
       silent: true, symbol: 'none', label: { show: false },
       data: refLines.map(r => ({
         yAxis: Number(r.value) || 0,
-        lineStyle: { type: 'dashed', width: 1, color: tokenHex(r.color) },
+        lineStyle: { type: 'dashed', width: 1, color: tokenHexR(r.color) },
       })),
     }
   }
@@ -99,20 +97,26 @@ export function buildDonutOption(segments = []) {
     series: [{
       id: 'donut', type: 'pie', radius: ['62%', '88%'], center: ['50%', '50%'],
       avoidLabelOverlap: false, label: { show: false }, labelLine: { show: false },
-      itemStyle: { borderRadius: 5, borderColor: MD_PALETTE['surface-container-lowest'], borderWidth: 2 },
-      data: segments.map(s => ({ name: s.status, value: s.count, itemStyle: { color: tokenHex(STATUS_COLORS[s.status]) } })),
+      itemStyle: { borderRadius: 5, borderColor: tokenHexR('surface-container-lowest'), borderWidth: 2 },
+      data: segments.map(s => ({ name: s.status, value: s.count, itemStyle: { color: tokenHexR(STATUS_COLORS[s.status]) } })),
     }],
   }
+}
+
+// 表盘色阶(响应式:经 tokenHexR 读当前板,主题翻转自动换色)
+export function gaugeLevelColor(v) {
+  const color = v == null ? tokenHexR('surface-container-high')
+    : v > 80 ? tokenHexR('error')
+    : v > 60 ? tokenHexR('tertiary-container')
+    : tokenHexR('primary')
+  return color
 }
 
 // 环形表盘(ClusterOverview 节点卡 CPU 环的 ECharts 升级版):整环、渐变进度、roundCap。
 // value: 0-100(自动夹取);null → 灰环空态(中心 HTML 叠加显示 '—')。
 export function buildGaugeOption(value) {
   const v = (typeof value === 'number' && !isNaN(value)) ? Math.min(100, Math.max(0, value)) : null
-  const color = v == null ? MD_PALETTE['surface-container-high']
-    : v > 80 ? MD_PALETTE.error
-    : v > 60 ? MD_PALETTE['tertiary-container']
-    : MD_PALETTE.primary
+  const color = gaugeLevelColor(v)
   return {
     series: [{
       id: 'gauge', type: 'gauge', startAngle: 90, endAngle: -270, radius: '100%', center: ['50%', '50%'],
@@ -125,7 +129,7 @@ export function buildGaugeOption(value) {
           },
         },
       },
-      axisLine: { roundCap: true, lineStyle: { width: 7, color: [[1, hexToRgba(MD_PALETTE['outline-variant'], 0.4)]] } },
+      axisLine: { roundCap: true, lineStyle: { width: 7, color: [[1, hexToRgba(tokenHexR('outline-variant'), 0.4)]] } },
       pointer: { show: false }, axisTick: { show: false }, splitLine: { show: false },
       axisLabel: { show: false }, anchor: { show: false }, detail: { show: false },
       data: [{ value: v == null ? 0 : v }],
@@ -147,7 +151,7 @@ export function formatRelTime(deltaSec) {
 // tooltip 相对最新有效样本时间(formatRelTime)。refLines/y-max 语义与 buildAreaLineOption 一致。
 // spark=true → KPI 卡迷你模式:无网格、贴边(与 buildAreaLineOption 同语义)。
 export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit = '', refLines = [], spark = false, smooth = true } = {}) {
-  const line = tokenHex(color)
+  const line = tokenHexR(color)
   const valid = (Array.isArray(samples) ? samples : []).filter(s =>
     s && typeof s === 'object' && typeof s.t === 'number' && typeof s.v === 'number' && !isNaN(s.t) && !isNaN(s.v))
   const values = valid.map(s => s.v)
@@ -168,7 +172,7 @@ export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit 
     yAxis: {
       type: 'value', max: maxVal,
       axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
-      splitLine: spark ? { show: false } : { lineStyle: { color: hexToRgba(MD_PALETTE['outline-variant'], 0.35), width: 1 } },
+      splitLine: spark ? { show: false } : { lineStyle: { color: hexToRgba(tokenHexR('outline-variant'), 0.35), width: 1 } },
     },
     series: [{
       id: 'main', type: 'line', smooth, symbol: 'none',
@@ -191,7 +195,7 @@ export function buildTimeAreaLineOption({ samples = [], color = 'primary', unit 
       silent: true, symbol: 'none', label: { show: false },
       data: refLines.map(r => ({
         yAxis: Number(r.value) || 0,
-        lineStyle: { type: 'dashed', width: 1, color: tokenHex(r.color) },
+        lineStyle: { type: 'dashed', width: 1, color: tokenHexR(r.color) },
       })),
     }
   }

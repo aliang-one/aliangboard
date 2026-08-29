@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 防白闪(2026-08-29 用户中心设计 §3.4):调色板 CSS 变量由 JS 运行时注入(installPaletteVars),
+   首帧 token 类变量未定义 → computed invalid → 透明。UA 画布随 color-scheme 跟随 html.dark 翻深,
+   滚动条/表单控件同随;JS 注入前的短暂 invalid 由深画布兜底,消除暗色首帧白闪。 */
+:root { color-scheme: light; }
+html.dark { color-scheme: dark; }
+
 /* Material Symbols —— 自托管(@fontsource-variable)。font-family 此前由 Google CDN 的 CSS 提供,
    离线后须在此显式声明,否则 <span class="material-symbols-outlined"> 会以普通文本字形渲染。 */
 .material-symbols-outlined {
@@ -96,7 +102,7 @@ body {
 .prose-chat > :last-child { margin-bottom: 0; }
 .prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
   font-weight: 600;
-  color: var(--md-sys-color-on-surface, #0b1c30);
+  color: rgb(var(--md-sys-color-on-surface, 11 28 48));
   line-height: 1.4;
   margin: 0.9em 0 0.35em;
 }
@@ -110,20 +116,20 @@ body {
 .prose-chat ol { list-style: decimal; }
 .prose-chat li { margin: 0.2em 0; }
 .prose-chat li > ul, .prose-chat li > ol { margin: 0.2em 0; }
-.prose-chat a { color: var(--md-sys-color-primary, #006c49); text-decoration: underline; text-underline-offset: 2px; }
+.prose-chat a { color: rgb(var(--md-sys-color-primary, 0 108 73)); text-decoration: underline; text-underline-offset: 2px; }
 .prose-chat blockquote {
   margin: 0.6em 0; padding: 0.35em 0.9em;
-  border-left: 3px solid var(--md-sys-color-outline-variant, #bbcabf);
-  background: var(--md-sys-color-surface-container-low, #eff4ff);
+  border-left: 3px solid rgb(var(--md-sys-color-outline-variant, 187 202 191));
+  background: rgb(var(--md-sys-color-surface-container-low, 239 244 255));
   border-radius: 0 6px 6px 0;
-  color: var(--md-sys-color-on-surface-variant, #3c4a42);
+  color: rgb(var(--md-sys-color-on-surface-variant, 60 74 66));
 }
 /* 行内 code:浅底等宽(与围栏代码块的深底区分) */
 .prose-chat :not(pre) > code {
   font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 0.875em;
-  background: var(--md-sys-color-surface-container-low, #eff4ff);
-  border: 1px solid var(--md-sys-color-outline-variant, #bbcabf);
+  background: rgb(var(--md-sys-color-surface-container-low, 239 244 255));
+  border: 1px solid rgb(var(--md-sys-color-outline-variant, 187 202 191));
   border-radius: 4px;
   padding: 0.1em 0.35em;
 }
@@ -147,10 +153,10 @@ body {
 }
 .prose-chat table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; display: block; overflow-x: auto; }
 .prose-chat th, .prose-chat td {
-  border: 1px solid var(--md-sys-color-outline-variant, #bbcabf);
+  border: 1px solid rgb(var(--md-sys-color-outline-variant, 187 202 191));
   padding: 0.3em 0.7em;
   text-align: left;
 }
-.prose-chat th { background: var(--md-sys-color-surface-container-low, #eff4ff); font-weight: 600; }
-.prose-chat hr { border: none; border-top: 1px solid var(--md-sys-color-outline-variant, #bbcabf); margin: 1em 0; }
+.prose-chat th { background: rgb(var(--md-sys-color-surface-container-low, 239 244 255)); font-weight: 600; }
+.prose-chat hr { border: none; border-top: 1px solid rgb(var(--md-sys-color-outline-variant, 187 202 191)); margin: 1em 0; }
 .prose-chat img { max-width: 100%; border-radius: 8px; }

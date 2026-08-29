@@ -40,6 +40,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { touchSession } from './session-touch.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
@@ -135,7 +136,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_users (
   role TEXT NOT NULL DEFAULT 'user',
   displayName TEXT,
   createdAt INTEGER NOT NULL,
-  disabled INTEGER DEFAULT 0
+  disabled INTEGER DEFAULT 0,
+  prefs TEXT
 )`)
 db.exec(`CREATE TABLE IF NOT EXISTS clusters (
   id TEXT PRIMARY KEY,
@@ -162,8 +164,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   username TEXT NOT NULL,
   role TEXT NOT NULL,
   createdAt INTEGER NOT NULL,
-  k8sSessionToken TEXT
+  k8sSessionToken TEXT,
+  ip TEXT,
+  userAgent TEXT,
+  lastSeenAt INTEGER
 )`)
+// 用户中心(2026-08-29):会话设备信息 + 用户偏好——存量库幂等迁移(项目惯用 try-ALTER)。
+// 顺序不变式(终审发现 5):必须排在 platform_users/platform_sessions CREATE TABLE **之后**,
+// 否则 fresh DB 上 ALTER 打在不存在的表上被吞,新列是否齐全全靠 CREATE 字面量手抄(本分支两踩)。
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
@@ -275,6 +287,7 @@ function platformUserFromRequest(req) {
     try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
     return null
   }
+  touchSession(db, ps)
   return ps
 }
 function requirePlatform(req, res) {
@@ -1424,6 +1437,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
+    hashPassword, extractPlatformToken,
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,

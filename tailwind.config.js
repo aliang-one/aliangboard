@@ -11,8 +11,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // MD3 全套色板唯一来源:src/styles/md-palette.js(图表/:root 变量同源)
-        ...MD_PALETTE,
+        // MD3 全套色板唯一来源:src/styles/md-palette.js —— 三元组化后经 CSS 变量取色,
+        // <alpha-value> 保住全站 bg-primary/10 类透明度写法;html.dark 挂类即整站翻转。
+        ...Object.fromEntries(Object.keys(MD_PALETTE).map(k => [k, `rgb(var(--md-sys-color-${k}) / <alpha-value>)`])),
         // 暗底代码/终端主题（与 xterm/prism 共用 src/styles/code-theme.js，单一来源）
         'code-surface': codeTheme.surface,
         'on-code-surface': codeTheme.onSurface,

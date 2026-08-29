@@ -74,7 +74,7 @@ function move(key, dir) {
             type="checkbox"
             :checked="!c.hidden"
             @change="toggle(props.tableKey, c.key)"
-            class="accent-[var(--md-sys-color-primary)]"
+            class="accent-[rgb(var(--md-sys-color-primary))]"
           />
           <span class="text-xs" :class="c.hidden ? 'text-on-surface-variant line-through' : 'text-on-surface'">{{ c.label }}</span>
         </label>

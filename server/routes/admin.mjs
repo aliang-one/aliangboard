@@ -8,6 +8,7 @@ import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
+import { isPasswordOk } from '../password-policy.mjs'
 import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
@@ -501,6 +502,7 @@ export function createAdminRoutes(deps) {
       try {
         const { username, password, role, displayName } = await readBody(req)
         if (!username || !password) { sendJson(res, 400, { message: msg(req, 'admin.userCredentialsRequired') }); return true }
+        if (!isPasswordOk(password)) { sendJson(res, 400, { message: msg(req, 'admin.passwordTooShort') }); return true }
         if (role && !['admin', 'user'].includes(role)) { sendJson(res, 400, { message: msg(req, 'admin.roleInvalid') }); return true }
         const existing = db.prepare('SELECT 1 FROM platform_users WHERE username=?').get(username)
         if (existing) { sendJson(res, 409, { message: msg(req, 'admin.usernameExists') }); return true }
@@ -540,6 +542,7 @@ export function createAdminRoutes(deps) {
       const userId = url.pathname.split('/')[4]
       const { newPassword } = await readBody(req)
       if (!newPassword) { sendJson(res, 400, { message: msg(req, 'admin.newPasswordRequired') }); return true }
+      if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'admin.passwordTooShort') }); return true }
       db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
       sendJson(res, 200, { ok: true })
       return true
