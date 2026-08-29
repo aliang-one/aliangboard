@@ -14,6 +14,18 @@ export function createSshRoutes(deps) {
   const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions } = deps
 
   async function handle(req, res, url) {
+    // 审计/文案助手定义在函数顶(TDZ:sshfile 分支在其原定义之前就要用,曾致 ReferenceError→502)
+    const audit = (verb, tool, result, extra = {}) =>
+      writeAudit?.(db, { owner: extra.owner || 'system', verb, tool, result,
+        reason: extra.reason || null,
+        requestSummary: extra.summary || null, source: 'platform', ...extra.fields })
+    const localizeTestError = (req, out) => {
+      const m = out?.errorKind === 'unreachable' ? msg(req, 'ssh.testUnreachable', { kind: out.message })
+        : out?.errorKind === 'auth' ? msg(req, 'ssh.testAuthFailed')
+        : out?.errorKind === 'hostkey' ? msg(req, 'ssh.testHostkey')
+        : msg(req, 'ssh.testGeneric', { message: out?.message || 'unknown' })
+      return m
+    }
     // /api/sshfile/* 先于 /api/ssh/ 前缀判定('/api/sshfile/x' 严格说并不匹配 '/api/ssh/',但先行分支杜绝任何误配/阅读歧义)
     if (url.pathname.startsWith('/api/sshfile/')) {
       const action = url.pathname.slice('/api/sshfile/'.length)
@@ -108,18 +120,6 @@ export function createSshRoutes(deps) {
       } finally { try { conn?.release() } catch { /* noop */ } }
     }
     if (!url.pathname.startsWith('/api/ssh/')) return false
-    const audit = (verb, tool, result, extra = {}) =>
-      writeAudit?.(db, { owner: extra.owner || 'system', verb, tool, result,
-        reason: extra.reason || null,
-        requestSummary: extra.summary || null, source: 'platform', ...extra.fields })
-    // 试连失败按 errorKind 组装本地化 message(spec §9:不把原始英文 ssh2 错误怼给用户);errorKind 原样保留供前端分流(hostkey 触发重置确认)
-    const localizeTestError = (req, out) => {
-      const m = out?.errorKind === 'unreachable' ? msg(req, 'ssh.testUnreachable', { kind: out.message })
-        : out?.errorKind === 'auth' ? msg(req, 'ssh.testAuthFailed')
-        : out?.errorKind === 'hostkey' ? msg(req, 'ssh.testHostkey')
-        : msg(req, 'ssh.testGeneric', { message: out?.message || 'unknown' })
-      return m
-    }
     try {
       // GET /api/ssh/ledger — 台账(结构层实时生成 + 自由层 notes);admin-only
       if (url.pathname === '/api/ssh/ledger' && req.method === 'GET') {
