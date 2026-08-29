@@ -72,6 +72,7 @@
       "cancel": "Cancel",
       "confirm": "Confirm"
     },
+    "confirmDialog": { "confirm": "Confirm", "cancel": "Cancel" },
     "createFromYaml": {
       "title": "Create from YAML",
       "hint": "Paste or edit YAML then create. Explicit metadata.namespace wins; documents without it are created in the current namespace.",
@@ -3826,6 +3827,7 @@
     "clusterLedger": "Cluster ledger",
     "project": "Project",
     "projectAiAssistant": "Project AI assistant",
+    "profile": "Profile",
     "brandTitle": "AliangBoard - K8s Dashboard",
     "login": "Login",
     "terminal": "Terminal",

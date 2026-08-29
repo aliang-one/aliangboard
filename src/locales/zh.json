@@ -72,6 +72,7 @@
       "cancel": "取消",
       "confirm": "确认"
     },
+    "confirmDialog": { "confirm": "确认", "cancel": "取消" },
     "createFromYaml": {
       "title": "从 YAML 创建",
       "hint": "粘贴或编辑 YAML 后创建。显式写的 metadata.namespace 优先;未写则创建到当前命名空间。",
@@ -3826,6 +3827,7 @@
     "clusterLedger": "集群台账",
     "project": "项目",
     "projectAiAssistant": "项目 AI 助手",
+    "profile": "个人中心",
     "brandTitle": "AliangBoard - K8s 管理面板",
     "login": "登录",
     "terminal": "终端",
