@@ -3354,6 +3354,8 @@
       "bootstrapFailed": "Bootstrap 失败",
       "confirmBootstrap": "将以只读工具 survey 集群并生成 INDEX.md(覆盖现有),继续?",
       "loadFailed": "加载台账失败",
+      "sectionCluster": "集群台账",
+      "sectionServers": "服务器台账",
       "verifiedAt": "校验时间",
       "filesCount": "{n} 个文件",
       "filesTitle": "全部文件",

@@ -3354,6 +3354,8 @@
       "bootstrapFailed": "Bootstrap failed",
       "confirmBootstrap": "Will survey the cluster with read-only tools and generate INDEX.md (overwrites existing), continue?",
       "loadFailed": "Failed to load ledger",
+      "sectionCluster": "Cluster ledger",
+      "sectionServers": "Server ledger",
       "verifiedAt": "Verified at",
       "filesCount": "{n} files",
       "filesTitle": "All files",
