@@ -110,7 +110,9 @@ export const useTerminalStore = defineStore('terminals', () => {
     if (!t) return
     t.status = 'external'
     persistUpdate(id, { status: 'external' })
-    const params = new URLSearchParams({ ns: t.namespace, pod: t.podName, container: t.container, name: t.name, token: getSessionToken() })
+    // sid 必传:网关 planExec 以 sid 判持久性(tmux 会话名 = label(token)-sid),缺了降级一次性 exec,
+    // 弹窗角标恒「刷新不保留」——与浮动窗口(同 id)劈叉。弹窗刷新同 URL → 同 sid → 回放续跑。
+    const params = new URLSearchParams({ ns: t.namespace, pod: t.podName, container: t.container, name: t.name, sid: t.id, token: getSessionToken() })
     const url = `${window.location.origin}/terminal-popup?${params}`
     const win = window.open(url, '_blank')
     if (win) { popupWins.set(id, win); startPolling() }

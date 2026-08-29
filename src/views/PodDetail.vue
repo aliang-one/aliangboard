@@ -68,6 +68,11 @@ const containers = computed(() => {
 const termMode = ref('exec')
 const selectedContainer = ref('')
 watch(pod, (p) => { if (p && !selectedContainer.value) selectedContainer.value = (p.containers?.[0] || 'main') }, { immediate: true })
+// 内嵌终端的稳定会话标识:由 ns/pod/container 确定性派生(刷新=重挂载,id 不变),网关按 sid
+// attach 回同一 tmux 会话 → 刷新后历史回放、命令续跑。缺 sid 会被网关降级一次性 exec
+// (角标「刷新不保留」)。attach 模式网关忽略 sid,传了无害。
+const terminalSid = computed(() =>
+  `pd-${pod.value?.namespace || route.params.namespace}-${pod.value?.name || route.params.name}-${selectedContainer.value || 'main'}`)
 
 const tabs = computed(() => [
   { key: 'logs', label: t('podDetail.tabLogs'), icon: 'terminal' },
@@ -307,7 +312,7 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
             </button>
           </div>
           <div class="flex-1 min-h-0">
-            <InteractiveTerminal class="h-full" :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" :attach="termMode === 'attach'" :auto-connect="true" />
+            <InteractiveTerminal class="h-full" :pod-name="pod.name" :namespace="pod.namespace" :container="selectedContainer || 'main'" :attach="termMode === 'attach'" :session-id="terminalSid" :auto-connect="true" />
           </div>
         </div>
 

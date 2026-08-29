@@ -1,6 +1,6 @@
 <script setup>
 // 独立终端弹窗页面（新浏览器标签页打开）：全屏 xterm，无侧栏/顶栏。
-// URL: /terminal-popup?ns=xxx&pod=xxx&container=xxx&name=xxx
+// URL: /terminal-popup?ns=xxx&pod=xxx&container=xxx&name=xxx&sid=xxx(token 由 main.js 落 sessionStorage)
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -16,6 +16,9 @@ const ns = computed(() => route.query.ns || '')
 const pod = computed(() => route.query.pod || '')
 const container = computed(() => route.query.container || '')
 const name = computed(() => route.query.name || 'terminal')
+// 稳定会话标识(openExternal 写入 = terminal.id):网关按 sid attach 回同一 tmux 会话,
+// 刷新弹窗同 URL 同 sid → 回放历史续跑。空 sid 时网关降级一次性 exec(直接敲地址的场景)。
+const sid = computed(() => route.query.sid || '')
 
 // 设置页面标题
 document.title = t('terminal.title', { name: name.value })
@@ -41,7 +44,7 @@ if (!hasToken) {
     </div>
     <!-- 全屏终端 -->
     <div class="flex-1 min-h-0">
-      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :auto-connect="true" />
+      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :session-id="sid" :auto-connect="true" />
     </div>
   </div>
 </template>
