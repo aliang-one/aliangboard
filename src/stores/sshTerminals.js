@@ -4,6 +4,22 @@ import { createWindowZAllocator } from '@/styles/zScale'
 
 // SSH 终端浮窗(工作台内)。sid 按 serverId 稳定存 localStorage——刷新后重开同 sid,
 // 网关在保活窗口内回放续跑(spec §6「刷新不掉线」)。
+// sid 生成三级降级:randomUUID 仅安全上下文可用(HTTPS/localhost),局域网 HTTP 下是
+// undefined(2026-08-28 真机事故)→ getRandomValues 拼 UUID → 时间戳兜底。
+function genSid() {
+  const c = globalThis.crypto
+  if (c?.randomUUID) return `ssh-${c.randomUUID()}`
+  if (c?.getRandomValues) {
+    const b = new Uint8Array(16)
+    c.getRandomValues(b)
+    b[6] = (b[6] & 0x0f) | 0x40
+    b[8] = (b[8] & 0x3f) | 0x80
+    const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('')
+    return `ssh-${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+  }
+  return `ssh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const windows = ref([])   // [{ id(=sid), serverId, name, status:'open'|'minimized', zIndex }]
   const zAlloc = createWindowZAllocator()
@@ -11,7 +27,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const sidKey = serverId => `aliangboard.ssh.sid.${serverId}`
   function sidFor(serverId) {
     let sid = localStorage.getItem(sidKey(serverId))
-    if (!sid) { sid = `ssh-${crypto.randomUUID()}`; localStorage.setItem(sidKey(serverId), sid) }
+    if (!sid) { sid = genSid(); localStorage.setItem(sidKey(serverId), sid) }
     return sid
   }
   // 同一服务器只开一个浮窗:再次打开 = 置顶恢复
