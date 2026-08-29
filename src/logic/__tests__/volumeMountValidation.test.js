@@ -178,7 +178,7 @@ test('firstError: 取首个 error 级;warn/hint 跳过', () => {
 })
 
 test('firstVolumeMountError: 旧 4 键默认映射不变;传 keyMap 走新键;warn/hint 不拦', () => {
-  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'])).toEqual({ key: 'deploy.volumeMountRequired', n: 1 }) // fallback(过渡期映射;Task 9 起 MOUNT_GATE_KEYS 为默认映射,此断言改为真实键)
+  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'])).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 }) // MOUNT_GATE_KEYS 为默认映射(Task 9 起并入 systemPathRuntime)
   const KEYS = { systemPathRuntime: 'deploy.volumeSystemPathRuntime' }
   expect(fvme([{ ...base, mountPath: '/proc' }], ['main'], KEYS)).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 })
   expect(fvme([{ ...base, mountPath: '/data/' }], ['main'])).toBe(null) // hint 不拦
@@ -248,4 +248,10 @@ test('toVolumeDefYaml: 与现 DeployApp 手拼输出逐字等价;hostPathType/de
   expect(toVolumeDefYaml(e({ type: 'secret', secretName: 'sec', defaultMode: '0400' })))
     .toBe('      - name: vol-1\n        secret:\n          secretName: sec\n          defaultMode: 256')
   expect(toVolumeDefYaml(e({ type: 'configMap', cmName: '' }))).toBe(null)
+})
+
+// —— Task 9: 门禁映射完备性 ——
+test('门禁映射表:MOUNT_GATE_KEYS 覆盖全部 error 级 code(GATE_KEY ∪ 新键)', async () => {
+  const { ERROR_CODES, MOUNT_GATE_KEYS } = await import('@/logic/volumeMountValidation')
+  for (const c of ERROR_CODES) expect(MOUNT_GATE_KEYS[c], `missing gate key for ${c}`).toBeTruthy()
 })

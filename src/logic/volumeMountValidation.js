@@ -197,7 +197,28 @@ const GATE_FALLBACK = code =>
     : code.startsWith('item') ? 'deploy.volumeItemsIncomplete'
       : code === 'targetInvalid' ? 'deploy.volumeTargetInvalid'
         : 'deploy.volumeSourceRequired'
-export function firstVolumeMountError(volumeMounts, validTargets, keyMap = GATE_KEY) {
+
+// 门禁/部署校验共用的 code → i18n key 映射(仅 error 级;warn/hint 不拦)。{n} 参数。
+export const MOUNT_GATE_KEYS = {
+  ...GATE_KEY,
+  mountPathRoot: 'deploy.volumeMountPathRoot',
+  systemPathRuntime: 'deploy.volumeSystemPathRuntime',
+  systemPathEtc: 'deploy.volumeSystemPathEtc',
+  systemPathSaToken: 'deploy.volumeSystemPathSaToken',
+  itemPathInvalid: 'deploy.volumeItemPathInvalid',
+  itemKeyMissing: 'deploy.volumeItemKeyMissing',
+  sourceNotFound: 'deploy.volumeSourceNotFound',
+  subPathInvalid: 'deploy.volumeSubPathInvalid',
+  subPathNotInVolume: 'deploy.volumeSubPathNotInVolume',
+  nfsPathInvalid: 'deploy.volumeNfsPathInvalid',
+  hostPathSensitive: 'deploy.volumeHostPathSensitive',
+  defaultModeInvalid: 'deploy.volumeDefaultModeInvalid',
+  mountPathDuplicate: 'deploy.volumeMountPathDuplicate',
+  volumeNameDuplicate: 'deploy.volumeNameDuplicate',
+  orphanMount: 'deploy.volumeOrphanMount',
+}
+export const ERROR_CODES = Object.keys(MOUNT_GATE_KEYS)
+export function firstVolumeMountError(volumeMounts, validTargets, keyMap = MOUNT_GATE_KEYS) {
   const first = firstError(validateVolumeMounts(volumeMounts, { validTargets }))
   if (!first) return null
   return { key: keyMap[first.issue.code] || GATE_FALLBACK(first.issue.code), n: first.entryIdx + 1 }
