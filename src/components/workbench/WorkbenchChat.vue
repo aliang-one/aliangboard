@@ -58,6 +58,8 @@ const convStatus = ref(null)
 // 服务端下发的上下文余量(Task 3 口径:{ estTokens, windowTokens, budgetTokens, recapUpTo, willTrim })
 const ctxInfo = ref(null)
 const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
+// 项目背景(2026-08-29 项目记忆 T4):AI 每轮携带的项目决策摘要,null=无记忆不渲染
+const projectRecap = ref(null)
 
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
 let es = null
@@ -379,6 +381,7 @@ watch(() => props.conversationId, async (convId) => {
   convStatus.value = null
   ctxInfo.value = null
   recap.value = ''
+  projectRecap.value = null
   pendingApproval.value = null
   errorBanner.value = ''
   editing.value = null   // 切对话:编辑态(锚+暂存草稿)不跨对话
@@ -436,6 +439,7 @@ async function pollOnce(id) {
     // 上下文余量(Task 3 口径):服务端每轮下发 estTokens/windowTokens/recapUpTo/willTrim
     if (conv.context) ctxInfo.value = conv.context
     recap.value = conv.recap || ''
+    if (conv.projectRecap !== undefined) projectRecap.value = conv.projectRecap
     // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
     let rebuiltFromMessages = false
     if (!turns.value.length) {
@@ -970,6 +974,15 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
             {{ t('workbench.chat.recapSummary') }}
           </summary>
           <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
+        </details>
+
+        <!-- 项目背景(2026-08-29 项目记忆):AI 每轮携带的项目决策摘要,透明可查 -->
+        <details v-if="projectRecap" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
+          <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base text-primary/60">folder_special</span>
+            {{ t('workbench.chat.projectRecapTitle') }}
+          </summary>
+          <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ projectRecap }}</div>
         </details>
 
         <!-- Conversation -->

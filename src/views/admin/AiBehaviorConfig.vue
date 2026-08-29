@@ -11,6 +11,7 @@ const loading = ref(true)
 const saving = ref(false)
 const instructions = ref('')
 const disabled = ref([])          // string[](Set 语义,vue 响应式用数组+includes)
+const projectMemory = ref(true)   // 项目记忆注入(T4,2026-08-29):新对话自动携带项目历史决策摘要
 const catalog = ref([])
 const preview = ref('')
 
@@ -24,6 +25,7 @@ async function load() {
     const s = await adminApi.workbenchAiConfig.get()
     instructions.value = s.additionalInstructions || ''
     disabled.value = s.disabledTools || []
+    projectMemory.value = s.projectMemory !== false   // 服务端缺省视为开
     catalog.value = s.toolCatalog || []
     preview.value = s.effectivePreview || ''
   } catch (e) {
@@ -41,7 +43,7 @@ function toggle(name) {
 async function save() {
   saving.value = true
   try {
-    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value })
+    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value })
     notify('success', t('common.saved'))
     await load() // 保存后刷新预览(服务端拼装,所见即所发)
   } catch (e) {
@@ -67,6 +69,20 @@ async function save() {
           <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.aiBehavior.instructionsLabel') }}</label>
           <textarea v-model="instructions" rows="4" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.aiBehavior.instructionsPlaceholder')"></textarea>
           <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.aiBehavior.instructionsHint') }}</p>
+        </div>
+
+        <!-- 项目记忆注入(T4,2026-08-29):同族开关行 -->
+        <div class="flex items-center gap-sm">
+          <button data-testid="project-memory-switch" @click="projectMemory = !projectMemory" role="switch" :aria-checked="String(projectMemory)"
+            class="w-9 h-5 rounded-full relative transition-colors shrink-0"
+            :class="projectMemory ? 'bg-primary' : 'bg-surface-container-highest'">
+            <span class="absolute top-0.5 w-4 h-4 rounded-full bg-on-primary transition-all"
+              :class="projectMemory ? 'left-4.5' : 'left-0.5'"></span>
+          </button>
+          <div class="flex flex-col">
+            <span class="text-body-sm font-medium">{{ $t('admin.aiBehavior.projectMemory') }}</span>
+            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.projectMemoryDesc') }}</span>
+          </div>
         </div>
       </div>
 

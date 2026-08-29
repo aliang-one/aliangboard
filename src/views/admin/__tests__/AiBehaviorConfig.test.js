@@ -38,6 +38,26 @@ test('保存:payload 含指令与禁用名单;保存后重载预览', async () =
   await flushPromises()
   await w.find('[data-testid="save-btn"]').trigger('click')
   await flushPromises()
-  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'] })
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'], projectMemory: true })
   expect(adminApi.workbenchAiConfig.get).toHaveBeenCalledTimes(2) // 保存后 load() 刷新预览
+})
+
+// 项目记忆 T4(2026-08-29):projectMemory 开关默认开;取消+保存后 payload 含 false,回读仍关
+test('projectMemory 开关:默认开;切换保存后回读', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, projectMemory: true })
+  adminApi.workbenchAiConfig.save.mockResolvedValue({ ok: true })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  const sw = w.find('[data-testid="project-memory-switch"]')
+  expect(sw.attributes('aria-checked')).toBe('true')
+  await sw.trigger('click')
+  await w.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith(
+    expect.objectContaining({ projectMemory: false }))
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, projectMemory: false })
+  // 回读:重新挂载(刷新语义)后开关仍关
+  const w2 = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w2.find('[data-testid="project-memory-switch"]').attributes('aria-checked')).toBe('false')
 })

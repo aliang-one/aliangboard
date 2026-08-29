@@ -43,6 +43,7 @@ const i18n = createI18n({
   locale: 'zh',
   messages: { zh: { workbench: { chat: {
     userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)',
+    projectRecapTitle: '项目背景（之前对话的记忆）', projectRecapSummary: 'AI 每轮携带的项目决策摘要',
     stop: '停止', stopped: '已停止', loadFailed: '对话加载失败,请检查网络后重试',
     reasoningTitle: '思考过程', loadEarlier: '↑ 加载更早的 {n} 条',
     editTitle: '编辑并重发', editBanner: '正在编辑此消息，发送后将删除其后 {n} 条对话', editCancel: '取消编辑',
@@ -1032,4 +1033,17 @@ test('渲染窗口:切对话重置回 60', async () => {
   // setProps 后 loadConversation 异步链在满负载下单次 flush 不够——waitFor 轮询等确定性终态
   await vi.waitFor(() => expect(w.findAll('[data-role]').length).toBe(4))
   expect(w.vm.renderLimit).toBe(60, '窗口重置')
+})
+
+// 项目记忆 T4(2026-08-29):projectRecap 有值→折叠卡;无值→不渲染
+test('项目背景卡:有 projectRecap 渲染折叠卡;无则不渲染', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-pm', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', projectRecap: '定了用 nginx', messages: [{ id: 'm1', role: 'user', content: 'q', createdAt: 1 }] })
+  const w = await mountChat({ conversationId: 'c-pm', activeConversationId: 'c-pm' })
+  await flushPromises(); await flushPromises()
+  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(true)
+  expect(w.find('[data-testid="project-recap-card"]').text()).toContain('定了用 nginx')
+  api.conversations.get.mockImplementation(async () => ({ id: 'c-pm', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', projectRecap: null, messages: [{ id: 'm1', role: 'user', content: 'q', createdAt: 1 }] }))
+  await w.vm.pollOnce('c-pm'); await flushPromises()
+  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(false)
 })

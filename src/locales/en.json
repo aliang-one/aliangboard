@@ -2873,7 +2873,9 @@
       "allDisabledWarn": "All tools disabled: AI will degrade to plain text Q&A (save allowed, at your own risk).",
       "previewTitle": "Effective Preview (actual system prompt sent to new conversations)",
       "previewHint": "Fixed methodology section is not configurable; tool docs auto-generate with toggles; end is additional instructions.",
-      "loadFailed": "Failed to load AI behavior config"
+      "loadFailed": "Failed to load AI behavior config",
+      "projectMemory": "Inject project memory",
+      "projectMemoryDesc": "New chats carry a summary of past project decisions"
     },
     "apiKeys": {
       "title": "API Keys Management",
@@ -3488,7 +3490,9 @@
       "reopenApproval": "Click to reopen the approval dialog",
       "editTitle": "Edit & resend",
       "editBanner": "Editing this message — sending will remove {n} messages after it",
-      "editCancel": "Cancel edit"
+      "editCancel": "Cancel edit",
+      "projectRecapTitle": "Project context (memory from earlier chats)",
+      "projectRecapSummary": "Project decision summary the AI carries each turn"
     },
     "shell": {
       "title": "Workbench",

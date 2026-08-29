@@ -2873,7 +2873,9 @@
       "allDisabledWarn": "全部工具已禁用:AI 将退化为纯文本问答(允许保存,自知即可)。",
       "previewTitle": "生效预览(新对话实际发送的系统提示词)",
       "previewHint": "固定方法论段不可配置;工具文档随开关自动生成;末尾为追加指令。",
-      "loadFailed": "加载 AI 行为配置失败"
+      "loadFailed": "加载 AI 行为配置失败",
+      "projectMemory": "项目记忆注入",
+      "projectMemoryDesc": "新对话自动携带项目历史决策摘要"
     },
     "apiKeys": {
       "title": "API Keys 管理",
@@ -3488,7 +3490,9 @@
       "reopenApproval": "点击重新打开审批",
       "editTitle": "编辑并重发",
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
-      "editCancel": "取消编辑"
+      "editCancel": "取消编辑",
+      "projectRecapTitle": "项目背景（之前对话的记忆）",
+      "projectRecapSummary": "AI 每轮携带的项目决策摘要"
     },
     "shell": {
       "title": "工作台",
