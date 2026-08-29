@@ -95,6 +95,7 @@ function clearSlash() { slashOpen.value = false; slashItems.value = []; slashAct
 function isSlashDisabled(item) { return !!(item.enabled && !item.enabled({ canCompact: !compactDisabled.value })) }
 function firstUsableSlashIndex(items) { const i = items.findIndex(it => !isSlashDisabled(it)); return i }
 function selectSlashItem(item) {
+  if (editing.value) cancelEdit()   // A3:编辑态让位——先还原暂存草稿,再执行选中项(剧本替换/compact 清输入)
   if (isSlashDisabled(item)) return   // 禁用动作不可选
   if (item.id === 'compact') { input.value = input.value.replace(/^\/\w*$/m, '').trimEnd(); clearSlash(); showCompact.value = true; return }
   input.value = t(item.bodyKey)     // 剧本:替换整个输入框(spec D1,插入后可编辑)

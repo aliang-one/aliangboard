@@ -519,3 +519,32 @@ test('runConversation 检查点时间维度:两条 60 字 delta 间隔 >500ms �
   assert.ok(probe.guardWindowMs < 500, `守卫窗口自证有效(${probe.guardWindowMs}ms < 500ms)`)
   assert.ok(!probe.afterC.includes('C'), '阈值守卫仍在:flush 后 <500ms 且 <200 字不落库')
 })
+
+// ── A2 回顾审计:done 后补 fire maybeSummarizeProject(finalize 之后,不阻塞 SSE;水位幂等)──
+// 场景:预置 7 条项目 history,run done 追加 user+assistant=9 ≥8 → 轮询 DB 断言 projectRecap 落库。
+test('A2:run done 后 fire 项目摘要——7 条预置 + done 追加 2 = 9 ≥8,projectRecap 落库', async () => {
+  const { db, project, conv, busEmit, busDispose, makeRunner } = setup()
+  // 显式 ts 裸 INSERT(避免 appendHistory 的 Date.now() 同毫秒并列,水位排序稳定)
+  for (let i = 0; i < 7; i++) {
+    db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)')
+      .run(project.id, i % 2 ? 'assistant' : 'user', `预置历史 ${i + 1}`, 1_000_000 + i)
+  }
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: 'answer', trace: [], steps: 1, messages: [], queue: [], denied: [],
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({ content: '项目摘要X' }), model: 'mock-1' })
+
+  // fire 非 await(done 事件已先行)——行为面轮询 DB ≤2s
+  const deadline = Date.now() + 2000
+  let recap = null
+  while (Date.now() < deadline) {
+    recap = db.prepare('SELECT projectRecap FROM workbench_projects WHERE id=?').get(project.id)?.projectRecap ?? null
+    if (recap) break
+    await new Promise(r => setTimeout(r, 25))
+  }
+  assert.equal(recap, '项目摘要X', 'done 后项目摘要异步落库')
+  // done 本身不受 fire 阻塞/失败影响(状态与消息先行落定)
+  assert.equal(getConversation(db, conv.id).status, 'done')
+})

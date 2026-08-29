@@ -4,6 +4,7 @@
 // 线程终态 → bus 事件序列(eventsForResult 在 conv-events.mjs,纯函数已可单测)。
 // busEmit/busDispose 作 factory dep 注入(与 createAgentRunner 同理,便于单测 stub)。
 import { buildHistory, appendMessage, getConversation, getProject, updateConversation, appendTrace, appendHistory } from './workbench-projects.mjs'
+import { maybeSummarizeProject } from './workbench-summarize.mjs'
 import { contextWindowFor, trimBudgetChars } from './model-context.mjs'
 import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
@@ -213,6 +214,7 @@ const CK_TIME_MS = 500
       }
       handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace))
       finalizeConvEmit(convId, out)
+      maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆:done 后补 fire(A2;append 处保留兜底,水位幂等)
     } catch (err) {
       safeSalvage(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
@@ -292,6 +294,7 @@ const CK_TIME_MS = 500
         resumeTrace.map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content || '', ts: e.ts } : e)
       ))
       finalizeConvEmit(convId, out)
+      maybeSummarizeProject(db, project.id, llmClient).catch(() => {}) // 项目记忆:resume done 后补 fire(A2;水位幂等)
     } catch (err) {
       safeSalvage(convId, err, tracker)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })

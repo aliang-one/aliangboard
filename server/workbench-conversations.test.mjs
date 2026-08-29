@@ -555,3 +555,29 @@ test('GET /:id 带 projectRecap;append 路由 fire maybeSummarizeProject', async
   }
   assert.equal(recap, llmContent, 'append fire 后项目行 projectRecap 落库')
 })
+
+// ── A1 回顾审计:contextInfo 余量口径补全——项目记忆段(pm 精确)+ @refs 估算(refs×REF_EST_CHARS)──
+test('A1:estTokens 单调递增,差值≈projectRecap/2 与 refs×2048/2(±100 JSON 包装噪声)', async () => {
+  const h = makeHttpHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  const getEst = async () => {
+    await h.call('GET', `/api/workbench/conversations/${conv.id}`)
+    return h.sent[h.sent.length - 1].json.context.estTokens
+  }
+  const e0 = await getEst()                                    // 空项目 / 无 refs 基线
+  h.db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('P'.repeat(4000), h.pid)
+  const e1 = await getEst()                                    // +项目记忆 4000 字(精确)
+  h.db.prepare('UPDATE workbench_conversations SET "references"=? WHERE id=?').run(
+    JSON.stringify([
+      { kind: 'pods', namespace: 'default', name: 'a' },
+      { kind: 'services', namespace: 'default', name: 'b' },
+      { kind: 'configmaps', namespace: 'default', name: 'c' },
+    ]), conv.id)
+  const e2 = await getEst()                                    // +3 refs(估算 3×2048)
+  assert.ok(e1 > e0, '项目记忆进余量口径(estTokens 递增)')
+  assert.ok(Math.abs((e1 - e0) - 4000 / 2) <= 100, `pm 差值≈2000 tokens(实际 ${e1 - e0})`)
+  assert.ok(e2 > e1, 'refs 进余量口径(estTokens 递增)')
+  assert.ok(Math.abs((e2 - e1) - (3 * 2048) / 2) <= 100, `refs 差值≈3072 tokens(实际 ${e2 - e1})`)
+})

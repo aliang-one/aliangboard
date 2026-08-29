@@ -60,10 +60,16 @@ export function createWorkbenchConvRoutes(deps) {
   }
 
   // 上下文余量(spec §4.3,服务端单一计算源):estTokens ≈ buildHistory 装配 + conv.system
-  // 的总字符 × 折中比例。近似说明:@refs 每轮重拉的注入长度未计(通常远小于正文,spec 已记录)。
+  // + 项目记忆段(pm 精确)+ @refs 注入(估算)的总字符 × 折中比例。
+  // 近似说明:refs 为估算——动态拉取体积不落库,按每资源 2KB 常数近似(REF_EST_CHARS);
+  // pm 为精确值(≤2000 字恒注入段,A1 口径补全 2026-08-29)。
+  const REF_EST_CHARS = 2048 // 每个 @-ref 资源 JSON 注入的估算字符数
   function contextInfo(conv) {
     const history = buildHistory(db, conv)
-    const chars = conv.system.length + history.reduce((n, m) => n + JSON.stringify(m).length, 0)
+    const pmChars = (getProject(db, conv.projectId)?.projectRecap || '').length // 项目记忆恒注入段(精确)
+    let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+    const refChars = Array.isArray(refs) ? refs.length * REF_EST_CHARS : 0 // @refs 估算
+    const chars = conv.system.length + pmChars + refChars + history.reduce((n, m) => n + JSON.stringify(m).length, 0)
     const windowTokens = contextWindowFor(getLlmConfig().model)
     const est = estTokens(chars)
     const budgetTokens = Math.floor(windowTokens * 0.7)

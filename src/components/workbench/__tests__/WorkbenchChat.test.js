@@ -1047,3 +1047,39 @@ test('项目背景卡:有 projectRecap 渲染折叠卡;无则不渲染', async (
   await w.vm.pollOnce('c-pm'); await flushPromises()
   expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(false)
 })
+
+// ── A3 回顾审计:slash 面板选中先退编辑态(否则 /compact 清输入但 banner 挂着;剧本顶掉编辑回填)──
+function mountEditStateChat() {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1 },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  return { api }
+}
+
+test('A3:编辑态选 /compact → banner 消失 + 压缩 modal 打开', async () => {
+  mountEditStateChat()
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  expect(w.find('[data-testid="edit-banner"]').exists()).toBe(true, '先进入编辑态')
+  await w.find('textarea').setValue('/compact')
+  await w.find('[data-testid="slash-item"]').trigger('mousedown')
+  expect(w.find('[data-testid="edit-banner"]').exists(), '选中即退编辑态').toBe(false)
+  expect(w.find('[data-testid="context-compact-modal"]').exists(), '压缩 modal 打开').toBe(true)
+  w.unmount()
+})
+
+test('A3:编辑态选剧本 → banner 消失 + 输入框含剧本正文', async () => {
+  mountEditStateChat()
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  expect(w.find('[data-testid="edit-banner"]').exists()).toBe(true, '先进入编辑态')
+  await w.find('textarea').setValue('/imagepull')
+  await w.find('[data-testid="slash-item"]').trigger('mousedown')
+  expect(w.find('[data-testid="edit-banner"]').exists(), '选中即退编辑态').toBe(false)
+  expect(w.find('textarea').element.value).toContain('ImagePullBackOff', '输入框=剧本正文(非编辑回填)')
+  w.unmount()
+})
