@@ -19,6 +19,7 @@
 import { createHash } from 'node:crypto'
 import { Client as Ssh2Client } from 'ssh2'
 import { materializeCreds, recordHostKey } from './store.mjs'
+import { OS_PROBE_COMMAND, parseOsRelease, normalizeOsId } from './os-probe.mjs'
 
 export function classifyConnectError(err) {
   const msg = String(err?.message || err)
@@ -55,6 +56,25 @@ export function buildConnectConfig(row, creds, { hostVerifier, keepaliveMs = 150
   }
   if (hostVerifier) cfg.hostVerifier = hostVerifier
   return cfg
+}
+
+// 一次性 exec 收集 stdout(8KB 封顶):OS 探测等轻量读取用。超时/错误均以单次 settle 兜底。
+function execCollect(client, command, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    let done = false
+    let stream = null
+    const finish = (fn, arg) => { if (done) return; done = true; clearTimeout(timer); fn(arg) }
+    const timer = setTimeout(() => { try { stream?.close?.() } catch { /* noop */ }; finish(reject, new Error('exec timeout')) }, timeoutMs)
+    client.exec(command, (err, s) => {
+      if (done) return
+      if (err) return finish(reject, err)
+      stream = s
+      const chunks = []
+      s.on('data', d => { if (chunks.length < 8) chunks.push(d) })
+      s.on('close', () => finish(resolve, Buffer.concat(chunks).toString('utf8')))
+      s.on('error', e => finish(reject, e))
+    })
+  })
 }
 
 // 统一的连接流程:键盘交互回灌密码、host key 校验(首连记录/不符拒连)、错误归类。
@@ -197,8 +217,14 @@ export function createSshPool({
     }
     try {
       const client = await connectWith(SshClient, effRow, creds, { keepaliveMs, getKnownFp, recordFp })
+      // OS 探测(2026-08-29 列展示迭代):就绪连接上读 /etc/os-release;探测失败不影响连接结论
+      let probe = null
+      try {
+        const out = await execCollect(client, OS_PROBE_COMMAND, 5000)
+        probe = parseOsRelease(out)
+      } catch { /* 探测失败容忍:osId/osName 留空 */ }
       try { client.end() } catch { /* 已断 */ }
-      return { ok: true }
+      return { ok: true, osId: probe ? normalizeOsId(probe.osId, probe.osName) : null, osName: probe?.osName || null }
     } catch (e) {
       return { ok: false, errorKind: e.errorKind || classifyConnectError(e), message: e.message }
     }

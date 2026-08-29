@@ -4207,6 +4207,12 @@
     "badName": "文件名「{name}」不合法(不可含 / \\ .. 或为 .)",
     "uploaded": "已上传 {name}",
     "uploadFailed": "上传失败",
-    "hostKeyChangedConfirm": "服务器「{name}」的主机密钥与已记录指纹不符。若你确认该服务器重装过系统/换过密钥,可清除旧指纹并重新信任;否则请拒绝以防中间人攻击。清除并重试?"
+    "hostKeyChangedConfirm": "服务器「{name}」的主机密钥与已记录指纹不符。若你确认该服务器重装过系统/换过密钥,可清除旧指纹并重新信任;否则请拒绝以防中间人攻击。清除并重试?",
+    "statusCol": "状态",
+    "statusOk": "正常",
+    "statusFail": "异常",
+    "statusUnknown": "未测",
+    "moreActions": "更多操作",
+    "quickExposeTitle": "快速更改 AI 暴露与审批策略"
   }
 }

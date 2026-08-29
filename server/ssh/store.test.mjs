@@ -69,3 +69,24 @@ test('listSshServers exposedOnly 只回暴露行;name 查找;hostKey 指纹落�
   assert.equal(deleteSshServer(db, a.id), false)
   assert.deepEqual(SSH_APPROVAL_POLICIES, ['always', 'readonly', 'none'])
 })
+
+// === OS 探测结果落库(2026-08-29 列展示迭代) ===
+import { recordTestResult } from './store.mjs'
+
+test('recordTestResult: 成功落 status/osId/osName/lastTestedAt;失败只落 status;sanitize 暴露新字段', () => {
+  const db = freshDb()
+  const { id } = createSshServer(db, KEY, VALID, 'admin')
+  recordTestResult(db, id, { ok: true, osId: 'ubuntu', osName: 'Ubuntu 22.04' })
+  let s = sanitizeSshServer(getSshServerRow(db, id))
+  assert.equal(s.status, 'ok')
+  assert.equal(s.osId, 'ubuntu')
+  assert.equal(s.osName, 'Ubuntu 22.04')
+  assert.ok(s.lastTestedAt > 0)
+  recordTestResult(db, id, { ok: false })
+  s = sanitizeSshServer(getSshServerRow(db, id))
+  assert.equal(s.status, 'fail')
+  assert.equal(s.osId, 'ubuntu')   // 失败不清已知的 OS
+  // 未测过 → unknown
+  const { id: id2 } = createSshServer(db, KEY, { ...VALID, name: 'v2' }, 'admin')
+  assert.equal(sanitizeSshServer(getSshServerRow(db, id2)).status, 'unknown')
+})

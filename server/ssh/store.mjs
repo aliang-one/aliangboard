@@ -18,6 +18,10 @@ export function ensureSshSchema(db) {
     encPassphrase    TEXT,
     encSudoPassword  TEXT,
     hostKeyFingerprint TEXT,
+    status TEXT NOT NULL DEFAULT 'unknown',
+    osId TEXT,
+    osName TEXT,
+    lastTestedAt INTEGER,
     description TEXT,
     clusterRef  TEXT,
     exposeToAi INTEGER NOT NULL DEFAULT 0,
@@ -27,6 +31,17 @@ export function ensureSshSchema(db) {
     createdAt INTEGER NOT NULL,
     updatedAt INTEGER NOT NULL
   )`)
+  // 老库迁移:缺列逐个 ALTER(SQLite 无 IF NOT EXISTS for ADD COLUMN)
+  const cols = new Set(db.prepare('PRAGMA table_info(ssh_servers)').all().map(c => c.name))
+  for (const [col, ddl] of [
+    ['hostKeyFingerprint', 'TEXT'],
+    ['status', "TEXT NOT NULL DEFAULT 'unknown'"],
+    ['osId', 'TEXT'],
+    ['osName', 'TEXT'],
+    ['lastTestedAt', 'INTEGER'],
+  ]) {
+    if (!cols.has(col)) db.exec(`ALTER TABLE ssh_servers ADD COLUMN ${col} ${ddl}`)
+  }
 }
 
 export function validateSshServerInput(input = {}) {
@@ -55,6 +70,10 @@ export function sanitizeSshServer(r) {
     exposeToAi: !!r.exposeToAi, aiApprovalPolicy: r.aiApprovalPolicy,
     tags: r.tags ? JSON.parse(r.tags) : [],
     hostKeyFingerprint: r.hostKeyFingerprint || '',
+    status: r.status || 'unknown',
+    osId: r.osId || '',
+    osName: r.osName || '',
+    lastTestedAt: r.lastTestedAt || null,
     hasPassword: !!r.encPassword, hasPrivateKey: !!r.encPrivateKey,
     hasPassphrase: !!r.encPassphrase, hasSudoPassword: !!r.encSudoPassword,
     createdBy: r.createdBy || '', createdAt: r.createdAt, updatedAt: r.updatedAt,
@@ -112,7 +131,7 @@ export function deleteSshServer(db, id) {
   return r.changes > 0
 }
 
-const SANITIZE_COLS = 'id,name,host,port,username,authMethod,description,clusterRef,exposeToAi,aiApprovalPolicy,tags,hostKeyFingerprint,encPassword,encPrivateKey,encPassphrase,encSudoPassword,createdBy,createdAt,updatedAt'
+const SANITIZE_COLS = 'id,name,host,port,username,authMethod,description,clusterRef,exposeToAi,aiApprovalPolicy,tags,hostKeyFingerprint,status,osId,osName,lastTestedAt,encPassword,encPrivateKey,encPassphrase,encSudoPassword,createdBy,createdAt,updatedAt'
 
 export function listSshServers(db, { exposedOnly = false } = {}) {
   const rows = db.prepare(`SELECT ${SANITIZE_COLS} FROM ssh_servers ${exposedOnly ? 'WHERE exposeToAi=1' : ''} ORDER BY name`).all()
@@ -139,6 +158,12 @@ export function materializeCreds(db, key, serverId) {
     passphrase: dec(row.encPassphrase),
     sudoPassword: dec(row.encSudoPassword),
   }
+}
+
+// 测试连接结果落库:成功记 OS 探测(失败不清已感知的 OS——机器没变发行版不会变)
+export function recordTestResult(db, id, { ok, osId = null, osName = null }) {
+  db.prepare('UPDATE ssh_servers SET status=?, osId=COALESCE(?, osId), osName=COALESCE(?, osName), lastTestedAt=? WHERE id=?')
+    .run(ok ? 'ok' : 'fail', osId, osName, Date.now(), id)
 }
 
 export function recordHostKey(db, id, fingerprint) {

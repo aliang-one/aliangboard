@@ -4207,6 +4207,12 @@
     "badName": "Invalid file name \"{name}\" (no / \\ .. or bare .)",
     "uploaded": "Uploaded {name}",
     "uploadFailed": "Upload failed",
-    "hostKeyChangedConfirm": "The host key of server \"{name}\" does not match the recorded fingerprint. If you are sure the server was reinstalled or rekeyed, you can clear the old fingerprint and re-trust it; otherwise decline to protect against man-in-the-middle attacks. Clear and retry?"
+    "hostKeyChangedConfirm": "The host key of server \"{name}\" does not match the recorded fingerprint. If you are sure the server was reinstalled or rekeyed, you can clear the old fingerprint and re-trust it; otherwise decline to protect against man-in-the-middle attacks. Clear and retry?",
+    "statusCol": "Status",
+    "statusOk": "Healthy",
+    "statusFail": "Unreachable",
+    "statusUnknown": "Untested",
+    "moreActions": "More actions",
+    "quickExposeTitle": "Quick-edit AI exposure & approval policy"
   }
 }

@@ -219,9 +219,10 @@ test('testConnection: 未保存表单(row=null, credsOverride)归一为表单行
   const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient, onFingerprint: () => {}, knownFp: () => '' })
   const form = { host: '10.0.0.5', port: 22, username: 'ops', authMethod: 'password', password: 'pw', privateKey: null, passphrase: null }
   const out = await pool.testConnection(null, form)
-  assert.deepEqual(out, { ok: true })
+  // 2026-08-29 OS 探测契约:FakeClient 无 exec → osId/osName 为 null(探测失败容忍)
+  assert.deepEqual(out, { ok: true, osId: null, osName: null })
   const out2 = await pool.testConnection(ROW, CREDS)
-  assert.deepEqual(out2, { ok: true })
+  assert.deepEqual(out2, { ok: true, osId: null, osName: null })
   reset()
   const pool2 = createSshPool({ db: fakeDb(), key: Buffer.alloc(32),
     SshClient: behaviorClient({ error: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:1' } }),
