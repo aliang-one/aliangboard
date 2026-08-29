@@ -281,3 +281,15 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
   assert.equal(rows.length, 1)
   assert.deepEqual(rows.map(r => r.content), ['c'])
 })
+
+test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 5000 + i)
+  const llm = { chat: async () => ({ content: 'x'.repeat(3000) }) }
+  assert.equal(await maybeSummarizeProject(db, id, llm), true)
+  const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.ok(row.projectRecap.length <= 2000 + "…(截断)".length, "落库长度硬钳")
+  assert.ok(row.projectRecap.includes('…(截断)'), '截断标记')
+  assert.equal(row.historyWatermark, 5007, '截断不影响水位推进')
+})

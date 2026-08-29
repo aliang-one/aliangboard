@@ -112,9 +112,11 @@ export async function maybeSummarizeProject(db, projectId, llmClient) {
     })
     const recap = out?.content?.trim()
     if (!recap) return false
+    // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
+    const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap
     // 落库前防并发回退:只推进水位(取 pending 最大 ts 与现值较大者)
     const maxTs = pending[pending.length - 1].ts
-    db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=MAX(COALESCE(historyWatermark,0),?) WHERE id=?').run(recap, maxTs, projectId)
+    db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=MAX(COALESCE(historyWatermark,0),?) WHERE id=?').run(capped, maxTs, projectId)
     return true
   } catch { return false }
 }

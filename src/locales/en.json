@@ -2871,7 +2871,7 @@
       "writeGroup": "Human Approval Required",
       "approvalBadge": "Approval",
       "allDisabledWarn": "All tools disabled: AI will degrade to plain text Q&A (save allowed, at your own risk).",
-      "previewTitle": "Effective Preview (actual system prompt sent to new conversations)",
+      "previewTitle": "Effective Preview (system prompt baked into new conversations; project memory and {'@'}-referenced resources are injected at runtime)",
       "previewHint": "Fixed methodology section is not configurable; tool docs auto-generate with toggles; end is additional instructions.",
       "loadFailed": "Failed to load AI behavior config",
       "projectMemory": "Inject project memory",
