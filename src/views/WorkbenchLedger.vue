@@ -7,6 +7,7 @@ import { workbenchApi, authApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
+import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -15,6 +16,8 @@ const clusterId = ref('')
 const ledger = ref(null)   // { exists, files, index }
 const loading = ref(false)
 const bootstrapping = ref(false)
+// 双域化(2026-08-29):知识 tab 两区——集群台账(原内容)+ 服务器台账(ServerLedgerPanel)。
+const section = ref('cluster')
 
 async function loadClusters() {
   try {
@@ -106,9 +109,21 @@ const verifiedAt = computed(() => {
       </div>
     </div>
 
-    <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
+    <div v-if="auth.isAdmin" class="flex gap-xs">
+      <button data-test="sectionCluster" @click="section = 'cluster'"
+        class="flex items-center gap-xs px-md py-sm rounded-lg text-body-sm transition-all"
+        :class="section === 'cluster' ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container'">
+        <span class="material-symbols-outlined text-sm">hub</span>{{ t('workbench.ledger.sectionCluster') }}</button>
+      <button data-test="sectionServers" @click="section = 'servers'"
+        class="flex items-center gap-xs px-md py-sm rounded-lg text-body-sm transition-all"
+        :class="section === 'servers' ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container'">
+        <span class="material-symbols-outlined text-sm">dns</span>{{ t('workbench.ledger.sectionServers') }}</button>
+    </div>
 
-    <template v-else-if="ledger">
+    <template v-if="section === 'cluster'">
+      <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
+
+      <template v-else-if="ledger">
       <div v-if="ledger.pending" class="flex items-center gap-sm bg-status-warning/10 border border-status-warning/30 rounded-lg px-md py-sm text-body-sm">
         <span class="material-symbols-outlined text-status-warning">schedule</span>
         <span class="text-status-warning">{{ t('workbench.ledger.pendingReview', { summary: ledger.pending.summary }) }}</span>
@@ -138,6 +153,9 @@ const verifiedAt = computed(() => {
         <p class="text-body-sm text-on-surface-variant mt-md">{{ t('workbench.ledger.noLedger') }}<span v-if="auth.isAdmin">{{ t('workbench.ledger.noLedgerAdmin') }}</span><span v-else>{{ t('workbench.ledger.noLedgerUser') }}</span></p>
       </div>
     </template>
+    </template>
+
+    <ServerLedgerPanel v-if="section === 'servers'" />
 
     <!-- 蒸馏 diff 审批(现有 vs 蒸馏后可编辑)-->
     <Modal :modelValue="!!distillResult" @update:modelValue="v => { if (!v) distillResult = null }" :title="t('workbench.ledger.distillModalTitle')" width="max-w-4xl">

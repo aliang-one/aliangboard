@@ -2976,7 +2976,13 @@
       "previewHint": "Fixed methodology section is not configurable; tool docs auto-generate with toggles; end is additional instructions.",
       "loadFailed": "Failed to load AI behavior config",
       "projectMemory": "Inject project memory",
-      "projectMemoryDesc": "New chats carry a summary of past project decisions"
+      "projectMemoryDesc": "New chats carry a summary of past project decisions",
+      "presenceTitle": "Floating Chat",
+      "presenceMaxItems": "Items shown",
+      "presenceWindowMin": "Hide after (min)",
+      "presenceHint": "Running/paused conversations stay; terminal ones drop after the window with no activity. Takes effect within ~10s after saving.",
+      "presenceSaved": "Floating chat config saved",
+      "presenceSaveFailed": "Failed to save floating chat config"
     },
     "apiKeys": {
       "title": "API Keys Management",
@@ -3354,6 +3360,8 @@
       "bootstrapFailed": "Bootstrap failed",
       "confirmBootstrap": "Will survey the cluster with read-only tools and generate INDEX.md (overwrites existing), continue?",
       "loadFailed": "Failed to load ledger",
+      "sectionCluster": "Cluster ledger",
+      "sectionServers": "Server ledger",
       "verifiedAt": "Verified at",
       "filesCount": "{n} files",
       "filesTitle": "All files",
@@ -3604,10 +3612,9 @@
       "title": "Workbench",
       "backToCluster": "Back to Cluster",
       "tabProjects": "Projects",
-      "tabConfig": "Config",
-      "tabGlobal": "Global",
       "tabRecords": "Records",
-      "tabServers": "Servers"
+      "tabServers": "Servers",
+      "tabKnowledge": "Knowledge"
     },
     "card": {
       "noProjects": "No projects yet. Click \"Create\" to make one.",
@@ -3623,19 +3630,6 @@
       "createFailed": "Create failed",
       "created": "Created"
     },
-    "config": {
-      "title": "Workbench Configuration",
-      "cluster": "Bound Cluster",
-      "projectRoot": "Project Root",
-      "distillStatus": "Distill Status",
-      "presenceTitle": "Floating Chat",
-      "presenceMaxItems": "Items shown",
-      "presenceWindowMin": "Hide after (min)",
-      "presenceSave": "Save",
-      "presenceSaved": "Floating chat config saved",
-      "presenceSaveFailed": "Failed to save floating chat config",
-      "presenceHint": "Running/paused conversations stay; terminal ones drop after the window with no activity. Takes effect within ~10s after saving."
-    },
     "records": {
       "title": "Workbench Records",
       "subtitle": "Unified entry for conversations, messages and AI operation data — persisted server-side and traceable across sessions.",
@@ -3643,6 +3637,15 @@
       "statMessages": "Messages",
       "statAiCalls": "AI Tool Calls",
       "statProjects": "Projects",
+      "statServers": "Servers",
+      "statServersExposed": "{n} AI-exposed",
+      "auditSourceLabel": "Source",
+      "auditSourceAi": "Workbench AI",
+      "auditSourceSsh": "Manual server ops",
+      "auditSourceAll": "All",
+      "auditRowAi": "AI",
+      "auditRowManual": "Manual",
+      "auditRowMcp": "MCP",
       "storageTitle": "Storage Locations",
       "storageDb": "Conversation/message database",
       "storageWb": "Workbench files (git repos)",
@@ -3651,8 +3654,7 @@
       "convTitle": "All conversations (by recent activity)",
       "emptyTitle": "(untitled)",
       "noConversations": "No conversations yet",
-      "auditTitle": "AI Tool Call Records",
-      "auditHint": "Audit chain source=workbench · latest 30",
+      "auditTitle": "Operation records",
       "noAudits": "No AI call records yet",
       "loadFailed": "Failed to load records",
       "timeMinAgo": "{n}m ago",
@@ -4289,6 +4291,7 @@
     "policyAlways": "Approve every command",
     "policyReadonly": "Skip approval for read-only commands",
     "policyNone": "No approval (dangerous)",
+    "popupTitle": "SSH Terminal · {name}",
     "testConnection": "Test Connection",
     "testing": "Testing…",
     "testOk": "Connection OK",
@@ -4329,6 +4332,7 @@
     "ledger": "Server ledger",
     "ledgerGlobal": "Global notes",
     "ledgerHint": "Structured facts (address/OS/status/exposure) are maintained automatically; here you edit each server's role, duties and deployment notes. AI conversations can read and update this ledger too (with approval).",
+    "ledgerStructure": "Structured layer (auto-maintained)",
     "ledgerNotesPlaceholder": "This server's role/duties/deployments, e.g. K8s master + bastion",
     "ledgerEmpty": "No servers yet — add one first"
   }

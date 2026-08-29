@@ -1,26 +1,25 @@
 <script setup>
-// 工作台 V2 shell(P1):右上角入口 → 全屏 tab(项目/配置/全局)。
-// 项目 tab 内嵌 WorkbenchProjects(卡片网格);配置 tab 内嵌 WorkbenchConfig(只读);
-// 全局 tab 内嵌 WorkbenchLedger(台账)。
-import { ref } from 'vue'
+// 工作台 shell(2026-08-29 双域化):四 tab——项目(集群域工作单元)/服务器(服务器域,admin)/
+// 知识(跨域知识:集群台账+服务器台账)/记录(跨域记录)。tab 为组件内状态,无路由影响。
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
 import WorkbenchProjects from './WorkbenchProjects.vue'
-import WorkbenchConfig from './WorkbenchConfig.vue'
 import WorkbenchLedger from './WorkbenchLedger.vue'
 import WorkbenchRecords from './WorkbenchRecords.vue'
 import WorkbenchServers from './WorkbenchServers.vue'
 
 const router = useRouter()
 const { t } = useI18n()
+const auth = useAuthStore()
 const activeTab = ref('projects')
-const tabs = [
+const tabs = computed(() => [
   { key: 'projects', label: t('workbench.shell.tabProjects'), icon: 'folder' },
-  { key: 'config', label: t('workbench.shell.tabConfig'), icon: 'settings' },
-  { key: 'global', label: t('workbench.shell.tabGlobal'), icon: 'public' },
+  ...(auth.isAdmin ? [{ key: 'servers', label: t('workbench.shell.tabServers'), icon: 'dns' }] : []),
+  { key: 'knowledge', label: t('workbench.shell.tabKnowledge'), icon: 'menu_book' },
   { key: 'records', label: t('workbench.shell.tabRecords'), icon: 'history' },
-  { key: 'servers', label: t('workbench.shell.tabServers'), icon: 'dns' },
-]
+])
 </script>
 
 <template>
@@ -48,8 +47,7 @@ const tabs = [
     <!-- Content -->
     <div class="flex-1 p-md overflow-y-auto">
       <WorkbenchProjects v-if="activeTab === 'projects'" />
-      <WorkbenchConfig v-else-if="activeTab === 'config'" />
-      <WorkbenchLedger v-else-if="activeTab === 'global'" />
+      <WorkbenchLedger v-else-if="activeTab === 'knowledge'" />
       <WorkbenchRecords v-else-if="activeTab === 'records'" />
       <WorkbenchServers v-else-if="activeTab === 'servers'" @open-files="s => {}" />
     </div>

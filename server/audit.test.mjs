@@ -186,3 +186,16 @@ test('queryAuditLog: 同 ts 行按 seq DESC tiebreaker(分页列表稳定排序)
   assert.equal(items[0].tool, 't-B')
   assert.equal(items[1].tool, 't-A')
 })
+
+test('queryAuditLog: toolPrefix 前缀过滤(ssh_* 命中,其余不混入)', () => {
+  const db = makeDb()
+  writeAudit(db, { ...intent, tool: 'ssh_sftp', source: 'platform', result: 'ok' })
+  writeAudit(db, { ...intent, tool: 'ssh_server', source: 'platform', result: 'ok' })
+  writeAudit(db, { ...intent, tool: 'wb_exec', source: 'workbench', result: 'ok' })
+  const r = queryAuditLog(db, { source: 'platform', toolPrefix: 'ssh' })
+  assert.equal(r.total, 2)
+  assert.ok(r.items.every(x => x.tool.startsWith('ssh')))
+  assert.equal(queryAuditLog(db, { toolPrefix: 'nope' }).total, 0)
+  // 不传 toolPrefix → 行为不变
+  assert.equal(queryAuditLog(db, {}).total, 3)
+})

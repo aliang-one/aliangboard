@@ -14,6 +14,9 @@ const disabled = ref([])          // string[](Set 语义,vue 响应式用数组+
 const projectMemory = ref(true)   // 项目记忆注入(T4,2026-08-29):新对话自动携带项目历史决策摘要
 const catalog = ref([])
 const preview = ref('')
+// 悬浮对话入口(2026-08-29 自 WorkbenchConfig 迁入):展示条数/隐去时间,保存约 10s 内全端生效。
+const presence = ref({ maxItems: 5, windowMin: 30 })
+const presenceSaving = ref(false)
 
 const readTools = computed(() => catalog.value.filter(x => !x.requiresApproval))
 const writeTools = computed(() => catalog.value.filter(x => x.requiresApproval))
@@ -32,7 +35,24 @@ async function load() {
     notify('error', e.message || t('admin.aiBehavior.loadFailed'))
   } finally { loading.value = false }
 }
-onMounted(load)
+
+async function loadPresence() {
+  try {
+    const r = await adminApi.presenceConfig.get()
+    presence.value = { maxItems: r.maxItems, windowMin: r.windowMin }
+  } catch { /* 未配置/异常 → 默认 5/30 */ }
+}
+
+async function savePresence() {
+  presenceSaving.value = true
+  try {
+    await adminApi.presenceConfig.save({ maxItems: Number(presence.value.maxItems), windowMin: Number(presence.value.windowMin) })
+    notify('success', t('admin.aiBehavior.presenceSaved'))
+  } catch { notify('error', t('admin.aiBehavior.presenceSaveFailed')) }
+  finally { presenceSaving.value = false }
+}
+
+onMounted(() => { load(); loadPresence() })
 
 function toggle(name) {
   disabled.value = disabled.value.includes(name)
@@ -84,6 +104,27 @@ async function save() {
             <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.projectMemoryDesc') }}</span>
           </div>
         </div>
+      </div>
+
+      <!-- 悬浮对话入口(2026-08-29 自 WorkbenchConfig 迁入):独立保存端点,与上方主保存按钮互不影响 -->
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md flex flex-col gap-md">
+        <p class="text-label-caps text-on-surface-variant">{{ $t('admin.aiBehavior.presenceTitle') }}</p>
+        <div class="flex items-end gap-md flex-wrap">
+          <label class="flex flex-col gap-xs">
+            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.presenceMaxItems') }}</span>
+            <input v-model.number="presence.maxItems" type="number" min="1" max="20" data-testid="presence-max"
+              class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-sm" />
+          </label>
+          <label class="flex flex-col gap-xs">
+            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.presenceWindowMin') }}</span>
+            <input v-model.number="presence.windowMin" type="number" min="1" max="1440" data-testid="presence-window"
+              class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-sm" />
+          </label>
+          <button data-testid="presence-save" @click="savePresence" :disabled="presenceSaving"
+            class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40">
+            {{ $t('common.save') }}</button>
+        </div>
+        <p class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.presenceHint') }}</p>
       </div>
 
       <div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md flex flex-col gap-md">

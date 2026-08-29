@@ -2976,7 +2976,13 @@
       "previewHint": "固定方法论段不可配置;工具文档随开关自动生成;末尾为追加指令。",
       "loadFailed": "加载 AI 行为配置失败",
       "projectMemory": "项目记忆注入",
-      "projectMemoryDesc": "新对话自动携带项目历史决策摘要"
+      "projectMemoryDesc": "新对话自动携带项目历史决策摘要",
+      "presenceTitle": "悬浮对话入口",
+      "presenceMaxItems": "展示条数",
+      "presenceWindowMin": "隐去时间(分钟)",
+      "presenceHint": "运行中/待审批对话常驻;终态对话超过隐去时间无动态后不再显示。保存后约 10 秒内全端生效。",
+      "presenceSaved": "悬浮对话配置已保存",
+      "presenceSaveFailed": "悬浮对话配置保存失败"
     },
     "apiKeys": {
       "title": "API Keys 管理",
@@ -3354,6 +3360,8 @@
       "bootstrapFailed": "Bootstrap 失败",
       "confirmBootstrap": "将以只读工具 survey 集群并生成 INDEX.md(覆盖现有),继续?",
       "loadFailed": "加载台账失败",
+      "sectionCluster": "集群台账",
+      "sectionServers": "服务器台账",
       "verifiedAt": "校验时间",
       "filesCount": "{n} 个文件",
       "filesTitle": "全部文件",
@@ -3604,10 +3612,9 @@
       "title": "工作台",
       "backToCluster": "返回集群",
       "tabProjects": "项目",
-      "tabConfig": "配置",
-      "tabGlobal": "全局",
       "tabRecords": "记录",
-      "tabServers": "服务器"
+      "tabServers": "服务器",
+      "tabKnowledge": "知识"
     },
     "card": {
       "noProjects": "还没有项目,点击「新建」创建第一个",
@@ -3623,19 +3630,6 @@
       "createFailed": "创建失败",
       "created": "创建成功"
     },
-    "config": {
-      "title": "工作台配置",
-      "cluster": "绑定集群",
-      "projectRoot": "项目根目录",
-      "distillStatus": "蒸馏状态",
-      "presenceTitle": "悬浮对话",
-      "presenceMaxItems": "展示条数",
-      "presenceWindowMin": "隐去时间(分钟)",
-      "presenceSave": "保存",
-      "presenceSaved": "悬浮对话配置已保存",
-      "presenceSaveFailed": "悬浮对话配置保存失败",
-      "presenceHint": "运行中/待审批对话常驻;终态对话超过隐去时间无动态后不再显示。保存后约 10 秒内全端生效。"
-    },
     "records": {
       "title": "工作台记录",
       "subtitle": "对话、消息与 AI 操作数据的统一入口——内容持久化在服务端,跨会话可追溯。",
@@ -3643,6 +3637,15 @@
       "statMessages": "消息",
       "statAiCalls": "AI 工具调用",
       "statProjects": "项目",
+      "statServers": "服务器",
+      "statServersExposed": "暴露 AI {n} 台",
+      "auditSourceLabel": "来源",
+      "auditSourceAi": "工作台 AI",
+      "auditSourceSsh": "服务器人工操作",
+      "auditSourceAll": "全部",
+      "auditRowAi": "AI",
+      "auditRowManual": "人工",
+      "auditRowMcp": "MCP",
       "storageTitle": "存储位置",
       "storageDb": "对话/消息数据库",
       "storageWb": "工作台文件(git 仓库)",
@@ -3651,8 +3654,7 @@
       "convTitle": "全部对话(按最近活跃)",
       "emptyTitle": "(无标题)",
       "noConversations": "暂无对话记录",
-      "auditTitle": "AI 工具调用记录",
-      "auditHint": "审计链 source=workbench · 最近 30 条",
+      "auditTitle": "操作记录",
       "noAudits": "暂无 AI 调用记录",
       "loadFailed": "读取记录失败",
       "timeMinAgo": "{n} 分钟前",
@@ -4289,6 +4291,7 @@
     "policyAlways": "每条命令必审批",
     "policyReadonly": "只读命令免审批",
     "policyNone": "免审批(高危)",
+    "popupTitle": "SSH 终端 · {name}",
     "testConnection": "测试连接",
     "testing": "测试中…",
     "testOk": "连接成功",
@@ -4329,6 +4332,7 @@
     "ledger": "服务器台账",
     "ledgerGlobal": "全局备注",
     "ledgerHint": "结构信息(地址/OS/状态/暴露策略)由平台自动维护,此处仅编辑各服务器的角色、职责与部署内容等自由备注。AI 对话中也可读取与更新本台账(需批准)。",
+    "ledgerStructure": "结构层(平台自动维护)",
     "ledgerNotesPlaceholder": "这台服务器的角色/职责/部署了什么,如:K8s master + 堡垒机",
     "ledgerEmpty": "暂无服务器,先添加"
   }

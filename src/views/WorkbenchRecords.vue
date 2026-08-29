@@ -1,18 +1,32 @@
 <script setup>
 // 工作台「记录」页:对话/消息/AI 操作数据的统一入口——统计卡 + 存储位置说明 +
-// 跨项目对话记录列表(点击跳所属项目) + AI 工具调用记录(审计链 workbench 过滤)。
+// 跨项目对话记录列表(点击跳所属项目) + 操作记录(审计链;默认工作台 AI,可切服务器人工操作/全部)。
 // 数据源 workbenchApi.records()(后端聚合)+ adminApi.auditTrail.list(source=workbench)。
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { workbenchApi, adminApi } from '@/api/client'
+import { workbenchApi, adminApi, sshApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const router = useRouter()
+const auth = useAuthStore()
 const loading = ref(true)
 const data = ref(null)
 const audits = ref([])
+// 双域化(2026-08-29):服务器统计卡(admin)+ 审计来源三口径。
+const serverStats = ref(null)          // { total, exposed }
+const auditSource = ref('workbench')   // workbench | platform | all
+async function loadAudits() {
+  try {
+    const params = { size: 30 }
+    if (auditSource.value === 'workbench') params.source = 'workbench'
+    else if (auditSource.value === 'platform') { params.source = 'platform'; params.toolPrefix = 'ssh' }
+    const r = await adminApi.auditTrail.list(params)
+    audits.value = r.items || []
+  } catch { /* 审计明细失败不阻塞整页 */ }
+}
 
 const fmtBytes = n => {
   if (n == null) return '—'
@@ -36,6 +50,16 @@ const statusStyle = {
   cancelled: 'bg-error/10 text-error',
 }
 const resultStyle = { ok: 'text-status-running', denied: 'text-status-warning', error: 'text-error' }
+// 审计来源三分归因:workbench=工作台 AI / platform=人工操作 / mcp=API-key MCP 调用;未知兜底 platform 样式。
+const auditSourceLabel = s => s === 'workbench' ? t('workbench.records.auditRowAi')
+  : s === 'platform' ? t('workbench.records.auditRowManual')
+  : s === 'mcp' ? t('workbench.records.auditRowMcp')
+  : (s || '—')
+const auditSourceStyle = {
+  workbench: 'bg-primary-container/40 text-primary',
+  platform: 'bg-surface-container-high text-on-surface-variant',
+  mcp: 'bg-tertiary-container/40 text-tertiary',
+}
 const pct = (n, total) => total > 0 ? Math.max(1, Math.round((n / total) * 100)) : 0
 const clusterTotal = c => c.ledgerSize + (c.projects || []).reduce((s, p) => s + p.size, 0)
 const diskUsedPct = computed(() => {
@@ -49,10 +73,14 @@ async function load() {
   loading.value = true
   try {
     data.value = await workbenchApi.records()
-    try {
-      const r = await adminApi.auditTrail.list({ source: 'workbench', size: 30 })
-      audits.value = r.items || []
-    } catch { /* 审计明细失败不阻塞整页 */ }
+    await loadAudits()
+    if (auth.isAdmin) {
+      try {
+        const r = await sshApi.list()
+        const ss = r.servers || []
+        serverStats.value = { total: ss.length, exposed: ss.filter(s => s.exposeToAi).length }
+      } catch { serverStats.value = null }
+    }
   } catch (e) { notify('error', e.message || t('workbench.records.loadFailed')) }
   finally { loading.value = false }
 }
@@ -68,7 +96,7 @@ onMounted(load)
     </div>
 
     <!-- 统计卡 -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-sm">
+    <div class="grid grid-cols-2 gap-sm" :class="auth.isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md">
         <p class="text-label-caps text-on-surface-variant">{{ t('workbench.records.statConversations') }}</p>
         <p class="text-headline-md font-bold text-primary mt-xs">{{ data?.counts?.conversations ?? '—' }}</p>
@@ -84,6 +112,11 @@ onMounted(load)
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md">
         <p class="text-label-caps text-on-surface-variant">{{ t('workbench.records.statProjects') }}</p>
         <p class="text-headline-md font-bold text-on-surface mt-xs">{{ data?.counts?.projects ?? '—' }}</p>
+      </div>
+      <div v-if="auth.isAdmin" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md">
+        <p class="text-label-caps text-on-surface-variant">{{ t('workbench.records.statServers') }}</p>
+        <p class="text-headline-md font-bold text-on-surface mt-xs">{{ serverStats ? serverStats.total : '—' }}</p>
+        <p class="text-body-xs text-on-surface-variant mt-xs">{{ t('workbench.records.statServersExposed', { n: serverStats?.exposed ?? 0 }) }}</p>
       </div>
     </div>
 
@@ -174,11 +207,21 @@ onMounted(load)
       <div class="px-md py-sm border-b border-outline-variant flex items-center gap-xs">
         <span class="material-symbols-outlined text-base text-primary">smart_toy</span>
         <span class="text-body-sm font-semibold">{{ t('workbench.records.auditTitle') }}</span>
-        <span class="text-body-xs text-on-surface-variant ml-auto">{{ t('workbench.records.auditHint') }}</span>
+        <label v-if="auth.isAdmin" class="flex items-center gap-xs ml-auto">
+          <span class="text-body-xs text-on-surface-variant">{{ t('workbench.records.auditSourceLabel') }}</span>
+          <select data-testid="audit-source" v-model="auditSource" @change="loadAudits"
+            class="bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs">
+            <option value="workbench">{{ t('workbench.records.auditSourceAi') }}</option>
+            <option value="platform">{{ t('workbench.records.auditSourceSsh') }}</option>
+            <option value="all">{{ t('workbench.records.auditSourceAll') }}</option>
+          </select>
+        </label>
       </div>
       <div class="max-h-80 overflow-y-auto divide-y divide-outline-variant/40">
         <div v-for="a in audits" :key="a.seq" class="px-md py-xs flex items-center gap-sm text-body-xs font-mono">
           <span class="text-on-surface-variant/60 shrink-0 w-24">{{ fmt(a.ts) }}</span>
+          <span class="px-1.5 py-0.5 rounded text-body-xs shrink-0" :class="auditSourceStyle[a.source] || auditSourceStyle.platform">
+            {{ auditSourceLabel(a.source) }}</span>
           <span class="text-on-surface shrink-0">{{ a.tool }}</span>
           <span class="text-on-surface-variant truncate flex-1 min-w-0">{{ a.resource || a.requestSummary || '—' }}</span>
           <span class="shrink-0 font-semibold" :class="resultStyle[a.result]">{{ a.result }}</span>

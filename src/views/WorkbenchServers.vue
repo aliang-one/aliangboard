@@ -13,6 +13,7 @@ import SshServerForm from '@/components/ssh/SshServerForm.vue'
 import SshFileBrowserWindow from '@/components/ssh/SshFileBrowserWindow.vue'
 import OsIcon from '@/components/ssh/OsIcon.vue'
 import ToggleSwitch from '@/components/ssh/ToggleSwitch.vue'
+import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
 
@@ -110,30 +111,8 @@ async function onExposeToggle(s, v) {
   finally { exposeBusy.value = false }
 }
 
-// —— 台账弹窗:全局备注 + 每服务器备注(自由层人 editable;结构层只读由后端生成)——
+// —— 台账弹窗(2026-08-29 双域化):内容迁 ServerLedgerPanel,弹窗只留壳 ——
 const showLedger = ref(false)
-const ledger = ref(null)          // { globalNotes, servers:[{id,name,notes}] }
-const ledgerBusy = ref(false)
-const ledgerDraft = ref({})       // { '__global__': str, [serverId]: str }
-const ledgerSaving = ref('')
-async function openLedger() {
-  showLedger.value = true
-  ledgerBusy.value = true
-  try {
-    const r = await sshApi.getLedger()
-    ledger.value = r
-    ledgerDraft.value = { __global__: r.globalNotes || '', ...Object.fromEntries((r.servers || []).map(x => [x.id, x.notes || ''])) }
-  } catch (e) { testResult.value = { name: '-', ok: false, message: e?.message } }
-  finally { ledgerBusy.value = false }
-}
-async function saveLedgerNotes(scope) {
-  ledgerSaving.value = scope
-  try {
-    await sshApi.saveLedger(scope, ledgerDraft.value[scope] ?? '')
-    testResult.value = { name: scope === '__global__' ? t('ssh.ledgerGlobal') : scope, ok: true, message: t('common.saved') }
-  } catch (e) { testResult.value = { name: '-', ok: false, message: e?.message } }
-  finally { ledgerSaving.value = '' }
-}
 
 // —— 更多菜单(每行一个,同时至多一个展开)——
 const moreOpenFor = ref('')
@@ -158,7 +137,7 @@ defineExpose({ servers })
     <div class="flex items-center justify-between">
       <h3 class="text-title-md font-bold">{{ t('ssh.title') }}</h3>
       <div v-if="isAdmin" class="flex items-center gap-sm">
-        <button data-test="btnLedger" @click="openLedger" class="px-md py-sm bg-secondary-container/60 text-on-secondary-container rounded-lg text-body-sm font-semibold flex items-center gap-xs">
+        <button data-test="btnLedger" @click="showLedger = true" class="px-md py-sm bg-secondary-container/60 text-on-secondary-container rounded-lg text-body-sm font-semibold flex items-center gap-xs">
           <span class="material-symbols-outlined text-base">menu_book</span>{{ t('ssh.ledger') }}</button>
         <button data-test="btnAdd" @click="openCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">
           {{ t('ssh.addServer') }}</button>
@@ -254,34 +233,11 @@ defineExpose({ servers })
       </div>
     </template>
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
-    <!-- 台账弹窗:全局备注 + 每服务器备注(自由层编辑;结构层只读) -->
+    <!-- 台账弹窗:内容为 ServerLedgerPanel(结构层只读+自由层编辑,与知识 tab 服务器区同源) -->
     <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40" @click.self="showLedger = false">
       <div class="bg-surface-container-low rounded-xl p-lg w-[860px] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
         <h4 class="text-title-md font-bold">{{ t('ssh.ledger') }}</h4>
-        <p class="text-body-xs text-on-surface-variant">{{ t('ssh.ledgerHint') }}</p>
-        <div v-if="ledgerBusy" class="text-body-sm text-on-surface-variant">{{ t('common.loading') }}</div>
-        <template v-else>
-          <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between">
-              <h5 class="text-title-sm font-semibold">{{ t('ssh.ledgerGlobal') }}</h5>
-              <button data-test="ledgerSaveGlobal" @click="saveLedgerNotes('__global__')" :disabled="ledgerSaving === '__global__'"
-                class="px-sm py-xs bg-primary text-on-primary rounded-lg text-body-xs font-semibold disabled:opacity-50">{{ t('common.save') }}</button>
-            </div>
-            <textarea data-test="ledgerGlobal" v-model="ledgerDraft.__global__" rows="4"
-              class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-xs text-body-sm font-mono"></textarea>
-          </div>
-          <div v-for="srv in (ledger?.servers || [])" :key="srv.id" class="flex flex-col gap-xs border-t border-outline-variant/40 pt-sm">
-            <div class="flex items-center justify-between">
-              <h5 class="text-title-sm font-semibold font-mono">{{ srv.name }}</h5>
-              <button :data-test="'ledgerSave-' + srv.id" @click="saveLedgerNotes(srv.id)" :disabled="ledgerSaving === srv.id"
-                class="px-sm py-xs bg-primary text-on-primary rounded-lg text-body-xs font-semibold disabled:opacity-50">{{ t('common.save') }}</button>
-            </div>
-            <textarea :data-test="'ledgerNotes-' + srv.id" v-model="ledgerDraft[srv.id]" rows="3"
-              :placeholder="t('ssh.ledgerNotesPlaceholder')"
-              class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-xs text-body-sm font-mono"></textarea>
-          </div>
-          <p v-if="!(ledger?.servers || []).length" class="text-body-sm text-on-surface-variant">{{ t('ssh.ledgerEmpty') }}</p>
-        </template>
+        <ServerLedgerPanel />
         <div class="flex justify-end">
           <button @click="showLedger = false" class="px-lg py-sm rounded-lg border text-body-sm">{{ t('common.close') }}</button>
         </div>
