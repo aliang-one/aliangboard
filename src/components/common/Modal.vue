@@ -16,11 +16,15 @@ const props = defineProps({
   priority: { type: Boolean, default: false },
   // 可最大化(2026-08-29):标题栏出现「最大化/还原」切换;ESC 先还原再关闭。
   maximizable: { type: Boolean, default: false },
+  // 关闭守卫(2026-08-29 QA ISSUE-03):X/遮罩/ESC 关闭前回调,返回 false 拦截本次关闭
+  // (如编辑态有未保存改动时弹丢弃确认)。取消按钮等内容自管理路径不经此。
+  beforeClose: { type: Function, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm', 'cancel'])
 
 function close() {
+  if (props.beforeClose && props.beforeClose() === false) return
   emit('update:modelValue', false)
   emit('cancel')
 }

@@ -1,4 +1,4 @@
-import { test, expect, afterEach } from 'vitest'
+import { test, expect, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import Modal from '@/components/common/Modal.vue'
@@ -130,5 +130,38 @@ test('Modal: scoped slot 暴露 maximized 两态', async () => {
   expect(document.querySelector('[data-testid="scope-probe"]').textContent).toBe('false')
   document.querySelector('[data-testid="modal-maximize-btn"]').click(); await nextTick()
   expect(document.querySelector('[data-testid="scope-probe"]').textContent).toBe('true')
+  w.unmount()
+})
+
+// ===== beforeClose 关闭守卫(2026-08-29 QA ISSUE-03):X/遮罩/ESC 关闭前可拦截 =====
+test('Modal: beforeClose 返回 false 拦截关闭(X/遮罩/ESC 三路),返回 true 放行', async () => {
+  const guard = vi.fn(() => false)
+  const w1 = mountModal({ beforeClose: guard })
+  // X
+  document.querySelector('body div.fixed.inset-0 .p-1').click(); await nextTick()
+  expect(guard).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('body div.fixed.inset-0')).toBeTruthy()
+  expect(w1.emitted('update:modelValue')).toBeUndefined()
+  // 遮罩
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click(); await nextTick()
+  expect(guard).toHaveBeenCalledTimes(2)
+  expect(w1.emitted('update:modelValue')).toBeUndefined()
+  // ESC
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await nextTick()
+  expect(guard).toHaveBeenCalledTimes(3)
+  expect(w1.emitted('update:modelValue')).toBeUndefined()
+  w1.unmount()
+
+  // 放行路径
+  const w2 = mountModal({ beforeClose: () => true })
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click(); await nextTick()
+  expect(w2.emitted('update:modelValue')[0]).toEqual([false])
+  w2.unmount()
+})
+
+test('Modal: 无 beforeClose 行为不变(回归)', async () => {
+  const w = mountModal({})
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click(); await nextTick()
+  expect(w.emitted('update:modelValue')[0]).toEqual([false])
   w.unmount()
 })
