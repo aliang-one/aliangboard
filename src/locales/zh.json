@@ -3007,7 +3007,12 @@
       "noClustersHint": "暂无可用集群——请先在「集群管理」中添加",
       "revokeConfirm": "吊销 API key {prefix}…(owner={owner})?吊销后该 key 立即失效。",
       "revoked": "已吊销",
-      "revokeFailed": "吊销失败"
+      "revokeFailed": "吊销失败",
+      "sshAccess": "SSH 服务器访问",
+      "sshAccessTitle": "授予该 key 通过 MCP 调用 SSH 工具的能力(服务器可见性仍由各服务器的「暴露给 AI」把关)",
+      "sshAccessHint": "授予后外部 AI 客户端可经 MCP 读写已暴露的服务器;只读/受限命令随服务器审批策略",
+      "sshAccessOn": "SSH 已授予(点击收回)",
+      "sshAccessOff": "SSH 未授予(点击授予)"
     },
     "users": {
       "title": "用户管理",

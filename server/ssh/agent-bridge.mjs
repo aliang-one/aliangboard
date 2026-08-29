@@ -30,7 +30,10 @@ export function resolveServerRef(rows, ref) {
   return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
 }
 
-export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent', getSetting = () => '', setSetting = () => {} }) {
+export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent', getSetting = () => '', setSetting = () => {}, keyMode = false }) {
+  // keyMode(MCP/API-key 主体):无人工审批 UI → 服务器策略 fail-closed 映射——
+  //   none → exec 放行;readonly → 只读命令放行;always → exec 拒绝(人审无法执行,调策略后重试)。
+  //   readFile/readLedger 只读,各策略均放行;writeNotes(台账写)恒拒(仅工作台 AI 带人审)。
   // AI 可见清单:仅暴露行,仅元数据字段(无 host/凭据列)。
   const listExposed = () => listSshServers(db, { exposedOnly: true })
     .map(s => ({ id: s.id, name: s.name, description: s.description || '', clusterRef: s.clusterRef || '' }))
@@ -61,6 +64,13 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     const r = resolve(args?.server)
     if (!r.ok) return { error: refusal(r) }
     const row = r.row
+    if (keyMode) {
+      const policy = row.aiApprovalPolicy || 'always'
+      if (policy === 'always') return { error: `该服务器审批策略为 always(每条命令需人审),key 通道无人审不可执行;将策略调为 none/readonly 后重试` }
+      if (policy === 'readonly' && !classifyReadonly(String(args?.command || ''))) {
+        return { error: '该服务器审批策略为 readonly(仅只读命令免审),key 通道无人审,非只读命令已拒' }
+      }
+    }
     let cmd = String(args?.command || '')
     if (!cmd.trim()) return { error: 'command 为空' }
     const timeoutMs = Math.min(Math.max((Number(args?.timeoutSec) * 1000) || TIMEOUT_DEFAULT_MS, TIMEOUT_MIN_MS), TIMEOUT_MAX_MS)
@@ -155,6 +165,7 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     return { count: list.length, markdown }
   }
   function writeNotes(args) {
+    if (keyMode) return { error: '台账写仅工作台 AI 支持(需人审),key 通道不可用' }
     const scope = String(args?.scope || '').trim()
     const notes = String(args?.notes ?? '')
     if (notes.length > 64 * 1024) return { error: 'notes 超长(上限 64KB)' }

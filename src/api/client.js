@@ -307,6 +307,7 @@ export const adminApi = {
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),
     create: payload => platformHttp.request('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),
+    setSshAccess: (id, enabled) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/ssh-access`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
     remove: id => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     updateOverrides: (id, tool_overrides) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/overrides`, { method: 'PATCH', body: JSON.stringify({ tool_overrides }) }),
     updateNamespaces: (id, allowed_namespaces) => platformHttp.request(`/api/admin/apikeys/${encodeURIComponent(id)}/namespaces`, { method: 'PATCH', body: JSON.stringify({ allowed_namespaces }) }),

@@ -1,6 +1,6 @@
 // 管理 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // LLM/MCP 配置、集群 CRUD、API keys、审计日志、用户管理 逐字搬迁,仅依赖引用改走 deps 注入。
-import { listKeys, mintKey, revokeKey, setKeySaBinding } from '../auth-keys.mjs'
+import { listKeys, mintKey, revokeKey, setKeySaBinding, setKeySshAccess } from '../auth-keys.mjs'
 import { managedSaName, rbacTier } from '../sa-provision.mjs'
 import { randomUUID as cryptoRandomUUID } from 'node:crypto'
 import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
@@ -273,7 +273,7 @@ export function createAdminRoutes(deps) {
             owner: input.owner || ps.username, clusterId: input.clusterId,
             boundSA_namespace: input.boundSA_namespace, boundSA_name: input.boundSA_name,
             tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null,
-            allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username,
+            allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username, sshAccess: !!input.sshAccess,
           })
           // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
           sendJson(res, 200, { apikey: k }); return true
@@ -296,11 +296,21 @@ export function createAdminRoutes(deps) {
           id, owner: input.owner || ps.username, clusterId: input.clusterId,
           boundSA_namespace: input.boundSA_namespace, boundSA_name: name, saManaged: 1,
           tier: input.tier || 'read', tool_overrides: input.tool_overrides ?? null,
-          allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username,
+          allowed_namespaces: input.allowed_namespaces ?? null, label: input.label || null, createdBy: ps.username, sshAccess: !!input.sshAccess,
         })
         // k.plaintext 仅此次返回(明文不入库);前端须提示复制保存
         sendJson(res, 200, { apikey: k }); return true
       } catch (e) { sendJson(res, e.status || 400, { message: e.message || msg(req, 'admin.mintFailed') }); return true }
+    }
+    if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/ssh-access$/)) {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const input = await readBody(req)
+      const ok = setKeySshAccess(db, id, !!input.enabled)
+      if (!ok) { sendJson(res, 404, { message: msg(req, 'admin.apiKeyNotFound') || 'key not found or revoked' }); return true }
+      audit('update', 'ssh_key_access', 'ok', { owner: ps.username, summary: `${id} → ${!!input.enabled}` })
+      sendJson(res, 200, { ok: true })
+      return true
     }
     if (req.method === 'PATCH' && url.pathname.match(/^\/api\/admin\/apikeys\/[^/]+\/overrides$/)) {
       const ps = requireAdmin(req, res); if (!ps) return true

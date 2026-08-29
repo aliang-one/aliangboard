@@ -5,6 +5,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import ToggleSwitch from '@/components/ssh/ToggleSwitch.vue'
 import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
@@ -19,7 +20,7 @@ const apikeys = ref([])
 const clusters = ref([])
 const loading = ref(true)
 const showMintModal = ref(false)
-const mintForm = ref({ mode: 'managed', owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' })
+const mintForm = ref({ mode: 'managed', owner: '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '', sshAccess: false })
 const mintErrors = ref({}) // 必填校验行内提示:字段名 → 是否缺(owner 服务端兜底当前用户,非必填)
 const newKey = ref(null) // 签发成功后展示明文(仅此次)
 
@@ -149,13 +150,17 @@ async function doMint() {
     const res = await adminApi.apikeys.create(payload)
     newKey.value = res.apikey
     showMintModal.value = false
-    mintForm.value = { mode: 'managed', owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '' }
+    mintForm.value = { mode: 'managed', owner: auth.user?.username || '', clusterId: '', boundSA_namespace: '', boundSA_name: '', tier: 'read', label: '', sshAccess: false }
     mintOverrides.value = { allow: [], deny: [] }
     mintExtraNs.value = []
     mintErrors.value = {}
     notify('success', t('admin.apiKeys.minted'))
     load()
   } catch (e) { notify('error', e.message || t('admin.apiKeys.mintFailed')) }
+}
+async function toggleSshAccess(row, enabled) {
+  try { await adminApi.apikeys.setSshAccess(row.id, enabled); row.sshAccess = enabled ? 1 : 0; notify('success', t('common.saved')) }
+  catch (e) { notify('error', e.message || t('admin.apiKeys.mintFailed')); row.sshAccess = enabled ? 0 : 1 }
 }
 async function copyPlaintext() {
   try { await navigator.clipboard.writeText(newKey.value.plaintext); notify('success', t('common.copySuccess')) }
@@ -196,6 +201,12 @@ async function doRevoke(k) {
           <span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span>
           <span v-if="row.saManaged" class="px-xs rounded-full text-[10px] leading-4 border border-outline-variant text-on-surface-variant">{{ $t('admin.apiKeys.managedBadge') }}</span>
           <button v-if="needsRepair(row)" data-testid="sa-repair" class="text-body-xs text-primary underline underline-offset-2" @click="repairSa(row)">{{ row.saManaged ? $t('admin.apiKeys.repair') : $t('admin.apiKeys.repairTakeover') }}</button>
+          <span class="flex items-center gap-xs" data-testid="ssh-access-cell">
+            <span class="text-[10px] leading-4 text-on-surface-variant/70">SSH</span>
+            <ToggleSwitch :checked="!!row.sshAccess" data-testid="ssh-access-switch"
+              :title="row.sshAccess ? $t('admin.apiKeys.sshAccessOn') : $t('admin.apiKeys.sshAccessOff')"
+              @update:checked="v => toggleSshAccess(row, v)" />
+          </span>
         </div>
       </template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
@@ -217,6 +228,11 @@ async function doRevoke(k) {
         <div class="grid grid-cols-2 gap-sm">
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.owner') }}</label><input v-model="mintForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="alice" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.labelOptional') }}</label><input v-model="mintForm.label" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="debug-laptop" /></div>
+          <div class="flex items-center gap-sm pt-xs" data-testid="mint-ssh-access">
+            <ToggleSwitch :checked="mintForm.sshAccess" @update:checked="v => mintForm.sshAccess = v" :title="$t('admin.apiKeys.sshAccessTitle')" />
+            <div><span class="text-body-sm">{{ $t('admin.apiKeys.sshAccess') }}</span>
+              <p class="text-body-xs text-on-surface-variant">{{ $t('admin.apiKeys.sshAccessHint') }}</p></div>
+          </div>
         </div>
         <div class="flex gap-xs mb-sm">
           <button type="button" data-testid="mint-mode-managed" :class="['px-md py-xs rounded-full text-body-xs border transition-colors', mintForm.mode==='managed' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='managed'">{{ $t('admin.apiKeys.modeManaged') }}</button>

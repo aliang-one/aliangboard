@@ -30,8 +30,12 @@ export function tierTools(tier) {
 
 // 运行时有效工具集:lenient。损坏/缺 override → 回退 tier(fail-open 到 tier,不锁死 key)。
 // keyRow.tool_overrides 来自 DB(TEXT 串)或内存对象,两者都兼容。
+// per-key SSH 服务器访问(2026-08-29,开源从简:布尔授予):授予即并入 MCP 面三个只读/受限工具。
+// 注意:write_server_notes 不对 key 开放(台账写仅工作台 AI,带人审)。可见性仍由服务器 exposeToAi 双重把关。
+export const SSH_KEY_TOOLS = ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file']
 export function effectiveTools(keyRow) {
   const set = new Set(tierTools(keyRow?.tier))
+  if (keyRow?.sshAccess) for (const t of SSH_KEY_TOOLS) set.add(t)
   const raw = keyRow?.tool_overrides
   if (!raw) return set
   let ov

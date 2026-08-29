@@ -3007,7 +3007,12 @@
       "noClustersHint": "No clusters available — add one in Cluster Management first",
       "revokeConfirm": "Revoke API key {prefix}… (owner={owner})? The key becomes invalid immediately.",
       "revoked": "Revoked",
-      "revokeFailed": "Failed to revoke"
+      "revokeFailed": "Failed to revoke",
+      "sshAccess": "SSH server access",
+      "sshAccessTitle": "Grant this key the ability to call SSH tools via MCP (server visibility still gated by per-server \"expose to AI\")",
+      "sshAccessHint": "Once granted, external AI clients can reach exposed servers via MCP; read-only/limited commands follow each server approval policy",
+      "sshAccessOn": "SSH granted (click to revoke)",
+      "sshAccessOff": "SSH not granted (click to grant)"
     },
     "users": {
       "title": "User Management",

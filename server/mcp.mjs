@@ -3,7 +3,9 @@
 // 鉴权:Authorization: Bearer <apikey>——key 决定 cluster + SA + tier;endpoint /mcp 不含 cluster(eng-review 4A:同进程独立路由)。
 import { resolveApiKey } from './api-key-tools.mjs'
 import { checkRate } from './rate-limit.mjs'
-import { effectiveTools } from './authorize.mjs'
+import { effectiveTools, SSH_KEY_TOOLS } from './authorize.mjs'
+import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
+import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { registry } from './tool-registry.mjs'
 
 // 支持的协议版本(按新→旧;最后一个是「自己最新」)。我们只实现 initialize/ping/tools 的
@@ -47,12 +49,33 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
   if (method === 'tools/list') {
     const allowed = effectiveTools(keyRow)
     const tools = apiKeyTools.listTools().filter(t => allowed.has(t)).map(t => ({ name: t, ...TOOL_META[t] }))
+    if (keyRow?.sshAccess) for (const n of SSH_KEY_TOOLS) if (allowed.has(n) && TOOL_META[n]) tools.push({ name: n, ...TOOL_META[n] })
     return ok(id, { tools })
   }
 
   if (method === 'tools/call') {
     const name = params?.name
     if (!cluster) return ok(id, { isError: true, content: [{ type: 'text', text: '集群不存在(API key 绑定的集群已删除?)' }] })
+    // per-key SSH 工具:不走 K8s callTool,走 ssh 桥(keyMode 策略闸内建);审计 reserve/finalize
+    if (SSH_KEY_TOOLS.includes(name)) {
+      if (!effectiveTools(keyRow).has(name)) return err(id, -32603, 'PERMISSION_DENIED(policy): 该 key 未授予 SSH 服务器访问')
+      const bridge = sshBridgeFor(keyRow)
+      const args = params?.arguments || {}
+      const intent = { owner: keyRow.owner || keyRow.prefix || 'key', clusterId: keyRow.clusterId || null,
+        verb: name === 'wb_ssh_exec' ? 'write' : 'read', resource: args?.server ? `SshServer/${args.server}` : 'SshLedger',
+        tool: name, source: 'mcp', requestSummary: JSON.stringify(args).slice(0, 120) }
+      reserveAudit(db, intent)
+      try {
+        const out = name === 'read_server_ledger' ? bridge.readLedger(args)
+          : name === 'wb_ssh_read_file' ? await bridge.readFile(args)
+          : await bridge.exec(args)
+        finalizeAudit(db, intent, out?.error ? { result: 'error', reason: String(out.error?.message || out.error).slice(0, 80) } : { result: 'ok' })
+        return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
+      } catch (e) {
+        finalizeAudit(db, intent, { result: 'error', reason: String(e?.message || e).slice(0, 80) })
+        return ok(id, { isError: true, content: [{ type: 'text', text: describeThrow(e) }] })
+      }
+    }
     try {
       const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {}, 'mcp')
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
@@ -66,7 +89,18 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools }) {
 }
 
 // HTTP 包装:鉴权 + 解析 body + 派发 handleMcpMessage + 写响应(stateless Streamable HTTP)。
-export function createMcpServer({ db, apiKeyTools }) {
+export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting = () => '', setSetting = () => {} }) {
+  // key 主体 SSH 桥(2026-08-29 per-key sshAccess):keyMode 策略闸在桥内(always→拒 exec,
+  // readonly→仅只读命令,none→放行;台账写恒拒)。每 key 一个懒建桥,actor 记 key 前缀。
+  const sshBridges = new Map()
+  function sshBridgeFor(keyRow) {
+    const id = keyRow.id || keyRow.prefix
+    if (!sshBridges.has(id)) sshBridges.set(id, createSshAgentBridge({
+      db, key: cryptKey, pool: sshPool, projectId: '__key__', actor: keyRow.prefix || keyRow.owner || 'key',
+      getSetting, setSetting, keyMode: true,
+    }))
+    return sshBridges.get(id)
+  }
   async function readBody(req) { const chunks = []; for await (const c of req) chunks.push(c); const b = Buffer.concat(chunks).toString('utf8'); return b ? JSON.parse(b) : {} }
   function write(res, obj, status = 200, headers = {}) { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(obj)) }
 

@@ -541,7 +541,7 @@ const WB_EXEC_STREAM_MAX = 262144 // 256KB 流式缓冲(最终 stdout 仍截 32K
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
 const clusterProber = createClusterProber({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
-const mcpHandler = createMcpServer({ db, apiKeyTools })
+const mcpHandler = createMcpServer({ db, apiKeyTools, cryptKey: sshCryptKey, sshPool, getSetting, setSetting })
 
 
 // 工作台:台账 bootstrap(survey 集群 → 事实型 INDEX.md)。/ledger/bootstrap 端点 + agent bootstrap_ledger 工具共用。
