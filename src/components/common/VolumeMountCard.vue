@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import CreatePvcDialog from '@/components/common/CreatePvcDialog.vue'
-import { normalizeMountPath, projectMountFiles } from '@/logic/volumeMountValidation'
+import { normalizeMountPath, projectMountFiles, ISSUE_KEYS } from '@/logic/volumeMountValidation'
 
 const { t } = useI18n()
 
@@ -59,7 +59,7 @@ if (entry.value.defaultMode == null) entry.value.defaultMode = ''
 
 // —— 即时错误态(spec §5)——
 const issuesFor = f => props.issues.filter(i => i.field === f || String(i.field).startsWith(f + ':'))
-const issueMsg = i => t('component.volumeMount.issue.' + i.code, i.params || {})
+const issueMsg = i => t(ISSUE_KEYS[i.code] || i.code, i.params || {})
 const fldErr = f => issuesFor(f).some(i => i.level === 'error')
 const fldWarn = f => !fldErr(f) && issuesFor(f).some(i => i.level === 'warn')
 // 追加到 fld 之后的错误态类(! 前缀压过 border-outline-variant)
@@ -87,8 +87,11 @@ const selectedRow = computed(() => {
   const name = isSecret ? entry.value.secretName : entry.value.cmName
   return (list || []).find(r => r.name === name && r.namespace === props.namespace)
 })
-// 键全集 = data ∪ binaryData(binaryData 无 Task 1 透传时自然为空)
-const selectedKeys = computed(() => [...new Set([...Object.keys(selectedRow.value?.data || {}), ...(selectedRow.value?.binaryKeys || [])])])
+// 键全集 = data ∪ binaryData(binaryData 无 Task 1 透传时自然为空)。
+// 资源行未找到 → null(键「未加载」):projectMountFiles 按未加载处理,绝不把所有 items 判 keyMissing。
+const selectedKeys = computed(() => selectedRow.value
+  ? [...new Set([...Object.keys(selectedRow.value.data || {}), ...(selectedRow.value.binaryKeys || [])])]
+  : null)
 // 落点投影(items 区与预览共用)
 const projection = computed(() => projectMountFiles(entry.value, showItems.value ? selectedKeys.value : null))
 function onItemKey(it) { if (!it.path) it.path = it.key }
@@ -188,7 +191,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
         </div>
         <p v-for="(i, ii) in rowIssues(idx)" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
-      <p v-if="(entry.cmName || entry.secretName) && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.noKeysHint') }}</p>
+      <p v-if="(entry.cmName || entry.secretName) && selectedKeys && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.noKeysHint') }}</p>
       <div class="grid grid-cols-[1fr_auto] gap-xs items-end">
         <div>
           <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.defaultMode') }}</label>

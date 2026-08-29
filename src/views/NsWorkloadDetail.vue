@@ -20,7 +20,7 @@ import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
-import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
+import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -915,30 +915,10 @@ const containerTargets = computed(() => {
 // 挂载单源审计(与创建面同一套;namespace 取路由参数)
 const mountCtx = computed(() => buildMountCtx({
   validTargets: containerTargets.value.map(x => x.value),
-  configMaps: _cmQ2.data.value || [], secrets: _secQ2.data.value || [], pvcs: _pvcQ.data.value || [],
+  configMaps: _cmQ2.data.value ?? null, secrets: _secQ2.data.value ?? null, pvcs: _pvcQ.data.value ?? null,
   namespace: route.params.namespace,
 }))
 const mountAudit = computed(() => validateVolumeMounts(editForm.value.volumeMounts || [], mountCtx.value))
-// 编辑面 code → workload.validation.* 映射({name} 参数);sourceRequired 保留 per-type 旧文案。
-// 全量字面量(非拼接):i18n:check 静态扫描对象里的点分字面量,拼接前缀会被判 dangling。
-const EDIT_SOURCE_KEY = { pvc: 'workload.validation.volumeMissingPvc', hostPath: 'workload.validation.volumeMissingHostPath', nfs: 'workload.validation.volumeMissingNfs', configMap: 'workload.validation.volumeMissingConfigMap', secret: 'workload.validation.volumeMissingSecret' }
-const EDIT_MOUNT_KEYS = {
-  mountPathRoot: 'workload.validation.volumeMountPathRoot',
-  systemPathRuntime: 'workload.validation.volumeSystemPathRuntime',
-  systemPathEtc: 'workload.validation.volumeSystemPathEtc',
-  systemPathSaToken: 'workload.validation.volumeSystemPathSaToken',
-  itemPathInvalid: 'workload.validation.volumeItemPathInvalid',
-  itemKeyMissing: 'workload.validation.volumeItemKeyMissing',
-  sourceNotFound: 'workload.validation.volumeSourceNotFound',
-  subPathInvalid: 'workload.validation.volumeSubPathInvalid',
-  subPathNotInVolume: 'workload.validation.volumeSubPathNotInVolume',
-  nfsPathInvalid: 'workload.validation.volumeNfsPathInvalid',
-  hostPathSensitive: 'workload.validation.volumeHostPathSensitive',
-  defaultModeInvalid: 'workload.validation.volumeDefaultModeInvalid',
-  mountPathDuplicate: 'workload.validation.volumeMountPathDuplicate',
-  volumeNameDuplicate: 'workload.validation.volumeNameDuplicate',
-  orphanMount: 'workload.validation.volumeOrphanMount',
-}
 const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const _cmQ2 = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
 const _secQ2 = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })

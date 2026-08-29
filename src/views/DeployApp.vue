@@ -333,7 +333,7 @@ const containerTargets = computed(() => {
 // 挂载单源审计:门禁(step2)/部署校验/卡片即时态共用同一份结论(spec §3)
 const mountCtx = computed(() => buildMountCtx({
   validTargets: containerTargets.value.map(x => x.value),
-  configMaps: _cmQ.data.value || [], secrets: _secQ.data.value || [], pvcs: _pvcQ.data.value || [],
+  configMaps: _cmQ.data.value ?? null, secrets: _secQ.data.value ?? null, pvcs: _pvcQ.data.value ?? null,
   namespace: form.value.namespace,
 }))
 const mountAudit = computed(() => validateVolumeMounts(form.value.volumeMounts, mountCtx.value))

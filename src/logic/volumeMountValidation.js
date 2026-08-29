@@ -28,18 +28,22 @@ export function normalizeMountPath(p) {
 
 // 视图侧把 Vue Query 行数组喂进来:namespace 过滤 + data∪binaryData 键集合并。
 // namespace 为空 → 名单/键集为 null(存在性/键集规则跳过,绝不误报)。
+// configMaps/secrets/pvcs 传 null 表示「列表从未加载成功」,该类型的键映射与已知名单为 null,
+// 存在性/键集规则跳过不判;空数组 = 已加载但为空(存在性规则正当触发)。
 export function buildMountCtx({ validTargets = [], configMaps = [], secrets = [], pvcs = [], namespace = '' } = {}) {
   if (!namespace) return { validTargets, cmKeys: null, secretKeys: null, knownCmNames: null, knownSecretNames: null, knownPvcNames: null }
-  const inNs = rows => (rows || []).filter(r => r.namespace === namespace)
+  const inNs = rows => rows == null ? null : rows.filter(r => r.namespace === namespace)
   const cmRows = inNs(configMaps), secRows = inNs(secrets)
   const keysOf = r => [...new Set([...Object.keys(r.data || {}), ...(r.binaryKeys || [])])]
+  const keysMap = rows => rows == null ? null : new Map(rows.map(r => [r.name, keysOf(r)]))
+  const names = rows => rows == null ? null : new Set(rows.map(r => r.name))
   return {
     validTargets,
-    cmKeys: new Map(cmRows.map(r => [r.name, keysOf(r)])),
-    secretKeys: new Map(secRows.map(r => [r.name, keysOf(r)])),
-    knownCmNames: new Set(cmRows.map(r => r.name)),
-    knownSecretNames: new Set(secRows.map(r => r.name)),
-    knownPvcNames: new Set(inNs(pvcs).map(r => r.name)),
+    cmKeys: keysMap(cmRows),
+    secretKeys: keysMap(secRows),
+    knownCmNames: names(cmRows),
+    knownSecretNames: names(secRows),
+    knownPvcNames: names(inNs(pvcs)),
   }
 }
 
@@ -169,7 +173,8 @@ export function validateVolumeMounts(entries, ctx = {}) {
   // 16:孤儿 mount —— mountPath 会进 volumeMounts 但来源字段空(卷定义被生成端丢弃 → 非法 YAML)
   list.forEach((e, i) => {
     const src = SOURCE_FIELD[e.type]
-    if (mp(e) && src && !e[src]) cross.push({ code: 'orphanMount', level: 'error', entries: [i], field: 'source' })
+    // byEntry[i] 已有 sourceRequired(同一缺陷单卡已报)时不再追加孤儿 cross 副本
+    if (mp(e) && src && !e[src] && !byEntry[i].some(x => x.code === 'sourceRequired')) cross.push({ code: 'orphanMount', level: 'error', entries: [i], field: 'source' })
   })
 
   for (const c of cross) for (const i of c.entries) byEntry[i].push(c)
@@ -218,6 +223,62 @@ export const MOUNT_GATE_KEYS = {
   orphanMount: 'deploy.volumeOrphanMount',
 }
 export const ERROR_CODES = Object.keys(MOUNT_GATE_KEYS)
+
+// 编辑面 code → workload.validation.* 映射({name} 参数);sourceRequired 保留 per-type 旧文案(EDIT_SOURCE_KEY)。
+// 全量字面量(非拼接):i18n:check 静态扫描对象里的点分字面量,拼接前缀会被判 dangling。
+export const EDIT_SOURCE_KEY = { pvc: 'workload.validation.volumeMissingPvc', hostPath: 'workload.validation.volumeMissingHostPath', nfs: 'workload.validation.volumeMissingNfs', configMap: 'workload.validation.volumeMissingConfigMap', secret: 'workload.validation.volumeMissingSecret' }
+export const EDIT_MOUNT_KEYS = {
+  sourceRequired: 'workload.validation.volumeMissingMountPath',
+  mountPathRequired: 'workload.validation.volumeMissingMountPath',
+  targetInvalid: 'workload.validation.volumeTargetInvalid',
+  itemsIncomplete: 'workload.validation.volumeItemsIncomplete',
+  mountPathRoot: 'workload.validation.volumeMountPathRoot',
+  systemPathRuntime: 'workload.validation.volumeSystemPathRuntime',
+  systemPathEtc: 'workload.validation.volumeSystemPathEtc',
+  systemPathSaToken: 'workload.validation.volumeSystemPathSaToken',
+  itemPathInvalid: 'workload.validation.volumeItemPathInvalid',
+  itemKeyMissing: 'workload.validation.volumeItemKeyMissing',
+  sourceNotFound: 'workload.validation.volumeSourceNotFound',
+  subPathInvalid: 'workload.validation.volumeSubPathInvalid',
+  subPathNotInVolume: 'workload.validation.volumeSubPathNotInVolume',
+  nfsPathInvalid: 'workload.validation.volumeNfsPathInvalid',
+  hostPathSensitive: 'workload.validation.volumeHostPathSensitive',
+  defaultModeInvalid: 'workload.validation.volumeDefaultModeInvalid',
+  mountPathDuplicate: 'workload.validation.volumeMountPathDuplicate',
+  volumeNameDuplicate: 'workload.validation.volumeNameDuplicate',
+  orphanMount: 'workload.validation.volumeOrphanMount',
+}
+
+// 卡片内联 issue 文案 key(code → i18n 字面量映射;点分字面量会被 i18n:check 静态校验)
+export const ISSUE_KEYS = {
+  sourceRequired: 'component.volumeMount.issue.sourceRequired',
+  itemsIncomplete: 'component.volumeMount.issue.itemsIncomplete',
+  mountPathRequired: 'component.volumeMount.issue.mountPathRequired',
+  mountPathNormalized: 'component.volumeMount.issue.mountPathNormalized',
+  mountPathRoot: 'component.volumeMount.issue.mountPathRoot',
+  mountPathBackslash: 'component.volumeMount.issue.mountPathBackslash',
+  systemPathRuntime: 'component.volumeMount.issue.systemPathRuntime',
+  systemPathEtc: 'component.volumeMount.issue.systemPathEtc',
+  systemPathSaToken: 'component.volumeMount.issue.systemPathSaToken',
+  systemPathShadow: 'component.volumeMount.issue.systemPathShadow',
+  itemPathInvalid: 'component.volumeMount.issue.itemPathInvalid',
+  itemPathDuplicate: 'component.volumeMount.issue.itemPathDuplicate',
+  itemKeyMissing: 'component.volumeMount.issue.itemKeyMissing',
+  sourceNotFound: 'component.volumeMount.issue.sourceNotFound',
+  subPathInvalid: 'component.volumeMount.issue.subPathInvalid',
+  subPathNotInVolume: 'component.volumeMount.issue.subPathNotInVolume',
+  subPathSingleFileNote: 'component.volumeMount.issue.subPathSingleFileNote',
+  nfsPathRoot: 'component.volumeMount.issue.nfsPathRoot',
+  nfsPathInvalid: 'component.volumeMount.issue.nfsPathInvalid',
+  hostPathSensitive: 'component.volumeMount.issue.hostPathSensitive',
+  readOnlySuggested: 'component.volumeMount.issue.readOnlySuggested',
+  defaultModeInvalid: 'component.volumeMount.issue.defaultModeInvalid',
+  defaultModePermissive: 'component.volumeMount.issue.defaultModePermissive',
+  itemsHideRest: 'component.volumeMount.issue.itemsHideRest',
+  mountPathDuplicate: 'component.volumeMount.issue.mountPathDuplicate',
+  mountPathNested: 'component.volumeMount.issue.mountPathNested',
+  volumeNameDuplicate: 'component.volumeMount.issue.volumeNameDuplicate',
+}
 export function firstVolumeMountError(volumeMounts, validTargets, keyMap = MOUNT_GATE_KEYS) {
   const first = firstError(validateVolumeMounts(volumeMounts, { validTargets }))
   if (!first) return null

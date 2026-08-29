@@ -163,11 +163,17 @@ test('validateVolumeMounts: 同容器 mountPath 相等 error / 父子嵌套 warn
   expect(apart.cross).toEqual([])
 })
 
-test('validateVolumeMounts: 卷名重复 error;孤儿 mount(mountPath 有而来源空)error', () => {
+test('validateVolumeMounts: 卷名重复 error;来源空时 sourceRequired 已单卡报、不再追加孤儿 cross 副本', () => {
   const nameDup = validateVolumeMounts([{ ...base }, { ...base, mountPath: '/x2', pvcName: 'p2' }], { validTargets: ['main'] })
   expect(nameDup.cross.find(c => c.code === 'volumeNameDuplicate').entries).toEqual([0, 1])
+  // 形态 1:mountPath 有 + 来源空 → byEntry 只有 validateEntry 的 sourceRequired,无 orphanMount cross 副本
   const orphan = validateVolumeMounts([{ ...base, pvcName: '' }], { validTargets: ['main'] })
-  expect(orphan.cross.map(c => c.code)).toContain('orphanMount')
+  expect(codes(orphan.byEntry[0])).toContain('sourceRequired')
+  expect(codes(orphan.byEntry[0])).not.toContain('orphanMount')
+  // 形态 2:mountPath 也空 → 同样只有 sourceRequired,无 cross
+  const noMp = validateVolumeMounts([{ ...base, pvcName: '', mountPath: '' }], { validTargets: ['main'] })
+  expect(codes(noMp.byEntry[0])).toContain('sourceRequired')
+  expect(noMp.cross).toEqual([])
 })
 
 test('firstError: 取首个 error 级;warn/hint 跳过', () => {
@@ -250,19 +256,20 @@ test('toVolumeDefYaml: 与现 DeployApp 手拼输出逐字等价;hostPathType/de
   expect(toVolumeDefYaml(e({ type: 'configMap', cmName: '' }))).toBe(null)
 })
 
-// —— Task 9: 门禁映射完备性 ——
-test('门禁映射表:MOUNT_GATE_KEYS 覆盖全部 error 级 code(GATE_KEY ∪ 新键)', async () => {
-  const { ERROR_CODES, MOUNT_GATE_KEYS } = await import('@/logic/volumeMountValidation')
-  for (const c of ERROR_CODES) expect(MOUNT_GATE_KEYS[c], `missing gate key for ${c}`).toBeTruthy()
-})
-
-// —— Task 10: 编辑面映射纪律(EDIT_MOUNT_KEYS 同构 MOUNT_GATE_KEYS) ——
-test('编辑面映射表:EDIT_MOUNT_KEYS 同样覆盖全部 error 级 code', async () => {
-  const { ERROR_CODES, MOUNT_GATE_KEYS } = await import('@/logic/volumeMountValidation')
-  // 编辑面 key 与门禁 key 同构:deploy.volumeXxx ↔ workload.validation.volumeXxx
-  for (const [code, deployKey] of Object.entries(MOUNT_GATE_KEYS)) {
-    const suffix = deployKey.replace('deploy.volume', '')
-    expect(code, `edit-face key for ${code}`).toBeTruthy()
-    expect(suffix).toBeTruthy()
+// —— 映射完备性(门禁/编辑面/卡片内联三张表 + zh/en 双语存在)——
+test('映射完备性:全部 error code 在两张映射表中,且全部 issue/gate/edit 键在 zh/en 均存在', async () => {
+  const { MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, ISSUE_KEYS } = await import('@/logic/volumeMountValidation')
+  const zh = (await import('@/locales/zh.json')).default
+  const en = (await import('@/locales/en.json')).default
+  const has = (obj, key) => key.split('.').reduce((o, k) => o?.[k], obj) !== undefined
+  const ERROR_LIST = ['sourceRequired', 'mountPathRequired', 'mountPathRoot', 'systemPathRuntime', 'systemPathEtc', 'systemPathSaToken', 'itemPathInvalid', 'itemKeyMissing', 'sourceNotFound', 'subPathInvalid', 'subPathNotInVolume', 'nfsPathInvalid', 'hostPathSensitive', 'defaultModeInvalid', 'itemsIncomplete', 'targetInvalid', 'mountPathDuplicate', 'volumeNameDuplicate', 'orphanMount']
+  for (const c of ERROR_LIST) {
+    expect(MOUNT_GATE_KEYS[c], `gate key missing for ${c}`).toBeTruthy()
+    expect(EDIT_MOUNT_KEYS[c], `edit key missing for ${c}`).toBeTruthy()
   }
+  for (const m of [MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, ISSUE_KEYS])
+    for (const k of Object.values(m)) {
+      expect(has(zh, k), `zh missing ${k}`).toBe(true)
+      expect(has(en, k), `en missing ${k}`).toBe(true)
+    }
 })
