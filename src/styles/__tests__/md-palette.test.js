@@ -21,3 +21,9 @@ test('paletteVarsCss::root 注入亮色三元组,.dark 注入暗色覆盖', () =
   expect(css).toContain('.dark{--md-sys-color-surface:17 20 24;')
   expect(css).not.toContain('#006c49', '三元组化后不再有裸 hex')
 })
+
+test('亮板关键 token 的三元组值锁定(防手滑改错导致亮色视觉漂移)', () => {
+  expect(hexToRgbTriplet(MD_PALETTE.primary)).toBe('0 108 73')
+  expect(hexToRgbTriplet(MD_PALETTE.surface)).toBe('248 249 255')
+  expect(hexToRgbTriplet(DARK_PALETTE.surface)).toBe('17 20 24')
+})

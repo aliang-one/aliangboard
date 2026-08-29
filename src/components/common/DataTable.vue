@@ -95,7 +95,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
           <tr class="bg-surface-container-low border-b border-outline-variant">
             <!-- 选择(全选)系统列 -->
             <th v-if="selectable" class="px-sm py-md w-10" @click.stop>
-              <input type="checkbox" data-select-all :checked="allSelected" @change="toggleAll" class="accent-[var(--md-sys-color-primary)] cursor-pointer" />
+              <input type="checkbox" data-select-all :checked="allSelected" @change="toggleAll" class="accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
             </th>
             <!-- 展开钮占位系统列 -->
             <th v-if="expandable" class="px-sm py-md w-10"></th>
@@ -139,7 +139,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
             >
               <!-- 选择系统列(@click.stop 阻断行点击) -->
               <td v-if="selectable" class="px-sm py-md" @click.stop>
-                <input type="checkbox" data-row-select :checked="isSelected(row)" @change="toggleRow(row)" class="accent-[var(--md-sys-color-primary)] cursor-pointer" />
+                <input type="checkbox" data-row-select :checked="isSelected(row)" @change="toggleRow(row)" class="accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
               </td>
               <!-- 展开钮系统列 -->
               <td v-if="expandable" class="px-sm py-md" @click.stop>

@@ -2,6 +2,7 @@
 // ECharts 图表主题(src/lib/echarts.js、src/lib/chart-options.js)都从本文件取色。
 // 背景:历史上 var(--md-sys-color-*) 在 18 处被使用却从未定义,图表/表格颜色静默回落为黑——
 // 本模块 + main.js 的 installPaletteVars() 一并修复。修改色值只改这里。
+// 注意:CSS 变量值已是 'R G B' 三元组形态——直用方须 rgb(var(--md-sys-color-x)) 包裹,fallback 也须三元组。
 export const MD_PALETTE = {
   // Surface
   'surface': '#f8f9ff',

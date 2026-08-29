@@ -101,7 +101,7 @@ async function loadHealth() {
 }
 // 漂移三态(spec 2026-08-27):绿=ok且无漂移;黄=ok但 RBAC drift/over;红=SA 不可达。旧网关无 rbac → 退化两态。
 const camelize = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
-const dotColor = (h) => !h ? 'var(--md-sys-color-outline-variant, #9ca3af)' : !h.ok ? '#dc2626' : (h.rbac?.status && h.rbac.status !== 'ok') ? '#f59e0b' : '#10b981'
+const dotColor = (h) => !h ? 'rgb(var(--md-sys-color-outline-variant, 156 163 175))' : !h.ok ? '#dc2626' : (h.rbac?.status && h.rbac.status !== 'ok') ? '#f59e0b' : '#10b981'
 const dotTitle = (h) => {
   if (!h) return ''
   const issues = (h.rbac?.issues || []).map(i => `${t(`admin.apiKeys.drift.${camelize(i.type)}`)}${i.ns ? ` (${i.ns}${i.name ? '/' + i.name : ''})` : ''}`)
