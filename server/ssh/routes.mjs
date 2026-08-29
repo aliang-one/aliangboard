@@ -11,13 +11,13 @@ import { streamUpload, streamDownload } from '../podfile-stream.mjs'
 import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
-  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting } = deps
+  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions } = deps
 
   async function handle(req, res, url) {
     // /api/sshfile/* 先于 /api/ssh/ 前缀判定('/api/sshfile/x' 严格说并不匹配 '/api/ssh/',但先行分支杜绝任何误配/阅读歧义)
     if (url.pathname.startsWith('/api/sshfile/')) {
       const action = url.pathname.slice('/api/sshfile/'.length)
-      const ps = requirePlatform(req, res); if (!ps) return true
+      const ps = requireAdmin(req, res); if (!ps) return true   // 2026-08-29 裁决 A:SSH 使用面收敛 admin
       // upload 是原始二进制流:绝不能 readBody(整包缓冲),元信息全走查询串
       if (action === 'upload') {
         const serverId = url.searchParams.get('serverId')
@@ -43,6 +43,7 @@ export function createSshRoutes(deps) {
               return ws
             }),
           })
+          audit('write', 'ssh_sftp', 'ok', { owner: ps.username, summary: `server=${serverId} upload target=${target} bytes=${out.bytes}` })
           sendJson(res, 200, { ok: true, bytes: out.bytes, path: target })
           return true
         } catch (e) {
@@ -64,6 +65,7 @@ export function createSshRoutes(deps) {
         conn = await sshPool.acquire(serverId, ps.username)
         if (action === 'list') {
           const entries = await withSftp(conn.client, s => sftpReaddir(s, path))
+          audit('read', 'ssh_sftp', 'ok', { owner: ps.username, summary: `server=${serverId} path=${path}` })
           sendJson(res, 200, { path, entries })
           return true
         }
@@ -73,6 +75,7 @@ export function createSshRoutes(deps) {
           res.setHeader('access-control-allow-origin', process.env.CORS_ORIGIN || '*')
           res.setHeader('access-control-expose-headers', 'content-disposition')
           // openConn 契约(照 podfile):sink 为 base64 行解码器——sftp 流逐块 base64 行化喂入
+          audit('read', 'ssh_sftp', 'ok', { owner: ps.username, summary: `server=${serverId} download path=${path} bytes=${size}` })
           await streamDownload({
             statBytes: size, limitBytes: getSshfileLimitBytes(), res, filename: base,
             openConn: (sink, stderrSink) => sftpStreamSession(conn.client, s => {
@@ -196,6 +199,8 @@ export function createSshRoutes(deps) {
           if (errs.length) { sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: errs.join('; ') }) }); return true }
           const row = updateSshServer(db, cryptKey, id, patch)
           if (!row) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
+          // 凭据/host/端口轮换 → 逐出池连接(否则新终端仍复用旧凭据的连接,测试连接绿灯假确认)
+          try { evictSshServer?.(id) } catch { /* noop */ }
           audit('update', 'ssh_server', 'ok', { owner: ps.username, summary: row.name })
           sendJson(res, 200, { server: row, message: msg(req, 'ssh.updated') })
           return true
@@ -204,6 +209,9 @@ export function createSshRoutes(deps) {
           const ps = requireAdmin(req, res); if (!ps) return true
           const ok = deleteSshServer(db, id)
           if (!ok) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
+          // 删除 → 逐出池连接并关闭该服务器全部活跃终端会话
+          try { evictSshServer?.(id) } catch { /* noop */ }
+          try { closeSshServerSessions?.(id) } catch { /* noop */ }
           audit('delete', 'ssh_server', 'ok', { owner: ps.username, summary: id })
           sendJson(res, 200, { ok: true, message: msg(req, 'ssh.deleted') })
           return true

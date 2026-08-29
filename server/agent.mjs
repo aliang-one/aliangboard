@@ -125,15 +125,17 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         const isResumeTarget = resumeToolCallId && id === resumeToolCallId
 
         // 写操作且非本次 resume 目标 → checkpoint,把队列(含本条)交还客户端
-        if (await needsApproval(name, args) && !isResumeTarget) {
+        if (!isResumeTarget && await needsApproval(name, args)) {
           return { status: 'pending_approval', messages, pending: { toolCallId: id, name, args }, queue: [...queue], denied, steps }
         }
 
         queue.shift()
         resumeToolCallId = null // 该 resume 已消费(后续同队列的写工具会再次 checkpoint)
 
-        // 写工具走到这说明它是被批准的 resume 目标;被拒则记 denied 喂回 LLM
-        if (await needsApproval(name, args) && !resumeApproved) {
+        // resume 目标走「裁决快照」语义(2026-08-29 审计):用户批准恒执行、拒绝恒拒绝,
+        // 不再现场重问 needsApproval——否则挂起窗口内策略放宽会把人「拒绝」翻案成直接执行。
+        // 队列中后续写工具 isResumeTarget 已复位,回到上方正常 checkpoint 咨询。
+        if (isResumeTarget && !resumeApproved) {
           denied.push({ name, args })
           messages.push({ role: 'tool', tool_call_id: id, content: `用户拒绝了该操作(${name})` })
           onStep?.({ type: 'denied', name, args, ts: Date.now() })

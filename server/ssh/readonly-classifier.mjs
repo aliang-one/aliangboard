@@ -20,6 +20,10 @@ const ARG_DENY = new Map([
 // env 只允许 VAR=x 赋值形态(env 裸跑 = 打印环境;env <cmd> = 借白名单执行任意命令)
 const VAR_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
 
+// 危险环境变量(2026-08-29 审计):VAR=x 前缀对白名单命令无差别放行会被用于代码注入
+// (LD_PRELOAD=/tmp/evil.so cat /etc/hostname → cat 进程加载恶意 so)。命中任一 → 非只读。
+const DANGEROUS_ENV = /^(LD_PRELOAD|LD_AUDIT|LD_LIBRARY_PATH|PYTHONPATH|PYTHONSTARTUP|PATH|BASH_ENV|ENV|PERL5OPT|RUBYOPT|NODE_OPTIONS|SHELL|IFS)=/i
+
 const DANGEROUS_CHARS = /[;&`<>]|\$\(|\n/
 
 export function classifyReadonly(command) {
@@ -31,7 +35,10 @@ export function classifyReadonly(command) {
   return segs.every(seg => {
     const tokens = seg.split(/\s+/)
     let i = 0
-    while (i < tokens.length && VAR_ASSIGN.test(tokens[i])) i++                  // VAR=x 前缀
+    while (i < tokens.length && VAR_ASSIGN.test(tokens[i])) {
+      if (DANGEROUS_ENV.test(tokens[i])) return false                    // 危险 env 注入
+      i++
+    }
     const bin = (tokens[i] || '').split('/').pop()
     if (!READONLY.has(bin)) return false
     const args = tokens.slice(i + 1)

@@ -28,7 +28,12 @@ export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } =
     return s
   }
   const get = sid => map.get(sid) || null
-  function attach(sid) { const s = map.get(sid); if (!s) return null; s.browserCount++; s.lastActiveAt = now(); return s }
+  function attach(sid, userId = null) {
+    const s = map.get(sid)
+    if (!s) return null
+    if (userId && s.userId && s.userId !== userId) return null   // sid 属主校验:不得附到他人 shell(2026-08-29 审计)
+    s.browserCount++; s.lastActiveAt = now(); return s
+  }
   function detachBrowser(sid) { const s = map.get(sid); if (s) s.browserCount = Math.max(0, s.browserCount - 1) }
   function touch(sid) { const s = map.get(sid); if (s) s.lastActiveAt = now() }
   function reapIdle(onReap) {
@@ -37,6 +42,11 @@ export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } =
     }
   }
   function close(sid, onReap) { const s = map.get(sid); if (!s) return null; map.delete(sid); try { onReap?.(s) } catch {}; return s }
+  function closeByServer(serverId, onClose) {
+    for (const [sid, sess] of [...map]) {
+      if (sess.serverId === serverId) { map.delete(sid); try { onClose?.(sess) } catch { /* noop */ } }
+    }
+  }
   const count = () => map.size
-  return { ensure, get, attach, detachBrowser, touch, reapIdle, close, count }
+  return { ensure, get, attach, detachBrowser, touch, reapIdle, close, closeByServer, count }
 }

@@ -4247,7 +4247,7 @@
     "terminal": "Terminal",
     "files": "Files",
     "actions": "Actions",
-    "deleteConfirm": "Delete server \"{name}\"? Saved credentials will also be removed.",
+    "deleteConfirm": "Delete server \"{name}\"? Saved credentials, terminal sessions and ledger notes will be removed together.",
     "credOk": "Stored",
     "credMissing": "Missing",
     "credState": "Credentials",

@@ -13,7 +13,8 @@ import { reserveAudit, finalizeAudit } from './audit.mjs'
 const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'wb_exec', 'wb_ssh_exec', 'write_server_notes', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger'])
 function wbAuditIntent(audit, name, args) {
   let resource = null
-  if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`          // SSH 工具(2026-08-28):按服务器归因
+  if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
+  else if (name === 'write_server_notes') resource = `SshLedger/${args?.scope || 'unknown'}`          // SSH 工具(2026-08-28):按服务器归因
   else if (args?.kind && args?.name) resource = `${args.kind}/${args.name}`
   else if (args?.pod) resource = `Pod/${args.pod}`
   else if (args?.name) resource = args.name
@@ -52,6 +53,9 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)
+    // 未 offered 的工具拒绝执行(2026-08-29 审计):disabledTools/excludeTools 只滤 toolDefs,
+    // LLM 自拟/幻觉调用被剔除的工具名时,若此处不拦,人审门(offered 交集)也会同步跳过。
+    if (!offered.has(name)) throw new Error(`工具 ${name} 未在本次会话提供(已被禁用或未授权)`)
     if (!audit) return t.exec(ctx, args) // registry 分派:K8s→callTool(自带审计);工作台无 audit→不审计
     // workbench 路径:reserve → 执行 → finalize(成功/失败都落链)
     const intent = wbAuditIntent(audit, name, args)

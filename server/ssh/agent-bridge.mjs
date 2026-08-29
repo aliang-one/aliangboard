@@ -47,9 +47,11 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     if (r.row.aiApprovalPolicy === 'none') return false
     if (r.row.aiApprovalPolicy === 'readonly') {
       if (name === 'wb_ssh_read_file') return false
-      // sudo=true = 以 root 执行:readonly 分类器只看命令文本,不看提权位。
-      // 「cat /etc/shadow + sudo」在纯文本分类下无害,实际是 root 读取 → 一律人审(2026-08-28 审批旁路修复)。
-      if (args?.sudo === true) return true
+      // sudo 真值 = 以 root 执行:readonly 分类器只看命令文本,不看提权位。
+      // 「cat /etc/shadow + sudo」在纯文本分类下无害,实际是 root 读取 → 一律人审。
+      // 真值判断(非 ===true):LLM 传 "yes"/"1" 等也必须人审——执行侧(args?.sudo)是
+      // 真值语义,审批门若严格比较则非布尔真值绕过人审直接提权(2026-08-29 审计 Critical)。
+      if (args?.sudo) return true
       return !classifyReadonly(args?.command)
     }
     return true                                   // always
@@ -133,12 +135,24 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     } finally { try { conn.release() } catch {} }
   }
   // 台账:结构层读取时生成(服务器变化自动同步);自由层 notes 是 AI/人的可编辑区
-  function readLedger() {
-    const servers = listSshServers(db, { exposedOnly: true })
-    return {
-      count: servers.length,
-      markdown: renderServerLedger(servers, getSetting('ssh.globalNotes') || '', { exposedOnly: true }),
+  function readLedger(args) {
+    const all = listSshServers(db, { exposedOnly: true })
+    // redactHost:AI 视图不渲染 host:port/username(spec 裁决 #6——审计 2026-08-29:台账曾把登录三要素喂给 LLM)
+    const opts = { exposedOnly: true, redactHost: true }
+    const target = args?.server ? all.find(x => x.name === String(args.server).trim() || x.id === args.server) : null
+    if (args?.server && !target) return { error: `台账中无名为「${args.server}」的已暴露服务器` }
+    const list = target ? [target] : all
+    const markdown = renderServerLedger(list, getSetting('ssh.globalNotes') || '', target ? opts : opts)
+    // 预算自管:整本超 ~7KB(Agent 层 8192 硬截断)且未指定单台 → 返回目录+指引,避免「写得出读不回」
+    if (!target && markdown.length > 7000) {
+      return {
+        truncated: true,
+        servers: all.map(x => ({ name: x.name, os: x.osName || x.osId || '', status: x.status })),
+        hint: '台账全文超长被截断;请用 server 参数逐台读取(如 read_server_ledger {server:"名称"})',
+        markdown: markdown.slice(0, 6000) + '\n…(已截断)',
+      }
     }
+    return { count: list.length, markdown }
   }
   function writeNotes(args) {
     const scope = String(args?.scope || '').trim()

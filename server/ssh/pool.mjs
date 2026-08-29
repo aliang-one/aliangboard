@@ -244,5 +244,11 @@ export function createSshPool({
     conns.clear()
   }
 
-  return { acquire, testConnection, reapIdle, destroyAll }
+  // 按 serverId 逐出(凭据/host/port 轮换、服务器删除时由路由调用):杀连接+清位
+  function evictServer(serverId) {
+    const e = conns.get(serverId)
+    if (e) { try { e.client.end() } catch { /* 已断 */ }; conns.delete(serverId) }
+    pending.delete(serverId)
+  }
+  return { acquire, testConnection, reapIdle, destroyAll, evictServer }
 }

@@ -3,13 +3,14 @@
 // 的可编辑区。exposedOnly=true 供 AI 视图——未暴露服务器整个隐去(不泄露 host)。
 const line = (label, val) => `- ${label}:${val}`
 
-function serverSection(s, i) {
+function serverSection(s, i, { redactHost = false } = {}) {
   const statusText = s.status === 'ok' ? '正常' : s.status === 'fail' ? '异常' : '未测'
   const os = s.osName || (s.osId ? s.osId : 'OS 未探测')
   const policy = s.exposeToAi ? (s.aiApprovalPolicy || 'always') : '未暴露'
+  // redactHost(AI 视图,spec 裁决 #6):host/port/username 不进 LLM 上下文;人看路径(REST)不脱敏
   return [
-    `### ${s.name}（${s.host}:${s.port}）`,
-    line('用户', s.username),
+    redactHost ? `### ${s.name}` : `### ${s.name}（${s.host}:${s.port}）`,
+    ...(redactHost ? [] : [line('用户', s.username)]),
     line('OS', os),
     line('状态', statusText),
     line('暴露策略', policy),
@@ -20,7 +21,7 @@ function serverSection(s, i) {
   ].filter(Boolean).join('\n')
 }
 
-export function renderServerLedger(servers, globalNotes = '', { exposedOnly = false } = {}) {
+export function renderServerLedger(servers, globalNotes = '', { exposedOnly = false, redactHost = false } = {}) {
   const list = (Array.isArray(servers) ? servers : [])
     .filter(s => s && s.name)
     .filter(s => !exposedOnly || s.exposeToAi)
@@ -35,7 +36,7 @@ export function renderServerLedger(servers, globalNotes = '', { exposedOnly = fa
     `## 服务器（${list.length}）`,
   ]
   const body = list.length
-    ? list.map((s, i) => serverSection(s, i)).join('\n\n')
+    ? list.map((s, i) => serverSection(s, i, { redactHost })).join('\n\n')
     : '（暂无服务器）'
   return [...head, body].join('\n')
 }

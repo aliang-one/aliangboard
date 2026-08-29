@@ -4247,7 +4247,7 @@
     "terminal": "终端",
     "files": "文件",
     "actions": "操作",
-    "deleteConfirm": "确定删除服务器「{name}」?已保存的凭据将一并清除。",
+    "deleteConfirm": "确定删除服务器「{name}」?已保存的凭据、终端会话与台账备注将一并删除。",
     "credOk": "已录入",
     "credMissing": "缺凭据",
     "credState": "凭据",

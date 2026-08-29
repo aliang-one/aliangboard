@@ -1468,7 +1468,15 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
-  const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting })
+  // SSH 使用面收敛 admin(2026-08-29 裁决 A):WS/SFTP 与 CRUD 同门。WS 无 req/res 中间件,
+  // 用 platformSessions 命中的会话查 platform_users.role 判定。
+const isPlatformAdmin = username => {
+  try { return db.prepare('SELECT role FROM platform_users WHERE username=?').get(username)?.role === 'admin' } catch { return false }
+}
+const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
+  evictSshServer: id => sshPool.evictServer(id),
+  closeSshServerSessions: id => sshTerminals.closeByServer(id, sess => { try { sess.extra?.channel?.close?.() } catch { /* noop */ }; try { sess.extra?.release?.() } catch { /* noop */ } }),
+})
   if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
@@ -2091,6 +2099,10 @@ async function handleSshTerminal(ws, ps, url) {
   const rows = Math.min(Math.max(parseInt(url.searchParams.get('rows')) || 24, 5), 300)
   if (!serverId) { wsSend(ws, CH_ERROR, 'missing serverId'); return ws.close() }
   try {
+    const row = db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId)
+    if (!row) { wsSend(ws, CH_ERROR, 'SSH 服务器不存在或已被删除'); return ws.close() }
+  } catch { /* 查库失败不阻断(与旧网关兼容) */ }
+  try {
     // 已有会话(刷新重连):复用 channel,只回放+接线
     let session = sshTerminals.get(sid)
     if (!session) {
@@ -2144,7 +2156,11 @@ async function handleSshTerminal(ws, ps, url) {
         return
       }
     }
-    sshTerminals.attach(sid)
+    if (!sshTerminals.attach(sid, ps.username)) {   // sid 属主校验:他人会话不可附
+      wsSend(ws, CH_ERROR, 'session 不属于当前用户')
+      try { ws.close() } catch {}
+      return
+    }
     // 回放 → 直播:snapshot 先发、再注册进 sockets——单线程内顺序成立,无竞态
     attachSocketToSession(ws, session, {
       send: wsSend,
@@ -2167,6 +2183,11 @@ httpServer.on('upgrade', (req, socket, head) => {
     const ps = token ? platformSessions.get(token) : null
     if (!ps || Date.now() - ps.createdAt > sessionTtl) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    if (!isPlatformAdmin(ps.username)) {   // 2026-08-29 裁决 A:SSH 使用面收敛 admin
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }

@@ -36,3 +36,12 @@ test('buildSudoCommand: sudo -S -p \'\';密码走 stdin 不进 argv', () => {
   assert.ok(cmd.endsWith(`'systemctl restart nginx'`))
   assert.ok(!cmd.includes('SUDDEN_PW'))
 })
+
+test('classifyReadonly: 危险环境变量前缀注入拒绝(2026-08-29 审计)', () => {
+  for (const c of ['LD_PRELOAD=/tmp/evil.so cat /etc/hostname', 'LD_AUDIT=/x ls', 'PYTHONPATH=/x grep a b',
+    'PATH=/tmp cat x', 'BASH_ENV=/x head -1 y', 'NODE_OPTIONS=--inspect uname']) {
+    assert.equal(classifyReadonly(c), false, `应拒绝: ${c}`)
+  }
+  assert.equal(classifyReadonly('VAR=1 ls'), true)   // 良性赋值仍放行
+  assert.equal(classifyReadonly('cat /etc/hostname'), true)
+})

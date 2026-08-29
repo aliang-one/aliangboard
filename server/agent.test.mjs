@@ -350,3 +350,48 @@ test('createAgent 未注入 budgetChars → 维持 60K 缺省(既有单测兼容
   const out = await run({ history: [{ role: 'user', content: 'hi' }] })
   assert.equal(out.content, 'ok')
 })
+
+test('裁决快照:resume 拒绝后即使策略放宽(needsApproval 转 false)也不翻案(2026-08-29 审计)', async () => {
+  const calls = []
+  let policy = 'always'
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'scale', { replicas: 0 }), final('好的,已尊重拒绝')]),
+    execTool: async (n) => { calls.push(n); return 'ok' },
+    needsApproval: n => (n === 'scale' ? policy === 'always' : false),
+  }).run
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  policy = 'none'                                    // 挂起窗口内策略放宽
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: false } })
+  assert.deepEqual(calls, [], '拒绝必须恒拒绝——策略放宽不得翻案')
+  assert.equal(out.denied.length, 1)
+})
+
+test('裁决快照:resume 批准后即使策略收紧恒执行(批准不重问)', async () => {
+  const calls = []
+  let policy = 'always'
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'scale', { replicas: 3 }), final('已扩')]),
+    execTool: async (n) => { calls.push(n); return 'ok' },
+    needsApproval: n => (n === 'scale' ? policy === 'always' : false),
+  }).run
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(calls.length, 1, '批准恒执行')
+  assert.equal(out.content, '已扩')
+})
+
+test('resume 目标之后队列中的新写工具:仍走正常 checkpoint(不继承批准)', async () => {
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'scale', { replicas: 3 }), toolCall('2', 'restart', { name: 'x' }), final('done')]),
+    execTool: async () => 'ok',
+    needsApproval: n => n === 'scale' || n === 'restart',
+  }).run
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.equal(cp.pending.toolCallId, '1')
+  const out = await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: '1', approved: true } })
+  assert.equal(out.status, 'pending_approval', '第二个写工具应再次 checkpoint')
+  assert.equal(out.pending.toolCallId, '2')
+})

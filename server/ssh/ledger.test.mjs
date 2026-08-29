@@ -43,3 +43,14 @@ test('renderServerLedger:unknown 状态与未探测 OS 的占位', () => {
   assert.ok(md.includes('未测'))
   assert.ok(md.includes('OS 未探测'))
 })
+
+test('redactHost: AI 视图不渲染 host:port/username(spec 裁决 #6);人看路径不脱敏', () => {
+  const srvs = [SRV()]
+  const ai = renderServerLedger(srvs, '', { exposedOnly: true, redactHost: true })
+  assert.ok(!ai.includes('10.0.0.5'))
+  assert.ok(!ai.includes('ops'))                       // username 不进 LLM 上下文
+  assert.ok(ai.includes('### gw-1'))                   // 名称仍在
+  assert.ok(ai.includes('Ubuntu 22.04'))               // OS 仍在
+  const human = renderServerLedger(srvs, '', { exposedOnly: false })
+  assert.ok(human.includes('10.0.0.5:22') && human.includes('ops'))
+})
