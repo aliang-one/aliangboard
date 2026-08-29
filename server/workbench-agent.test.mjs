@@ -475,3 +475,22 @@ test('runConversation: budgetChars 按 llmClient.model 派生传入 runner', asy
   await agent.runConversation(conv.id, llmClient)
   assert.equal(capturedBudget, 179_200, '128k×0.7×2=179200 字符')
 })
+
+// ── 项目记忆 T2:refreshSystem 拼入 projectRecap;projectMemory=false 不拼 ──
+test('runConversation:projectRecap 拼入 refreshSystem 产物;projectMemory=false 不拼', async () => {
+  const { db, conv, capturedRunOpts, makeRunner } = setup()
+  db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('定了用 nginx ingress', conv.projectId)
+  const { createAgentRunner } = makeRunner(async () => ({ status: 'done', content: 'ok', steps: 1, messages: [], queue: [], denied: [] }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit: () => {}, busDispose: () => {} })
+  await agent.runConversation(conv.id, { chat: async () => ({}), model: 'mock-1' })
+  const sys = await capturedRunOpts().refreshSystem()
+  assert.ok(sys.includes('[Project memory'), '注入标记')
+  assert.ok(sys.includes('定了用 nginx ingress'))
+  // 开关关(platform_settings 直写 'false',与 admin setSetting 同存储)再跑一条新对话 → 不含标记
+  db.exec('CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )')
+  db.prepare("INSERT INTO platform_settings (key,value,updatedAt) VALUES ('workbench.projectMemory','false',?)").run(Date.now())
+  const conv2 = createConversation(db, { projectId: conv.projectId, system: 'sys', userMessage: 'q2' })
+  await agent.runConversation(conv2.id, { chat: async () => ({}), model: 'mock-1' })
+  const sys2 = await capturedRunOpts().refreshSystem()
+  assert.ok(!sys2.includes('[Project memory'), '关开关不注入')
+})

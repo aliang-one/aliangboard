@@ -150,6 +150,7 @@ export function createAdminRoutes(deps) {
       sendJson(res, 200, {
         additionalInstructions: cfg.additionalInstructions,
         disabledTools: cfg.disabledTools,
+        projectMemory: cfg.projectMemory, // 项目记忆开关(T2):回显让前端所见即所发
         toolCatalog: registry.workbenchTools(),
         effectivePreview: buildWorkbenchSystemPrompt(cfg),
       })
@@ -168,6 +169,8 @@ export function createAdminRoutes(deps) {
         }
         setSetting('workbench.disabledTools', JSON.stringify(v.value))
         setSetting('workbench.additionalInstructions', clampInstructions(input.additionalInstructions))
+        // 项目记忆开关(T2):布尔可选;null/undefined = 不修改(留空不改,与 apiKey 语义一致)
+        if (input.projectMemory != null) setSetting('workbench.projectMemory', input.projectMemory === false ? 'false' : 'true')
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }

@@ -17,7 +17,9 @@ export function getWorkbenchAiConfig(db) {
   } catch { disabled = [] } // 垃圾 JSON → 空
   const known = new Set(registry.workbenchTools().map(t => t.name))
   const disabledTools = [...new Set(disabled)].filter(n => known.has(n)) // 未成名静默忽略(与 toolDefsFor 同语义)
-  return { additionalInstructions: String(readSetting(db, 'workbench.additionalInstructions') || '').slice(0, MAX_INSTRUCTIONS), disabledTools }
+  // 项目记忆开关(T2,2026-08-29):仅字面 'false' 关闭,缺键/垃圾值兜底 true
+  const projectMemory = readSetting(db, 'workbench.projectMemory') !== 'false'
+  return { additionalInstructions: String(readSetting(db, 'workbench.additionalInstructions') || '').slice(0, MAX_INSTRUCTIONS), disabledTools, projectMemory }
 }
 
 // PUT 校验:必须数组且每项为已成名。失败给 detail(route 层转 i18n 400),不给整段 message。

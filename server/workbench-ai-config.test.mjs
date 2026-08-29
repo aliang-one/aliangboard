@@ -12,7 +12,7 @@ function makeDb(settings = {}) {
 }
 
 test('缺键回默认:空追加 + 空禁用名单', () => {
-  assert.deepEqual(getWorkbenchAiConfig(makeDb()), { additionalInstructions: '', disabledTools: [] })
+  assert.deepEqual(getWorkbenchAiConfig(makeDb()), { additionalInstructions: '', disabledTools: [], projectMemory: true })
 })
 
 test('disabledTools:垃圾 JSON/非数组/未成名兜底;重复去重', () => {
@@ -40,4 +40,12 @@ test('validateDisabledTools:null/合法/非数组/未成名', () => {
 test('clampInstructions:截断 4000 + 非字符串安全', () => {
   assert.equal(clampInstructions('a'.repeat(5000)).length, 4000)
   assert.equal(clampInstructions(null), '')
+})
+
+// ── 项目记忆 T2:projectMemory 开关(默认 true;写 false;垃圾值兜底 true) ──
+test('projectMemory:默认 true;"false" 读回 false;垃圾值兜底 true', () => {
+  assert.equal(getWorkbenchAiConfig(makeDb()).projectMemory, true)
+  assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'false' })).projectMemory, false)
+  assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'true' })).projectMemory, true)
+  assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'junk' })).projectMemory, true)
 })

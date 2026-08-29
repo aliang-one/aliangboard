@@ -157,7 +157,13 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
+      // 项目记忆(T2,2026-08-29):每次 run 现读开关(权限回收语义同 disabledTools);
+      // 开启时把 T1 维护的 projectRecap 拼入 system——注入格式属全局约束,勿改动字面。
+      const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
+      const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
+      const refreshSystem = async () => conv.system
+        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要]\n${projectRecap}` : '')
+        + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
       // 本轮事件累积(tool/denied + 瘦身 assistant 文本)——done 时随 assistant 消息落库,
@@ -239,7 +245,12 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-      const refreshSystem = async () => conv.system + await fetchRefContext(refs, k8sSession)
+      // 项目记忆(T2):与 run 路径同款注入
+      const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
+      const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
+      const refreshSystem = async () => conv.system
+        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要]\n${projectRecap}` : '')
+        + await fetchRefContext(refs, k8sSession)
       const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
