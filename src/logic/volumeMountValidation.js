@@ -222,3 +222,71 @@ export function projectMountFiles(entry, keys) {
   }
   return { mode: 'dir', mountPath: mp, keysLoaded, entries: (keys || []).map(k => ({ path: k, from: 'key' })) }
 }
+
+// —— 生成侧单源(spec §6.3):拼接/过滤语义只此一份 ——
+// 表单条目 → 容器 volumeMounts 元素(name/mountPath 必填,残行 null —— 与旧 mountsForTarget 逐字一致)
+export function toMountSpec(entry) {
+  if (!entry || !entry.name || !entry.mountPath) return null
+  const o = { name: entry.name, mountPath: entry.mountPath }
+  if (entry.subPath) o.subPath = entry.subPath
+  if (entry.readOnly) o.readOnly = true
+  return o
+}
+
+// 八进制字符串('0400')→ K8s defaultMode 的 int(256);非法/空 → null(不输出)。
+// 必须发 int:YAML 里裸写 0644 会被 1.1 解析成八进制、400 会被读成十进制 400(=0o620)。
+export function defaultModeToInt(m) {
+  const s = String(m ?? '')
+  return /^[0-7]{3,4}$/.test(s) ? parseInt(s, 8) : null
+}
+
+// 表单条目 → pod volumes 元素(来源缺失 null —— 与旧 volumesYaml/saveEdit 逐字一致)
+export function toVolumeDef(entry) {
+  if (!entry || !entry.name) return null
+  const items = (entry.items || []).filter(it => it.key && it.path).map(it => ({ key: it.key, path: it.path }))
+  const mode = defaultModeToInt(entry.defaultMode)
+  switch (entry.type) {
+    case 'pvc': return entry.pvcName ? { name: entry.name, persistentVolumeClaim: { claimName: entry.pvcName } } : null
+    case 'emptyDir': return { name: entry.name, emptyDir: {} }
+    case 'hostPath': return entry.hostPath
+      ? { name: entry.name, hostPath: { path: entry.hostPath, ...(entry.hostPathType ? { type: entry.hostPathType } : {}) } }
+      : null
+    case 'nfs': return entry.server ? { name: entry.name, nfs: { server: entry.server, path: entry.nfsPath || '/' } } : null
+    case 'configMap': {
+      if (!entry.cmName) return null
+      const cm = { name: entry.cmName }
+      if (items.length) cm.items = items
+      if (mode != null) cm.defaultMode = mode
+      return { name: entry.name, configMap: cm }
+    }
+    case 'secret': {
+      if (!entry.secretName) return null
+      const sec = { secretName: entry.secretName }
+      if (items.length) sec.items = items
+      if (mode != null) sec.defaultMode = mode
+      return { name: entry.name, secret: sec }
+    }
+    default: return null
+  }
+}
+
+// volumes 元素 → 手拼 YAML 行(DeployApp 预览/提交沿用既有手拼格式,6/8/10 空格缩进不变)
+export function toVolumeDefYaml(entry) {
+  const def = toVolumeDef(entry)
+  if (!def) return null
+  const head = `      - name: ${def.name}`
+  if (def.persistentVolumeClaim) return `${head}\n        persistentVolumeClaim:\n          claimName: ${def.persistentVolumeClaim.claimName}`
+  if (def.emptyDir) return `${head}\n        emptyDir: {}`
+  if (def.hostPath) {
+    let out = `${head}\n        hostPath:\n          path: ${def.hostPath.path}`
+    if (def.hostPath.type) out += `\n          type: ${def.hostPath.type}`
+    return out
+  }
+  if (def.nfs) return `${head}\n        nfs:\n          server: ${def.nfs.server}\n          path: ${def.nfs.path}`
+  const isCm = !!def.configMap
+  const src = isCm ? def.configMap : def.secret
+  let out = `${head}\n        ${isCm ? 'configMap' : 'secret'}:\n          ${isCm ? 'name' : 'secretName'}: ${isCm ? src.name : src.secretName}`
+  if (src.items?.length) out += `\n          items:\n${src.items.map(it => `          - key: ${it.key}\n            path: ${it.path}`).join('\n')}`
+  if (src.defaultMode != null) out += `\n          defaultMode: ${src.defaultMode}`
+  return out
+}

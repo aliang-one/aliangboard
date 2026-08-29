@@ -4,6 +4,7 @@
 // 键名统一 cpuRequest/cpuLimit/memoryRequest/memoryLimit(编辑面旧 cpuReq 系随本次迁移废弃)。
 import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { sanitizeImageToName } from '../utils/containerNames.js'
+import { toMountSpec } from './volumeMountValidation.js'
 
 export const PROBE_KEYS = ['liveness', 'readiness', 'startup']
 const PROBE_FIELD = { liveness: 'livenessProbe', readiness: 'readinessProbe', startup: 'startupProbe' }
@@ -111,10 +112,9 @@ export function buildSubContainerSpec(c, opts = {}) {
   return o
 }
 
-// 挂载行(两面同形状 {target,name,mountPath,subPath,readOnly})按 target 过滤 → 对象数组
+// 挂载行按 target 过滤 → 容器 volumeMounts(单源 toMountSpec,subPath/readOnly 透传,残行丢弃)
 export function mountsForTarget(volumeMounts, target) {
-  const ms = (volumeMounts || []).filter(v => v.target === target && v.name && v.mountPath)
-    .map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; if (m.readOnly) o.readOnly = true; return o })
+  const ms = (volumeMounts || []).filter(v => v.target === target).map(toMountSpec).filter(Boolean)
   return ms.length ? ms : null
 }
 

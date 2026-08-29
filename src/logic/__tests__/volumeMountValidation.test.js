@@ -1,6 +1,6 @@
 // 向导 step2 门禁纯函数:卷必须映射到容器(来源/mountPath/target 三查),堵静默丢弃洞。
 import { test, expect } from 'vitest'
-import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme, projectMountFiles } from '@/logic/volumeMountValidation'
+import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme, projectMountFiles, toMountSpec, toVolumeDef, toVolumeDefYaml, defaultModeToInt } from '@/logic/volumeMountValidation'
 
 const OK = ['main', 'init:0', 'sidecar:0']
 const base = { name: 'vol-1', target: 'main', type: 'pvc', mountPath: '/data', subPath: '', readOnly: false, pvcName: 'my-pvc', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
@@ -206,4 +206,46 @@ test('projectMountFiles: items 投影标记来源与告警(keyMissing/dup);pvc �
 test('projectMountFiles: subPath → single 模式;mountPath 归一', () => {
   expect(projectMountFiles({ type: 'configMap', mountPath: '/etc/app/', subPath: 'a.conf', items: [] }, null))
     .toEqual({ mode: 'single', mountPath: '/etc/app', keysLoaded: false, entries: [{ path: '/etc/app', from: 'subPath' }] })
+})
+
+// —— Task 5: 生成侧单源 toMountSpec / toVolumeDef / toVolumeDefYaml ——
+test('toMountSpec: 残行 null;subPath/readOnly 条件透传(与旧 mountsForTarget 逐字一致)', () => {
+  expect(toMountSpec({ name: '', mountPath: '/d' })).toBe(null)
+  expect(toMountSpec({ name: 'v', mountPath: '' })).toBe(null)
+  expect(toMountSpec({ name: 'v', mountPath: '/d', subPath: '', readOnly: false })).toEqual({ name: 'v', mountPath: '/d' })
+  expect(toMountSpec({ name: 'v', mountPath: '/d', subPath: 'a', readOnly: true })).toEqual({ name: 'v', mountPath: '/d', subPath: 'a', readOnly: true })
+})
+
+test('defaultModeToInt: 八进制串 → int;非法/空 → null', () => {
+  expect(defaultModeToInt('0400')).toBe(256)
+  expect(defaultModeToInt('0640')).toBe(416)
+  expect(defaultModeToInt('999')).toBe(null)
+  expect(defaultModeToInt('')).toBe(null)
+})
+
+test('toVolumeDef: 六类型与旧 volumesYaml/saveEdit 对象逐字一致;来源缺失 null', () => {
+  const e = o => ({ name: 'vol-1', subPath: '', readOnly: false, hostPathType: '', defaultMode: '', items: [], ...o })
+  expect(toVolumeDef(e({ type: 'pvc', pvcName: 'p' }))).toEqual({ name: 'vol-1', persistentVolumeClaim: { claimName: 'p' } })
+  expect(toVolumeDef(e({ type: 'emptyDir' }))).toEqual({ name: 'vol-1', emptyDir: {} })
+  expect(toVolumeDef(e({ type: 'hostPath', hostPath: '/h' }))).toEqual({ name: 'vol-1', hostPath: { path: '/h' } })
+  expect(toVolumeDef(e({ type: 'hostPath', hostPath: '/h', hostPathType: 'Directory' }))).toEqual({ name: 'vol-1', hostPath: { path: '/h', type: 'Directory' } })
+  expect(toVolumeDef(e({ type: 'nfs', server: 's', nfsPath: '' }))).toEqual({ name: 'vol-1', nfs: { server: 's', path: '/' } })
+  expect(toVolumeDef(e({ type: 'configMap', cmName: 'cm', items: [{ key: 'k', path: 'p' }] }))).toEqual({ name: 'vol-1', configMap: { name: 'cm', items: [{ key: 'k', path: 'p' }] } })
+  expect(toVolumeDef(e({ type: 'secret', secretName: 'sec', defaultMode: '0400' }))).toEqual({ name: 'vol-1', secret: { secretName: 'sec', defaultMode: 256 } })
+  expect(toVolumeDef(e({ type: 'pvc', pvcName: '' }))).toBe(null)
+  expect(toVolumeDef(e({ type: 'configMap', cmName: 'cm', items: [{ key: 'k', path: '' }] }))).toEqual({ name: 'vol-1', configMap: { name: 'cm' } }) // path 空行丢弃(旧 filter(it=>it.key) 语义)
+})
+
+test('toVolumeDefYaml: 与现 DeployApp 手拼输出逐字等价;hostPathType/defaultMode 仅非空追加', () => {
+  const e = o => ({ name: 'vol-1', subPath: '', readOnly: false, hostPathType: '', defaultMode: '', items: [], ...o })
+  expect(toVolumeDefYaml(e({ type: 'pvc', pvcName: 'p' }))).toBe('      - name: vol-1\n        persistentVolumeClaim:\n          claimName: p')
+  expect(toVolumeDefYaml(e({ type: 'emptyDir' }))).toBe('      - name: vol-1\n        emptyDir: {}')
+  expect(toVolumeDefYaml(e({ type: 'hostPath', hostPath: '/h' }))).toBe('      - name: vol-1\n        hostPath:\n          path: /h')
+  expect(toVolumeDefYaml(e({ type: 'hostPath', hostPath: '/h', hostPathType: 'DirectoryOrCreate' }))).toBe('      - name: vol-1\n        hostPath:\n          path: /h\n          type: DirectoryOrCreate')
+  expect(toVolumeDefYaml(e({ type: 'nfs', server: 's' }))).toBe('      - name: vol-1\n        nfs:\n          server: s\n          path: /')
+  expect(toVolumeDefYaml(e({ type: 'configMap', cmName: 'cm', items: [{ key: 'k1', path: 'p1' }, { key: 'k2', path: 'p2' }] })))
+    .toBe('      - name: vol-1\n        configMap:\n          name: cm\n          items:\n          - key: k1\n            path: p1\n          - key: k2\n            path: p2')
+  expect(toVolumeDefYaml(e({ type: 'secret', secretName: 'sec', defaultMode: '0400' })))
+    .toBe('      - name: vol-1\n        secret:\n          secretName: sec\n          defaultMode: 256')
+  expect(toVolumeDefYaml(e({ type: 'configMap', cmName: '' }))).toBe(null)
 })
