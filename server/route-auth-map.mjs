@@ -26,6 +26,10 @@ export const ROUTE_AUTH = [
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
   { method: 'PATCH', pattern: '/api/auth/me',              auth: 'platform' }, // 自助改 displayName
   { method: 'PUT',   pattern: '/api/auth/preferences',     auth: 'platform' }, // 自助偏好(language/theme)
+  { method: 'POST',   pattern: '/api/auth/change-password',     auth: 'platform' }, // 自助改密(踢其他会话)
+  { method: 'GET',    pattern: '/api/auth/sessions',            auth: 'platform' }, // 我的活跃会话
+  { method: 'DELETE', pattern: '/api/auth/sessions/others',     auth: 'platform' }, // 退出其他设备
+  { prefix: '/api/auth/sessions/', auth: 'platform' },                              // :fingerprint 吊销
   { method: 'GET',  pattern: '/api/ssh/terminal',        auth: 'platform' }, // WS 升级(ssh 终端):upgrade 时自校验平台 session,门登记为地板
   { method: 'GET',  pattern: '/api/my-clusters',        auth: 'platform' },
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },

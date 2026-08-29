@@ -98,6 +98,84 @@ export function createAuthRoutes(deps) {
       return true
     }
 
+    // POST /api/auth/change-password — 自助改密(2026-08-29 设计:验旧密 → 新密 ≥8 → 吊销其他会话)
+    if (url.pathname === '/api/auth/change-password' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const { currentPassword, newPassword } = await readBody(req)
+        const user = db.prepare('SELECT * FROM platform_users WHERE id=?').get(ps.userId)
+        const auditChange = (result, reason = null, summary = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_change_password', result, reason, requestSummary: summary, source: 'platform' })
+        if (!user || !currentPassword || !verifyPassword(String(currentPassword), user.passwordHash)) {
+          auditChange('denied', 'bad-current-password')
+          sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true
+        }
+        if (!newPassword || String(newPassword).length < 8) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
+        db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(String(newPassword)), ps.userId)
+        const currentToken = extractPlatformToken(req)
+        let revoked = 0
+        for (const [tok, s] of Array.from(platformSessions)) {
+          if (s.userId === ps.userId && tok !== currentToken) {
+            platformSessions.delete(tok)
+            try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+            revoked++
+          }
+        }
+        auditChange('ok', null, `revoked=${revoked}`)
+        sendJson(res, 200, { ok: true, revoked })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.changePasswordFailed') }); return true }
+    }
+
+    // GET /api/auth/sessions — 当前用户活跃会话(权威源=内存 Map;token 仅回 8 位指纹)
+    if (url.pathname === '/api/auth/sessions' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      const list = []
+      for (const [tok, s] of platformSessions) {
+        if (s.userId !== ps.userId) continue
+        list.push({ fingerprint: tok.slice(0, 8), ip: s.ip || null, userAgent: s.userAgent || null, createdAt: s.createdAt, lastSeenAt: s.lastSeenAt || s.createdAt, current: tok === currentToken })
+      }
+      list.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
+      sendJson(res, 200, { sessions: list })
+      return true
+    }
+
+    // DELETE /api/auth/sessions/others — 原子吊销除当前外全部(先于 :fingerprint 匹配)
+    if (url.pathname === '/api/auth/sessions/others' && req.method === 'DELETE') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      let revoked = 0
+      for (const [tok, s] of Array.from(platformSessions)) {
+        if (s.userId !== ps.userId || tok === currentToken) continue
+        platformSessions.delete(tok)
+        try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+        revoked++
+      }
+      writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `revoked=${revoked}`, source: 'platform' })
+      sendJson(res, 200, { ok: true, revoked })
+      return true
+    }
+
+    // DELETE /api/auth/sessions/:fingerprint — 按 token 前缀指纹吊销指定会话;当前会话拒吊(防自锁)。
+    // 'others' 精确分支在上面已先行返回,此处 [^/]+ 不会误吞;归属过滤(userId)保证只能吊自己的。
+    const fpMatch = url.pathname.match(/^\/api\/auth\/sessions\/([^/]+)$/)
+    if (fpMatch && req.method === 'DELETE') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const currentToken = extractPlatformToken(req)
+      const fp = fpMatch[1]
+      if (currentToken && currentToken.slice(0, 8) === fp) { sendJson(res, 400, { message: msg(req, 'auth.sessionCurrentNoRevoke') }); return true }
+      let hit = null
+      for (const [tok, s] of platformSessions) {
+        if (s.userId === ps.userId && tok.slice(0, 8) === fp) { hit = tok; break }
+      }
+      if (!hit) { sendJson(res, 404, { message: msg(req, 'auth.sessionNotFound') }); return true }
+      platformSessions.delete(hit)
+      try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(hit) } catch { /* noop */ }
+      writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `fp=${fp}`, source: 'platform' })
+      sendJson(res, 200, { ok: true })
+      return true
+    }
+
     // POST /api/auth/logout — 登出(删平台 session)
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
       const token = req.headers['x-platform-token']

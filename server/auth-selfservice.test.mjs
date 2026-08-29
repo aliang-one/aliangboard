@@ -31,7 +31,7 @@ function makeRoutes(db, over = {}) {
     db, sendJson: (_res, status, payload) => sent.push({ status, payload }),
     readBody: async () => deps._body,
     requirePlatform: (req) => (req._ps ?? db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(req.headers['x-platform-token'])),
-    platformSessions: new Map([['t-me', db.prepare('SELECT * FROM platform_sessions WHERE token=?').get('t-me')]]),
+    platformSessions: new Map(db.prepare('SELECT * FROM platform_sessions').all().map(r => [r.token, r])),
     sessions: new Map(), persistSession: () => {},
     verifyPassword: (p) => p === 'right-password',
     hashPassword: (p) => `hashed(${p})`,
@@ -116,4 +116,88 @@ test('PUT preferences:存量坏 prefs JSON 不崩,按 {} 起步', async () => {
   await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/preferences' }, {}, new URL('/api/auth/preferences', 'http://x'))
   assert.equal(sent[0].status, 200)
   assert.deepEqual(sent[0].payload.prefs, { language: 'zh' })
+})
+
+// === Task 3:改密 + 会话管理 ===
+function seedMulti(db) {
+  seed(db)
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent) VALUES ('t-other','u1','alice','user',2,'2.2.2.2','Mozilla/5.0 Chrome')").run()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('t-stranger','u2','bob','user',3)").run()
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('u2','bob','good','user',1)").run()
+  db.prepare('UPDATE platform_sessions SET lastSeenAt=100 WHERE token=?').run('t-me')
+  db.prepare('UPDATE platform_sessions SET lastSeenAt=200 WHERE token=?').run('t-other')
+}
+
+test('change-password:旧密错 → 401 + 审计 denied,密码不变', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { currentPassword: 'wrong', newPassword: 'newpassword1' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 401)
+  assert.equal(db.prepare('SELECT passwordHash FROM platform_users WHERE id=?').get('u1').passwordHash, 'good')
+  const audit = db.prepare("SELECT result FROM audit_log WHERE tool='platform_change_password'").all()
+  assert.deepEqual(audit.map(a => a.result), ['denied'])
+})
+
+test('change-password:新密 <8 → 400', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { currentPassword: 'right-password', newPassword: 'short' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 400)
+})
+
+test('change-password:成功 → 哈希更新 + 吊销其他会话(保留当前)+ 审计 ok', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent, deps } = makeRoutes(db)
+  routes._body = { currentPassword: 'right-password', newPassword: 'newpassword1' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload, { ok: true, revoked: 1 })
+  assert.equal(db.prepare('SELECT passwordHash FROM platform_users WHERE id=?').get('u1').passwordHash, 'hashed(newpassword1)')
+  assert.equal(deps.platformSessions.has('t-other'), false, '其他会话应被吊销')
+  assert.equal(deps.platformSessions.has('t-me'), true, '当前会话保留')
+  assert.equal(deps.platformSessions.has('t-stranger'), true, '别人的会话不动')
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM platform_sessions WHERE token='t-other'").get().c, 0, 'DB 同步删除')
+  const ok = db.prepare("SELECT result FROM audit_log WHERE tool='platform_change_password' AND result='ok'").get()
+  assert.ok(ok, '应写 ok 审计')
+})
+
+test('GET sessions:只列自己的,指纹为 token 前缀,current 标记正确,按 lastSeenAt 降序', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent, deps } = makeRoutes(db)
+  deps.platformSessions.get('t-me').lastSeenAt = 100
+  deps.platformSessions.get('t-other').lastSeenAt = 200
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/sessions' }, {}, new URL('/api/auth/sessions', 'http://x'))
+  const list = sent[0].payload.sessions
+  assert.equal(list.length, 2, '只列 alice 的两条')
+  assert.equal(list[0].fingerprint, 't-other'.slice(0, 8), '指纹 = token.slice(0,8)(短 token 即全文)')
+  assert.equal(list[0].current, false)
+  assert.equal(list[0].ip, '2.2.2.2')
+  assert.equal(list[1].fingerprint, 't-me')
+  assert.equal(list[1].current, true)
+  for (const s of list) assert.ok(!s.token, '绝不回传完整 token')
+})
+
+test('DELETE sessions/others:原子吊销其余全部,保留当前', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent, deps } = makeRoutes(db)
+  await routes.routes.handle({ method: 'DELETE', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/sessions/others' }, {}, new URL('/api/auth/sessions/others', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload, { ok: true, revoked: 1 })
+  assert.equal(deps.platformSessions.has('t-me'), true)
+  assert.equal(deps.platformSessions.has('t-other'), false)
+})
+
+test('DELETE sessions/:fingerprint:按 8 位指纹吊销;吊当前 400;未命中 404', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent, deps } = makeRoutes(db)
+  const fp = 't-other'.slice(0, 8)
+  await routes.routes.handle({ method: 'DELETE', headers: { 'x-platform-token': 't-me' }, url: `/api/auth/sessions/${fp}` }, {}, new URL(`/api/auth/sessions/${fp}`, 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(deps.platformSessions.has('t-other'), false)
+  await routes.routes.handle({ method: 'DELETE', headers: { 'x-platform-token': 't-me' }, url: `/api/auth/sessions/${'t-me'.slice(0, 8)}` }, {}, new URL(`/api/auth/sessions/${'t-me'.slice(0, 8)}`, 'http://x'))
+  assert.equal(sent[1].status, 400, '当前会话不可自吊(防自锁)')
+  await routes.routes.handle({ method: 'DELETE', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/sessions/deadbeef' }, {}, new URL('/api/auth/sessions/deadbeef', 'http://x'))
+  assert.equal(sent[2].status, 404)
 })

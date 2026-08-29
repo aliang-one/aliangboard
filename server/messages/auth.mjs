@@ -9,4 +9,9 @@ export const TABLE = {
   'auth.connectFailed': { zh: '连接集群失败', en: 'Failed to connect to the cluster' },
   'auth.noUpdateFields': { zh: '没有可更新的字段', en: 'No fields to update' },
   'auth.preferenceInvalid': { zh: '偏好取值非法', en: 'Invalid preference value' },
+  'auth.currentPasswordWrong': { zh: '当前密码错误', en: 'Current password is incorrect' },
+  'auth.passwordTooShort': { zh: '新密码至少 8 位', en: 'New password must be at least 8 characters' },
+  'auth.changePasswordFailed': { zh: '修改密码失败', en: 'Failed to change password' },
+  'auth.sessionNotFound': { zh: '会话不存在或已失效', en: 'Session not found or expired' },
+  'auth.sessionCurrentNoRevoke': { zh: '不能吊销当前会话', en: 'Cannot revoke the current session' },
 }
