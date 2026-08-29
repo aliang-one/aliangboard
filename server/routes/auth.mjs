@@ -3,6 +3,7 @@
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
+import { isPasswordOk } from '../password-policy.mjs'
 
 export function createAuthRoutes(deps) {
   const {
@@ -109,7 +110,7 @@ export function createAuthRoutes(deps) {
           auditChange('denied', 'bad-current-password')
           sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true
         }
-        if (!newPassword || String(newPassword).length < 8) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
+        if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
         db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(String(newPassword)), ps.userId)
         const currentToken = extractPlatformToken(req)
         let revoked = 0
