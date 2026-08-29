@@ -80,6 +80,7 @@ test('VolumeMountCard: issues 驱动红框/黄框/行内文案;头部状态灯�
   })
   const mpInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '/etc/config')
   expect(mpInput.classes().join(' ')).toContain('!border-error')
+  expect(mpInput.attributes('aria-invalid')).toBe('true') // 无障碍:错误字段标 aria-invalid
   expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.issue.mountPathRoot'))
   expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.issue.readOnlySuggested'))
   const dot = wrapper.find('[data-testid="status-dot"]')
@@ -139,6 +140,25 @@ test('VolumeMountCard: hostPath 类型显示 hostPathType 下拉(默认值可改
   w2.unmount()
 })
 
+test('VolumeMountCard: defaultMode custom 路径——非预设值显示 custom;选 custom 从空播种 0444', async () => {
+  const custom = makeEntry(); custom.type = 'configMap'; custom.cmName = 'cm'; custom.defaultMode = '0444'
+  const w1 = mount(VolumeMountCard, { props: { modelValue: custom, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const sel1 = w1.findAll('select').find(s => s.element.value === 'custom')
+  expect(sel1).toBeTruthy() // 0444 ∉ {'',0400,0640} → custom 档
+  const customInput = w1.findAll('input').find(i => i.attributes('placeholder') === '0444')
+  expect(customInput).toBeTruthy()
+  await customInput.setValue('0400')
+  expect(custom.defaultMode).toBe('0400')
+  w1.unmount()
+
+  const blank = makeEntry(); blank.type = 'secret'; blank.secretName = 's'
+  const w2 = mount(VolumeMountCard, { props: { modelValue: blank, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const sel2 = w2.findAll('select').find(s => s.element.value === '')
+  await sel2.setValue('custom')
+  expect(blank.defaultMode).toBe('0444') // 从空选 custom → 播种合法八进制
+  w2.unmount()
+})
+
 test('VolumeMountCard: 落点预览——无 items 列全部键(binaryData 键并列);items 树形标注来源与告警;subPath 单文件', () => {
   qData.cm.value = [{ name: 'cm', namespace: 'default', data: { k1: '1' }, binaryKeys: ['b.bin'] }]
 
@@ -148,6 +168,9 @@ test('VolumeMountCard: 落点预览——无 items 列全部键(binaryData 键�
   expect(prev1.text()).toContain('/etc/config')
   expect(prev1.text()).toContain('k1')
   expect(prev1.text()).toContain('b.bin')
+  // binaryData 键带 B 角标(data 键不带)
+  const badges = prev1.findAll('span').filter(s => s.text() === 'B')
+  expect(badges.length).toBe(1)
   w1.unmount()
 
   const items = makeEntry(); items.type = 'configMap'; items.cmName = 'cm'; items.mountPath = '/etc/app'

@@ -64,6 +64,7 @@ const fldErr = f => issuesFor(f).some(i => i.level === 'error')
 const fldWarn = f => !fldErr(f) && issuesFor(f).some(i => i.level === 'warn')
 // 追加到 fld 之后的错误态类(! 前缀压过 border-outline-variant)
 const issueCls = f => (fldErr(f) ? '!border-error focus:!border-error' : fldWarn(f) ? '!border-tertiary-container focus:!border-tertiary-container' : '')
+const ariaInvalid = f => (fldErr(f) ? 'true' : null)
 const issueTextCls = { error: 'text-error', warn: 'text-tertiary-container', hint: 'text-on-surface-variant/60' }
 const rowIssues = idx => props.issues.filter(i => i.field === 'itemsPath:' + idx)
 const cardLevel = computed(() => props.issues.some(i => i.level === 'error') ? 'error' : props.issues.some(i => i.level === 'warn') ? 'warn' : 'ok')
@@ -79,6 +80,8 @@ function onBlurMountPath() {
   const n = normalizeMountPath(entry.value.mountPath)
   if (n !== entry.value.mountPath) entry.value.mountPath = n
 }
+// hostPath 输入同时吃 source/hostPath 两路 issueCls,归一去重避免重复类
+const hostPathCls = computed(() => [...new Set([issueCls('source'), issueCls('hostPath')].filter(Boolean))].join(' '))
 
 // 所选 configMap/secret 的行(含 data/binaryKeys)
 const selectedRow = computed(() => {
@@ -94,6 +97,8 @@ const selectedKeys = computed(() => selectedRow.value
   : null)
 // 落点投影(items 区与预览共用)
 const projection = computed(() => projectMountFiles(entry.value, showItems.value ? selectedKeys.value : null))
+// binaryData 键集(预览 B 角标;无透传自然为空集)
+const binaryKeySet = computed(() => new Set(selectedRow.value?.binaryKeys || []))
 function onItemKey(it) { if (!it.path) it.path = it.key }
 
 const fld = 'w-full bg-surface-container-lowest border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors'
@@ -125,14 +130,14 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
     <div class="grid grid-cols-2 gap-xs">
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountToContainer') }}</label>
-        <select v-model="entry.target" :class="[fld, issueCls('target')]">
+        <select v-model="entry.target" :class="[fld, issueCls('target')]" :aria-invalid="ariaInvalid('target')">
           <option v-for="c in containers" :key="c.value" :value="c.value">{{ c.label ?? t('component.volumeMountCard.mainContainer') }}</option>
         </select>
       </div>
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.source') }}</label>
         <div v-if="entry.type === 'pvc'" class="flex gap-xs">
-          <select v-model="entry.pvcName" :class="[fld, issueCls('source')]" class="flex-1">
+          <select v-model="entry.pvcName" :class="[fld, issueCls('source')]" class="flex-1" :aria-invalid="ariaInvalid('source')">
             <option value="">{{ t('component.volumeMount.selectPvc') }}</option>
             <option v-for="p in pvcOptions" :key="p" :value="p">{{ p }}</option>
           </select>
@@ -144,21 +149,21 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
           <CreatePvcDialog v-model="showCreatePvc" :namespace="namespace" @created="onPvcCreated" />
         </div>
         <template v-else-if="entry.type === 'hostPath'">
-          <input v-model="entry.hostPath" :class="[fld, issueCls('source'), issueCls('hostPath')]" placeholder="/var/lib/data" class="mb-1" />
+          <input v-model="entry.hostPath" :class="[fld, hostPathCls]" :aria-invalid="(fldErr('source') || fldErr('hostPath')) ? 'true' : null" placeholder="/var/lib/data" class="mb-1" />
           <select v-model="entry.hostPathType" :class="fld">
             <option value="">{{ t('component.volumeMount.hostPathTypeUnset') }}</option>
             <option v-for="hpt in HOST_PATH_TYPES" :key="hpt" :value="hpt">{{ hpt }}</option>
           </select>
         </template>
         <div v-else-if="entry.type === 'nfs'" class="grid grid-cols-2 gap-xs">
-          <input v-model="entry.server" :class="[fld, issueCls('source')]" :placeholder="t('component.volumeMount.serverPlaceholder')" />
-          <input v-model="entry.nfsPath" :class="[fld, issueCls('nfsPath')]" :placeholder="t('component.volumeMount.exportPathPlaceholder')" />
+          <input v-model="entry.server" :class="[fld, issueCls('source')]" :aria-invalid="ariaInvalid('source')" :placeholder="t('component.volumeMount.serverPlaceholder')" />
+          <input v-model="entry.nfsPath" :class="[fld, issueCls('nfsPath')]" :aria-invalid="ariaInvalid('nfsPath')" :placeholder="t('component.volumeMount.exportPathPlaceholder')" />
         </div>
-        <select v-else-if="entry.type === 'configMap'" v-model="entry.cmName" :class="[fld, issueCls('source')]">
+        <select v-else-if="entry.type === 'configMap'" v-model="entry.cmName" :class="[fld, issueCls('source')]" :aria-invalid="ariaInvalid('source')">
           <option value="">{{ t('component.volumeMount.selectConfigMap') }}</option>
           <option v-for="cm in cmOptions" :key="cm" :value="cm">{{ cm }}</option>
         </select>
-        <select v-else-if="entry.type === 'secret'" v-model="entry.secretName" :class="[fld, issueCls('source')]">
+        <select v-else-if="entry.type === 'secret'" v-model="entry.secretName" :class="[fld, issueCls('source')]" :aria-invalid="ariaInvalid('source')">
           <option value="">{{ t('component.volumeMount.selectSecret') }}</option>
           <option v-for="s in secretOptions" :key="s" :value="s">{{ s }}</option>
         </select>
@@ -181,12 +186,12 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       </template>
       <div v-for="(it, idx) in entry.items" :key="idx" class="flex flex-col">
         <div class="grid grid-cols-[1fr_auto_1fr_auto] gap-xs items-center">
-          <select v-model="it.key" @change="onItemKey(it)" :class="[fld, issueCls('itemsPath:' + idx)]">
+          <select v-model="it.key" @change="onItemKey(it)" :class="[fld, issueCls('itemsPath:' + idx)]" :aria-invalid="ariaInvalid('itemsPath:' + idx)">
             <option value="">{{ t('component.volumeMount.selectKey') }}</option>
             <option v-for="k in selectedKeys" :key="k" :value="k">{{ k }}</option>
           </select>
           <span class="material-symbols-outlined text-sm text-on-surface-variant">arrow_forward</span>
-          <input v-model="it.path" :class="[fld, issueCls('itemsPath:' + idx)]" :placeholder="t('component.volumeMount.fileNamePlaceholder')" />
+          <input v-model="it.path" :class="[fld, issueCls('itemsPath:' + idx)]" :aria-invalid="ariaInvalid('itemsPath:' + idx)" :placeholder="t('component.volumeMount.fileNamePlaceholder')" />
           <button @click="entry.items.splice(idx, 1)" class="p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
         </div>
         <p v-for="(i, ii) in rowIssues(idx)" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
@@ -195,14 +200,14 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <div class="grid grid-cols-[1fr_auto] gap-xs items-end">
         <div>
           <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.defaultMode') }}</label>
-          <select v-model="defaultModeChoice" :class="[fld, issueCls('defaultMode')]">
+          <select v-model="defaultModeChoice" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')">
             <option value="">{{ t('component.volumeMount.defaultModeDefault') }}</option>
             <option value="0400">0400</option>
             <option value="0640">0640</option>
             <option value="custom">{{ t('component.volumeMount.defaultModeCustom') }}</option>
           </select>
         </div>
-        <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" class="w-20" placeholder="0444" />
+        <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="w-20" placeholder="0444" />
       </div>
       <template v-if="issuesFor('defaultMode').length">
         <p v-for="(i, ii) in issuesFor('defaultMode')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
@@ -222,11 +227,12 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
           <p v-if="!projection.entries.length && !projection.keysLoaded" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewKeysUnloaded') }}</p>
           <div v-for="(e, i) in projection.entries" :key="i" class="text-xs font-mono pl-3 flex items-center gap-1 flex-wrap">
             <span>{{ e.path }}</span>
+            <span v-if="e.from === 'key' && binaryKeySet.has(e.path)" class="text-[9px] leading-none px-1 py-px rounded bg-tertiary-container/15 text-tertiary-container font-sans" title="binaryData">B</span>
             <span v-if="e.from === 'item'" class="text-[10px] text-on-surface-variant/50">← key: {{ e.key }}</span>
             <span v-if="e.warn === 'keyMissing'" class="text-[10px] text-error">{{ t('component.volumeMount.issue.itemKeyMissing') }}</span>
             <span v-else-if="e.warn === 'dup'" class="text-[10px] text-tertiary-container">{{ t('component.volumeMount.issue.itemPathDuplicateShort') }}</span>
           </div>
-          <p v-if="!entry.items.some(it => it.key) && projection.keysLoaded && !projection.entries.length" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewWholeVolume') }}</p>
+          <p v-if="projection.keysLoaded && !projection.entries.length" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewWholeVolume') }}</p>
         </template>
       </div>
     </div>
@@ -235,12 +241,12 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
     <div class="grid grid-cols-[1fr_1fr_auto] gap-xs items-end">
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountPath') }}</label>
-        <input v-model="entry.mountPath" :class="[fld, issueCls('mountPath')]" placeholder="/etc/config" @blur="onBlurMountPath" />
+        <input v-model="entry.mountPath" :class="[fld, issueCls('mountPath')]" :aria-invalid="ariaInvalid('mountPath')" placeholder="/etc/config" @blur="onBlurMountPath" />
         <p v-for="(i, ii) in issuesFor('mountPath')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.subPathLabel') }}</label>
-        <input v-model="entry.subPath" :class="[fld, issueCls('subPath')]" :placeholder="t('component.volumeMount.subPathPlaceholder')" />
+        <input v-model="entry.subPath" :class="[fld, issueCls('subPath')]" :aria-invalid="ariaInvalid('subPath')" :placeholder="t('component.volumeMount.subPathPlaceholder')" />
         <p v-for="(i, ii) in issuesFor('subPath')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <label class="flex items-center gap-0.5 text-xs text-on-surface-variant pb-1.5 whitespace-nowrap">

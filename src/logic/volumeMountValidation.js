@@ -12,11 +12,6 @@ const SA_TOKEN_PREFIX = '/var/run/secrets'                            // SA toke
 const SHADOW_PATHS = ['/etc', '/usr', '/bin', '/sbin', '/lib', '/root', '/var/lib'] // 整目录遮蔽
 const HOSTPATH_SENSITIVE = ['/', '/etc', '/var/run', '/var/run/docker.sock', '/root', '/home', '/proc', '/sys', '/dev']
 
-// items 键映射半填:key/path 须成对;全空行忽略(与 YAML 生成 it.key 过滤的「整行空=跳过」语义一致)
-export function volumeItemsIncomplete(entry) {
-  return (entry?.items || []).some(it => (it.key || it.path) && !(it.key && it.path))
-}
-
 // mountPath 归一:trim → 折叠连续 / → 去尾 /(根除外)
 export function normalizeMountPath(p) {
   let s = String(p ?? '').trim()
@@ -93,7 +88,8 @@ export function validateEntry(entry, ctx = {}) {
   })
   if (incomplete) add('itemsIncomplete', 'items', 'error')
   if (isProjection) {
-    const used = (entry.items || []).filter(it => it.key).length
+    // 与生成端 toVolumeDef 同口径:只数 key/path 齐全的行(key-only 行会被生成端丢弃,不应计入)
+    const used = (entry.items || []).filter(it => it.key && it.path).length
     if (used && allKeys && allKeys.length > used) add('itemsHideRest', 'items', 'hint', { n: allKeys.length - used })
   }
 
@@ -197,12 +193,6 @@ const GATE_KEY = {
   targetInvalid: 'deploy.volumeTargetInvalid',
   itemsIncomplete: 'deploy.volumeItemsIncomplete',
 }
-const GATE_FALLBACK = code =>
-  code.startsWith('mountPath') || code.startsWith('subPath') || code.startsWith('systemPath') ? 'deploy.volumeMountRequired'
-    : code.startsWith('item') ? 'deploy.volumeItemsIncomplete'
-      : code === 'targetInvalid' ? 'deploy.volumeTargetInvalid'
-        : 'deploy.volumeSourceRequired'
-
 // 门禁/部署校验共用的 code → i18n key 映射(仅 error 级;warn/hint 不拦)。{n} 参数。
 export const MOUNT_GATE_KEYS = {
   ...GATE_KEY,
@@ -278,11 +268,9 @@ export const ISSUE_KEYS = {
   mountPathDuplicate: 'component.volumeMount.issue.mountPathDuplicate',
   mountPathNested: 'component.volumeMount.issue.mountPathNested',
   volumeNameDuplicate: 'component.volumeMount.issue.volumeNameDuplicate',
-}
-export function firstVolumeMountError(volumeMounts, validTargets, keyMap = MOUNT_GATE_KEYS) {
-  const first = firstError(validateVolumeMounts(volumeMounts, { validTargets }))
-  if (!first) return null
-  return { key: keyMap[first.issue.code] || GATE_FALLBACK(first.issue.code), n: first.entryIdx + 1 }
+  // 防御键:orphanMount 在源头上与 sourceRequired 互斥(见 validateVolumeMounts 规则 16 守卫),
+  // 正常不会到达卡片;映射补全以防未来守卫变动时渲染出裸 code。
+  orphanMount: 'component.volumeMount.issue.orphanMount',
 }
 
 // —— 落点投影(spec §5):卡片预览纯数据。keys 未加载传 null → dir 模式 entries 空 ——

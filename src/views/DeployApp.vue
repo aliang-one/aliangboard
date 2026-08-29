@@ -315,13 +315,15 @@ const stepBlockReason = computed(() => {
 })
 const canProceed = computed(() => !stepBlockReason.value)
 
-// Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）
+// Available ConfigMaps/Secrets for envFrom（Vue Query，store.nsXxx 在 remote 下孤立）。
+// 候选清单一律按「表单 namespace」过滤(用户可在 step0 改 ns;按 store.currentNamespace 过滤会把旧 ns
+// 资源列进下拉、随后被单源校验正当判 sourceNotFound——终审 Minor#5)。
 const _cmQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
 const _secQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
 const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
-const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === store.currentNamespace).map(c => c.name))
-// TLS Secret 候选:当前 ns + kubernetes.io/tls 类型
-const tlsSecretNames = computed(() => (_secQ.data.value || []).filter(s => s.namespace === store.currentNamespace && s.type === 'kubernetes.io/tls').map(s => s.name))
+const availableConfigMaps = computed(() => (_cmQ.data.value || []).filter(c => c.namespace === form.value.namespace).map(c => c.name))
+// TLS Secret 候选:表单 ns + kubernetes.io/tls 类型
+const tlsSecretNames = computed(() => (_secQ.data.value || []).filter(s => s.namespace === form.value.namespace && s.type === 'kubernetes.io/tls').map(s => s.name))
 // 卷挂载目标选项：主容器 + 有镜像的 init/sidecar（按原索引）
 const containerTargets = computed(() => {
   const targets = [{ value: 'main', label: t('deploy.mainContainer') }]
@@ -337,10 +339,10 @@ const mountCtx = computed(() => buildMountCtx({
   namespace: form.value.namespace,
 }))
 const mountAudit = computed(() => validateVolumeMounts(form.value.volumeMounts, mountCtx.value))
-const availableSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
-const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === store.currentNamespace).map(p => p.name))
+const availableSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === form.value.namespace).map(s => s.name))
+const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === form.value.namespace).map(p => p.name))
 const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
-const availableServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
+const availableServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === form.value.namespace).map(s => s.name))
 
 // 部署向导：targetPort 候选 = 本步骤已填的容器端口（去重），引导用户选对后端端口
 const containerPortOptions = computed(() => {

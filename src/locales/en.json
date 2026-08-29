@@ -115,7 +115,7 @@
       "readOnly": "Read-only",
       "serverPlaceholder": "server IP/hostname",
       "exportPathPlaceholder": "export path /export",
-      "fileNamePlaceholder": "filename path",
+      "fileNamePlaceholder": "Relative path, subdirs allowed (conf/app.yml)",
       "newPvc": "New",
       "hostPathTypeUnset": "Unspecified (keep current behavior)",
       "defaultMode": "File permission defaultMode",
@@ -153,7 +153,8 @@
         "itemsHideRest": "With items in effect, the other {n} keys will not appear in the mount directory",
         "mountPathDuplicate": "Conflicts with another mount's path (must be unique per container)",
         "mountPathNested": "Nests with another mount path; directory shadowing will occur",
-        "volumeNameDuplicate": "Volume name duplicates another entry; the latter's source will not take effect"
+        "volumeNameDuplicate": "Volume name duplicates another entry; the latter's source will not take effect",
+        "orphanMount": "Mount path set but source missing; this generates invalid YAML referencing a non-existent volume"
       }
     },
     "createPvc": {

@@ -1,42 +1,8 @@
-// 向导 step2 门禁纯函数:卷必须映射到容器(来源/mountPath/target 三查),堵静默丢弃洞。
+// 挂载域单源校验器:单卡 validateEntry / 跨卡 validateVolumeMounts / 投影 / 生成侧(spec §3-§6)。
 import { test, expect } from 'vitest'
-import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme, projectMountFiles, toMountSpec, toVolumeDef, toVolumeDefYaml, defaultModeToInt } from '@/logic/volumeMountValidation'
+import { normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, projectMountFiles, toMountSpec, toVolumeDef, toVolumeDefYaml, defaultModeToInt } from '@/logic/volumeMountValidation'
 
-const OK = ['main', 'init:0', 'sidecar:0']
 const base = { name: 'vol-1', target: 'main', type: 'pvc', mountPath: '/data', subPath: '', readOnly: false, pvcName: 'my-pvc', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
-
-test('全部合法 → null', () => {
-  expect(firstVolumeMountError([{ ...base }], OK)).toBe(null)
-  expect(firstVolumeMountError([{ ...base, type: 'emptyDir', mountPath: '/scratch' }], OK)).toBe(null)
-})
-
-test('来源缺失:按类型查字段,返回首坏序号', () => {
-  expect(firstVolumeMountError([{ ...base, pvcName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base, type: 'hostPath', hostPath: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base, type: 'nfs', server: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base, type: 'configMap', cmName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base, type: 'secret', secretName: '' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base }, { ...base, name: 'vol-2', pvcName: '', mountPath: '/data2' }], OK)).toEqual({ key: 'deploy.volumeSourceRequired', n: 2 })
-})
-
-test('mountPath:空或非斜杠开头 → deploy.volumeMountRequired', () => {
-  expect(firstVolumeMountError([{ ...base, mountPath: '' }], OK)).toEqual({ key: 'deploy.volumeMountRequired', n: 1 })
-  expect(firstVolumeMountError([{ ...base, mountPath: 'data' }], OK)).toEqual({ key: 'deploy.volumeMountRequired', n: 1 })
-})
-
-test('target 悬空(容器已删/无镜像)→ deploy.volumeTargetInvalid', () => {
-  expect(firstVolumeMountError([{ ...base, target: 'sidecar:9' }], OK)).toEqual({ key: 'deploy.volumeTargetInvalid', n: 1 })
-})
-
-test('items 半填:key-only/path-only → volumeItemsIncomplete;全空行忽略', () => {
-  const it = (key, path) => ({ key, path })
-  expect(volumeItemsIncomplete({ items: [it('k', '')] })).toBe(true)
-  expect(volumeItemsIncomplete({ items: [it('', 'p')] })).toBe(true)
-  expect(volumeItemsIncomplete({ items: [it('', ''), it('k', 'p')] })).toBe(false)
-  expect(volumeItemsIncomplete({})).toBe(false)
-  expect(firstVolumeMountError([{ ...base, items: [{ key: 'k', path: '' }] }], OK)).toEqual({ key: 'deploy.volumeItemsIncomplete', n: 1 })
-  expect(firstVolumeMountError([{ ...base, items: [{ key: '', path: '' }] }], OK)).toBe(null)
-})
 
 // —— normalizeMountPath ——
 test('normalizeMountPath: trim/折叠//去尾斜杠,根 / 不动', () => {
@@ -104,6 +70,10 @@ test('validateEntry: items path 非法/重复/key 不存在/隐藏其余 key', (
   expect(codes(validateEntry({ ...cm, items: [{ key: 'nope', path: 'a.yml' }] }, ENTRY_CTX))).toContain('itemKeyMissing')
   const hidden = validateEntry({ ...cm, items: [{ key: 'k1', path: 'a.yml' }] }, ENTRY_CTX)
   expect(hidden.find(i => i.code === 'itemsHideRest').params).toEqual({ n: 1 })
+  // 计数与生成端同口径:key-only 行会被生成端丢弃,不计入 used(否则 hidden 数被低估)
+  const keyOnly = validateEntry({ ...cm, items: [{ key: 'k1', path: 'a.yml' }, { key: 'k2', path: '' }] }, ENTRY_CTX)
+  expect(codes(keyOnly)).toContain('itemsIncomplete')
+  expect(keyOnly.find(i => i.code === 'itemsHideRest').params).toEqual({ n: 1 })
 })
 
 test('validateEntry: 全空 items 行忽略(与生成端一致)', () => {
@@ -183,11 +153,10 @@ test('firstError: 取首个 error 级;warn/hint 跳过', () => {
   expect(firstError(bad).issue.code).toBe('systemPathRuntime')
 })
 
-test('firstVolumeMountError: 旧 4 键默认映射不变;传 keyMap 走新键;warn/hint 不拦', () => {
-  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'])).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 }) // MOUNT_GATE_KEYS 为默认映射(Task 9 起并入 systemPathRuntime)
-  const KEYS = { systemPathRuntime: 'deploy.volumeSystemPathRuntime' }
-  expect(fvme([{ ...base, mountPath: '/proc' }], ['main'], KEYS)).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 })
-  expect(fvme([{ ...base, mountPath: '/data/' }], ['main'])).toBe(null) // hint 不拦
+test('firstVolumeMountError 已删除(零生产调用方,门禁统一走 firstError(mountAudit))', async () => {
+  const mod = await import('@/logic/volumeMountValidation')
+  expect(mod.firstVolumeMountError).toBeUndefined()
+  expect(mod.volumeItemsIncomplete).toBeUndefined()
 })
 
 // —— projectMountFiles ——
@@ -254,6 +223,14 @@ test('toVolumeDefYaml: 与现 DeployApp 手拼输出逐字等价;hostPathType/de
   expect(toVolumeDefYaml(e({ type: 'secret', secretName: 'sec', defaultMode: '0400' })))
     .toBe('      - name: vol-1\n        secret:\n          secretName: sec\n          defaultMode: 256')
   expect(toVolumeDefYaml(e({ type: 'configMap', cmName: '' }))).toBe(null)
+})
+
+test('toVolumeDefYaml: items 与 defaultMode 组合键序(name → items → defaultMode)', () => {
+  const e = o => ({ name: 'vol-1', subPath: '', readOnly: false, hostPathType: '', defaultMode: '', items: [], ...o })
+  expect(toVolumeDefYaml(e({ type: 'configMap', cmName: 'cm', defaultMode: '0640', items: [{ key: 'k1', path: 'p1' }] })))
+    .toBe('      - name: vol-1\n        configMap:\n          name: cm\n          items:\n          - key: k1\n            path: p1\n          defaultMode: 416')
+  expect(toVolumeDefYaml(e({ type: 'secret', secretName: 'sec', defaultMode: '0400', items: [{ key: 'k1', path: 'p1' }] })))
+    .toBe('      - name: vol-1\n        secret:\n          secretName: sec\n          items:\n          - key: k1\n            path: p1\n          defaultMode: 256')
 })
 
 // —— 映射完备性(门禁/编辑面/卡片内联三张表 + zh/en 双语存在)——

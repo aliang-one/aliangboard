@@ -115,7 +115,7 @@
       "readOnly": "只读",
       "serverPlaceholder": "server IP/主机",
       "exportPathPlaceholder": "导出路径 /export",
-      "fileNamePlaceholder": "文件名 path",
+      "fileNamePlaceholder": "相对路径，可含子目录 conf/app.yml",
       "newPvc": "新建",
       "hostPathTypeUnset": "不指定（沿用现状）",
       "defaultMode": "文件权限 defaultMode",
@@ -153,7 +153,8 @@
         "itemsHideRest": "items 生效后，其余 {n} 个 key 不会出现在挂载目录里",
         "mountPathDuplicate": "与另一条挂载的路径冲突（同容器内须唯一）",
         "mountPathNested": "与另一条挂载路径嵌套，存在目录遮蔽",
-        "volumeNameDuplicate": "卷名与其他条目重复，后者的来源不会生效"
+        "volumeNameDuplicate": "卷名与其他条目重复，后者的来源不会生效",
+        "orphanMount": "填了挂载路径但缺少来源，会生成引用不存在卷的非法 YAML"
       }
     },
     "createPvc": {
