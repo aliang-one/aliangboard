@@ -476,7 +476,7 @@ export function createAdminRoutes(deps) {
       const q = url.searchParams
       const out = queryAuditLog(db, {
         keyId: q.get('key') || undefined, owner: q.get('owner') || undefined, clusterId: q.get('cluster') || undefined,
-        tool: q.get('tool') || undefined, result: q.get('result') || undefined, source: q.get('source') || undefined,
+        tool: q.get('tool') || undefined, toolPrefix: q.get('toolPrefix') || undefined, result: q.get('result') || undefined, source: q.get('source') || undefined,
         since: q.get('since') || undefined, until: q.get('until') || undefined,
         page: q.get('page') || undefined, size: q.get('size') || undefined,
       })

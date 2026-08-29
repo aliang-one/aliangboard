@@ -101,7 +101,7 @@ export function activeKeys(db, { windowSec = 900, source = null } = {}) {
 
 // 分页调用流水(多过滤器可选,size 钳 1..200,ts DESC)。⚠️ 默认只列 status='finalized'(结果行);
 // 每次 call 另有一条 'started' 行(reserveAudit),不计入 → 避免每调用显示 2 行。传 status=null/'' → 不过滤(全部)。
-export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, source, since, until, page = 1, size = 50, status = 'finalized' } = {}) {
+export function queryAuditLog(db, { keyId, owner, clusterId, tool, toolPrefix, result, source, since, until, page = 1, size = 50, status = 'finalized' } = {}) {
   size = Math.min(Math.max(Number(size) || 50, 1), 200)
   page = Math.max(Number(page) || 1, 1)
   const where = []; const params = []
@@ -110,6 +110,7 @@ export function queryAuditLog(db, { keyId, owner, clusterId, tool, result, sourc
   if (owner) { where.push('owner = ?'); params.push(owner) }
   if (clusterId) { where.push('clusterId = ?'); params.push(clusterId) }
   if (tool) { where.push('tool = ?'); params.push(tool) }
+  if (toolPrefix) { where.push("tool LIKE ? || '%'"); params.push(String(toolPrefix)) }
   if (result) { where.push('result = ?'); params.push(result) }
   if (source) { where.push('source = ?'); params.push(source) }
   if (since != null) { where.push('ts >= ?'); params.push(Number(since)) }
