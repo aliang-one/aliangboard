@@ -71,3 +71,19 @@ test('genSid 非安全上下文(无 randomUUID)仍可用', () => {
     expect(w.id).toMatch(/^ssh-/)
   } finally { vi.unstubAllGlobals() }
 })
+
+test('openExternal:状态转 external 且不入浮动宿主(attachedWindows 排除);focusExternal 无弹窗 → 回最小化', () => {
+  fresh()
+  const fakeWin = { closed: false, focus: () => {} }
+  vi.spyOn(window, 'open').mockReturnValue(fakeWin)
+  try {
+    const store = useSshTerminalStore()
+    const w = store.openNew({ id: 'sv1', name: 'web' })
+    store.openExternal(w.id)
+    expect(w.status).toBe('external')
+    expect(store.attachedWindows.length).toBe(0)   // 浮动宿主不挂载(WS 随卸载断开)
+    fakeWin.closed = true                          // 模拟用户关掉弹窗标签页
+    expect(store.focusExternal(w.id)).toBe(false)  // 弹窗已关 → 回最小化
+    expect(w.status).toBe('minimized')
+  } finally { vi.restoreAllMocks() }
+})

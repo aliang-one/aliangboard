@@ -39,6 +39,9 @@ watch(() => props.window.status, (s) => {
       <span class="flex-1 text-body-sm font-medium text-on-surface truncate">
         ssh://{{ window.name }}
       </span>
+      <button @click="sshStore.openExternal(window.id)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-secondary" data-test="btnOpenExternal" :title="t('terminal.openInNewTabTitle')">
+        <span class="material-symbols-outlined text-base">open_in_new</span>
+      </button>
     </template>
     <SshTerminal ref="termRef" :server-id="window.serverId" :server-name="window.name" :sid="window.id" :auto-connect="true" />
   </FloatingWindow>

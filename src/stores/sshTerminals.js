@@ -65,11 +65,49 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const openNew = server => addWindow(server)
 
   const closeWindow = id => { windows.value = windows.value.filter(w => w.id !== id); persist() }
+
+  // —— 新标签页打开(pod terminals.openExternal 同款)——
+  // external 状态:浮动宿主(AppLayout)不再挂载该窗(其 WS 随组件卸载而断),
+  // 弹窗标签页用同一 sid 自建 WS → 网关保活会话回放续跑;弹窗关闭 → 回任务栏最小化。
+  const popupWins = new Map()
+  let pollTimer = null
+  function startPolling() {
+    if (pollTimer) return
+    pollTimer = setInterval(() => {
+      for (const [id, win] of popupWins.entries()) {
+        if (win.closed) {
+          popupWins.delete(id)
+          const w = windows.value.find(x => x.id === id)
+          if (w && w.status === 'external') w.status = 'minimized'
+        }
+      }
+      if (!popupWins.size) { clearInterval(pollTimer); pollTimer = null }
+    }, 2000)
+  }
+  function openExternal(id) {
+    const w = windows.value.find(x => x.id === id)
+    if (!w) return
+    w.status = 'external'
+    persist()
+    const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.name })
+    const win = window.open(`${window.location.origin}/ssh-terminal-popup?${params}`, '_blank')
+    if (win) { popupWins.set(id, win); startPolling() }
+  }
+  function focusExternal(id) {
+    const win = popupWins.get(id)
+    if (win && !win.closed) { win.focus(); return true }
+    popupWins.delete(id)
+    const w = windows.value.find(x => x.id === id)
+    if (w) { w.status = 'minimized'; persist() }
+    return false
+  }
   const minimizeWindow = id => { const w = windows.value.find(w => w.id === id); if (w) w.status = 'minimized' }
   const restoreWindow = id => { const w = windows.value.find(w => w.id === id); if (w) { w.status = 'open'; w.zIndex = takeZ() } }
   function focusWindow(id) { const w = windows.value.find(w => w.id === id); if (w) w.zIndex = takeZ() }
 
   const openWindows = computed(() => windows.value.filter(w => w.status === 'open').sort((a, b) => a.zIndex - b.zIndex))
+  // 浮动宿主应挂载的窗(open + minimized;external 在独立标签页,不挂浮动组件——其 WS 随卸载断开)
+  const attachedWindows = computed(() => windows.value.filter(w => w.status !== 'external'))
   // 任务栏分组数据源:同 serverId 聚合
   const groups = computed(() => {
     const map = new Map()
@@ -81,5 +119,5 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     return [...map.values()].map(g => ({ serverId: g.serverId, name: g.name, count: g.windows.length, windows: g.windows }))
   })
 
-  return { windows, openWindows, groups, openOrFocus, openNew, closeWindow, minimizeWindow, restoreWindow, focusWindow }
+  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow }
 })

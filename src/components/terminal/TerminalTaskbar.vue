@@ -30,7 +30,10 @@ function onTermClick(item) {
   else termStore.focusTerminal(item.id)
 }
 function onFilesClick(b) { b.status === 'minimized' ? fbStore.restoreBrowser(b.id) : fbStore.focusBrowser(b.id) }
-function onSshItemClick(w) { w.status === 'minimized' ? sshStore.restoreWindow(w.id) : sshStore.focusWindow(w.id) }
+function onSshItemClick(w) {
+  if (w.status === 'external') { sshStore.focusExternal(w.id); return }
+  w.status === 'minimized' ? sshStore.restoreWindow(w.id) : sshStore.focusWindow(w.id)
+}
 
 // —— SSH 分组 chip ——
 const sshChips = computed(() => sshStore.groups.map(g => ({
