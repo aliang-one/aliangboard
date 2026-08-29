@@ -454,10 +454,10 @@ function nsStatusColor(status) {
 
 /* ===== Namespace band:浅坞 + 绿 chip(方案 B,docs/superpowers/specs/2026-08-18) ===== */
 .ns-band{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:18px 9px 9px 14px;
-  background:linear-gradient(160deg,#f4f8f5,#e9efeb);border:1px solid #d9e3dc;
+  background:linear-gradient(160deg,rgb(var(--md-sys-color-surface-container-low)),rgb(var(--md-sys-color-surface-container)));border:1px solid rgb(var(--md-sys-color-outline-variant));
   box-shadow:0 5px 14px rgba(0,60,35,.10);
   transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s,border-color .18s;cursor:pointer}
-.ns-band:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,60,35,.16);border-color:#b3d4c3}
+.ns-band:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,60,35,.16);border-color:rgb(var(--md-sys-color-primary) / .45)}
 .ns-band:active{transform:translateY(0) scale(.985)}
 .ns-main{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:0;border:0;background:none;
   text-align:left;cursor:pointer;font:inherit;color:inherit}
@@ -465,60 +465,60 @@ function nsStatusColor(status) {
   background:linear-gradient(120deg,#0ba874,#00835b);color:#fff;
   box-shadow:0 3px 10px rgba(0,108,73,.30),inset 0 1px 0 rgba(255,255,255,.26);
   transition:background .3s,box-shadow .3s,border-color .3s}
-.ns-band--cluster .ns-chip{background:#fff;border:1px solid #bbcabf;color:#006c49;
-  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 #fff}
+.ns-band--cluster .ns-chip{background:rgb(var(--md-sys-color-surface-container-lowest));border:1px solid rgb(var(--md-sys-color-outline-variant));color:rgb(var(--md-sys-color-primary));
+  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 rgb(var(--md-sys-color-surface-bright) / .4)}
 /* chip 图标:ns 态 hover folder↔hub(拓扑)交叉淡入;集群态不换 */
 .ns-ci{position:absolute;font-size:15px;transition:opacity .18s,transform .18s}
 .ns-ci--hub{opacity:0;transform:scale(.6)}
 .ns-band--ns .ns-main:hover .ns-ci--folder{opacity:0;transform:scale(.6)}
 .ns-band--ns .ns-main:hover .ns-ci--hub{opacity:1;transform:scale(1)}
 .ns-txt{flex:1;min-width:0}
-.ns-name{display:block;font-size:12px;font-weight:700;color:#0b1c30;line-height:1.25;
+.ns-name{display:block;font-size:12px;font-weight:700;color:rgb(var(--md-sys-color-on-surface));line-height:1.25;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ns-name--empty{color:#6c7a71;font-weight:600}
+.ns-name--empty{color:rgb(var(--md-sys-color-outline));font-weight:600}
 /* 副标签:默认/hover 同一行盒(高13px/行高13px,左上对齐)交叉淡入——严格同位不叠印 */
 .ns-sub{position:relative;display:block;height:13px;font-size:9px;white-space:nowrap}
-.ns-t{position:absolute;left:0;top:0;line-height:13px;color:#6c7a71;transition:opacity .18s}
-.ns-t--hov{color:#006c49;font-weight:700;opacity:0}
+.ns-t{position:absolute;left:0;top:0;line-height:13px;color:rgb(var(--md-sys-color-outline));transition:opacity .18s}
+.ns-t--hov{color:rgb(var(--md-sys-color-primary));font-weight:700;opacity:0}
 .ns-main:hover .ns-t--def{opacity:0}
 .ns-main:hover .ns-t--hov{opacity:1}
 /* 集群态箭头:入场滑入一次 + 2.4s 缓动轻推循环(坞 LED 同节奏);hover 停循环再滑 3px */
-.ns-arr{flex:none;color:#006c49;font-size:15px;margin-left:2px;
+.ns-arr{flex:none;color:rgb(var(--md-sys-color-primary));font-size:15px;margin-left:2px;
   animation:ns-arr-in .25s cubic-bezier(.2,.7,.3,1) backwards,ns-arr-nudge 2.4s .4s ease-in-out infinite}
 .ns-main:hover .ns-arr{animation:none;transform:translateX(3px)}
 @keyframes ns-arr-in{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:translateX(0)}}
 @keyframes ns-arr-nudge{0%,55%,100%{transform:translateX(0)}65%{transform:translateX(2.5px)}78%{transform:translateX(0)}}
 /* 下拉入口瓦片:dock-ig__sq 同款 */
 .ns-tile{width:28px;height:28px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;
-  background:#fff;border:1px solid #bbcabf;color:#3c4a42;
-  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 #fff;
+  background:rgb(var(--md-sys-color-surface-container-lowest));border:1px solid rgb(var(--md-sys-color-outline-variant));color:rgb(var(--md-sys-color-on-surface-variant));
+  box-shadow:0 3px 8px rgba(0,60,35,.12),inset 0 1px 0 rgb(var(--md-sys-color-surface-bright) / .4);
   transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s,color .16s}
-.ns-tile:hover{transform:translateY(-2px);box-shadow:0 6px 14px rgba(0,60,35,.18);color:#006c49}
+.ns-tile:hover{transform:translateY(-2px);box-shadow:0 6px 14px rgba(0,60,35,.18);color:rgb(var(--md-sys-color-primary))}
 .ns-tile:active{transform:translateY(0) scale(.95)}
 /* 下拉面板:白底 + 右下小角(呼应坞) + 加深投影;v-if 插入自动播一次入场 */
 .ns-drop{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:50;overflow:hidden;
-  background:#fff;border:1px solid #d9e3dc;border-radius:12px 12px 12px 5px;
+  background:rgb(var(--md-sys-color-surface-container-lowest));border:1px solid rgb(var(--md-sys-color-outline-variant));border-radius:12px 12px 12px 5px;
   box-shadow:0 10px 24px rgba(0,60,35,.14);
   animation:ns-drop-in .22s cubic-bezier(.2,.7,.3,1)}
 @keyframes ns-drop-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-.ns-search{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:9px;background:#fff;
-  border:1px solid #bbcabf;color:#6c7a71;transition:border-color .15s,box-shadow .15s}
-.ns-search:focus-within{border-color:#006c49;box-shadow:0 0 0 2px rgba(0,108,73,.12)}
-.ns-search input{flex:1;min-width:0;border:0;outline:0;font-size:12px;font-family:inherit;color:#0b1c30;background:none}
-.ns-search input::placeholder{color:#6c7a71}
+.ns-search{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:9px;background:rgb(var(--md-sys-color-surface-container-lowest));
+  border:1px solid rgb(var(--md-sys-color-outline-variant));color:rgb(var(--md-sys-color-outline));transition:border-color .15s,box-shadow .15s}
+.ns-search:focus-within{border-color:rgb(var(--md-sys-color-primary));box-shadow:0 0 0 2px rgba(0,108,73,.12)}
+.ns-search input{flex:1;min-width:0;border:0;outline:0;font-size:12px;font-family:inherit;color:rgb(var(--md-sys-color-on-surface));background:none}
+.ns-search input::placeholder{color:rgb(var(--md-sys-color-outline))}
 .ns-search__ic{font-size:14px}
-.ns-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;font-size:12.5px;color:#0b1c30;
+.ns-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;font-size:12.5px;color:rgb(var(--md-sys-color-on-surface));
   cursor:pointer;transition:background .15s}
-.ns-row:hover{background:#eaf3ee}
-.ns-row--cur{background:#d7e8df;color:#006c49;font-weight:700}
+.ns-row:hover{background:rgb(var(--md-sys-color-primary) / .06)}
+.ns-row--cur{background:rgb(var(--md-sys-color-primary) / .14);color:rgb(var(--md-sys-color-primary));font-weight:700}
 .ns-row__name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ns-row__pods{margin-left:auto;font-size:10px;color:#6c7a71}
+.ns-row__pods{margin-left:auto;font-size:10px;color:rgb(var(--md-sys-color-outline))}
 
 /* ===== 停靠坞:集群 hero + 部署 + 3 图标同块成组 ===== */
 .dock {
   border-radius: 18px 9px 9px 14px; /* 不规则圆角:左上大,其余小,右下中 */
-  background: linear-gradient(160deg, #f4f8f5, #e9efeb);
-  border: 1px solid #d9e3dc;
+  background: linear-gradient(160deg, rgb(var(--md-sys-color-surface-container-low)), rgb(var(--md-sys-color-surface-container)));
+  border: 1px solid rgb(var(--md-sys-color-outline-variant));
   box-shadow: 0 6px 16px rgba(0, 60, 35, .10);
 }
 .cluster-slab {
@@ -542,9 +542,9 @@ function nsStatusColor(status) {
 .dock-ig { display: flex; align-items: center; justify-content: center; }
 .dock-ig__sq {
   width: 28px; height: 28px; border-radius: 10px;
-  background: #ffffff; border: 1px solid #bbcabf; color: #3c4a42;
+  background: rgb(var(--md-sys-color-surface-container-lowest)); border: 1px solid rgb(var(--md-sys-color-outline-variant)); color: rgb(var(--md-sys-color-on-surface-variant));
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 3px 8px rgba(0, 60, 35, .12), inset 0 1px 0 #fff;
+  box-shadow: 0 3px 8px rgba(0, 60, 35, .12), inset 0 1px 0 rgb(var(--md-sys-color-surface-bright) / .4);
   transition: transform .16s cubic-bezier(.2, .7, .3, 1), box-shadow .16s, color .16s, background .16s;
 }
 .dock-ig--lg .dock-ig__sq { width: 32px; height: 32px; border-radius: 12px 8px 10px 8px; }
@@ -559,8 +559,8 @@ function nsStatusColor(status) {
 /* 横跨底行的宽条形态 */
 .dock-ig--wide { width: 100%; }
 .dock-ig--wide .dock-ig__sq { width: 100%; border-radius: 8px 12px 8px 12px; }
-.dock-ig:hover .dock-ig__sq { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 60, 35, .18); color: #006c49; }
-.dock-ig--hot .dock-ig__sq { background: #d7e8df; color: #006c49; border-color: #a9cfbd; }
+.dock-ig:hover .dock-ig__sq { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 60, 35, .18); color: rgb(var(--md-sys-color-primary)); }
+.dock-ig--hot .dock-ig__sq { background: rgb(var(--md-sys-color-primary) / .14); color: rgb(var(--md-sys-color-primary)); border-color: rgb(var(--md-sys-color-primary) / .35); }
 
 /* ===== 钻入 ns 入场编排;返回集群走 drill-up 菜单体感 ===== */
 /* 元素因 v-if 随 ns 态新插入,animation 自动播一次;返回集群 v-if 直接卸载无出场 */
