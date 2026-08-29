@@ -48,5 +48,11 @@ export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } =
     }
   }
   const count = () => map.size
-  return { ensure, get, attach, detachBrowser, touch, reapIdle, close, closeByServer, count }
+  // 存活会话快照(观测端点/任务栏对账数据源):idleMs 由 now 与 lastActiveAt 现算,避免存派生值
+  const list = () => [...map.values()].map(s => ({
+    sid: s.sid, serverId: s.serverId, userId: s.userId,
+    browserCount: s.browserCount, lastActiveAt: s.lastActiveAt,
+    idleMs: Math.max(0, now() - s.lastActiveAt),
+  }))
+  return { ensure, get, attach, detachBrowser, touch, reapIdle, close, closeByServer, count, list }
 }

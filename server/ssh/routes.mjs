@@ -11,7 +11,7 @@ import { streamUpload, streamDownload } from '../podfile-stream.mjs'
 import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
-  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions } = deps
+  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions, listSshSessions, killSshSession } = deps
 
   async function handle(req, res, url) {
     // 审计/文案助手定义在函数顶(TDZ:sshfile 分支在其原定义之前就要用,曾致 ReferenceError→502)
@@ -155,6 +155,22 @@ export function createSshRoutes(deps) {
         audit('test', 'ssh_server', out.ok ? 'ok' : 'error', { owner: ps.username, reason: out.ok ? null : out.errorKind, summary: 'form' })
         if (!out.ok) out = { ...out, message: localizeTestError(req, out) }
         sendJson(res, 200, out)
+        return true
+      }
+      // GET /api/ssh/sessions — 存活终端会话观测(admin):网关侧真值,任务栏对账/「不可见会话」排查数据源
+      if (url.pathname === '/api/ssh/sessions' && req.method === 'GET') {
+        const ps = requireAdmin(req, res); if (!ps) return true
+        sendJson(res, 200, { sessions: listSshSessions?.() || [] })
+        return true
+      }
+      // DELETE /api/ssh/sessions/:sid — 手动终止存活会话(与 idle 清道夫同款清理:关 channel+还池句柄)
+      if (url.pathname.startsWith('/api/ssh/sessions/') && req.method === 'DELETE') {
+        const ps = requireAdmin(req, res); if (!ps) return true
+        const sid = url.pathname.slice('/api/ssh/sessions/'.length)
+        const killed = killSshSession?.(sid)
+        if (!killed) { sendJson(res, 404, { message: msg(req, 'ssh.sessionNotFound') }); return true }
+        audit('close', 'ssh_terminal', 'ok', { owner: ps.username, summary: `manual kill sid=${sid}` })
+        sendJson(res, 200, { ok: true, message: msg(req, 'ssh.sessionKilled') })
         return true
       }
       // /api/ssh/servers 与 /api/ssh/servers/:id[...]

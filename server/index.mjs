@@ -1491,6 +1491,8 @@ async function handle(req, res) {
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
   evictSshServer: id => sshPool.evictServer(id),
   closeSshServerSessions: id => sshTerminals.closeByServer(id, sess => { try { sess.extra?.channel?.close?.() } catch { /* noop */ }; try { sess.extra?.release?.() } catch { /* noop */ } }),
+  listSshSessions: () => sshTerminals.list(),
+  killSshSession: sid => sshTerminals.close(sid, s => { try { s.extra?.channel?.close?.() } catch { /* noop */ }; try { s.extra?.release?.() } catch { /* noop */ } }),
 })
   if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
@@ -2109,10 +2111,12 @@ setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
 
 async function handleSshTerminal(ws, ps, url) {
   const serverId = url.searchParams.get('serverId')
-  const sid = url.searchParams.get('sid') || crypto.randomUUID()
+  // sid 必传(2026-08-29 审计):此前缺失时 crypto.randomUUID() 补位 → 客户端永远无从知道
+  // sid,会话成任务栏/对账盲区(「不可见活会话」的出生通道)。契约硬化:缺即拒。
+  const sid = url.searchParams.get('sid')
   const cols = Math.min(Math.max(parseInt(url.searchParams.get('cols')) || 80, 20), 500)
   const rows = Math.min(Math.max(parseInt(url.searchParams.get('rows')) || 24, 5), 300)
-  if (!serverId) { wsSend(ws, CH_ERROR, 'missing serverId'); return ws.close() }
+  if (!serverId || !sid) { wsSend(ws, CH_ERROR, 'missing serverId or sid'); return ws.close() }
   try {
     const row = db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId)
     if (!row) { wsSend(ws, CH_ERROR, 'SSH 服务器不存在或已被删除'); return ws.close() }

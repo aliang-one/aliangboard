@@ -130,6 +130,27 @@ test('sshfile REST: dispatcher 顺序钉住 + name 穿越拒绝 + 未知 serverI
   assert.equal(noSrv.status, 400)
 })
 
+test('存活会话观测端点:GET 空态 + DELETE 未知 sid 404(admin 门)', { timeout: 30000 }, async () => {
+  await waitUp()
+  const login = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+  const H = { 'content-type': 'application/json', 'x-platform-token': login.token }
+
+  // 空注册表 → { sessions: [] }(与 /servers 同款 {名词: 数组} 形状)
+  const list = await (await fetch(`${BASE}/api/ssh/sessions`, { headers: H })).json()
+  assert.deepEqual(list, { sessions: [] })
+
+  // 手杀未知 sid → 404
+  const kill = await fetch(`${BASE}/api/ssh/sessions/no-such-sid`, { method: 'DELETE', headers: H })
+  assert.equal(kill.status, 404)
+
+  // 非 admin 不可见(requireAdmin 在分支内):platform 用户被门拒
+  // (无平台用户可建的最小路径:直接无 token → 401 即钉住「门在分支内,不在门外」)
+  const noAuth = await fetch(`${BASE}/api/ssh/sessions`)
+  assert.equal(noAuth.status, 401)
+})
+
 test('cleanup', async () => {
   gw.kill('SIGKILL')
   await new Promise(r => setTimeout(r, 200))

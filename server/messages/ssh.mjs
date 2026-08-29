@@ -11,4 +11,6 @@ export const TABLE = {
   'ssh.created':       { zh: 'SSH 服务器已创建', en: 'SSH server created' },
   'ssh.updated':       { zh: 'SSH 服务器已更新', en: 'SSH server updated' },
   'ssh.deleted':       { zh: 'SSH 服务器已删除', en: 'SSH server deleted' },
+  'ssh.sessionNotFound': { zh: '终端会话不存在或已结束', en: 'Terminal session not found or already ended' },
+  'ssh.sessionKilled':   { zh: '终端会话已终止', en: 'Terminal session terminated' },
 }

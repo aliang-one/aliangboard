@@ -23,6 +23,28 @@ test('registry: ensure 复用同 sid(工厂只调一次);attach/detach 维护 br
   assert.equal(reg.attach('nope'), null)
 })
 
+test('list: 存活会话快照含属主/附着数/空闲时长,供观测端点与任务栏对账', () => {
+  let t = 5000
+  const reg = createTerminalRegistry({ idleReapMs: 600000, now: () => t })
+  reg.ensure('s1', { serverId: 'sv1', userId: 'alice' }, () => ({}))
+  reg.ensure('s2', { serverId: 'sv2', userId: 'bob' }, () => ({}))
+  reg.attach('s1')                       // alice 在看
+  t += 120000                            // s2 无人附着,已空闲 2min
+  const rows = reg.list()
+  assert.equal(rows.length, 2)
+  const s1 = rows.find(r => r.sid === 's1')
+  const s2 = rows.find(r => r.sid === 's2')
+  assert.deepEqual(
+    { sid: s1.sid, serverId: s1.serverId, userId: s1.userId, browserCount: s1.browserCount, idleMs: s1.idleMs },
+    { sid: 's1', serverId: 'sv1', userId: 'alice', browserCount: 1, idleMs: 120000 },
+  )
+  assert.equal(s2.browserCount, 0)
+  assert.equal(s2.idleMs, 120000)
+  // close 后从列表消失
+  reg.close('s2')
+  assert.equal(reg.list().length, 1)
+})
+
 test('reapIdle: 仅回收「无浏览器 且 空闲超阈」;close 即刻回收;touch 续命', () => {
   let t = 1000
   const reg = createTerminalRegistry({ idleReapMs: 600000, now: () => t })
