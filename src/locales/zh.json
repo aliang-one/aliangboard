@@ -4325,6 +4325,7 @@
     "ledger": "服务器台账",
     "ledgerGlobal": "全局备注",
     "ledgerHint": "结构信息(地址/OS/状态/暴露策略)由平台自动维护,此处仅编辑各服务器的角色、职责与部署内容等自由备注。AI 对话中也可读取与更新本台账(需批准)。",
+    "ledgerStructure": "结构层(平台自动维护)",
     "ledgerNotesPlaceholder": "这台服务器的角色/职责/部署了什么,如:K8s master + 堡垒机",
     "ledgerEmpty": "暂无服务器,先添加"
   }
