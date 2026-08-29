@@ -14,7 +14,7 @@ import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
 import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
-import { firstVolumeMountError } from '@/logic/volumeMountValidation'
+import { validateVolumeMounts, buildMountCtx, firstError, toMountSpec, toVolumeDefYaml, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -242,7 +242,7 @@ function removePort(idx) { form.value.ports.splice(idx, 1) }
 function addServicePort() { form.value.servicePorts.push({ name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }) }
 function removeServicePort(idx) { form.value.servicePorts.splice(idx, 1) }
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
-function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }) }
+function addVolume() { form.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'pvc', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', hostPathType: 'DirectoryOrCreate', defaultMode: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }) }
 function removeVolume(idx) { form.value.volumeMounts.splice(idx, 1) }
 function addLabel() { form.value.labels.push({ key: '', value: '' }) }
 function removeLabel(idx) { form.value.labels.splice(idx, 1) }
@@ -281,9 +281,9 @@ const stepBlockReason = computed(() => {
     if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return t('deploy.portMustBeNumber')
   }
   if (currentStep.value === 2) {
-    // 存储门禁:每个卷必须来源完整+映射到有效容器的挂载路径(否则 YAML 里静默消失)
-    const e = firstVolumeMountError(f.volumeMounts, containerTargets.value.map(x => x.value))
-    if (e) return t(e.key, { n: e.n })
+    // 存储门禁:与卡片/部署校验同一份单源审计(含存在性/键集检查,spec §3 三入口同一结论)
+    const first = firstError(mountAudit.value)
+    if (first) return t(MOUNT_GATE_KEYS[first.issue.code] || 'deploy.volumeSourceRequired', { n: first.entryIdx + 1 })
   }
   if (currentStep.value === 4) {
     if (f.createService) {
@@ -329,6 +329,14 @@ const containerTargets = computed(() => {
   form.value.extraContainers.forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
+
+// 挂载单源审计:门禁(step2)/部署校验/卡片即时态共用同一份结论(spec §3)
+const mountCtx = computed(() => buildMountCtx({
+  validTargets: containerTargets.value.map(x => x.value),
+  configMaps: _cmQ.data.value ?? null, secrets: _secQ.data.value ?? null, pvcs: _pvcQ.data.value ?? null,
+  namespace: form.value.namespace,
+}))
+const mountAudit = computed(() => validateVolumeMounts(form.value.volumeMounts, mountCtx.value))
 const availableSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === store.currentNamespace).map(s => s.name))
 const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === store.currentNamespace).map(p => p.name))
 const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
@@ -441,13 +449,13 @@ const previewYAML = computed(() => {
 
   // 每挂载点的 volumeMount 块（按 target：main / init:i / sidecar:i）
   function mountLines(target) {
-    const ms = f.volumeMounts.filter(v => v.target === target && v.name && v.mountPath)
+    const ms = f.volumeMounts.filter(v => v.target === target).map(toMountSpec).filter(Boolean)
     if (!ms.length) return ''
-    return '        volumeMounts:\n' + ms.map(v => {
-      let m = `        - name: ${v.name}\n          mountPath: ${v.mountPath}`
-      if (v.subPath) m += `\n          subPath: ${v.subPath}`
-      if (v.readOnly) m += `\n          readOnly: true`
-      return m
+    return '        volumeMounts:\n' + ms.map(m => {
+      let s = `        - name: ${m.name}\n          mountPath: ${m.mountPath}`
+      if (m.subPath) s += `\n          subPath: ${m.subPath}`
+      if (m.readOnly) s += `\n          readOnly: true`
+      return s
     }).join('\n')
   }
 
@@ -496,16 +504,7 @@ const previewYAML = computed(() => {
   // pod 级 volumes（按 name 去重；configMap/secret 可带 items 键映射）
   const volDefs = new Map()
   f.volumeMounts.filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
-  const volumesYaml = [...volDefs.values()].map(v => {
-    if (v.type === 'pvc' && v.pvcName) return `      - name: ${v.name}\n        persistentVolumeClaim:\n          claimName: ${v.pvcName}`
-    if (v.type === 'emptyDir') return `      - name: ${v.name}\n        emptyDir: {}`
-    if (v.type === 'hostPath' && v.hostPath) return `      - name: ${v.name}\n        hostPath:\n          path: ${v.hostPath}`
-    if (v.type === 'nfs' && v.server) return `      - name: ${v.name}\n        nfs:\n          server: ${v.server}\n          path: ${v.nfsPath || '/'}`
-    const itemsYaml = (v.items || []).filter(it => it.key).map(it => `          - key: ${it.key}\n            path: ${it.path}`).join('\n')
-    if (v.type === 'configMap' && v.cmName) return `      - name: ${v.name}\n        configMap:\n          name: ${v.cmName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
-    if (v.type === 'secret' && v.secretName) return `      - name: ${v.name}\n        secret:\n          secretName: ${v.secretName}` + (itemsYaml ? `\n          items:\n${itemsYaml}` : '')
-    return null
-  }).filter(Boolean).join('\n')
+  const volumesYaml = [...volDefs.values()].map(toVolumeDefYaml).filter(Boolean).join('\n')
 
   // apiVersion / kind / spec 头部按类型区分
   const isBatch = f.workloadType === 'Job'
@@ -742,15 +741,13 @@ function validate() {
   if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push({ step: 0, msg: t('deploy.nameInvalid') })
   if (!f.namespace) errs.push({ step: 0, msg: t('deploy.namespaceRequired') })
   if (!f.image) errs.push({ step: 1, msg: t('deploy.imageRequired') })
-  f.volumeMounts.forEach((v, i) => {
-    const w = v.name || '#' + (i + 1)
+  // 存储门禁:与 step2 同一份单源审计(回跳改表后的兜底;{n} 文案与门禁一致)
+  const audit = mountAudit.value
+  audit.byEntry.forEach((issues, i) => {
+    const v = f.volumeMounts[i]
     if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) return // 整行未动,跳过(YAML 端同样跳过)
-    if (!v.mountPath) errs.push({ step: 2, msg: t('deploy.volumeMissingMountPath', { name: w }) })
-    if (v.type === 'pvc' && !v.pvcName) errs.push({ step: 2, msg: t('deploy.volumeMissingPvc', { name: w }) })
-    if (v.type === 'hostPath' && !v.hostPath) errs.push({ step: 2, msg: t('deploy.volumeMissingHostPath', { name: w }) })
-    if (v.type === 'nfs' && !v.server) errs.push({ step: 2, msg: t('deploy.volumeMissingNfs', { name: w }) })
-    if (v.type === 'configMap' && !v.cmName) errs.push({ step: 2, msg: t('deploy.volumeMissingConfigMap', { name: w }) })
-    if (v.type === 'secret' && !v.secretName) errs.push({ step: 2, msg: t('deploy.volumeMissingSecret', { name: w }) })
+    for (const issue of issues)
+      if (issue.level === 'error') errs.push({ step: 2, msg: t(MOUNT_GATE_KEYS[issue.code] || 'deploy.volumeSourceRequired', { n: i + 1 }) })
   })
   // init/sidecar 字段校验与弹窗单源(logic/containerValidation):image 必填/名 DNS-1123/
   // 资源 req≤lim/显式名查重(主容器有效名 + 其他容器显式名,按下标排除自身)。
@@ -1383,7 +1380,7 @@ async function handleDeploy() {
 
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.volumeMounts') }}</h4>
         <div class="flex flex-col gap-sm mb-md">
-          <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="form.namespace" @remove="removeVolume(idx)" />
+          <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="form.namespace" :issues="mountAudit.byEntry[idx] || []" @remove="removeVolume(idx)" />
           <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addVolume') }}
           </button>

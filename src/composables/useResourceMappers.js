@@ -149,6 +149,7 @@ export const mapConfigMap = item => {
     namespace: item.metadata?.namespace,
     keys: Object.keys(data).length,
     data,
+    binaryKeys: Object.keys(item.binaryData || {}),   // 卷挂载键全集用(data∪binaryData)
     labels: item.metadata?.labels || {},
     annotations: item.metadata?.annotations || {},
     age: ageOf(item.metadata?.creationTimestamp),
@@ -163,6 +164,7 @@ export const mapSecret = item => {
     keys: Object.keys(data).length,
     // K8s 返回的 data 已是 base64，与 store 内 Secret 语义一致（reveal 时再解码）
     data,
+    binaryKeys: Object.keys(item.binaryData || {}),   // 卷挂载键全集用(data∪binaryData)
     labels: item.metadata?.labels || {},
     annotations: item.metadata?.annotations || {},
     age: ageOf(item.metadata?.creationTimestamp),

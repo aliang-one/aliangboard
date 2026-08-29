@@ -4,8 +4,9 @@ import { ref, reactive, defineComponent } from 'vue'
 import { createPinia } from 'pinia'
 import { i18n } from '@/i18n'
 
+const { qData } = vi.hoisted(() => ({ qData: { cm: { value: [] }, secret: { value: [] } } }))
 vi.mock('@/composables/useK8sQuery', () => ({
-  useResourceList: () => ({ data: { value: [] } }),
+  useResourceList: ({ key }) => ({ data: key[2] === 'configmaps' ? qData.cm : key[2] === 'secrets' ? qData.secret : { value: [] } }),
 }))
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({ fetchConfigMaps: async () => [], fetchSecrets: async () => [], currentCluster: 'c1' }),
@@ -62,4 +63,105 @@ test('VolumeMountCard: namespace 为空时「新建」按钮 disabled', () => {
   const newBtn = wrapper.findAll('button').find(b => b.attributes('title') === i18n.global.t('component.volumeMount.newPvc'))
   expect(newBtn.attributes('disabled')).toBeDefined()
   wrapper.unmount()
+})
+
+test('VolumeMountCard: issues 驱动红框/黄框/行内文案;头部状态灯分级', () => {
+  const entry = makeEntry()
+  const wrapper = mount(VolumeMountCard, {
+    props: {
+      modelValue: entry, pvcs: [], namespace: 'default',
+      issues: [
+        { code: 'mountPathRoot', field: 'mountPath', level: 'error' },
+        { code: 'mountPathNested', field: 'mountPath', level: 'warn' },
+        { code: 'readOnlySuggested', field: 'readOnly', level: 'hint' },
+      ],
+    },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const mpInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '/etc/config')
+  expect(mpInput.classes().join(' ')).toContain('!border-error')
+  expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.issue.mountPathRoot'))
+  expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.issue.readOnlySuggested'))
+  const dot = wrapper.find('[data-testid="status-dot"]')
+  expect(dot.classes().join(' ')).toContain('bg-error')
+  wrapper.unmount()
+})
+
+test('VolumeMountCard: 无 error 有 warn → 状态灯黄;干净 → 隐藏', () => {
+  const mk = issues => mount(VolumeMountCard, {
+    props: { modelValue: makeEntry(), pvcs: [], namespace: 'default', issues },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const warnOnly = mk([{ code: 'mountPathNested', field: 'mountPath', level: 'warn' }])
+  expect(warnOnly.find('[data-testid="status-dot"]').classes().join(' ')).toContain('bg-tertiary-container')
+  warnOnly.unmount()
+  const clean = mk([])
+  expect(clean.find('[data-testid="status-dot"]').exists()).toBe(false)
+  clean.unmount()
+})
+
+test('VolumeMountCard: mountPath 失焦自动归一(写回 entry)', async () => {
+  const entry = makeEntry()
+  entry.mountPath = ' /data// '
+  const wrapper = mount(VolumeMountCard, {
+    props: { modelValue: entry, pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const mpInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '/etc/config')
+  await mpInput.trigger('blur')
+  expect(entry.mountPath).toBe('/data')
+  wrapper.unmount()
+})
+
+test('VolumeMountCard: hostPath 类型显示 hostPathType 下拉(默认值可改写 entry);cm/secret 显示 defaultMode', async () => {
+  const entry = makeEntry()
+  entry.type = 'hostPath'; entry.hostPath = '/data'
+  // fixture 显式设默认值(Task 9 addVolume 会传 'DirectoryOrCreate');卡片对 undefined 不 coerce(回填保真)
+  entry.hostPathType = 'DirectoryOrCreate'
+  const wrapper = mount(VolumeMountCard, {
+    props: { modelValue: entry, pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const typeSel = wrapper.findAll('select').find(s => s.element.value === 'DirectoryOrCreate')
+  expect(typeSel).toBeTruthy()
+  await typeSel.setValue('Directory')
+  expect(entry.hostPathType).toBe('Directory')
+  wrapper.unmount()
+
+  const cm = makeEntry(); cm.type = 'configMap'; cm.cmName = 'cm'
+  const w2 = mount(VolumeMountCard, {
+    props: { modelValue: cm, pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const modeSel = w2.findAll('select').find(s => s.element.value === '')
+  await modeSel.setValue('0640')
+  expect(cm.defaultMode).toBe('0640')
+  w2.unmount()
+})
+
+test('VolumeMountCard: 落点预览——无 items 列全部键(binaryData 键并列);items 树形标注来源与告警;subPath 单文件', () => {
+  qData.cm.value = [{ name: 'cm', namespace: 'default', data: { k1: '1' }, binaryKeys: ['b.bin'] }]
+
+  const whole = makeEntry(); whole.type = 'configMap'; whole.cmName = 'cm'; whole.mountPath = '/etc/config'
+  const w1 = mount(VolumeMountCard, { props: { modelValue: whole, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const prev1 = w1.find('[data-testid="mount-preview"]')
+  expect(prev1.text()).toContain('/etc/config')
+  expect(prev1.text()).toContain('k1')
+  expect(prev1.text()).toContain('b.bin')
+  w1.unmount()
+
+  const items = makeEntry(); items.type = 'configMap'; items.cmName = 'cm'; items.mountPath = '/etc/app'
+  items.items = [{ key: 'k1', path: 'conf/a.yml' }, { key: 'ghost', path: 'b.yml' }]
+  const w2 = mount(VolumeMountCard, { props: { modelValue: items, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const prev2 = w2.find('[data-testid="mount-preview"]')
+  expect(prev2.text()).toContain('conf/a.yml')
+  expect(prev2.text()).toContain('← key: k1')
+  expect(prev2.text()).toContain(i18n.global.t('component.volumeMount.issue.itemKeyMissing'))
+  w2.unmount()
+
+  const sub = makeEntry(); sub.type = 'configMap'; sub.cmName = 'cm'; sub.mountPath = '/etc/app'; sub.subPath = 'k1'
+  const w3 = mount(VolumeMountCard, { props: { modelValue: sub, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  expect(w3.find('[data-testid="mount-preview"]').text()).toContain(i18n.global.t('component.volumeMount.previewSubPath'))
+  w3.unmount()
+  qData.cm.value = []
 })
