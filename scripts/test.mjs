@@ -6,6 +6,7 @@
 //   - Secret 数据的 base64 编解码（与 stores/cluster.js 的 encodeSecretData 行为一致）；
 //   - apply 链路依赖的 YAML 往返（使用仓库已声明的 js-yaml 依赖，非新增）。
 import { strict as assert } from 'node:assert'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -1200,6 +1201,15 @@ test('buildTimeAreaLineOption: 空样本不崩(y 轴 max 回落 1)', () => {
   const opt = buildTimeAreaLineOption({ samples: [] })
   assert.deepEqual(opt.series[0].data, [])
   assert.equal(opt.yAxis.max, 1)
+})
+
+// --- 仓库卫生:.gitignore 声明与实际跟踪一致性守卫 ---
+// .gitignore 对已跟踪文件无效:一旦 SDD 工作产物被显式 add,后续 git add -A 会持续带上它
+// (2026-08-29 事故:task-1-report.md 因此漏进 GitHub 公开仓库)。此处锁死声明,防复发。
+test('仓库卫生:.superpowers/ SDD 工作区不入库(与 .gitignore 声明一致)', () => {
+  const tracked = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n')
+  const leaked = tracked.filter(p => p.startsWith('.superpowers/'))
+  assert.deepEqual(leaked, [], '.superpowers/ 属 SDD scratch 工作区(.gitignore 声明勿入库),以下文件被误跟踪,用 git rm --cached 移除')
 })
 
 // --- 汇总 ---
