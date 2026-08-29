@@ -983,7 +983,7 @@ test('deriveClusterCounts: 非数组/缺省 → null(未命中,供调用方回�
 })
 
 // --- 图表美化:MD3 色板单一来源 + var() 未定义 bug 修复 ---
-import { MD_PALETTE, paletteVarsCss, installPaletteVars, tokenHex } from '../src/styles/md-palette.js'
+import { MD_PALETTE, paletteVarsCss, installPaletteVars, tokenHex, hexToRgbTriplet } from '../src/styles/md-palette.js'
 
 test('MD_PALETTE: 必备 token 齐全且为 6 位 hex', () => {
   const need = ['primary', 'secondary', 'tertiary', 'tertiary-container', 'error', 'status-failed',
@@ -997,7 +997,7 @@ test('paletteVarsCss: :root 注入且含全仓实际使用的 4 个 --md-sys-col
   for (const v of ['--md-sys-color-primary', '--md-sys-color-secondary', '--md-sys-color-tertiary-container', '--md-sys-color-error']) {
     assert.ok(css.includes(v), `缺少 ${v}`)
   }
-  assert.ok(css.includes(`--md-sys-color-primary:${MD_PALETTE.primary};`))
+  assert.ok(css.includes(`--md-sys-color-primary:${hexToRgbTriplet(MD_PALETTE.primary)};`))
 })
 test('tokenHex: 已知 token→hex;未知/空回落 primary', () => {
   assert.equal(tokenHex('secondary'), MD_PALETTE.secondary)
