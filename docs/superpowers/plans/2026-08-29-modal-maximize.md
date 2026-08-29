@@ -330,3 +330,10 @@ git push origin main
 ```
 
 （若 ff 不可能或 main 有并行推进，同 issue4 流程：no-ff 合并；推送前确认未推清单只含本特性。）
+
+---
+
+## 实测勘误（2026-08-29，实施后回写——本文档两处指令有误，以代码为准）
+
+1. **Task 2 Step 3 YAML 面板根 class**：文中 `maximized ? 'flex-1 min-h-0' : ''` 有误——tab 容器是 `overflow-y-auto` 的 **block** 滚动容器，`flex-1` 在 block 父级下是 no-op（happy-dom 单测测不出，真实 Chromium 实证 textarea 不撑满）。正确写法已落码：`maximized ? 'h-full min-h-0' : ''`（commit b2a0e68）。
+2. **Task 2 Step 1 测试写法**：CCM 内容渲染在 Modal 的 Teleport DOM（body 直下），`wrapper.find(...)`/`trigger` 够不到 Teleport 内容——须 `document.querySelector` 直查 body（与本仓「Modal 测试须查 document.body」教训一致）。实现见 dbdec75/5f01adb。
