@@ -116,6 +116,8 @@ test('VolumeMountCard: mountPath 失焦自动归一(写回 entry)', async () => 
 test('VolumeMountCard: hostPath 类型显示 hostPathType 下拉(默认值可改写 entry);cm/secret 显示 defaultMode', async () => {
   const entry = makeEntry()
   entry.type = 'hostPath'; entry.hostPath = '/data'
+  // fixture 显式设默认值(Task 9 addVolume 会传 'DirectoryOrCreate');卡片对 undefined 不 coerce(回填保真)
+  entry.hostPathType = 'DirectoryOrCreate'
   const wrapper = mount(VolumeMountCard, {
     props: { modelValue: entry, pvcs: [], namespace: 'default', issues: [] },
     global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },

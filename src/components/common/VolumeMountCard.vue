@@ -54,7 +54,7 @@ if (entry.value.nfsPath == null) entry.value.nfsPath = ''
 if (!Array.isArray(entry.value.items)) entry.value.items = []
 if (entry.value.readOnly == null) entry.value.readOnly = false
 if (!entry.value.target) entry.value.target = 'main'
-if (entry.value.hostPathType == null) entry.value.hostPathType = entry.value.type === 'hostPath' ? 'DirectoryOrCreate' : ''
+if (entry.value.hostPathType == null) entry.value.hostPathType = ''
 if (entry.value.defaultMode == null) entry.value.defaultMode = ''
 
 // —— 即时错误态(spec §5)——
