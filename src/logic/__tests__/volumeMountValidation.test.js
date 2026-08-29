@@ -255,3 +255,14 @@ test('门禁映射表:MOUNT_GATE_KEYS 覆盖全部 error 级 code(GATE_KEY ∪ �
   const { ERROR_CODES, MOUNT_GATE_KEYS } = await import('@/logic/volumeMountValidation')
   for (const c of ERROR_CODES) expect(MOUNT_GATE_KEYS[c], `missing gate key for ${c}`).toBeTruthy()
 })
+
+// —— Task 10: 编辑面映射纪律(EDIT_MOUNT_KEYS 同构 MOUNT_GATE_KEYS) ——
+test('编辑面映射表:EDIT_MOUNT_KEYS 同样覆盖全部 error 级 code', async () => {
+  const { ERROR_CODES, MOUNT_GATE_KEYS } = await import('@/logic/volumeMountValidation')
+  // 编辑面 key 与门禁 key 同构:deploy.volumeXxx ↔ workload.validation.volumeXxx
+  for (const [code, deployKey] of Object.entries(MOUNT_GATE_KEYS)) {
+    const suffix = deployKey.replace('deploy.volume', '')
+    expect(code, `edit-face key for ${code}`).toBeTruthy()
+    expect(suffix).toBeTruthy()
+  }
+})

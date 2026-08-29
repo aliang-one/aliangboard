@@ -40,6 +40,11 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
     watchStateOf: () => 'off',
   currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true),
   fetchWorkloads: vi.fn(async () => [state.demoWorkload]), fetchPods: vi.fn(async () => []),
+  // 单源挂载审计的存在性检查需要 ns 内 PVC 清单(saveEdit 用例挂 p1/p2/p3)
+  fetchPVCs: vi.fn(async () => [
+    { name: 'p1', namespace: 'default' }, { name: 'p2', namespace: 'default' }, { name: 'p3', namespace: 'default' },
+  ]),
+  fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
   updateWorkload: vi.fn((name, ns, updates) => captured.push(updates)),
   applyWorkloadTemplate: vi.fn(async (name, ns, tpl) => captured.push(tpl)),
   invalidateAllClusterQueries: vi.fn(async () => {}),

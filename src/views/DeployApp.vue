@@ -14,7 +14,7 @@ import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
 import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
-import { validateVolumeMounts, buildMountCtx, firstVolumeMountError, toMountSpec, toVolumeDefYaml, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
+import { validateVolumeMounts, buildMountCtx, firstError, toMountSpec, toVolumeDefYaml, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
 import { validateContainerFields } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
@@ -281,9 +281,9 @@ const stepBlockReason = computed(() => {
     if (f.ports.some(p => p.containerPort !== '' && !/^\d+$/.test(String(p.containerPort)))) return t('deploy.portMustBeNumber')
   }
   if (currentStep.value === 2) {
-    // 存储门禁:单源审计取首个 error(来源/路径/系统路径/items/subPath/存在性/跨卡冲突全覆盖)
-    const e = firstVolumeMountError(f.volumeMounts, containerTargets.value.map(x => x.value), MOUNT_GATE_KEYS)
-    if (e) return t(e.key, { n: e.n })
+    // 存储门禁:与卡片/部署校验同一份单源审计(含存在性/键集检查,spec §3 三入口同一结论)
+    const first = firstError(mountAudit.value)
+    if (first) return t(MOUNT_GATE_KEYS[first.issue.code] || 'deploy.volumeSourceRequired', { n: first.entryIdx + 1 })
   }
   if (currentStep.value === 4) {
     if (f.createService) {
@@ -742,7 +742,7 @@ function validate() {
   if (!f.namespace) errs.push({ step: 0, msg: t('deploy.namespaceRequired') })
   if (!f.image) errs.push({ step: 1, msg: t('deploy.imageRequired') })
   // 存储门禁:与 step2 同一份单源审计(回跳改表后的兜底;{n} 文案与门禁一致)
-  const audit = validateVolumeMounts(f.volumeMounts, mountCtx.value)
+  const audit = mountAudit.value
   audit.byEntry.forEach((issues, i) => {
     const v = f.volumeMounts[i]
     if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) return // 整行未动,跳过(YAML 端同样跳过)

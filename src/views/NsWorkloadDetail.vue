@@ -20,7 +20,7 @@ import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
-import { volumeItemsIncomplete } from '@/logic/volumeMountValidation'
+import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
@@ -873,8 +873,9 @@ function scToForm(sc) {
 function mergeVolumes(tplSpec, c0) {
   const byKey = new Map()
   const volDefByName = new Map()
+  const octalOf = m => (m == null ? '' : Number(m).toString(8).padStart(4, '0'))
   ;(tplSpec.volumes || []).forEach(v => {
-    const d = { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
+    const d = { type: 'emptyDir', pvcName: '', hostPath: '', hostPathType: v.hostPath?.type || '', server: '', nfsPath: '', cmName: '', secretName: '', defaultMode: octalOf(v.configMap?.defaultMode ?? v.secret?.defaultMode), items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
     if (v.persistentVolumeClaim) { d.type = 'pvc'; d.pvcName = v.persistentVolumeClaim.claimName }
     else if (v.hostPath) { d.type = 'hostPath'; d.hostPath = v.hostPath.path }
     else if (v.nfs) { d.type = 'nfs'; d.server = v.nfs.server || ''; d.nfsPath = v.nfs.path || '' }
@@ -883,10 +884,10 @@ function mergeVolumes(tplSpec, c0) {
     volDefByName.set(v.name, d)
   })
   const push = (target, m) => {
-    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
+    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', hostPathType: '', server: '', nfsPath: '', cmName: '', secretName: '', defaultMode: '', items: [] }
     byKey.set(`${target}|${m.name}|${m.mountPath || ''}`, {
       name: m.name, target, type: d.type, mountPath: m.mountPath || '', subPath: m.subPath || '', readOnly: !!m.readOnly,
-      pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })),
+      pvcName: d.pvcName, hostPath: d.hostPath, hostPathType: d.hostPathType || '', server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, defaultMode: d.defaultMode || '', items: d.items.map(it => ({ ...it })),
     })
   }
   ;(c0.volumeMounts || []).forEach(m => push('main', m))
@@ -900,7 +901,7 @@ function mergeVolumes(tplSpec, c0) {
   ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
   // 只定义未挂载的卷也保留（挂到主容器占位）
   volDefByName.forEach((d, name) => {
-    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, items: d.items.map(it => ({ ...it })) })
+    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, hostPathType: d.hostPathType || '', server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, defaultMode: d.defaultMode || '', items: d.items.map(it => ({ ...it })) })
   })
   return [...byKey.values()]
 }
@@ -911,6 +912,33 @@ const containerTargets = computed(() => {
   ;(editForm.value.extraContainers || []).forEach((c, i) => { if (c.image) targets.push({ value: `sidecar:${i}`, label: `Sidecar: ${c.name || '#' + i}` }) })
   return targets
 })
+// 挂载单源审计(与创建面同一套;namespace 取路由参数)
+const mountCtx = computed(() => buildMountCtx({
+  validTargets: containerTargets.value.map(x => x.value),
+  configMaps: _cmQ2.data.value || [], secrets: _secQ2.data.value || [], pvcs: _pvcQ.data.value || [],
+  namespace: route.params.namespace,
+}))
+const mountAudit = computed(() => validateVolumeMounts(editForm.value.volumeMounts || [], mountCtx.value))
+// 编辑面 code → workload.validation.* 映射({name} 参数);sourceRequired 保留 per-type 旧文案。
+// 全量字面量(非拼接):i18n:check 静态扫描对象里的点分字面量,拼接前缀会被判 dangling。
+const EDIT_SOURCE_KEY = { pvc: 'workload.validation.volumeMissingPvc', hostPath: 'workload.validation.volumeMissingHostPath', nfs: 'workload.validation.volumeMissingNfs', configMap: 'workload.validation.volumeMissingConfigMap', secret: 'workload.validation.volumeMissingSecret' }
+const EDIT_MOUNT_KEYS = {
+  mountPathRoot: 'workload.validation.volumeMountPathRoot',
+  systemPathRuntime: 'workload.validation.volumeSystemPathRuntime',
+  systemPathEtc: 'workload.validation.volumeSystemPathEtc',
+  systemPathSaToken: 'workload.validation.volumeSystemPathSaToken',
+  itemPathInvalid: 'workload.validation.volumeItemPathInvalid',
+  itemKeyMissing: 'workload.validation.volumeItemKeyMissing',
+  sourceNotFound: 'workload.validation.volumeSourceNotFound',
+  subPathInvalid: 'workload.validation.volumeSubPathInvalid',
+  subPathNotInVolume: 'workload.validation.volumeSubPathNotInVolume',
+  nfsPathInvalid: 'workload.validation.volumeNfsPathInvalid',
+  hostPathSensitive: 'workload.validation.volumeHostPathSensitive',
+  defaultModeInvalid: 'workload.validation.volumeDefaultModeInvalid',
+  mountPathDuplicate: 'workload.validation.volumeMountPathDuplicate',
+  volumeNameDuplicate: 'workload.validation.volumeNameDuplicate',
+  orphanMount: 'workload.validation.volumeOrphanMount',
+}
 const _pvcQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: 30000 } })
 const _cmQ2 = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: 30000 } })
 const _secQ2 = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: 30000 } })
@@ -918,7 +946,7 @@ const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.name
 const availableConfigMaps = computed(() => (_cmQ2.data.value || []).filter(c => c.namespace === route.params.namespace).map(c => c.name))
 const availableSecrets = computed(() => (_secQ2.data.value || []).filter(s => s.namespace === route.params.namespace).map(s => s.name))
 function addVolumeMount() {
-  editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] })
+  editForm.value.volumeMounts.push({ name: genVolName(), target: 'main', type: 'emptyDir', mountPath: '', subPath: '', readOnly: false, pvcName: '', hostPath: '', hostPathType: 'DirectoryOrCreate', defaultMode: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] })
 }
 // 卷名是 pod 卷↔容器挂载的关联键（必填），但用户不需要关心 → 添加时自动生成
 function genVolName() { return 'vol-' + Math.random().toString(36).slice(2, 8) }
@@ -1033,27 +1061,16 @@ function buildSc(s) {
   if (add.length || drop.length) o.capabilities = { ...(add.length ? { add } : {}), ...(drop.length ? { drop } : {}) }
   return Object.keys(o).length ? o : null
 }
-// 按 target 取该容器的 volumeMounts（含 subPath/readOnly）
-function mountObjs(target, f) {
-  const ms = (f.volumeMounts || []).filter(v => v.target === target && v.name && v.mountPath).map(m => { const o = { name: m.name, mountPath: m.mountPath }; if (m.subPath) o.subPath = m.subPath; if (m.readOnly) o.readOnly = true; return o })
-  return ms.length ? ms : null
-}
 // 保存前校验：返回错误描述数组（空=通过）
 function validateEdit() {
   const f = editForm.value, errs = []
-  const validTargets = containerTargets.value.map(x => x.value)
   ;(f.volumeMounts || []).forEach((v, i) => {
-    const w = t('common.name') + ' ' + (v.name || '#' + (i + 1))
-    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) errs.push(t('workload.validation.volumeEmpty', { name: v.name || '#' + (i + 1) }))
-    else {
-      if (!v.mountPath) errs.push(t('workload.validation.volumeMissingMountPath', { name: v.name || '#' + (i + 1) }))
-      if (v.type === 'pvc' && !v.pvcName) errs.push(t('workload.validation.volumeMissingPvc', { name: v.name || '#' + (i + 1) }))
-      if (v.type === 'hostPath' && !v.hostPath) errs.push(t('workload.validation.volumeMissingHostPath', { name: v.name || '#' + (i + 1) }))
-      if (v.type === 'nfs' && !v.server) errs.push(t('workload.validation.volumeMissingNfs', { name: v.name || '#' + (i + 1) }))
-      if (v.type === 'configMap' && !v.cmName) errs.push(t('workload.validation.volumeMissingConfigMap', { name: v.name || '#' + (i + 1) }))
-      if (v.type === 'secret' && !v.secretName) errs.push(t('workload.validation.volumeMissingSecret', { name: v.name || '#' + (i + 1) }))
-      if (!validTargets.includes(v.target)) errs.push(t('workload.validation.volumeTargetInvalid', { name: v.name || '#' + (i + 1) }))
-      if (volumeItemsIncomplete(v)) errs.push(t('workload.validation.volumeItemsIncomplete', { name: v.name || '#' + (i + 1) }))
+    const nm = v.name || '#' + (i + 1)
+    if (!v.mountPath && !v.pvcName && !v.hostPath && !v.server && !v.cmName && !v.secretName) { errs.push(t('workload.validation.volumeEmpty', { name: nm })); return }
+    for (const issue of mountAudit.value.byEntry[i] || []) {
+      if (issue.level !== 'error') continue
+      if (issue.code === 'sourceRequired') errs.push(t(EDIT_SOURCE_KEY[v.type] || 'workload.validation.volumeEmpty', { name: nm }))
+      else errs.push(t(EDIT_MOUNT_KEYS[issue.code] || MOUNT_GATE_KEYS[issue.code], { name: nm }))
     }
   })
   // 子容器校验接入单源(containerValidation):空行判定统一 isSubContainerEmpty——
@@ -1131,7 +1148,7 @@ async function saveEdit() {
       c0.livenessProbe = buildProbe(f.liveness)
       c0.readinessProbe = buildProbe(f.readiness)
       c0.startupProbe = buildProbe(f.startup)
-      c0.volumeMounts = mountObjs('main', f)
+      c0.volumeMounts = mountsForTarget(f.volumeMounts, 'main')
       c0.securityContext = buildSc(f.securityContext) || null
       const lc = {}
       const ps = splitCommandTokens(f.lifecycle?.postStart), pst = splitCommandTokens(f.lifecycle?.preStop)
@@ -1151,19 +1168,10 @@ async function saveEdit() {
           buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true }) : null),
       ].filter(Boolean)
       spec.initContainers = rebuiltInits.length ? rebuiltInits : null
-      // 卷（按 name 去重；configMap/secret 带 items）
+      // 卷(单源 toVolumeDef:按 name 去重、items/defaultMode/hostPathType 条件输出,来源缺失静默丢——门禁已拦)
       const volDefs = new Map()
       ;(f.volumeMounts || []).filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
-      const vols = [...volDefs.values()].map(v => {
-        const items = (v.items || []).filter(it => it.key).map(it => ({ key: it.key, path: it.path }))
-        if (v.type === 'pvc' && v.pvcName) return { name: v.name, persistentVolumeClaim: { claimName: v.pvcName } }
-        if (v.type === 'emptyDir') return { name: v.name, emptyDir: {} }
-        if (v.type === 'hostPath' && v.hostPath) return { name: v.name, hostPath: { path: v.hostPath } }
-        if (v.type === 'nfs' && v.server) return { name: v.name, nfs: { server: v.server, path: v.nfsPath || '/' } }
-        if (v.type === 'configMap' && v.cmName) { const o = { name: v.name, configMap: { name: v.cmName } }; if (items.length) o.configMap.items = items; return o }
-        if (v.type === 'secret' && v.secretName) { const o = { name: v.name, secret: { secretName: v.secretName } }; if (items.length) o.secret.items = items; return o }
-        return null
-      }).filter(Boolean)
+      const vols = [...volDefs.values()].map(toVolumeDef).filter(Boolean)
       spec.volumes = vols.length ? vols : null
       // 调度（pod spec）
       const nsMap = {}
@@ -2267,7 +2275,7 @@ function podStatusBorder(s) {
             <button @click="addVolumeMount" class="ml-auto flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addVolume') }}</button>
           </div>
           <div class="flex flex-col gap-sm">
-            <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="route.params.namespace" @remove="editForm.volumeMounts.splice(i, 1)" />
+            <VolumeMountCard v-for="(v, i) in editForm.volumeMounts" :key="'v'+i" v-model="editForm.volumeMounts[i]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="route.params.namespace" :issues="mountAudit.byEntry[i] || []" @remove="editForm.volumeMounts.splice(i, 1)" />
           </div>
         </section>
 
