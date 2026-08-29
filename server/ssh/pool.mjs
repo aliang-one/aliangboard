@@ -70,6 +70,8 @@ function connectWith(SshClient, row, creds, { keepaliveMs, getKnownFp, recordFp,
     const fail = err => {
       if (settled) { try { onDead?.(client) } catch { /* 钩子异常不外泄 */ } return }
       settled = true
+      // 首次失败落全栈(服务端日志):界面只见 errorKind/message,排障靠这里(2026-08-28 真机 'prototype' 排查教训)
+      console.error(`[ssh] connect ${row.host}:${row.port} failed:`, err?.stack || err?.message || err)
       try { client.end() } catch { /* 已断 */ }
       const e = new Error(err?.message || String(err))
       e.errorKind = hostKeyRejected ? 'hostkey' : classifyConnectError(err)
