@@ -138,6 +138,7 @@
         "systemPathShadow": "该路径是镜像自带目录，整目录挂载会遮蔽原有内容；挂单文件请用 subPath",
         "itemPathInvalid": "items 路径非法：须为相对路径，不含 ..、空白或反斜杠（可含子目录，如 conf/app.yml）",
         "itemPathDuplicate": "与第 {first} 行落点重复，文件会互相覆盖",
+        "itemPathDuplicateShort": "落点与其他行重复，文件会互相覆盖",
         "itemKeyMissing": "该 key 不在所选资源中（binaryData 键也会列出）",
         "sourceNotFound": "所选资源在当前命名空间不存在（可能已被删除）",
         "subPathInvalid": "subPath 须为相对路径且不含 ..",

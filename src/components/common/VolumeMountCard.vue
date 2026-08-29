@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import CreatePvcDialog from '@/components/common/CreatePvcDialog.vue'
-import { normalizeMountPath } from '@/logic/volumeMountValidation'
+import { normalizeMountPath, projectMountFiles } from '@/logic/volumeMountValidation'
 
 const { t } = useI18n()
 
@@ -80,14 +80,17 @@ function onBlurMountPath() {
   if (n !== entry.value.mountPath) entry.value.mountPath = n
 }
 
-// 所选 configMap/secret 的 data 键（用于 items 的 key 下拉）
-const selectedKeys = computed(() => {
+// 所选 configMap/secret 的行(含 data/binaryKeys)
+const selectedRow = computed(() => {
   const isSecret = entry.value.type === 'secret'
   const list = isSecret ? (_secQ.data.value || []) : (_cmQ.data.value || [])
   const name = isSecret ? entry.value.secretName : entry.value.cmName
-  const res = (list || []).find(r => r.name === name && r.namespace === props.namespace)
-  return Object.keys(res?.data || {})
+  return (list || []).find(r => r.name === name && r.namespace === props.namespace)
 })
+// 键全集 = data ∪ binaryData(binaryData 无 Task 1 透传时自然为空)
+const selectedKeys = computed(() => [...new Set([...Object.keys(selectedRow.value?.data || {}), ...(selectedRow.value?.binaryKeys || [])])])
+// 落点投影(items 区与预览共用)
+const projection = computed(() => projectMountFiles(entry.value, showItems.value ? selectedKeys.value : null))
 function onItemKey(it) { if (!it.path) it.path = it.key }
 
 const fld = 'w-full bg-surface-container-lowest border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors'
@@ -201,6 +204,28 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <template v-if="issuesFor('defaultMode').length">
         <p v-for="(i, ii) in issuesFor('defaultMode')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </template>
+
+      <!-- 落点预览(projectMountFiles 驱动):整目录/单文件两种形态 + key 来源/缺失/重复标注 -->
+      <div data-testid="mount-preview" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-0.5">
+        <div class="flex items-center gap-1 text-[10px] font-semibold text-on-surface-variant">
+          <span class="material-symbols-outlined text-sm">subdirectory_arrow_right</span>{{ t('component.volumeMount.previewTitle') }}
+        </div>
+        <template v-if="projection.mode === 'single'">
+          <p class="text-xs font-mono text-on-surface">{{ projection.entries[0].path }}</p>
+          <p class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.previewSubPath') }}</p>
+        </template>
+        <template v-else>
+          <p class="text-xs font-mono text-on-surface">{{ projection.mountPath }}/<span v-if="entry.readOnly" class="material-symbols-outlined text-xs align-middle text-on-surface-variant">lock</span></p>
+          <p v-if="!projection.entries.length && !projection.keysLoaded" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewKeysUnloaded') }}</p>
+          <div v-for="(e, i) in projection.entries" :key="i" class="text-xs font-mono pl-3 flex items-center gap-1 flex-wrap">
+            <span>{{ e.path }}</span>
+            <span v-if="e.from === 'item'" class="text-[10px] text-on-surface-variant/50">← key: {{ e.key }}</span>
+            <span v-if="e.warn === 'keyMissing'" class="text-[10px] text-error">{{ t('component.volumeMount.issue.itemKeyMissing') }}</span>
+            <span v-else-if="e.warn === 'dup'" class="text-[10px] text-tertiary-container">{{ t('component.volumeMount.issue.itemPathDuplicateShort') }}</span>
+          </div>
+          <p v-if="!entry.items.some(it => it.key) && projection.keysLoaded && !projection.entries.length" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewWholeVolume') }}</p>
+        </template>
+      </div>
     </div>
 
     <!-- 挂载到 / subPath / 只读 —— 置下 -->

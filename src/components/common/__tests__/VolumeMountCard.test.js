@@ -138,3 +138,30 @@ test('VolumeMountCard: hostPath 类型显示 hostPathType 下拉(默认值可改
   expect(cm.defaultMode).toBe('0640')
   w2.unmount()
 })
+
+test('VolumeMountCard: 落点预览——无 items 列全部键(binaryData 键并列);items 树形标注来源与告警;subPath 单文件', () => {
+  qData.cm.value = [{ name: 'cm', namespace: 'default', data: { k1: '1' }, binaryKeys: ['b.bin'] }]
+
+  const whole = makeEntry(); whole.type = 'configMap'; whole.cmName = 'cm'; whole.mountPath = '/etc/config'
+  const w1 = mount(VolumeMountCard, { props: { modelValue: whole, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const prev1 = w1.find('[data-testid="mount-preview"]')
+  expect(prev1.text()).toContain('/etc/config')
+  expect(prev1.text()).toContain('k1')
+  expect(prev1.text()).toContain('b.bin')
+  w1.unmount()
+
+  const items = makeEntry(); items.type = 'configMap'; items.cmName = 'cm'; items.mountPath = '/etc/app'
+  items.items = [{ key: 'k1', path: 'conf/a.yml' }, { key: 'ghost', path: 'b.yml' }]
+  const w2 = mount(VolumeMountCard, { props: { modelValue: items, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  const prev2 = w2.find('[data-testid="mount-preview"]')
+  expect(prev2.text()).toContain('conf/a.yml')
+  expect(prev2.text()).toContain('← key: k1')
+  expect(prev2.text()).toContain(i18n.global.t('component.volumeMount.issue.itemKeyMissing'))
+  w2.unmount()
+
+  const sub = makeEntry(); sub.type = 'configMap'; sub.cmName = 'cm'; sub.mountPath = '/etc/app'; sub.subPath = 'k1'
+  const w3 = mount(VolumeMountCard, { props: { modelValue: sub, pvcs: [], namespace: 'default', issues: [] }, global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } } })
+  expect(w3.find('[data-testid="mount-preview"]').text()).toContain(i18n.global.t('component.volumeMount.previewSubPath'))
+  w3.unmount()
+  qData.cm.value = []
+})

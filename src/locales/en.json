@@ -138,6 +138,7 @@
         "systemPathShadow": "This path exists in the image; mounting the whole directory shadows its original content — use subPath for single files",
         "itemPathInvalid": "Invalid items path: must be a relative path without .., whitespace or backslashes (subdirectories allowed, e.g. conf/app.yml)",
         "itemPathDuplicate": "Duplicates the target of row {first}; the files will overwrite each other",
+        "itemPathDuplicateShort": "Duplicates another row's target; the files will overwrite each other",
         "itemKeyMissing": "This key is not in the selected resource (binaryData keys are also listed)",
         "sourceNotFound": "The selected resource does not exist in the current namespace (it may have been deleted)",
         "subPathInvalid": "subPath must be a relative path without ..",
