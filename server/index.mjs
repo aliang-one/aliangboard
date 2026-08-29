@@ -260,6 +260,12 @@ function seedAdminFromEnv() {
 }
 // 平台 session（内存 Map + SQLite 持久化）
 const platformSessions = new Map()  // token -> {userId, username, role, createdAt, k8sSessionToken}
+// SSH 使用面收敛 admin(2026-08-29 裁决 A):WS upgrade 无 req/res 中间件,用平台会话的
+// username 查 platform_users.role 判定。必须定义在模块顶层——upgrade 处理器在模块作用域
+// (曾错置在请求处理闭包内 → ReferenceError → 终端 socket 被毁,用户见「会话已终止」)。
+const isPlatformAdmin = username => {
+  try { return db.prepare('SELECT role FROM platform_users WHERE username=?').get(username)?.role === 'admin' } catch { return false }
+}
 function loadPersistedPlatformSessions() {
   try {
     const rows = db.prepare('SELECT * FROM platform_sessions').all()
@@ -1482,11 +1488,6 @@ async function handle(req, res) {
     bootstrapLedgerForCluster,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
-  // SSH 使用面收敛 admin(2026-08-29 裁决 A):WS/SFTP 与 CRUD 同门。WS 无 req/res 中间件,
-  // 用 platformSessions 命中的会话查 platform_users.role 判定。
-const isPlatformAdmin = username => {
-  try { return db.prepare('SELECT role FROM platform_users WHERE username=?').get(username)?.role === 'admin' } catch { return false }
-}
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
   evictSshServer: id => sshPool.evictServer(id),
   closeSshServerSessions: id => sshTerminals.closeByServer(id, sess => { try { sess.extra?.channel?.close?.() } catch { /* noop */ }; try { sess.extra?.release?.() } catch { /* noop */ } }),
