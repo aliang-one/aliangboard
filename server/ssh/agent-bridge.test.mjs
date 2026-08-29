@@ -179,3 +179,43 @@ test('readFile 超限:>maxBytes 后流只发 close(不发 end/error)→ promise 
   assert.equal(Buffer.byteLength(r2.content), 1024)
   assert.ok(calls2.some(c => c[0] === 'release'))
 })
+
+// === 台账闭包(2026-08-29) ===
+test('readLedger:渲染暴露服务器台账(含全局备注);writeNotes 全局/服务器/未暴露三路', async () => {
+  const { encryptField } = await import('./crypt.mjs')
+  const KEY = Buffer.alloc(32)
+  const ROWS = [
+    { id: 'a', name: 'gw-1', exposeToAi: 1, aiApprovalPolicy: 'readonly', host: '1.1.1.1', encPassword: encryptField(KEY, 'pw'), notes: '入口网关' },
+    { id: 'b', name: 'hidden', exposeToAi: 0, aiApprovalPolicy: 'always', host: '2.2.2.2', encPassword: encryptField(KEY, 'pw') },
+  ]
+  const settings = { 'ssh.globalNotes': '全局:三台组成集群' }
+  const updates = []
+  const db = { prepare: sql => ({
+    all: () => (sql.includes('exposeToAi=1') ? ROWS.filter(r => r.exposeToAi) : ROWS),
+    get: () => ROWS[0],
+    run: (...a) => updates.push([sql, a]),
+  }) }
+  const pool = { acquire: async () => { throw new Error('不应触网') } }
+  const bridge = createSshAgentBridge({ db, key: KEY, pool, projectId: 'p1', actor: 'ops',
+    getSetting: k => settings[k] ?? '', setSetting: (k, v) => { settings[k] = v } })
+  const lg = bridge.readLedger()
+  assert.ok(lg.markdown.includes('入口网关'))
+  assert.ok(lg.markdown.includes('全局:三台组成集群'))
+  assert.ok(!lg.markdown.includes('2.2.2.2'))          // 未暴露不泄露
+  assert.equal(lg.count, 1)
+  // 写全局
+  const g = bridge.writeNotes({ scope: '__global__', notes: '新全局' })
+  assert.equal(g.ok, true)
+  assert.equal(settings['ssh.globalNotes'], '新全局')
+  // 写服务器(按名解析)
+  const w = bridge.writeNotes({ scope: 'gw-1', notes: '角色升级:WAF 前置' })
+  assert.equal(w.ok, true)
+  assert.ok(updates.some(([sql, a]) => sql.includes('UPDATE ssh_servers') && a.includes('角色升级:WAF 前置')))
+  // 未暴露 → 拒(不泄露存在性)
+  const h = bridge.writeNotes({ scope: 'hidden', notes: 'x' })
+  assert.ok(h.error && /未暴露/.test(h.error))
+  // 写恒人审
+  assert.equal(await bridge.needsApproval('write_server_notes', { scope: '__global__', notes: 'x' }), true)
+  // 读免审(静态 requiresApproval=false,不会进 needsApproval;这里只防呆)
+  assert.equal(await bridge.needsApproval('read_server_ledger', {}), true)   // resolve 无 server → true 安全默认,但该工具不进审批链
+})

@@ -44,9 +44,9 @@ test('registry.workbenchToolDefs(disabled):过滤 + 未知名忽略 + 无参兼�
   assert.deepEqual(registry.workbenchToolDefs().map(t => t.function.name), all)
 })
 
-test('registry.workbenchTools():21 个 WB 工具,每个带 promptHint', () => {
+test('registry.workbenchTools():23 个 WB 工具,每个带 promptHint', () => {
   const tools = registry.workbenchTools()
-  assert.equal(tools.length, 21)
+  assert.equal(tools.length, 23)
   assert.ok(tools.every(t => typeof t.promptHint === 'string' && t.promptHint.length > 0))
   assert.ok(tools.some(t => t.name === 'wb_exec' && t.requiresApproval === true))
 })
@@ -57,6 +57,8 @@ test('sshServers 注入:非空清单出现 id/名称/集群/凭据不可见指�
   assert.ok(withList.includes('prod-web') && withList.includes('abc') && withList.includes('prod'))
   assert.ok(withList.includes('wb_ssh_exec'))
   assert.ok(withList.includes('不可见'))
+  assert.ok(withList.includes('read_server_ledger'))   // 台账指引进提示词
+  assert.ok(withList.includes('write_server_notes'))
   const without = buildWorkbenchSystemPrompt({})
   assert.ok(!without.includes('可管理的 SSH 服务器'))
 })
