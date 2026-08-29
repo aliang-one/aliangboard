@@ -2976,7 +2976,13 @@
       "previewHint": "Fixed methodology section is not configurable; tool docs auto-generate with toggles; end is additional instructions.",
       "loadFailed": "Failed to load AI behavior config",
       "projectMemory": "Inject project memory",
-      "projectMemoryDesc": "New chats carry a summary of past project decisions"
+      "projectMemoryDesc": "New chats carry a summary of past project decisions",
+      "presenceTitle": "Floating Chat",
+      "presenceMaxItems": "Items shown",
+      "presenceWindowMin": "Hide after (min)",
+      "presenceHint": "Running/paused conversations stay; terminal ones drop after the window with no activity. Takes effect within ~10s after saving.",
+      "presenceSaved": "Floating chat config saved",
+      "presenceSaveFailed": "Failed to save floating chat config"
     },
     "apiKeys": {
       "title": "API Keys Management",

@@ -2976,7 +2976,13 @@
       "previewHint": "固定方法论段不可配置;工具文档随开关自动生成;末尾为追加指令。",
       "loadFailed": "加载 AI 行为配置失败",
       "projectMemory": "项目记忆注入",
-      "projectMemoryDesc": "新对话自动携带项目历史决策摘要"
+      "projectMemoryDesc": "新对话自动携带项目历史决策摘要",
+      "presenceTitle": "悬浮对话入口",
+      "presenceMaxItems": "展示条数",
+      "presenceWindowMin": "隐去时间(分钟)",
+      "presenceHint": "运行中/待审批对话常驻;终态对话超过隐去时间无动态后不再显示。保存后约 10 秒内全端生效。",
+      "presenceSaved": "悬浮对话配置已保存",
+      "presenceSaveFailed": "悬浮对话配置保存失败"
     },
     "apiKeys": {
       "title": "API Keys 管理",
