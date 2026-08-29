@@ -248,6 +248,20 @@ Container variables (they override the backend variables of the same name):
 - Historical images can be pruned via the manual cleanup workflow (`.github/workflows/cleanup-ghcr.yml`, dry-run by default)
 - Current release: `v1.0.3`
 
+## 🖥 SSH Server Management
+
+Manage SSH servers alongside Kubernetes clusters — credentials stored AES-256-GCM encrypted (key file kept separate from the database).
+
+- **Server inventory**: host/port/credentials (password or private key + sudo password), optional cluster association and tags; connection test detects the distro (Ubuntu/Debian/Arch/Alpine/Rocky…) and shows its icon plus a health badge.
+- **Workbench terminals**: interactive floating terminals with gateway-side keepalive — refreshing the page replays scrollback and resumes the same shell.
+- **SFTP**: browse/upload/download with progress.
+- **AI access (opt-in per server)**: each server has an "expose to AI" toggle with an approval policy (`always` = every command human-approved, `readonly` = read-only commands auto-allowed, `none` = unrestricted). Exposed servers appear in the AI ledger (`read_server_ledger`) where the agent records each server's role/deployments (`write_server_notes`, human-approved).
+
+**Authorization model (deliberately simple, open-source edition)**:
+
+- Server CRUD, credentials and the ledger are **admin-only**; terminals, SFTP and AI access are **admin-only as well**.
+- API keys can be granted SSH access with a single boolean (`SSH server access` when creating/editing a key). Granted keys reach MCP tools `wb_ssh_exec` / `wb_ssh_read_file` / `read_server_ledger` for servers that are exposed to AI; each server's approval policy applies in a fail-closed way (`always` denies exec on the key channel since no human approver exists there). No grouping or per-user permission management.
+
 ## ⚠️ Known Limitations
 
 - The exec terminal, port forwarding, and file browsing only work when a real cluster is connected; without one, the related entry points show an empty state.

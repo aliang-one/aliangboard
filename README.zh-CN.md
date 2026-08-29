@@ -247,6 +247,20 @@ API 网关默认把集群凭据与会话保存在内存中,重启后所有登录
 - 历史镜像可经手动 cleanup 工作流(`.github/workflows/cleanup-ghcr.yml`,默认 dry-run)清理
 - 当前发布版本:`v1.0.3`
 
+## 🖥 SSH 服务器管理
+
+在 Kubernetes 集群之外同步管理 SSH 服务器——凭据 AES-256-GCM 加密存储(密钥文件与数据库分离)。
+
+- **服务器清单**:主机/端口/凭据(密码或私钥 + sudo 密码),可选关联集群与标签;测试连接会探测发行版(Ubuntu/Debian/Arch/Alpine/Rocky…)并显示图标与健康状态。
+- **工作台终端**:浮动交互终端,网关侧保活——刷新页面回放历史并续跑同一 shell。
+- **SFTP**:浏览/上传/下载,带进度。
+- **AI 访问(按服务器逐台开启)**:每台服务器有「暴露给 AI」开关与审批策略(`always`=每条命令人审,`readonly`=只读命令免审,`none`=不限)。已暴露服务器进入 AI 台账(`read_server_ledger`),AI 可在其中记录每台服务器的角色与部署(`write_server_notes`,需人审)。
+
+**授权模型(开源版刻意从简)**:
+
+- 服务器 CRUD、凭据与台账为 **admin 专属**;终端、SFTP 与 AI 访问同样 **admin 专属**。
+- API key 可用一个布尔开关授予 SSH 访问(创建/编辑 key 时的「SSH 服务器访问」)。授予后,MCP 侧可用 `wb_ssh_exec` / `wb_ssh_read_file` / `read_server_ledger` 访问**已暴露**的服务器;每台服务器的审批策略以 fail-closed 方式生效(`always` 在 key 通道无人审,拒绝 exec)。不做分组与按用户权限管理。
+
 ## ⚠️ 已知限制
 
 - exec 终端、端口转发、文件浏览仅在连接真实集群后可用;未连接时相关入口显示空态
