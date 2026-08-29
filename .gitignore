@@ -30,6 +30,7 @@ dist-ssr
 .playwright-mcp/
 .claude/
 .gstack/
+/cm-qa-harness*
 
 # Superpowers SDD 工作区（账本/报告等 scratch，勿入库）
 .superpowers/
