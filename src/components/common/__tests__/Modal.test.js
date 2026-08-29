@@ -1,5 +1,6 @@
 import { test, expect, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import Modal from '@/components/common/Modal.vue'
 import { Z } from '@/styles/zScale'
 import { i18n } from '@/i18n'
@@ -65,4 +66,69 @@ test('Modal: priority 提升到 Z.modalPriority(盖过普通 modal,低于 toast)
   expect(Z.modalPriority).toBeGreaterThan(Z.modal)
   expect(Z.modalPriority).toBeLessThan(Z.toast)
   w2.unmount()
+})
+
+// ===== 最大化能力(2026-08-29 设计):maximizable 切换 + ESC 先还原 + scoped slot =====
+function mountModal(props = {}, slots) {
+  return mount(Modal, { props: { modelValue: true, title: 't', ...props }, global: { plugins: [i18n] }, slots })
+}
+const dialogOf = () => document.querySelector('body div.fixed.inset-0 div.relative')
+
+test('Modal: maximizable=false 无切换钮(回归);true 渲染最大化钮', () => {
+  const w1 = mountModal({})
+  expect(document.querySelector('[data-testid="modal-maximize-btn"]')).toBe(null)
+  w1.unmount()
+
+  const w2 = mountModal({ maximizable: true })
+  const btn = document.querySelector('[data-testid="modal-maximize-btn"]')
+  expect(btn).toBeTruthy()
+  expect(btn.getAttribute('aria-label')).toBe(i18n.global.t('component.modal.maximize'))
+  w2.unmount()
+})
+
+test('Modal: 点最大化→全屏形态;再点→还原普通形态', async () => {
+  const w = mountModal({ maximizable: true, width: 'max-w-4xl' })
+  const btn = () => document.querySelector('[data-testid="modal-maximize-btn"], [data-testid="modal-restore-btn"]')
+  btn().click(); await nextTick()
+  let cls = dialogOf().className
+  expect(cls).toContain('w-full'); expect(cls).toContain('h-full'); expect(cls).toContain('rounded-none')
+  expect(dialogOf().querySelector('div.flex-1.overflow-y-auto')).toBeTruthy()
+  expect(btn().getAttribute('data-testid')).toBe('modal-restore-btn')
+  btn().click(); await nextTick()
+  cls = dialogOf().className
+  expect(cls).toContain('max-h-[90vh]'); expect(cls).toContain('rounded-xl'); expect(cls).toContain('max-w-4xl')
+  w.unmount()
+})
+
+test('Modal: 重开(modelValue 关→开)重置为普通态', async () => {
+  const w = mountModal({ maximizable: true })
+  document.querySelector('[data-testid="modal-maximize-btn"]').click(); await nextTick()
+  expect(dialogOf().className).toContain('rounded-none')
+  await w.setProps({ modelValue: false })
+  await w.setProps({ modelValue: true }); await nextTick()
+  expect(dialogOf().className).toContain('rounded-xl')
+  w.unmount()
+})
+
+test('Modal: ESC 先还原不关闭;还原后 ESC 才关闭', async () => {
+  const w = mountModal({ maximizable: true })
+  document.querySelector('[data-testid="modal-maximize-btn"]').click(); await nextTick()
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await nextTick()
+  expect(dialogOf().className).toContain('rounded-xl')          // 已还原
+  expect(document.querySelector('body div.fixed.inset-0')).toBeTruthy() // 未关闭
+  expect(w.emitted('update:modelValue')).toBeUndefined()
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await nextTick()
+  expect(w.emitted('update:modelValue')[0]).toEqual([false])     // 第二次 ESC 关闭
+  w.unmount()
+})
+
+test('Modal: scoped slot 暴露 maximized 两态', async () => {
+  const { h } = await import('vue')
+  const w = mountModal({ maximizable: true }, {
+    default: ({ maximized }) => h('p', { 'data-testid': 'scope-probe' }, String(maximized)),
+  })
+  expect(document.querySelector('[data-testid="scope-probe"]').textContent).toBe('false')
+  document.querySelector('[data-testid="modal-maximize-btn"]').click(); await nextTick()
+  expect(document.querySelector('[data-testid="scope-probe"]').textContent).toBe('true')
+  w.unmount()
 })

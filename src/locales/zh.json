@@ -70,7 +70,9 @@
   "component": {
     "modal": {
       "cancel": "取消",
-      "confirm": "确认"
+      "confirm": "确认",
+      "maximize": "最大化",
+      "restore": "还原"
     },
     "confirmDialog": {
       "confirm": "确认",

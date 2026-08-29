@@ -1,5 +1,6 @@
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { i18n } from '@/i18n'
 
 // vi.mock 工厂被提升,具名引用须用 vi.hoisted 提到顶部
@@ -283,4 +284,51 @@ test('无 startInYaml: 默认数据 tab(现状);startInYaml 开→关重开后�
   await w2.setProps({ modelValue: false })
   await w2.setProps({ modelValue: true, startInYaml: false })
   expect(w2.find('[data-testid="ccm-yaml-input"]').exists()).toBe(false)
+})
+
+// ===== 最大化:YAML 编辑区撑满(2026-08-29 设计)——真实挂 Modal(不 stub)走 Teleport DOM =====
+test('最大化后 tab 容器与 YAML textarea 切撑满形态;还原回普通态', async () => {
+  const w = mount(CreateConfigResourceModal, {
+    props: { modelValue: true, kind: 'configmap', namespace: 'default' },
+    global: { plugins: [i18n], stubs: { DataKeysEditor: DataKeysStub, KeyValueRowsEditor: KvRowsStub } },
+  })
+  // 等待 Teleport 完成
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  // 进 YAML 编辑态(「从 YAML 开始」之外的常规路径:tab → 切编辑)
+  // Modal 内容被 Teleport 到 body,需用 DOM API 直查
+  const tabBtn = document.querySelector('[data-testid="ccm-tab-yaml"]')
+  expect(tabBtn).toBeTruthy()
+  tabBtn.click()
+  await nextTick()
+  const switchBtn = document.querySelector('[data-testid="ccm-yaml-switch"]')
+  expect(switchBtn).toBeTruthy()
+  switchBtn.click()
+  await nextTick()
+  const tabWrap = () => document.querySelector('[data-testid="ccm-panel-yaml"]').parentElement
+  const ta = () => document.querySelector('[data-testid="ccm-yaml-input"]')
+  // 普通态基线
+  expect(tabWrap().className).toContain('max-h-[55vh]')
+  expect(ta().getAttribute('rows')).toBe('14')
+  expect(ta().classList.contains('flex-1')).toBe(false)
+  // 最大化
+  const maxBtn = document.querySelector('[data-testid="modal-maximize-btn"]')
+  expect(maxBtn).toBeTruthy()
+  maxBtn.click()
+  await nextTick()
+  expect(tabWrap().className).toContain('flex-1')
+  expect(tabWrap().className).toContain('min-h-0')
+  expect(ta().classList.contains('flex-1')).toBe(true)
+  // YAML 面板根在最大化时用 h-full（父级 block 滚动容器下 flex-1 无效）
+  const yamlPanel = document.querySelector('[data-testid="ccm-panel-yaml"]')
+  expect(yamlPanel.classList.contains('h-full')).toBe(true)
+  // 还原
+  const restoreBtn = document.querySelector('[data-testid="modal-restore-btn"]')
+  expect(restoreBtn).toBeTruthy()
+  restoreBtn.click()
+  await nextTick()
+  expect(tabWrap().className).toContain('max-h-[55vh]')
+  expect(ta().classList.contains('flex-1')).toBe(false)
+  w.unmount()
+  document.body.innerHTML = ''
 })
