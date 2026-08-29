@@ -3388,6 +3388,7 @@
       "collapse": "收起",
       "toolDenied": "已拒绝",
       "recapSummary": "之前的对话摘要",
+      "loadEarlier": "↑ 加载更早的 {n} 条",
       "context": {
         "title": "上下文余量（估算）",
         "detailHint": "token 为估算值（≈字符/2）；上限按所配模型窗口，未知模型默认 200k",

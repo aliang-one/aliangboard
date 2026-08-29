@@ -44,7 +44,7 @@ const i18n = createI18n({
   messages: { zh: { workbench: { chat: {
     userMessage: 'Type...', title: 'AI', hint: 'hint', recapSummary: '之前的对话摘要', noAnswer: '(无回答)',
     stop: '停止', stopped: '已停止', loadFailed: '对话加载失败,请检查网络后重试',
-    reasoningTitle: '思考过程',
+    reasoningTitle: '思考过程', loadEarlier: '↑ 加载更早的 {n} 条',
     editTitle: '编辑并重发', editBanner: '正在编辑此消息，发送后将删除其后 {n} 条对话', editCancel: '取消编辑',
     convStatus: { running: '执行中', paused: '待审批', done: '完成', failed: '失败', cancelled: '已取消' },
     slash: {
@@ -989,4 +989,44 @@ test('slash:对话 done 时 /compact 可选→清输入+开压缩 modal', async 
   expect(w.find('textarea').element.value).toBe('', '/compact token 被清')
   expect(w.find('[data-testid="context-compact-modal"]').exists()).toBe(true)
   w.unmount()
+})
+
+// ── 渲染窗口 T1(spec D2:只裁渲染不动数据)──
+const manyMsgs = n => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, role: i % 2 ? 'assistant' : 'user', content: `消息 ${i}`, createdAt: i + 1 }))
+
+test('渲染窗口:200 条 turns 只渲染 60;哨兵显示余量;扩窗渐进;末条恒在窗内', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-big', status: 'done', content: '终', trace: '[]', steps: 1, recap: '', messages: manyMsgs(200) })
+  const w = await mountChat({ conversationId: 'c-big', activeConversationId: 'c-big' })
+  await flushPromises()
+  expect(w.vm.turns.length).toBe(200, '数据层全量')
+  let nodes = w.findAll('[data-role]')
+  expect(nodes.length).toBe(60, 'DOM 只渲染 60')
+  expect(w.text()).toContain('消息 199', '末条在窗内')
+  const sentinel = w.find('[data-testid="load-earlier-sentinel"]')
+  expect(sentinel.exists()).toBe(true)
+  expect(sentinel.text()).toContain('140')
+  await sentinel.trigger('click')
+  expect(w.findAll('[data-role]').length).toBe(120)
+  expect(w.text()).toContain('消息 80', '扩窗后窗首条可见(brief 原写 消息 0,120 窗口起点实为 80)')
+  expect(w.find('[data-testid="load-earlier-sentinel"]').text()).toContain('80')
+  // 连点两次至覆盖全部 → 哨兵消失
+  await w.find('[data-testid="load-earlier-sentinel"]').trigger('click')
+  await w.find('[data-testid="load-earlier-sentinel"]').trigger('click')
+  expect(w.findAll('[data-role]').length).toBe(200)
+  expect(w.find('[data-testid="load-earlier-sentinel"]').exists()).toBe(false)
+})
+
+test('渲染窗口:切对话重置回 60', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValueOnce({ id: 'c-big', status: 'done', content: '终', trace: '[]', steps: 1, recap: '', messages: manyMsgs(200) })
+  api.conversations.get.mockResolvedValueOnce({ id: 'c2', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: manyMsgs(4) })
+  const w = await mountChat({ conversationId: 'c-big', activeConversationId: 'c-big' })
+  await flushPromises()
+  await w.find('[data-testid="load-earlier-sentinel"]').trigger('click')   // 扩到 120
+  expect(w.findAll('[data-role]').length).toBe(120)
+  await w.setProps({ conversationId: 'c2', activeConversationId: 'c2' })
+  await flushPromises()
+  expect(w.findAll('[data-role]').length).toBe(4)
+  expect(w.vm.renderLimit).toBe(60, '窗口重置')
 })

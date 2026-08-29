@@ -174,7 +174,7 @@ function selectKind(alias) {
 
 function removeRef(idx) { refs.value.splice(idx, 1) }
 
-onUnmounted(() => { unmounted = true; if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick() })
+onUnmounted(() => { unmounted = true; if (debounceTimer) clearTimeout(debounceTimer); stopPolling(); stopStreaming(); stopWatchdog(); stopStick(); if (earlierObserver) { earlierObserver.disconnect(); earlierObserver = null } })
 
 const convStatusLabel = computed(() => {
   const labels = { running: t('workbench.chat.convStatus.running'), paused: t('workbench.chat.convStatus.paused'), done: t('workbench.chat.convStatus.done'), failed: t('workbench.chat.convStatus.failed'), cancelled: t('workbench.chat.convStatus.cancelled') }
@@ -345,6 +345,30 @@ const editAfterCount = computed(() => {
   return i < 0 ? 0 : turns.value.length - 1 - i
 })
 
+// ── 渐进渲染窗口(2026-08-29 spec D2):只裁渲染不动数据——turns 全量供编辑计数/水合;
+// 千条消息 DOM 常驻是滚动/流式瓶颈,日常只渲染尾部 WINDOW 条,顶部哨兵渐进扩。──
+const WINDOW = 60
+const renderLimit = ref(WINDOW)
+const renderedTurns = computed(() => turns.value.slice(-renderLimit.value))
+const remainingCount = computed(() => turns.value.length - renderedTurns.value.length)
+async function loadEarlier() {
+  if (!remainingCount.value) return
+  const el = chatScroller()
+  const before = el ? el.scrollHeight : 0
+  renderLimit.value += WINDOW
+  await nextTick()
+  // prepend 锚定:扩出的前缀把内容顶下去,补差保视野不跳(spec §3)
+  if (el) el.scrollTop += el.scrollHeight - before
+}
+// 哨兵 IntersectionObserver:进入视口自动扩(点击双保险;无 IO 环境降级仅点击)
+let earlierObserver = null
+function observeSentinel(el) {
+  if (earlierObserver) { earlierObserver.disconnect(); earlierObserver = null }
+  if (!el || typeof IntersectionObserver === 'undefined') return
+  earlierObserver = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadEarlier() }, { root: chatScroller() })
+  earlierObserver.observe(el)
+}
+
 // Load existing conversation when conversationId prop is set (AFTER all refs/functions defined)
 watch(() => props.conversationId, async (convId) => {
   stopPolling()
@@ -361,6 +385,7 @@ watch(() => props.conversationId, async (convId) => {
   netLost.value = false
   pollFailStreak = 0
   lastApproval.value = null   // 切对话:旧对话的未决审批不得跟过来(黄条重开入口换对话即失效)
+  renderLimit.value = WINDOW   // 切对话:渲染窗口重置回默认
   if (convId) {
     conversationId.value = convId
     // 恢复该对话的未发送草稿(切换/刷新不丢;key=对话id)
@@ -948,9 +973,14 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </details>
 
         <!-- Conversation -->
-        <div v-for="(turn, i) in turns" :key="turn._id">
+        <!-- 渐进窗口哨兵:还有更早消息时可扩(spec §3) -->
+        <button v-if="remainingCount > 0" data-testid="load-earlier-sentinel" type="button" :ref="observeSentinel" @click="loadEarlier"
+          class="mx-auto my-sm px-md py-xs text-body-xs text-on-surface-variant border border-outline-variant rounded-full hover:bg-surface-container transition-colors">
+          {{ t('workbench.chat.loadEarlier', { n: remainingCount }) }}
+        </button>
+        <div v-for="(turn, i) in renderedTurns" :key="turn._id">
           <ChatTurn :turn="turn"
-            :show-regenerate="turn.role === 'assistant' && i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
+            :show-regenerate="turn.role === 'assistant' && turns.length - renderedTurns.length + i === lastAssistantIndex && !sending && ['done', 'error'].includes(turn.status)"
             :show-edit="turn.role === 'user' && !sending && !editing && !!turn.messageId"
             @regenerate="regenerate"
             @edit="startEdit(turn)"

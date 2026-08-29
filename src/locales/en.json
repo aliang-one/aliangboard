@@ -3388,6 +3388,7 @@
       "collapse": "Collapse",
       "toolDenied": "denied",
       "recapSummary": "Earlier (summary)",
+      "loadEarlier": "↑ Load {n} earlier messages",
       "context": {
         "title": "Context usage (estimated)",
         "detailHint": "Tokens are estimated (~chars/2); window follows the configured model, unknown models default to 200k",
