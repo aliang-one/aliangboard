@@ -42,7 +42,7 @@ vi.mock('@/api/client', () => ({ api: {}, clearSession: vi.fn(), getSession: () 
 
 import TopNavBar from '../TopNavBar.vue'
 
-const mountIt = () => mount(TopNavBar, { global: { mocks: { $t: (k) => k } } })
+const mountIt = () => mount(TopNavBar, { global: { mocks: { $t: (k) => k }, stubs: { ConfirmDialog: true } } })
 const findPill = (w) =>
   w.findAll('header button').find(b => b.attributes('aria-label') === 'nav.workbench')
 

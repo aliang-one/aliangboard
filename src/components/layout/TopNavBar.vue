@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
-import { useAuthStore } from '@/stores/auth'
+import UserMenu from './UserMenu.vue'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
@@ -13,7 +13,6 @@ const route = useRoute()
 // (docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md)
 const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
 const store = useClusterStore()
-const authStore = useAuthStore()
 const { bump: bumpRefresh } = usePageRefresh()
 
 // === 全局搜索：惰性 Query 消费者 ===
@@ -133,12 +132,6 @@ function goClusters() {
   router.push('/clusters')
 }
 
-async function logout() {
-  try { store.stopPodWatch() } catch { /* 未启动时忽略 */ }
-  try { store.stopEventWatch() } catch { /* 未启动时忽略 */ }
-  authStore.logout()
-  router.push('/login')
-}
 </script>
 
 <template>
@@ -289,12 +282,7 @@ async function logout() {
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
       <div class="h-8 w-px bg-outline-variant mx-2"></div>
-      <button @click="logout" class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors" :title="$t('nav.logout')">
-        <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ (authStore.user?.displayName || authStore.user?.username || 'U').charAt(0).toUpperCase() }}</div>
-        <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="authStore.user?.displayName || authStore.user?.username">{{ authStore.user?.displayName || authStore.user?.username || 'User' }}</span>
-        <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
-        <span class="material-symbols-outlined text-on-surface-variant text-body-sm">logout</span>
-      </button>
+      <UserMenu />
     </div>
   </header>
   <!-- 点击外部关闭下拉（集群 / 命名空间） -->

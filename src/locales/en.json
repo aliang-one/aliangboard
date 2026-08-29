@@ -518,8 +518,13 @@
     "refreshPage": "Refresh current page",
     "refreshPageData": "Refresh current page data",
     "activityLog": "Activity Log",
+    "userCenter": "User Center",
     "logout": "Logout",
     "enterNamespace": "Enter namespace"
+  },
+  "userCenter": {
+    "logoutConfirmTitle": "Sign out",
+    "logoutConfirmMessage": "Sign out of this account? Unsaved edits and active terminal sessions will be interrupted."
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",

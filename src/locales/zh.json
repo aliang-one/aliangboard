@@ -518,8 +518,13 @@
     "refreshPage": "刷新当前页",
     "refreshPageData": "刷新当前页数据",
     "activityLog": "活动记录",
+    "userCenter": "用户中心",
     "logout": "退出登录",
     "enterNamespace": "进入命名空间"
+  },
+  "userCenter": {
+    "logoutConfirmTitle": "退出登录",
+    "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。"
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
