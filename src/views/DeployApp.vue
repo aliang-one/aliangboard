@@ -506,7 +506,11 @@ const previewYAML = computed(() => {
   // pod 级 volumes（按 name 去重；configMap/secret 可带 items 键映射）
   const volDefs = new Map()
   f.volumeMounts.filter(v => v.name).forEach(v => { if (!volDefs.has(v.name)) volDefs.set(v.name, v) })
-  const volumesYaml = [...volDefs.values()].map(toVolumeDefYaml).filter(Boolean).join('\n')
+  // unknown 卷:raw spec 原样透传(js-yaml 序列化;dump 数组项体 2 空格起,统一加 6 空格前缀即对齐手拼缩进)
+  const rawVolumeYaml = raw => raw
+    ? yamlDump([raw], { indent: 2, lineWidth: -1 }).trimEnd().split('\n').map(l => '      ' + l).join('\n')
+    : null
+  const volumesYaml = [...volDefs.values()].map(v => (v.type === 'unknown' ? rawVolumeYaml(v.raw) : toVolumeDefYaml(v))).filter(Boolean).join('\n')
 
   // apiVersion / kind / spec 头部按类型区分
   const isBatch = f.workloadType === 'Job'
