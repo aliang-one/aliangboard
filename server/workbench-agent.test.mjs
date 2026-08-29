@@ -423,7 +423,7 @@ test('resetRound:assistant 轮完成即持久化清零 conv.content/reasoning(�
     opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '第一轮文本' }, ts: 1 })
     midRun = getConversation(db, conv.id)
     // 第 2 轮:流出 100 字(< 200 阈值,不应触发检查点写库)
-    opts.onDelta('B'.repeat(100))
+    opts.onDelta('B'.repeat(60))
     assert.equal(getConversation(db, conv.id).content, '', '新轮 <200 字不触发检查点,DB 无旧轮回灌源')
     return { status: 'done', content: '终答', steps: 2, messages: [], queue: [], denied: [] }
   })
@@ -493,4 +493,29 @@ test('runConversation:projectRecap 拼入 refreshSystem 产物;projectMemory=fal
   await agent.runConversation(conv2.id, { chat: async () => ({}), model: 'mock-1' })
   const sys2 = await capturedRunOpts().refreshSystem()
   assert.ok(!sys2.includes('[Project memory'), '关开关不注入')
+})
+
+// 检查点时间维度(2026-08-29):200 字或 500ms 任一触发——中途刷新当前轮滞后从 200 字压到半秒。
+test('runConversation 检查点时间维度:两条 60 字 delta 间隔 >500ms 也落库;阈值守卫仍在', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const probe = {}
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('A'.repeat(60)) // 不足 200 字 → 字数阈值不触发
+    probe.afterA = getConversation(db, conv.id).content
+    await new Promise(r => setTimeout(r, 600))
+    opts.onDelta('B'.repeat(60)) // 仍不足 200,但距上次检查点 >500ms → 时间维度触发
+    const ckAtB = Date.now()
+    probe.afterB = getConversation(db, conv.id).content
+    opts.onDelta('C'.repeat(60)) // flush 后立即:字数不足且 <500ms → 不落库
+    probe.guardWindowMs = Date.now() - ckAtB // 自证守卫断言时间窗口有效
+    probe.afterC = getConversation(db, conv.id).content
+    return new Promise(() => {}) // 模拟运行态(中途刷新观察窗口)
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' }) // 不 await:runImpl 永不结束
+  await new Promise(r => setTimeout(r, 800)) // 等 runImpl 走完三段
+  assert.equal(probe.afterA, null, '首条 60 字未过阈值不落库')
+  assert.ok(probe.afterB.includes('B'), '时间维度生效:>500ms 后第二条 delta 已检查点落库')
+  assert.ok(probe.guardWindowMs < 500, `守卫窗口自证有效(${probe.guardWindowMs}ms < 500ms)`)
+  assert.ok(!probe.afterC.includes('C'), '阈值守卫仍在:flush 后 <500ms 且 <200 字不落库')
 })

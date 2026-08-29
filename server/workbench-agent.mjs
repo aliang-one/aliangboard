@@ -23,6 +23,9 @@ export function createWorkbenchAgent(deps) {
 // SRE 深调查步数上限(dev29):agent.mjs 默认 8 对"调查→诊断→行动"太紧(实测定位
 // ImagePullBackOff 走了 26 步);工作台侧放宽到 16,env WB_MAX_STEPS 可调。
 const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
+// trackPartial 检查点触发阈值:字数维度(防写放大)或时间维度(压中途刷新滞后)任一过线即落库
+const CK_CHARS = 200
+const CK_TIME_MS = 500
 
   // checkpoint → paused; done → done + history
   // tracker(R1):reasoning 与 content 同源同命运——终态/暂停一并落库,thinking 不再只活在 SSE。
@@ -63,26 +66,31 @@ const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
 
   // 意外中断内容保全(2026-08-17):onDelta 原来只推 SSE 不落库,assistant 消息只在 done 追加,
   // 失败/进程死亡后用户看着流出来的答案会蒸发(重开从 messages 重建,只剩提问)。
-  // 三层防御:①每 200 字符把累计内容检查点写 conv.content(进程硬死也有数据可救,阈值防写放大)
+  // 三层防御:①每 200 字符或 500ms(2026-08-29 时间维度)把累计内容检查点写 conv.content(进程硬死也有数据可救,阈值防写放大)
   // ②失败 catch 把部分内容落成 assistant 消息 ③启动 salvageInterrupted 抢救检查点(workbench-projects)。
   // R1(2026-08-19):reasoning(思考)与 content 同款防御——此前只走 SSE,刷新即蒸发。
   // seed 化:初始累计取 conv 现有检查点(resume 续跑不覆写暂停前已落库的前半段;append/regenerate
   // 路由已复位 → seed 天然为空)。content/reasoning 各自独立阈值,任一过阈一次写两字段(不加写放大)。
+  // 时间维度(2026-08-29):「≥200 字或距上次落库 >500ms」任一触发——中途刷新当前轮滞后从
+  // 200 字压到半秒;写频上界 2 次/秒(delta 到达才可能触发,静默零写)。两回调共享 lastCkAt
+  // (checkpoint 内统一刷新),resetRound 的 checkpoint() 亦自然刷新。
   function trackPartial(convId, conv) {
     let partial = conv?.content || ''
     let reasoning = conv?.reasoning || ''
     let ckAt = partial.length
     let rCkAt = reasoning.length
-    const checkpoint = () => updateConversation(db, convId, { content: partial, reasoning })
+    let lastCkAt = Date.now()
+    const checkpoint = () => { lastCkAt = Date.now(); updateConversation(db, convId, { content: partial, reasoning }) }
+    const shouldCk = len => len >= CK_CHARS || Date.now() - lastCkAt > CK_TIME_MS
     return {
       onDelta: text => {
         partial += text
-        if (partial.length - ckAt >= 200) { ckAt = partial.length; checkpoint() }
+        if (shouldCk(partial.length - ckAt)) { ckAt = partial.length; checkpoint() }
         busEmit(convId, { type: 'delta', text })
       },
       onReasoning: text => {
         reasoning += text
-        if (reasoning.length - rCkAt >= 200) { rCkAt = reasoning.length; checkpoint() }
+        if (shouldCk(reasoning.length - rCkAt)) { rCkAt = reasoning.length; checkpoint() }
         busEmit(convId, { type: 'reasoning', text })
       },
       partial: () => partial,
