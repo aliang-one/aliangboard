@@ -923,7 +923,7 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; lastApproval.value = null; errorBanner.value = ''; netLost.value = false; pollFailStreak = 0; conversationId.value = null; convStatus.value = null; recap.value = '' }
+function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; lastApproval.value = null; errorBanner.value = ''; netLost.value = false; pollFailStreak = 0; conversationId.value = null; convStatus.value = null; recap.value = ''; renderLimit.value = WINDOW }
 </script>
 
 <template>

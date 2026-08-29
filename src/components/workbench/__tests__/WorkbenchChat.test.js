@@ -1018,15 +1018,18 @@ test('渲染窗口:200 条 turns 只渲染 60;哨兵显示余量;扩窗渐进;�
 })
 
 test('渲染窗口:切对话重置回 60', async () => {
+  // 按 id 派发而非 mockResolvedValueOnce 队列:前序测试泄漏的异步轮询(未停的 pollTimer)
+  // 会在本测试中途调 get,把 Once 队列吃掉 → get('c2') 返回 undefined、turns 恒空(全文件连跑偶发根因)。
   api.conversations.get.mockReset()
-  api.conversations.get.mockResolvedValueOnce({ id: 'c-big', status: 'done', content: '终', trace: '[]', steps: 1, recap: '', messages: manyMsgs(200) })
-  api.conversations.get.mockResolvedValueOnce({ id: 'c2', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: manyMsgs(4) })
+  api.conversations.get.mockImplementation(async (id) => id === 'c2'
+    ? { id: 'c2', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: manyMsgs(4) }
+    : { id: 'c-big', status: 'done', content: '终', trace: '[]', steps: 1, recap: '', messages: manyMsgs(200) })
   const w = await mountChat({ conversationId: 'c-big', activeConversationId: 'c-big' })
   await flushPromises()
   await w.find('[data-testid="load-earlier-sentinel"]').trigger('click')   // 扩到 120
   expect(w.findAll('[data-role]').length).toBe(120)
   await w.setProps({ conversationId: 'c2', activeConversationId: 'c2' })
-  await flushPromises()
-  expect(w.findAll('[data-role]').length).toBe(4)
+  // setProps 后 loadConversation 异步链在满负载下单次 flush 不够——waitFor 轮询等确定性终态
+  await vi.waitFor(() => expect(w.findAll('[data-role]').length).toBe(4))
   expect(w.vm.renderLimit).toBe(60, '窗口重置')
 })
