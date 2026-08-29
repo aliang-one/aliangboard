@@ -13,6 +13,9 @@ const route = useRoute()
 const serverId = computed(() => route.query.serverId || '')
 const sid = computed(() => route.query.sid || '')
 const name = computed(() => route.query.name || serverId.value || 'SSH')
+// sid 缺失守卫(2026-08-29 审计):绝不允许空 sid 建连——旧网关会随机补位造孤儿会话,
+// 新网关也会硬拒绝。URL 无 sid(手输/收藏/历史恢复)直接给错误态。
+const sidMissing = computed(() => !sid.value)
 
 document.title = t('ssh.popupTitle', { name: name.value })
 </script>
@@ -27,7 +30,13 @@ document.title = t('ssh.popupTitle', { name: name.value })
       </button>
     </div>
     <div class="flex-1 min-h-0">
-      <SshTerminal :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" />
+      <div v-if="sidMissing" data-test="sid-missing" class="h-full flex items-center justify-center px-md">
+        <div class="text-center max-w-md">
+          <span class="material-symbols-outlined text-3xl text-error">link_off</span>
+          <p class="mt-sm text-body-md text-on-surface-variant">{{ t('ssh.popupMissingSid') }}</p>
+        </div>
+      </div>
+      <SshTerminal v-else :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" />
     </div>
   </div>
 </template>

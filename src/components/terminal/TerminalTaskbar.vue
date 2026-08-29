@@ -14,6 +14,7 @@ import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore, fmtBytes } from '@/stores/transfers'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
+import { sshApi } from '@/api/client'
 import { nextFitStep } from '@/utils/taskbarFit'
 import { Z } from '@/styles/zScale'
 
@@ -57,10 +58,30 @@ function onSshChipClick(chip, evt) {
 const closeMenus = () => { menuOpenFor.value = ''; overflowOpen.value = false }
 const onSshNew = chip => { sshStore.openNew({ id: chip.id, name: chip.name }); menuOpenFor.value = '' }
 
-// —— 三类 chip 拍平(折叠按此顺序从尾部吃)——
+// —— 网关真值对账(2026-08-29 泄漏审计)——
+// 任务栏是 localStorage 视图,网关侧可能存在本地不知情的存活会话(弹窗标签页自建 sid /
+// 清过存储 / 换浏览器 / 其他管理员的会话)。30s 轻轮询对账:未跟踪会话显示为警示 chip
+// (置首,点击确认后手杀);非 admin(403)或网络失败静默降级为纯本地视图。
+const orphans = ref([])
+let reconcileTimer = null
+async function reconcile() {
+  try {
+    const { sessions } = await sshApi.listSessions()
+    const known = new Set(sshStore.windows.map(w => w.id))
+    orphans.value = sessions.filter(s => !known.has(s.sid))
+  } catch { orphans.value = [] }
+}
+async function killOrphan(chip) {
+  if (!confirm(t('terminal.orphanKillConfirm'))) return
+  try { await sshApi.killSession(chip.id) } catch { /* 404 = 清道夫已收走,照样摘 chip */ }
+  orphans.value = orphans.value.filter(x => x.sid !== chip.id)
+}
+const orphanChips = computed(() => orphans.value.map(s => ({ kind: 'orphan', id: s.sid, name: s.serverId, user: s.userId, count: 1 })))
+
+// —— 三类 chip 拍平(折叠按此顺序从尾部吃;orphan 置首=警示最晚被折)——
 const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status })))
 const fileChips = computed(() => fbStore.browsers.map(b => ({ kind: 'file', id: b.id, name: b.name, status: b.status })))
-const flat = computed(() => [...podChips.value, ...fileChips.value, ...sshChips.value])
+const flat = computed(() => [...orphanChips.value, ...podChips.value, ...fileChips.value, ...sshChips.value])
 const flatSig = computed(() => flat.value.map(c => `${c.kind}:${c.id}:${c.status}`).join('|'))
 // 菜单数据源:当前打开菜单的分组(从 groups 派生,窗口关闭后自动消失)
 const menuChip = computed(() => sshChips.value.find(c => c.id === menuOpenFor.value) || null)
@@ -95,6 +116,8 @@ watch(iconMode, scheduleRefit)
 let ro = null
 onMounted(() => {
   scheduleRefit()
+  reconcile()
+  reconcileTimer = setInterval(reconcile, 30000)
   if (typeof ResizeObserver !== 'undefined' && wrap.value) {
     ro = new ResizeObserver(() => scheduleRefit())
     ro.observe(wrap.value)
@@ -102,9 +125,9 @@ onMounted(() => {
     window.addEventListener('resize', scheduleRefit)
   }
 })
-onUnmounted(() => { if (ro) ro.disconnect(); else window.removeEventListener('resize', scheduleRefit); if (raf) cancelAnimationFrame(raf) })
+onUnmounted(() => { if (ro) ro.disconnect(); else window.removeEventListener('resize', scheduleRefit); if (raf) cancelAnimationFrame(raf); if (reconcileTimer) clearInterval(reconcileTimer) })
 
-const sessionCount = computed(() => termStore.terminals.length + fbStore.browsers.length + sshStore.windows.length)
+const sessionCount = computed(() => termStore.terminals.length + fbStore.browsers.length + sshStore.windows.length + orphans.value.length)
 const hasAny = computed(() => sessionCount.value > 0 || trStore.tasks.length > 0)
 const agg = computed(() => trStore.aggregate)
 // 单任务直显名称+%;多任务汇总「done/count · 加权%」
@@ -138,6 +161,16 @@ function closeAll() {
     <!-- 可折叠区:pod 终端 | 文件窗口 | SSH 服务器分组 chip -->
     <div ref="wrap" class="flex-1 flex items-center gap-xs overflow-hidden min-w-0">
       <template v-for="chip in visible" :key="chip.kind + '-' + chip.id">
+        <!-- 未跟踪会话警示 chip(error 色系,置首):网关有而本地无的存活会话,点击确认后手杀 -->
+        <button v-if="chip.kind === 'orphan'" data-test="orphan-chip" @click="killOrphan(chip)"
+          class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0 bg-error/10 text-error border border-error/30 hover:bg-error/20"
+          :title="t('terminal.orphanChipTitle', { serverId: chip.name, user: chip.user })">
+          <span class="material-symbols-outlined text-sm">link_off</span>
+          <span v-if="!iconMode" class="truncate font-mono">{{ chip.name }}</span>
+          <span @click.stop="killOrphan(chip)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-error/60 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
+            <span class="material-symbols-outlined" style="font-size:13px">close</span>
+          </span>
+        </button>
         <!-- pod 终端 -->
         <button v-if="chip.kind === 'pod'" @click="onTermClick(termStore.terminals.find(x => x.id === chip.id))"
           class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
@@ -213,9 +246,9 @@ function closeAll() {
 
     <!-- 溢出下拉面板(根部渲染,同款不裁切) -->
     <div v-if="overflowOpen && folded.length" class="absolute bottom-full right-md mb-xs min-w-[220px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal + 1 }">
-      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip, $event)"
+      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'orphan' ? killOrphan(chip) : chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip, $event)"
         class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-        <span class="material-symbols-outlined text-sm" :class="chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
+        <span class="material-symbols-outlined text-sm" :class="chip.kind === 'orphan' ? 'text-error' : chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'orphan' ? 'link_off' : chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
         <span class="truncate flex-1">{{ chip.name }}<span v-if="chip.count > 1" class="text-on-surface-variant/60 ml-xs">×{{ chip.count }}</span></span>
       </button>
     </div>

@@ -35,6 +35,18 @@ function loadPersisted() {
   } catch { return [] }
 }
 
+// 跨标签页同步(2026-08-29 泄漏审计):storage 事件只在「其他」标签页触发。此前两个 app
+// 标签页各持一份内存登记表互相失明——A 页开的会话在 B 页任务栏不可见也不可关。现借
+// storage 事件对账:他页新增的窗口以最小化收编、他页已关的窗口摘除;本页 status/zIndex
+// 恒不被覆盖(他页只持久化元数据)。模块级监听 + 活跃 store 注册,免随 pinia 重建反复挂监听。
+const storageSyncTargets = new Set()
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', e => {
+    if (e.key && e.key !== LS_KEY) return   // key=null 即 clear(),也同步
+    for (const fn of storageSyncTargets) fn()
+  })
+}
+
 export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const windows = ref(loadPersisted())   // [{ id(=sid), serverId, name, status:'open'|'minimized', zIndex }]
   const zAlloc = createWindowZAllocator()
@@ -47,6 +59,18 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       localStorage.setItem(LS_KEY, JSON.stringify(windows.value.map(({ id, serverId, name }) => ({ id, serverId, name }))))
     } catch { /* 隐私模式等存储不可用:降级为会话内有效 */ }
   }
+
+  // storage 事件对账(见文件头 storageSyncTargets 注释):以 localStorage 为准重建,
+  // 已知 id 仅跟随元数据(status/zIndex 留本地),不在表中的 id(他页已关)自然摘除。
+  function syncFromStorage() {
+    const byId = new Map(windows.value.map(w => [w.id, w]))
+    windows.value = loadPersisted().map(r => {
+      const cur = byId.get(r.id)
+      byId.delete(r.id)
+      return cur ? { ...cur, serverId: r.serverId, name: r.name } : r
+    })
+  }
+  storageSyncTargets.add(syncFromStorage)
 
   function addWindow(server) {
     const w = { id: genSid(), serverId: server.id, name: server.name, status: 'open', zIndex: takeZ() }

@@ -198,6 +198,9 @@ export const sshApi = {
   testForm: payload => platformHttp.request('/api/ssh/test', { method: 'POST', body: JSON.stringify(payload) }),
   getLedger: () => platformHttp.request('/api/ssh/ledger'),
   saveLedger: (scope, notes) => platformHttp.request('/api/ssh/ledger', { method: 'PUT', body: JSON.stringify({ scope, notes }) }),
+  // 网关存活终端会话(2026-08-29 泄漏审计):观测 + 手杀,任务栏对账用
+  listSessions: () => platformHttp.request('/api/ssh/sessions'),
+  killSession: sid => platformHttp.request(`/api/ssh/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
 }
 
 // SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。

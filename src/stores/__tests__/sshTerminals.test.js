@@ -87,3 +87,25 @@ test('openExternal:状态转 external 且不入浮动宿主(attachedWindows 排�
     expect(w.status).toBe('minimized')
   } finally { vi.restoreAllMocks() }
 })
+
+test('跨标签页 storage 同步:他页新增收编为最小化;他页关闭摘除;本地 status 不被覆盖', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  const mine = store.openNew({ id: 'sv1', name: 'web' })
+  store.restoreWindow(mine.id)   // status=open
+  // 他页 persist 了 [mine(元数据), other(新增)]:other 以最小化收编,mine 本地状态保留
+  const other = { id: 'ssh-other', serverId: 'sv2', name: 'db' }
+  localStorage.setItem(LS_KEY, JSON.stringify([{ id: mine.id, serverId: 'sv1', name: 'web' }, other]))
+  window.dispatchEvent(new StorageEvent('storage', { key: LS_KEY }))
+  expect(store.windows.length).toBe(2)
+  expect(store.windows.find(w => w.id === 'ssh-other').status).toBe('minimized')
+  expect(store.windows.find(w => w.id === mine.id).status).toBe('open')
+  // 他页关掉了 mine → 摘除(浮动窗随之卸载,符合他页的关闭意图)
+  localStorage.setItem(LS_KEY, JSON.stringify([other]))
+  window.dispatchEvent(new StorageEvent('storage', { key: LS_KEY }))
+  expect(store.windows.map(w => w.id)).toEqual(['ssh-other'])
+  // 他页 clear() → 全摘
+  localStorage.removeItem(LS_KEY)
+  window.dispatchEvent(new StorageEvent('storage', { key: LS_KEY }))
+  expect(store.windows.length).toBe(0)
+})

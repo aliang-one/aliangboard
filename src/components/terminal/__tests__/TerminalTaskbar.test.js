@@ -4,12 +4,13 @@
 // ⑤closeAll/会话计数涵盖 SSH 窗口。折叠 refit 依赖真实布局,happy-dom 下 scrollWidth=0
 // → nextFitStep 判 done(不折叠),溢出路径由 taskbarFit 用例表覆盖。
 import { test, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 import TerminalTaskbar from '../TerminalTaskbar.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useTerminalStore } from '@/stores/terminals'
+import { sshApi } from '@/api/client'
 
 const mountBar = () => {
   setActivePinia(createPinia())
@@ -79,4 +80,42 @@ test('closeAll 与会话计数涵盖 SSH 窗口', async () => {
     expect(ssh.windows.length).toBe(0)
     expect(term.terminals.length).toBe(0)
   } finally { vi.unstubAllGlobals() }
+})
+
+// —— 网关真值对账(2026-08-29 泄漏审计)——
+
+test('未跟踪会话:网关有而本地无 → 警示 chip 置首,点击确认后手杀', async () => {
+  vi.spyOn(sshApi, 'listSessions').mockResolvedValue({
+    sessions: [{ sid: 'ssh-orph', serverId: 'sv9', userId: 'bob', browserCount: 1, idleMs: 120000 }],
+  })
+  const kill = vi.spyOn(sshApi, 'killSession').mockResolvedValue({ ok: true })
+  const bar = mountBar()
+  await flushPromises()
+  const chip = bar.find('[data-test="orphan-chip"]')
+  expect(chip.exists()).toBe(true)
+  expect(chip.attributes('title')).toContain('sv9')
+  vi.stubGlobal('confirm', () => true)
+  try {
+    await chip.trigger('click')
+    expect(kill).toHaveBeenCalledWith('ssh-orph')
+    await flushPromises()
+    expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)
+  } finally { vi.unstubAllGlobals() }
+})
+
+test('本地已登记的 sid 不算未跟踪;listSessions 失败(非 admin)静默降级', async () => {
+  const ssh = useSshTerminalStore()
+  const w = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  vi.spyOn(sshApi, 'listSessions').mockResolvedValue({
+    sessions: [{ sid: w.id, serverId: 'sv1', userId: 'me', browserCount: 1, idleMs: 0 }],
+  })
+  const bar = mountBar()
+  await flushPromises()
+  expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)
+
+  vi.restoreAllMocks()
+  vi.spyOn(sshApi, 'listSessions').mockRejectedValue(Object.assign(new Error('403'), { status: 403 }))
+  const bar2 = mountBar()
+  await flushPromises()
+  expect(bar2.find('[data-test="orphan-chip"]').exists()).toBe(false)
 })
