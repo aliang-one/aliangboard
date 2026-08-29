@@ -88,6 +88,20 @@ test('STDIN 写 channel 且 touch;RESIZE 映射 setWindow(rows, cols) 且 touch'
   assert.equal(touches.n, 2)               // resize 也是活跃行为,须续期
 })
 
+test('error+close 连锁触发只 detach 一次(幂等):多浏览器会话的 browserCount 不被双减', () => {
+  // 真实 ws 库在异常断开时先 emit 'error' 再 emit 'close',drop 若不设防会对同一 socket
+  // 减两次 browserCount:两浏览器附着的会话一个出错即被打到 0 → idle 清道夫误杀活会话。
+  let detached = 0
+  const send = () => {}
+  const session = fakeSession()
+  const ws = fakeWs()
+  attachSocketToSession(ws, session, { send, onDetach: () => { detached++ } })
+  ws.emit('error', new Error('boom'))
+  ws.emit('close')
+  assert.equal(detached, 1, 'error+close 连锁只算一次离开')
+  assert.equal(session.extra.sockets.size, 0)
+})
+
 test('空帧忽略;replay 缺省仅在有内容时发', () => {
   const session = fakeSession()
   const ws = fakeWs()

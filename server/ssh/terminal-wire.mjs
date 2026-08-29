@@ -33,7 +33,15 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
     }
   })
 
-  const drop = () => { session.extra.sockets?.delete(ws); onDetach() }
+  // drop 幂等守卫:ws 库异常断开时 'error' 后必随 'close',不设防会对同一 socket 调两次
+  // onDetach → browserCount 双减,多浏览器会话被提前打到 0 → idle 清道夫误杀活会话。
+  let dropped = false
+  const drop = () => {
+    if (dropped) return
+    dropped = true
+    session.extra.sockets?.delete(ws)
+    onDetach()
+  }
   ws.on('close', drop)
   ws.on('error', drop)
 }
