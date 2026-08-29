@@ -72,7 +72,10 @@
       "cancel": "取消",
       "confirm": "确认"
     },
-    "confirmDialog": { "confirm": "确认", "cancel": "取消" },
+    "confirmDialog": {
+      "confirm": "确认",
+      "cancel": "取消"
+    },
     "createFromYaml": {
       "title": "从 YAML 创建",
       "hint": "粘贴或编辑 YAML 后创建。显式写的 metadata.namespace 优先;未写则创建到当前命名空间。",
@@ -524,7 +527,35 @@
   },
   "userCenter": {
     "logoutConfirmTitle": "退出登录",
-    "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。"
+    "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。",
+    "title": "个人中心",
+    "subtitle": "管理你的资料、安全与会话",
+    "profileSaved": "资料已更新",
+    "displayName": "显示名称",
+    "joinedAt": "注册于 {date}",
+    "securityTitle": "安全",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "confirmPassword": "确认新密码",
+    "passwordMinHint": "至少 8 位",
+    "passwordMismatch": "两次输入的新密码不一致",
+    "changePassword": "修改密码",
+    "passwordChanged": "密码已修改,其他 {n} 个会话已退出",
+    "sessionsTitle": "活跃会话",
+    "revokeOthers": "退出其他所有设备",
+    "revoke": "吊销此会话",
+    "revokeConfirmTitle": "退出该设备?",
+    "revokeConfirmMessage": "该设备将被登出,需重新登录才能继续操作。",
+    "currentSession": "当前",
+    "lastActive": "最近活跃 {time}",
+    "preferencesTitle": "偏好设置",
+    "language": "界面语言",
+    "theme": "主题外观",
+    "langZh": "中文",
+    "langEn": "English",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统"
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",

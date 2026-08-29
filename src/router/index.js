@@ -469,6 +469,13 @@ const routes = [
         path: 'workbench/:id/chat',
         redirect: to => '/workbench/' + to.params.id
       },
+      // === 个人中心（所有登录用户；平台层页面，不依赖集群）===
+      {
+        path: 'profile',
+        name: 'UserProfile',
+        component: () => import('@/views/UserProfile.vue'),
+        meta: { titleKey: 'route.profile', icon: 'person', scope: 'global', requiresCluster: false }
+      },
       // === 平台管理（admin only）===
       {
         path: 'admin/users',
