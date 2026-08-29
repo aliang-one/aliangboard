@@ -17,12 +17,14 @@ export function createRingBuffer(maxLines = 4000) {
   }
 }
 
-export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } = {}) {
-  const map = new Map()   // sid → session { sid, serverId, userId, ring, browserCount, lastActiveAt, extra }
+import { shouldReapSession } from './reap-policy.mjs'
+
+export function createTerminalRegistry({ now = Date.now } = {}) {
+  const map = new Map()   // sid → session { sid, serverId, userId, ring, browserCount, lastActiveAt, createdAt, lastOutputAt, extra }
   function ensure(sid, meta, factory) {
     let s = map.get(sid)
     if (s) return s
-    s = { sid, serverId: meta.serverId || '', userId: meta.userId || '', ring: createRingBuffer(), browserCount: 0, lastActiveAt: now(), extra: {} }
+    s = { sid, serverId: meta.serverId || '', userId: meta.userId || '', ring: createRingBuffer(), browserCount: 0, lastActiveAt: now(), createdAt: now(), lastOutputAt: 0, extra: {} }
     s.extra = factory(s) || {}
     map.set(sid, s)
     return s
@@ -36,9 +38,12 @@ export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } =
   }
   function detachBrowser(sid) { const s = map.get(sid); if (s) s.browserCount = Math.max(0, s.browserCount - 1) }
   function touch(sid) { const s = map.get(sid); if (s) s.lastActiveAt = now() }
-  function reapIdle(onReap) {
+  function markOutput(sid) { const s = map.get(sid); if (s) s.lastOutputAt = now() }
+  // 策略化回收(2026-08-29 spec):阈值来自每跳现读的全局策略,判定纯函数见 reap-policy.mjs
+  function reapByPolicy(policy, onReap) {
     for (const [sid, s] of map) {
-      if (s.browserCount === 0 && now() - s.lastActiveAt > idleReapMs) { map.delete(sid); try { onReap?.(s) } catch {} }
+      const { reap, reason } = shouldReapSession(s, policy, now())
+      if (reap) { map.delete(sid); try { onReap?.(s, reason) } catch {} }
     }
   }
   function close(sid, onReap) { const s = map.get(sid); if (!s) return null; map.delete(sid); try { onReap?.(s) } catch {}; return s }
@@ -52,7 +57,8 @@ export function createTerminalRegistry({ idleReapMs = 600000, now = Date.now } =
   const list = () => [...map.values()].map(s => ({
     sid: s.sid, serverId: s.serverId, userId: s.userId,
     browserCount: s.browserCount, lastActiveAt: s.lastActiveAt,
+    createdAt: s.createdAt, lastOutputAt: s.lastOutputAt,
     idleMs: Math.max(0, now() - s.lastActiveAt),
   }))
-  return { ensure, get, attach, detachBrowser, touch, reapIdle, close, closeByServer, count, list }
+  return { ensure, get, attach, detachBrowser, touch, markOutput, reapByPolicy, close, closeByServer, count, list }
 }

@@ -25,7 +25,7 @@ test('registry: ensure 复用同 sid(工厂只调一次);attach/detach 维护 br
 
 test('list: 存活会话快照含属主/附着数/空闲时长,供观测端点与任务栏对账', () => {
   let t = 5000
-  const reg = createTerminalRegistry({ idleReapMs: 600000, now: () => t })
+  const reg = createTerminalRegistry({ now: () => t })
   reg.ensure('s1', { serverId: 'sv1', userId: 'alice' }, () => ({}))
   reg.ensure('s2', { serverId: 'sv2', userId: 'bob' }, () => ({}))
   reg.attach('s1')                       // alice 在看
@@ -45,21 +45,53 @@ test('list: 存活会话快照含属主/附着数/空闲时长,供观测端点�
   assert.equal(reg.list().length, 1)
 })
 
-test('reapIdle: 仅回收「无浏览器 且 空闲超阈」;close 即刻回收;touch 续命', () => {
+test('createdAt/lastOutputAt:ensure 打点;markOutput 续 lastOutputAt;list 透出', () => {
   let t = 1000
-  const reg = createTerminalRegistry({ idleReapMs: 600000, now: () => t })
+  const reg = createTerminalRegistry({ now: () => t })
+  reg.ensure('a', { serverId: 'sv', userId: 'u' }, () => ({}))
+  assert.equal(reg.get('a').createdAt, 1000)
+  assert.equal(reg.get('a').lastOutputAt, 0)
+  t = 5000; reg.markOutput('a')
+  assert.equal(reg.get('a').lastOutputAt, 5000)
+  const row = reg.list().find(r => r.sid === 'a')
+  assert.equal(row.createdAt, 1000)
+  assert.equal(row.lastOutputAt, 5000)
+})
+
+test('reapByPolicy:按 reason 回收并传给 onReap;策略全 0 永不回收', () => {
+  let t = 0
+  const reg = createTerminalRegistry({ now: () => t })
+  reg.ensure('busy', { serverId: 'sv', userId: 'u' }, () => ({}))
+  reg.ensure('quiet', { serverId: 'sv', userId: 'u' }, () => ({}))
+  t = 20 * 60000
+  reg.markOutput('busy')                       // 无主但输出流动
+  const reaped = []
+  reg.reapByPolicy({ detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 }, (s, reason) => reaped.push([s.sid, reason]))
+  // busy:lastActiveAt=0 已超 10min,输出不续命 → detached-idle;quiet 同为 detached-idle
+  assert.deepEqual(reaped.sort((a, b) => a[0].localeCompare(b[0])), [['busy', 'detached-idle'], ['quiet', 'detached-idle']].sort((a, b) => a[0].localeCompare(b[0])))
+  assert.equal(reg.get('busy'), null)
+  // 全 0 策略:什么都不收
+  reg.ensure('z', { serverId: 'sv', userId: 'u' }, () => ({}))
+  reg.reapByPolicy({ detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 0 }, () => reaped.push('never'))
+  assert.equal(reg.get('z')?.sid, 'z')
+})
+
+test('reapByPolicy: 仅回收「无浏览器 且 空闲超阈」;close 即刻回收;touch 续命', () => {
+  let t = 1000
+  const reg = createTerminalRegistry({ now: () => t })
+  const policy = { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 }
   const reaped = []
   const s = reg.ensure('a', {}, () => ({ channel: 1 }))
   reg.attach('a')
   t = 1000 + 500000; reg.touch('a')          // 有浏览器:不回收
-  reg.reapIdle(x => reaped.push(x.sid))
+  reg.reapByPolicy(policy, x => reaped.push(x.sid))
   assert.equal(reaped.length, 0)
   reg.detachBrowser('a')
   t = 1000 + 500000 + 590000
-  reg.reapIdle(x => reaped.push(x.sid))       // 距 lastActive 不满 10min
+  reg.reapByPolicy(policy, x => reaped.push(x.sid))       // 距 lastActive 不满 10min
   assert.equal(reaped.length, 0)
   t += 20000                                   // 突破 10min
-  reg.reapIdle(x => reaped.push(x.sid))
+  reg.reapByPolicy(policy, x => reaped.push(x.sid))
   assert.deepEqual(reaped, ['a'])
   assert.equal(reg.get('a'), null)
   // close 即刻
