@@ -51,6 +51,17 @@ test('切换来源=服务器人工操作:带 source=platform+toolPrefix=ssh,行�
   expect(w.text()).toContain('人工')
 })
 
+test('切到「全部」:恰以 { size: 30 } 调用;mcp 行标「MCP」', async () => {
+  const w = mountRecords('admin')
+  await flushPromises()
+  adminApi.auditTrail.list.mockClear()
+  adminApi.auditTrail.list.mockResolvedValue({ items: [{ seq: 2, ts: Date.now(), tool: 'list_pods', resource: 'ns=default', result: 'ok', source: 'mcp' }] })
+  await w.find('[data-testid="audit-source"]').setValue('all')
+  await flushPromises()
+  expect(adminApi.auditTrail.list).toHaveBeenCalledWith({ size: 30 })
+  expect(w.text()).toContain('MCP')
+})
+
 test('非 admin:不发 SSH 请求,统计卡 4 张', async () => {
   const w = mountRecords('user')
   await flushPromises()
