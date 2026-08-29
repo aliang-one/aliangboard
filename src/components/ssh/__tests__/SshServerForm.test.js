@@ -29,7 +29,7 @@ test('exposeToAi 开关联动审批策略选择器;submit payload 组装正确',
   await w.find('[data-test="host"]').setValue('10.0.0.5')
   await w.find('[data-test="username"]').setValue('ops')
   await w.find('[data-test="password"]').setValue('pw1')
-  await w.find('[data-test="exposeToAi"]').setValue(true)
+  await w.find('[data-test="exposeToAi"]').trigger('click')   // ToggleSwitch:点击切换
   await w.find('[data-test="aiApprovalPolicy"]').setValue('readonly')
   await w.find('form').trigger('submit')
   await flushPromises()

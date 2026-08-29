@@ -196,6 +196,8 @@ export const sshApi = {
   remove: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   testSaved: id => platformHttp.request(`/api/ssh/servers/${encodeURIComponent(id)}/test`, { method: 'POST' }),
   testForm: payload => platformHttp.request('/api/ssh/test', { method: 'POST', body: JSON.stringify(payload) }),
+  getLedger: () => platformHttp.request('/api/ssh/ledger'),
+  saveLedger: (scope, notes) => platformHttp.request('/api/ssh/ledger', { method: 'PUT', body: JSON.stringify({ scope, notes }) }),
 }
 
 // SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。
