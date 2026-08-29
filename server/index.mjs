@@ -141,7 +141,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_users (
   role TEXT NOT NULL DEFAULT 'user',
   displayName TEXT,
   createdAt INTEGER NOT NULL,
-  disabled INTEGER DEFAULT 0
+  disabled INTEGER DEFAULT 0,
+  prefs TEXT
 )`)
 db.exec(`CREATE TABLE IF NOT EXISTS clusters (
   id TEXT PRIMARY KEY,
