@@ -57,7 +57,7 @@ export function createAuthRoutes(deps) {
         db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
           .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
         auditLogin('ok')
-        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName }, prefs: readPrefs(db, user.id) })
+        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }
@@ -65,7 +65,7 @@ export function createAuthRoutes(deps) {
     // GET /api/auth/me — 当前登录用户信息
     if (url.pathname === '/api/auth/me' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
-      const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
+      const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId) })
       return true
     }
@@ -78,7 +78,7 @@ export function createAuthRoutes(deps) {
       if (input.displayName == null) { sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true }
       const displayName = String(input.displayName).trim().slice(0, 64)
       db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
-      const user = db.prepare('SELECT id,username,role,displayName FROM platform_users WHERE id=?').get(ps.userId)
+      const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user })
       return true
     }
@@ -118,6 +118,12 @@ export function createAuthRoutes(deps) {
           if (s.userId === ps.userId && tok !== currentToken) {
             platformSessions.delete(tok)
             try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+            // 吊销同时回收该会话接入的 K8s 凭据(2026-08-29 终审发现 4:否则被踢设备集群凭据存活至 TTL)
+            const k8sTok = s.k8sSessionToken
+            if (k8sTok) {
+              sessions.delete(k8sTok)
+              try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+            }
             revoked++
           }
         }
@@ -150,6 +156,12 @@ export function createAuthRoutes(deps) {
         if (s.userId !== ps.userId || tok === currentToken) continue
         platformSessions.delete(tok)
         try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(tok) } catch { /* noop */ }
+        // 同步回收被吊会话的 K8s 凭据(当前会话的保留)
+        const k8sTok = s.k8sSessionToken
+        if (k8sTok) {
+          sessions.delete(k8sTok)
+          try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+        }
         revoked++
       }
       writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `revoked=${revoked}`, source: 'platform' })
@@ -170,8 +182,15 @@ export function createAuthRoutes(deps) {
         if (s.userId === ps.userId && tok.slice(0, 8) === fp) { hit = tok; break }
       }
       if (!hit) { sendJson(res, 404, { message: msg(req, 'auth.sessionNotFound') }); return true }
+      const revokedPs = platformSessions.get(hit)
       platformSessions.delete(hit)
       try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(hit) } catch { /* noop */ }
+      // 同步回收被吊会话的 K8s 凭据(当前会话已在上文 400 拒吊,不会走到这里)
+      const k8sTok = revokedPs?.k8sSessionToken
+      if (k8sTok) {
+        sessions.delete(k8sTok)
+        try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ }
+      }
       writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'platform_session_revoke', result: 'ok', requestSummary: `fp=${fp}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true

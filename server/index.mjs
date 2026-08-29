@@ -103,11 +103,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
 )`)
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
-// 用户中心(2026-08-29):会话设备信息 + 用户偏好(存量库幂等迁移,项目惯用 try-ALTER)
-try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } catch { /* 列已存在 */ }
-try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
-try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
-try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
 const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
@@ -174,6 +169,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   userAgent TEXT,
   lastSeenAt INTEGER
 )`)
+// 用户中心(2026-08-29):会话设备信息 + 用户偏好——存量库幂等迁移(项目惯用 try-ALTER)。
+// 顺序不变式(终审发现 5):必须排在 platform_users/platform_sessions CREATE TABLE **之后**,
+// 否则 fresh DB 上 ALTER 打在不存在的表上被吞,新列是否齐全全靠 CREATE 字面量手抄(本分支两踩)。
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)

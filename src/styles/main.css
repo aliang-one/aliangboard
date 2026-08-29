@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 防白闪(2026-08-29 用户中心设计 §3.4):调色板 CSS 变量由 JS 运行时注入(installPaletteVars),
+   首帧 token 类变量未定义 → computed invalid → 透明。UA 画布随 color-scheme 跟随 html.dark 翻深,
+   滚动条/表单控件同随;JS 注入前的短暂 invalid 由深画布兜底,消除暗色首帧白闪。 */
+:root { color-scheme: light; }
+html.dark { color-scheme: dark; }
+
 /* Material Symbols —— 自托管(@fontsource-variable)。font-family 此前由 Google CDN 的 CSS 提供,
    离线后须在此显式声明,否则 <span class="material-symbols-outlined"> 会以普通文本字形渲染。 */
 .material-symbols-outlined {

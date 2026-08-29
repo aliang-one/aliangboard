@@ -8,9 +8,13 @@ import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 import SettingsAboutPanel from '@/components/settings/SettingsAboutPanel.vue'
-import { i18n, setLocale } from '@/i18n'
+import { i18n } from '@/i18n'
+import { usePreferencesStore } from '@/stores/preferences'
 
 const { t } = useI18n()
+// 语言切换走 preferences store 单写路径(2026-08-29 终审发现 3):store 内含 setLocale+localStorage+服务端双写,
+// 直调 setLocale 会绕过 store,导致 /profile 偏好卡不高亮 + fetchMe 回灌回滚用户选择。
+const preferences = usePreferencesStore()
 
 const store = useClusterStore()
 const auth = useAuthStore()
@@ -140,8 +144,8 @@ const { catalog, resetAll } = useTableColumns()
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.language') }}</span>
               <div class="flex items-center gap-xs">
-                <button @click="setLocale('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">{{ t('settings.zhName') }}</button>
-                <button @click="setLocale('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">EN</button>
+                <button @click="preferences.setLanguage('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">{{ t('settings.zhName') }}</button>
+                <button @click="preferences.setLanguage('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">EN</button>
               </div>
             </div>
             <div class="flex justify-between py-sm border-b border-outline-variant/50">

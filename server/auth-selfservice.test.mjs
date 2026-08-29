@@ -163,6 +163,31 @@ test('change-password:成功 → 哈希更新 + 吊销其他会话(保留当前)
   assert.ok(ok, '应写 ok 审计')
 })
 
+// 终审发现 4:被吊会话的 k8sSessionToken 须同步从 sessions Map 回收(否则被踢设备集群凭据存活至 TTL)
+test('change-password:吊销其他会话时同步回收其 k8sSessionToken;当前会话的保留', async () => {
+  const db = makeDb(); seedMulti(db)
+  const { routes, sent, deps } = makeRoutes(db)
+  // 两个平台会话各自接入过集群(t-me→k8s-me,t-other→k8s-other)
+  deps.platformSessions.get('t-me').k8sSessionToken = 'k8s-me'
+  deps.platformSessions.get('t-other').k8sSessionToken = 'k8s-other'
+  deps.sessions.set('k8s-me', { apiServer: 'https://a' })
+  deps.sessions.set('k8s-other', { apiServer: 'https://b' })
+  routes._body = { currentPassword: 'right-password', newPassword: 'newpassword1' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(deps.sessions.has('k8s-other'), false, '被吊会话的 K8s 凭据应回收')
+  assert.equal(deps.sessions.has('k8s-me'), true, '当前会话的 K8s 凭据保留')
+})
+
+// 终审发现 2:createdAt 须随 user 下发(资料卡「注册时间」消费)
+test('GET /api/auth/me:响应 user 含 createdAt', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/me' }, {}, new URL('/api/auth/me', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(sent[0].payload.user.createdAt, 1, 'seed 的 createdAt=1 应原样透传')
+})
+
 test('GET sessions:只列自己的,指纹为 token 前缀,current 标记正确,按 lastSeenAt 降序', async () => {
   const db = makeDb(); seedMulti(db)
   const { routes, sent, deps } = makeRoutes(db)
