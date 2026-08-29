@@ -1,10 +1,13 @@
 <script setup>
 // 底部任务栏(Windows taskbar 式)四分区:终端(pod) | 文件窗口 | SSH 服务器 | 传输。
 // 2026-08-29 任务栏化改造:
-// - 新增 SSH 服务器分区:同服务器多终端聚合成分组 chip(dns 图标 + ×N),chip 身上的
+// - SSH 服务器分区:同服务器多终端聚合成分组 chip(dns 图标 + ×N),chip 身上的
 //   「+」随时新开终端(多开入口常驻任务栏);count>1 时点 chip 弹会话菜单。
 // - 折叠三层(src/utils/taskbarFit.js 纯函数决策):①名称收窄为图标 ②尾部 chip 逐个
 //   折进「⋯ n」下拉 ③空间回富逆向回收。pod/文件分区保持平铺(量少)。
+// - 2026-08-29 修复:会话菜单原先渲染在 overflow-hidden 折叠行内部且定位在任务栏
+//   上方 → 整个被裁切不可见(真机几何实测 menu.top=352 vs wrap 底=491)。现改到
+//   任务栏根部渲染(与溢出面板同款不裁切位置),按 chip 锚点 left 定位 + 点击遮罩关闭。
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTerminalStore } from '@/stores/terminals'
@@ -35,17 +38,29 @@ const sshChips = computed(() => sshStore.groups.map(g => ({
   status: g.windows.some(w => w.status === 'open') ? 'open' : 'minimized', windows: g.windows,
 })))
 const menuOpenFor = ref('')   // 打开会话菜单的 serverId(同时最多一个)
-function onSshChipClick(chip) {
-  if (chip.count === 1) return onSshItemClick(chip.windows[0])
-  menuOpenFor.value = menuOpenFor.value === chip.id ? '' : chip.id
+const menuLeft = ref(0)       // 菜单锚点(chip 左缘,任务栏根部渲染用)
+const anchorEl = ref(null)    // chip 元素,打开时记下位置
+function onSshChipClick(chip, evt) {
+  if (chip.count === 1) {           // 单窗:直接恢复/聚焦,菜单对单窗是多余一步
+    menuOpenFor.value = ''
+    return onSshItemClick(chip.windows[0])
+  }
+  if (menuOpenFor.value === chip.id) { menuOpenFor.value = ''; return }
+  anchorEl.value = evt?.currentTarget || null
+  menuLeft.value = anchorEl.value ? anchorEl.value.getBoundingClientRect().left : 8
+  menuOpenFor.value = chip.id
+  overflowOpen.value = false
 }
-const onSshNew = chip => sshStore.openNew({ id: chip.id, name: chip.name })
+const closeMenus = () => { menuOpenFor.value = ''; overflowOpen.value = false }
+const onSshNew = chip => { sshStore.openNew({ id: chip.id, name: chip.name }); menuOpenFor.value = '' }
 
 // —— 三类 chip 拍平(折叠按此顺序从尾部吃)——
 const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status })))
 const fileChips = computed(() => fbStore.browsers.map(b => ({ kind: 'file', id: b.id, name: b.name, status: b.status })))
 const flat = computed(() => [...podChips.value, ...fileChips.value, ...sshChips.value])
 const flatSig = computed(() => flat.value.map(c => `${c.kind}:${c.id}:${c.status}`).join('|'))
+// 菜单数据源:当前打开菜单的分组(从 groups 派生,窗口关闭后自动消失)
+const menuChip = computed(() => sshChips.value.find(c => c.id === menuOpenFor.value) || null)
 
 // —— 三层折叠(refit:决策器给 step,组件下一帧测量再执行)——
 const wrap = ref(null)
@@ -143,49 +158,24 @@ function closeAll() {
           </span>
         </button>
         <!-- SSH 服务器分组 chip(secondary 色系,与 pod/files 三色分明) -->
-        <div v-else-if="chip.kind === 'ssh'" class="relative flex items-center shrink-0">
-          <button @click="onSshChipClick(chip)"
-            class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
-            :class="chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
-            :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）`">
-            <span class="material-symbols-outlined text-sm">dns</span>
-            <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
-            <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
-            <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>
-            <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
-              <span class="material-symbols-outlined" style="font-size:13px">close</span>
-            </span>
-          </button>
-          <!-- 会话菜单:count>1 时点 chip 弹出 -->
-          <div v-if="menuOpenFor === chip.id" class="absolute bottom-full mb-xs left-0 min-w-[200px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal }">
-            <button v-for="(w, i) in chip.windows" :key="w.id" @click="onSshItemClick(w); menuOpenFor = ''"
-              class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-              <span class="material-symbols-outlined text-sm" :class="w.status === 'open' ? 'text-secondary' : 'text-on-surface-variant/50'">{{ w.status === 'open' ? 'terminal' : 'hide_source' }}</span>
-              <span class="truncate flex-1 font-mono">#{{ i + 1 }} · {{ w.name }}</span>
-              <span class="text-on-surface-variant/50">{{ w.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized') }}</span>
-              <span @click.stop="sshStore.closeWindow(w.id)" class="p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error">
-                <span class="material-symbols-outlined" style="font-size:13px">close</span>
-              </span>
-            </button>
-            <button @click="onSshNew(chip); menuOpenFor = ''" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-secondary hover:bg-secondary/10 border-t border-outline-variant/40 mt-xs pt-sm">
-              <span class="material-symbols-outlined text-sm">add</span>{{ t('terminal.sshNewTerminal') }}
-            </button>
-          </div>
-        </div>
+        <button v-else-if="chip.kind === 'ssh'" :data-test="'ssh-chip-' + chip.id" @click="onSshChipClick(chip, $event)"
+          class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
+          :class="chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
+          :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）`">
+          <span class="material-symbols-outlined text-sm">dns</span>
+          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
+          <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>
+          <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100" :title="t('terminal.closeThisTitle')">
+            <span class="material-symbols-outlined" style="font-size:13px">close</span>
+          </span>
+        </button>
       </template>
       <!-- 溢出收纳「⋯ n」:折进来的 chip 点即恢复(SSH 分组恢复/弹菜单按原语义) -->
-      <button v-if="folded.length" @click="overflowOpen = !overflowOpen"
+      <button v-if="folded.length" data-test="overflow-more" @click="overflowOpen = !overflowOpen; menuOpenFor = ''"
         class="flex items-center gap-xs px-sm py-0.5 rounded-md text-body-xs shrink-0 bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent"
         :title="t('terminal.overflowMore', { n: folded.length })">
         <span class="material-symbols-outlined text-sm">more_horiz</span>{{ folded.length }}
-      </button>
-    </div>
-    <!-- 溢出下拉面板 -->
-    <div v-if="overflowOpen && folded.length" class="absolute bottom-full right-md mb-xs min-w-[220px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal }">
-      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip)"
-        class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-        <span class="material-symbols-outlined text-sm" :class="chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
-        <span class="truncate flex-1">{{ chip.name }}<span v-if="chip.count > 1" class="text-on-surface-variant/60 ml-xs">×{{ chip.count }}</span></span>
       </button>
     </div>
     <!-- 分区:传输(百分比) -->
@@ -198,5 +188,33 @@ function closeAll() {
       <span v-if="!agg.activeCount" class="material-symbols-outlined text-sm">check_circle</span>
     </button>
     <span class="ml-auto text-body-xs text-on-surface-variant/40 shrink-0">{{ t('transfers.sessionsCount', { count: sessionCount }) }}</span>
+
+    <!-- 点击遮罩:点任意处关闭菜单/下拉(透明,恒在弹层之下) -->
+    <div v-if="menuChip || overflowOpen" class="fixed inset-0" :style="{ zIndex: Z.modal }" @click="closeMenus"></div>
+
+    <!-- SSH 会话菜单:任务栏根部渲染(overflow-hidden 裁切修复),按 chip 锚点定位 -->
+    <div v-if="menuChip" data-test="ssh-session-menu" class="absolute bottom-full mb-xs min-w-[200px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ left: menuLeft + 'px', zIndex: Z.modal + 1 }">
+      <button v-for="(w, i) in menuChip.windows" :key="w.id" @click="onSshItemClick(w); menuOpenFor = ''"
+        class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+        <span class="material-symbols-outlined text-sm" :class="w.status === 'open' ? 'text-secondary' : 'text-on-surface-variant/50'">{{ w.status === 'open' ? 'terminal' : 'hide_source' }}</span>
+        <span class="truncate flex-1 font-mono">#{{ i + 1 }} · {{ w.name }}</span>
+        <span class="text-on-surface-variant/50">{{ w.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized') }}</span>
+        <span @click.stop="sshStore.closeWindow(w.id)" class="p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error">
+          <span class="material-symbols-outlined" style="font-size:13px">close</span>
+        </span>
+      </button>
+      <button @click="onSshNew(menuChip)" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-secondary hover:bg-secondary/10 border-t border-outline-variant/40 mt-xs pt-sm">
+        <span class="material-symbols-outlined text-sm">add</span>{{ t('terminal.sshNewTerminal') }}
+      </button>
+    </div>
+
+    <!-- 溢出下拉面板(根部渲染,同款不裁切) -->
+    <div v-if="overflowOpen && folded.length" class="absolute bottom-full right-md mb-xs min-w-[220px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal + 1 }">
+      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip, $event)"
+        class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+        <span class="material-symbols-outlined text-sm" :class="chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
+        <span class="truncate flex-1">{{ chip.name }}<span v-if="chip.count > 1" class="text-on-surface-variant/60 ml-xs">×{{ chip.count }}</span></span>
+      </button>
+    </div>
   </div>
 </template>

@@ -45,14 +45,14 @@ test('count=1 且最小化:点 chip → restore(open)', async () => {
   expect(ssh.windows[0].status).toBe('open')
 })
 
-test('count>1:点 chip 弹会话菜单(列出各窗+新开终端入口)', async () => {
+test('count>1:点 chip 弹会话菜单(任务栏根部渲染,列出各窗+新开终端入口)', async () => {
   const bar = mountBar()
   const ssh = useSshTerminalStore()
   ssh.openNew({ id: 'sv1', name: 'web-1' })
   ssh.openNew({ id: 'sv1', name: 'web-1' })
   await bar.vm.$nextTick()
   await findSshChip(bar)[0].trigger('click')
-  const menu = bar.find('.absolute.bottom-full')
+  const menu = bar.find('[data-test="ssh-session-menu"]')
   expect(menu.exists()).toBe(true)
   expect(menu.text()).toContain('#1')
   expect(menu.text()).toContain('#2')
@@ -61,6 +61,7 @@ test('count>1:点 chip 弹会话菜单(列出各窗+新开终端入口)', async 
   const newBtn = menu.findAll('button').at(-1)
   await newBtn.trigger('click')
   expect(ssh.windows.length).toBe(before + 1)
+  expect(bar.find('[data-test="ssh-session-menu"]').exists()).toBe(false)
 })
 
 test('closeAll 与会话计数涵盖 SSH 窗口', async () => {
