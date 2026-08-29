@@ -202,3 +202,23 @@ export function firstVolumeMountError(volumeMounts, validTargets, keyMap = GATE_
   if (!first) return null
   return { key: keyMap[first.issue.code] || GATE_FALLBACK(first.issue.code), n: first.entryIdx + 1 }
 }
+
+// —— 落点投影(spec §5):卡片预览纯数据。keys 未加载传 null → dir 模式 entries 空 ——
+export function projectMountFiles(entry, keys) {
+  const mp = normalizeMountPath(entry.mountPath) || '/'
+  if (entry.subPath) return { mode: 'single', mountPath: mp, keysLoaded: false, entries: [{ path: mp, from: 'subPath' }] }
+  if (entry.type !== 'configMap' && entry.type !== 'secret') return { mode: 'dir', mountPath: mp, keysLoaded: false, entries: [] }
+  const keysLoaded = Array.isArray(keys)
+  const rows = (entry.items || []).filter(it => it.key && it.path)
+  if (rows.length) {
+    const seen = new Set()
+    const entries = rows.map(it => {
+      const dup = seen.has(it.path)
+      seen.add(it.path)
+      const missing = keysLoaded && !keys.includes(it.key)
+      return { path: it.path, from: 'item', key: it.key, warn: missing ? 'keyMissing' : dup ? 'dup' : null }
+    })
+    return { mode: 'dir', mountPath: mp, keysLoaded, entries }
+  }
+  return { mode: 'dir', mountPath: mp, keysLoaded, entries: (keys || []).map(k => ({ path: k, from: 'key' })) }
+}

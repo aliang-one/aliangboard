@@ -1,6 +1,6 @@
 // 向导 step2 门禁纯函数:卷必须映射到容器(来源/mountPath/target 三查),堵静默丢弃洞。
 import { test, expect } from 'vitest'
-import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme } from '@/logic/volumeMountValidation'
+import { firstVolumeMountError, volumeItemsIncomplete, normalizeMountPath, buildMountCtx, validateEntry, validateVolumeMounts, firstError, firstVolumeMountError as fvme, projectMountFiles } from '@/logic/volumeMountValidation'
 
 const OK = ['main', 'init:0', 'sidecar:0']
 const base = { name: 'vol-1', target: 'main', type: 'pvc', mountPath: '/data', subPath: '', readOnly: false, pvcName: 'my-pvc', hostPath: '', server: '', nfsPath: '', cmName: '', secretName: '', items: [] }
@@ -182,4 +182,28 @@ test('firstVolumeMountError: 旧 4 键默认映射不变;传 keyMap 走新键;wa
   const KEYS = { systemPathRuntime: 'deploy.volumeSystemPathRuntime' }
   expect(fvme([{ ...base, mountPath: '/proc' }], ['main'], KEYS)).toEqual({ key: 'deploy.volumeSystemPathRuntime', n: 1 })
   expect(fvme([{ ...base, mountPath: '/data/' }], ['main'])).toBe(null) // hint 不拦
+})
+
+// —— projectMountFiles ——
+test('projectMountFiles: 无 items 全量投影(binaryData 键并列);键未加载 keysLoaded=false', () => {
+  const cm = { type: 'configMap', mountPath: '/etc/config', items: [], subPath: '' }
+  expect(projectMountFiles(cm, ['a', 'b.bin'])).toEqual({
+    mode: 'dir', mountPath: '/etc/config', keysLoaded: true,
+    entries: [{ path: 'a', from: 'key' }, { path: 'b.bin', from: 'key' }],
+  })
+  expect(projectMountFiles(cm, null)).toEqual({ mode: 'dir', mountPath: '/etc/config', keysLoaded: false, entries: [] })
+})
+
+test('projectMountFiles: items 投影标记来源与告警(keyMissing/dup);pvc 等非投影卷 entries 空', () => {
+  const cm = { type: 'configMap', mountPath: '/etc/app', subPath: '', items: [{ key: 'k1', path: 'conf/a.yml' }, { key: 'ghost', path: 'b.yml' }, { key: 'k2', path: 'b.yml' }] }
+  const p = projectMountFiles(cm, ['k1', 'k2'])
+  expect(p.entries[0]).toEqual({ path: 'conf/a.yml', from: 'item', key: 'k1', warn: null })
+  expect(p.entries[1].warn).toBe('keyMissing')
+  expect(p.entries[2].warn).toBe('dup')
+  expect(projectMountFiles({ type: 'pvc', mountPath: '/data', items: [], subPath: '' }, null).entries).toEqual([])
+})
+
+test('projectMountFiles: subPath → single 模式;mountPath 归一', () => {
+  expect(projectMountFiles({ type: 'configMap', mountPath: '/etc/app/', subPath: 'a.conf', items: [] }, null))
+    .toEqual({ mode: 'single', mountPath: '/etc/app', keysLoaded: false, entries: [{ path: '/etc/app', from: 'subPath' }] })
 })
