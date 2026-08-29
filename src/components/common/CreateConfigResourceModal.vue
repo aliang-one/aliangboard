@@ -38,6 +38,9 @@ const activeTab = ref('data')
 // YAML tab 两态：preview（实时派生预览）/ edit（纯 YAML 手编）
 const yamlMode = ref('preview')
 const rawYaml = ref('')
+// 进入编辑态时的内容快照(QA ISSUE-03 关闭守卫的脏判定基线);null=非编辑态。
+// 声明须在 watch(modelValue,{immediate:true}) 之前(immediate 回调会写入)。
+const yamlEditSnapshot = ref(null)
 
 const isSecret = computed(() => props.kind === 'secret')
 const currentType = computed(
@@ -74,9 +77,11 @@ watch(
         activeTab.value = 'yaml'
         yamlMode.value = 'edit'
         rawYaml.value = yamlTemplates[isSecret.value ? 'Secret' : 'ConfigMap'](props.namespace || 'default')
+        yamlEditSnapshot.value = rawYaml.value // 未改动基线:直达模板本身不视为脏
       } else {
         activeTab.value = 'data'
         yamlMode.value = 'preview'
+        yamlEditSnapshot.value = null
       }
     }
   },
@@ -168,11 +173,20 @@ const yamlValid = computed(() => yamlMode.value === 'edit' && !yamlErrorKey.valu
 
 function switchToEdit() {
   rawYaml.value = derivedYaml.value // 当前派生值快照,后续表单改动不再跟随
+  yamlEditSnapshot.value = rawYaml.value
   yamlMode.value = 'edit'
 }
 function backToForm() {
   if (!window.confirm(t('component.createConfigModal.discardConfirm'))) return
   yamlMode.value = 'preview'
+  activeTab.value = 'data' // 「返回表单」落回数据 tab(QA ISSUE-05:此前停留 YAML tab 与文案不符)
+}
+
+// 关闭守卫(QA ISSUE-03):编辑态有未保存修改时,X/遮罩/ESC 须确认丢弃;未改动直接关。
+function guardClose() {
+  if (yamlMode.value !== 'edit') return true
+  if (rawYaml.value === yamlEditSnapshot.value) return true
+  return window.confirm(t('component.createConfigModal.discardConfirm'))
 }
 
 // 复制（照 YamlEditor.vue copy 的 clipboard 逻辑,附成功/失败回显）
@@ -239,7 +253,7 @@ function cancel() {
 
 <template>
   <Modal :model-value="modelValue" :title="isSecret ? t('component.createConfigModal.titleSecret') : t('component.createConfigModal.titleConfigMap')"
-    width="max-w-4xl" maximizable @update:model-value="cancel">
+    width="max-w-4xl" maximizable :before-close="guardClose" @update:model-value="cancel">
     <template #default="{ maximized }">
     <div class="flex flex-col gap-md" :class="maximized ? 'h-full' : ''">
       <!-- name -->
@@ -278,7 +292,7 @@ function cancel() {
       <div :class="['overflow-y-auto', maximized ? 'flex-1 min-h-0' : 'max-h-[55vh]']">
         <!-- 纯 YAML 编辑模式：表单面板整体置灰锁交互 -->
         <div :class="yamlMode === 'edit' ? 'opacity-50 pointer-events-none' : ''">
-          <div v-if="activeTab === 'data'" data-testid="ccm-panel-data">
+          <div v-show="activeTab === 'data'" data-testid="ccm-panel-data">
             <!-- 数据键重复/非法行内错误（重复键会被 Object.fromEntries 静默折叠丢值） -->
             <p v-if="dataKeysInvalid" data-testid="ccm-datakeys-error" class="text-body-sm text-error mb-xs">
               <template v-if="dataKeyErrors.dup">{{ t('component.createConfigModal.duplicateKey') }}</template>
@@ -287,10 +301,10 @@ function cancel() {
             </p>
             <DataKeysEditor v-model="freeKeys" :secret="isSecret" :fixed-fields="fixedFields" />
           </div>
-          <div v-else-if="activeTab === 'annotations'" data-testid="ccm-panel-annotations">
+          <div v-if="activeTab === 'annotations'" data-testid="ccm-panel-annotations">
             <KeyValueRowsEditor v-model="annotations" multiline />
           </div>
-          <div v-else-if="activeTab === 'labels'" data-testid="ccm-panel-labels">
+          <div v-if="activeTab === 'labels'" data-testid="ccm-panel-labels">
             <KeyValueRowsEditor v-model="labels" />
           </div>
         </div>

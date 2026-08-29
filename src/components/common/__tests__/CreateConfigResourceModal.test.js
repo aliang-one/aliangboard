@@ -332,3 +332,91 @@ test('最大化后 tab 容器与 YAML textarea 切撑满形态;还原回普通�
   w.unmount()
   document.body.innerHTML = ''
 })
+
+// ===== QA 2026-08-29 交互修复:03 编辑态关闭守卫 / 04 键值草稿切 tab 保留 / 05 返回表单落点 =====
+// 真实挂 Modal+DataKeysEditor(走 Teleport DOM;交互语义 stub 测不到)
+function mountReal(kind, props = {}) {
+  return mount(CreateConfigResourceModal, {
+    props: { modelValue: true, kind, namespace: 'default', ...props },
+    global: { plugins: [i18n] },
+    attachTo: document.body,
+  })
+}
+
+test('QA03: YAML 编辑态有改动时,遮罩/X 关闭被丢弃确认拦截(confirm=false 不关,=true 关)', async () => {
+  const w = mountReal('configmap')
+  await document.querySelector('[data-testid="ccm-tab-yaml"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  await document.querySelector('[data-testid="ccm-yaml-switch"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  const ta = document.querySelector('[data-testid="ccm-yaml-input"]')
+  ta.value += '\n# 手动修改'
+  ta.dispatchEvent(new Event('input', { bubbles: true }))
+  await nextTick()
+  const confirmSpy = vi.fn(() => false); window.confirm = confirmSpy
+  // 遮罩点击关闭
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click()
+  await nextTick()
+  expect(confirmSpy).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('body div.fixed.inset-0')).toBeTruthy()   // 拦截:未关
+  expect(w.emitted('update:modelValue')).toBeUndefined()
+  // 确认丢弃 → 放行
+  confirmSpy.mockImplementation(() => true)
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click()
+  await nextTick()
+  expect(w.emitted('update:modelValue')[0]).toEqual([false])
+  delete window.confirm
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('QA03b: 编辑态未改动(快照相等)时直接关,不弹确认', async () => {
+  const w = mountReal('configmap', { startInYaml: true })   // 直达 edit,未改动
+  await nextTick()
+  const confirmSpy = vi.fn(() => true); window.confirm = confirmSpy
+  document.querySelector('body div.fixed.inset-0 > div.absolute').click()
+  await nextTick()
+  expect(confirmSpy).not.toHaveBeenCalled()
+  expect(w.emitted('update:modelValue')[0]).toEqual([false])
+  delete window.confirm
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('QA04: 键值编辑草稿(未保存)切 tab 再回来保留', async () => {
+  const w = mountReal('configmap')
+  await nextTick()
+  // 填键名 + 进值编辑
+  const keyInput = document.querySelector('[data-testid="ccm-panel-data"] input')
+  keyInput.value = 'k1'
+  keyInput.dispatchEvent(new Event('input', { bubbles: true }))
+  await nextTick()
+  document.querySelector('[data-testid="ccm-panel-data"] [data-testid="dk-edit"]').click()
+  await nextTick()
+  const draft = document.querySelector('[data-testid="ccm-panel-data"] textarea')
+  draft.value = '草稿内容'
+  draft.dispatchEvent(new Event('input', { bubbles: true }))
+  await nextTick()
+  // 切走再切回(Teleport 内容不在 wrapper 树,用原生事件)
+  document.querySelector('[data-testid="ccm-tab-yaml"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  document.querySelector('[data-testid="ccm-tab-data"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  const back = document.querySelector('[data-testid="ccm-panel-data"] textarea')
+  expect(back).toBeTruthy()                    // 仍在值编辑态(未被重置回查看态)
+  expect(back.value).toBe('草稿内容')           // 草稿保留
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('QA05: 返回表单确认后落在数据 tab(而非 YAML tab)', async () => {
+  const w = mountReal('configmap')
+  await document.querySelector('[data-testid="ccm-tab-yaml"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  await document.querySelector('[data-testid="ccm-yaml-switch"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  const confirmSpy = vi.fn(() => true); window.confirm = confirmSpy
+  await document.querySelector('[data-testid="ccm-yaml-back"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  delete window.confirm
+  expect(document.querySelector('[data-testid="ccm-panel-data"]')).toBeTruthy()
+  expect(document.querySelector('[data-testid="ccm-panel-yaml"]')).toBe(null)
+  w.unmount(); document.body.innerHTML = ''
+})
