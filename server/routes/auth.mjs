@@ -10,6 +10,7 @@ export function createAuthRoutes(deps) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
+    hashPassword, extractPlatformToken,
   } = deps
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -41,9 +42,11 @@ export function createAuthRoutes(deps) {
           sendJson(res, 401, { message: msg(req, 'auth.badCredentials') }); return true
         }
         const token = randomUUID()
-        const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: Date.now(), k8sSessionToken: null }
+        const psNow = Date.now()
+        const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent: String(req.headers['user-agent'] || ''), lastSeenAt: psNow }
         platformSessions.set(token, ps)
-        db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES (?,?,?,?,?)').run(token, user.id, user.username, user.role, ps.createdAt)
+        db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
+          .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
         auditLogin('ok')
         sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName } })
         return true

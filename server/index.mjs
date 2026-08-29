@@ -40,6 +40,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { touchSession } from './session-touch.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
@@ -102,6 +103,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
 )`)
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
+// 用户中心(2026-08-29):会话设备信息 + 用户偏好(存量库幂等迁移,项目惯用 try-ALTER)
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
 const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
@@ -275,6 +281,7 @@ function platformUserFromRequest(req) {
     try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
     return null
   }
+  touchSession(db, ps)
   return ps
 }
 function requirePlatform(req, res) {
@@ -1424,6 +1431,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
+    hashPassword, extractPlatformToken,
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
