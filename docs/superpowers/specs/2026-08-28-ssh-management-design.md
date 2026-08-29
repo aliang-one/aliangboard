@@ -223,3 +223,24 @@ CREATE TABLE IF NOT EXISTS ssh_servers (
   消息值含 `@` 须转义 `{'@'}`、含 HTML 须 v-html(既有约定)。
 - 提交:作者 `aliangone`,禁 Co-Authored-By 尾注;`docs/superpowers/` 路径 `git add -f`。
 - 终端主题单一来源 `src/styles/code-theme.js`;字号阶梯遵守 token 约定。
+
+---
+
+## 修订记录
+
+### 2026-08-29 审计修订(五维审计+对抗验证后裁决)
+
+1. **废除裁决 #10(连接池按 服务器+用户 隔离)**:池按 serverId 复用(终端/AI exec 共享同一条
+   已认证连接),跨用户归因由网关审计链承担(每次 acquire 调用记 owner)。开源从简取其实现简单。
+2. **裁决 A——SSH 使用面收敛 admin-only**:终端 WS、SFTP(sshfile)与 CRUD/test/ledger 同门
+   (requireAdmin / WS 内 role 校验)。开源版无分组/按用户授权表;「给访问/不给访问」以
+   admin 专属一刀切。服务器 serverId 为 UUID 且列表 admin-only,无枚举面。
+3. **per-key SSH 授予(开源从简)**:`api_keys.sshAccess` 布尔;授予后 MCP 面并入
+   `read_server_ledger` / `wb_ssh_exec` / `wb_ssh_read_file`(write_server_notes 不对 key 开放)。
+   服务器可见性仍由 exposeToAi 双重把关;key 通道无人工审批 → 策略 fail-closed 映射:
+   `none` 放行 / `readonly` 仅只读命令 / `always` 拒绝 exec。
+4. **台账 AI 视图脱敏**:read_server_ledger 对 AI 不渲染 host:port 与 username(裁决 #6 补实现);
+   支持 server 参数逐台读取(规避 8192 字符截断「写得出读不回」)。
+5. **审计修复波**(全部带回归测试):sudo 真值审批旁路、VAR=x 危险环境变量注入、
+   execTool offered 校验(剔除工具不可执行+人审门不旁路)、resume 裁决快照(拒绝不被翻案)、
+   凭据/删除逐出池与终端会话、SFTP 三分支审计、删除文案含台账备注。
