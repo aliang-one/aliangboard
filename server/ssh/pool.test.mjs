@@ -230,3 +230,14 @@ test('testConnection: 未保存表单(row=null, credsOverride)归一为表单行
   assert.equal(out3.ok, false)
   assert.equal(out3.errorKind, 'unreachable')
 })
+
+test('默认路径:未注入 SshClient → 必须落到真 ssh2 Client(不可达 → unreachable,而非 undefined 崩出 unknown/prototype)', async () => {
+  // 2026-08-28 真机事故:createSshPool({db,key}) 网关侧不传 SshClient → 垫片行读 undefined.prototype。
+  // 单测全量注入 FakeClient 掩盖了它;本用例钉死「默认构造可用」。
+  const pool = createSshPool({ db: { prepare: () => ({ run: () => {}, get: () => ROW }) }, key: Buffer.alloc(32),
+    onFingerprint: () => {}, knownFp: () => '' })
+  const out = await pool.testConnection({ id: 'sx', host: '127.0.0.1', port: 1, username: 'u', authMethod: 'password' })
+  assert.equal(out.ok, false)
+  assert.equal(out.errorKind, 'unreachable')
+  assert.ok(!/prototype/.test(out.message))
+})

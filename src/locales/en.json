@@ -4187,6 +4187,7 @@
     "saving": "Saving…",
     "credKeyMissing": "Credential key unavailable, please re-enter credentials",
     "sessionTerminated": "Session terminated (gateway restart or timeout), click to reconnect",
+    "connectingHint": "Connecting to SSH server \"{name}\"…",
     "replayedBadge": "Replayed",
     "reconnect": "Reconnect",
     "fileTitle": "Files · {name}",

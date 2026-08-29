@@ -17,6 +17,7 @@
 //    Set to 0 to disable. Default: 0」;`readyTimeout`:「How long (in milliseconds) to wait for
 //    the SSH handshake to complete. Default: 20000」。
 import { createHash } from 'node:crypto'
+import { Client as Ssh2Client } from 'ssh2'
 import { materializeCreds, recordHostKey } from './store.mjs'
 
 export function classifyConnectError(err) {
@@ -108,7 +109,7 @@ function connectWith(SshClient, row, creds, { keepaliveMs, getKnownFp, recordFp,
 }
 
 export function createSshPool({
-  db, key, SshClient, keepaliveMs = 15000, maxIdleMs = 300000, now = Date.now,
+  db, key, SshClient = Ssh2Client, keepaliveMs = 15000, maxIdleMs = 300000, now = Date.now,
   onFingerprint = null, knownFp = null,
 } = {}) {
   // knownFp(serverId) → 已记录指纹|''(默认查库);onFingerprint(serverId, fp) 首连记录(默认 UPDATE)

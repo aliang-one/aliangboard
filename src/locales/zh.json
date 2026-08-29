@@ -4187,6 +4187,7 @@
     "saving": "保存中…",
     "credKeyMissing": "凭据密钥不可用,请重新录入凭据",
     "sessionTerminated": "会话已终止(网关重启或超时),点击重连",
+    "connectingHint": "正在连接 SSH 服务器「{name}」…",
     "replayedBadge": "已回放",
     "reconnect": "重连",
     "fileTitle": "文件 · {name}",

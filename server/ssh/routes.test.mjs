@@ -52,15 +52,17 @@ test('SSH CRUD + 脱敏 + 试连结构化错误', { timeout: 60000 }, async () =
   const bad = await fetch(`${BASE}/api/ssh/servers`, { method: 'POST', headers: H, body: JSON.stringify({ name: '' }) })
   assert.equal(bad.status, 400)
 
-  // 试连(已保存行):stub 返回 unreachable(断言必有 errorKind+非 ok)
+  // 试连(已保存行):127.0.0.1:1 必须归类 unreachable——钉死「真 ssh2 Client 在默认路径可用」
+  // (2026-08-28 事故:SshClient 缺默认值 → undefined.prototype → errorKind 恒 unknown,此处只查 truthy 放过了它)
   const t = await (await fetch(`${BASE}/api/ssh/servers/${created.server.id}/test`, { method: 'POST', headers: H })).json()
   assert.equal(t.ok, false)
-  assert.ok(t.errorKind)
+  assert.equal(t.errorKind, 'unreachable')
 
   // 未保存表单试连
   const t2 = await (await fetch(`${BASE}/api/ssh/test`, { method: 'POST', headers: H,
     body: JSON.stringify({ host: '127.0.0.1', port: 1, username: 'ops', authMethod: 'password', password: 'x' }) })).json()
   assert.equal(t2.ok, false)
+  assert.equal(t2.errorKind, 'unreachable')
 
   // 更新(留空密码保持)+ PUT 非法 port 400 + 删除
   const up = await (await fetch(`${BASE}/api/ssh/servers/${created.server.id}`, { method: 'PUT', headers: H,

@@ -91,7 +91,7 @@ async function connect() {
   setStatus('connecting')
   await nextTick()          // 等 <div ref="root"> 挂载,xterm 才能 open
   ensureTerm()
-  term.writeln(`\x1b[36m${t('terminal.connectingHint', { action: `ssh ${props.serverName || props.serverId}` })}\x1b[0m`)
+  term.writeln(`\x1b[36m${t('ssh.connectingHint', { name: props.serverName || props.serverId })}\x1b[0m`)
   openStream()
   setStatus('open')
   if (root.value && typeof ResizeObserver !== 'undefined') {
