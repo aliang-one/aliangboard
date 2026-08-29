@@ -239,8 +239,9 @@ function cancel() {
 
 <template>
   <Modal :model-value="modelValue" :title="isSecret ? t('component.createConfigModal.titleSecret') : t('component.createConfigModal.titleConfigMap')"
-    width="max-w-4xl" @update:model-value="cancel">
-    <div class="flex flex-col gap-md">
+    width="max-w-4xl" maximizable @update:model-value="cancel">
+    <template #default="{ maximized }">
+    <div class="flex flex-col gap-md" :class="maximized ? 'h-full' : ''">
       <!-- name -->
       <div class="flex flex-col gap-xs">
         <label class="text-body-sm font-medium text-on-surface-variant">{{ t('component.createConfigModal.nameLabel') }}</label>
@@ -274,7 +275,7 @@ function cancel() {
       </div>
 
       <!-- tab 内容（固定高度内滚） -->
-      <div class="max-h-[55vh] overflow-y-auto">
+      <div :class="['overflow-y-auto', maximized ? 'flex-1 min-h-0' : 'max-h-[55vh]']">
         <!-- 纯 YAML 编辑模式：表单面板整体置灰锁交互 -->
         <div :class="yamlMode === 'edit' ? 'opacity-50 pointer-events-none' : ''">
           <div v-if="activeTab === 'data'" data-testid="ccm-panel-data">
@@ -295,7 +296,7 @@ function cancel() {
         </div>
 
         <!-- YAML tab -->
-        <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm">
+        <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm" :class="maximized ? 'flex-1 min-h-0' : ''">
           <!-- 预览模式：实时派生（表单继续可改,computed 实时反映） -->
           <template v-if="yamlMode === 'preview'">
             <div class="flex items-center justify-between">
@@ -327,11 +328,13 @@ function cancel() {
               {{ t(yamlErrorKey) }}
             </p>
             <textarea v-model="rawYaml" data-testid="ccm-yaml-input" rows="14" spellcheck="false"
+              :class="maximized ? 'flex-1 min-h-0 w-full resize-none' : ''"
               class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono" />
           </template>
         </div>
       </div>
     </div>
+    </template>
 
     <template #actions>
       <div class="flex items-center gap-md w-full">
