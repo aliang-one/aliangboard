@@ -1,11 +1,12 @@
 // 反向映射:K8s workload 对象 → DeployApp 向导表单(best-effort)。
 // 纯函数,不引 Vue,可被 scripts/test.mjs 零依赖运行器测试。
 // 仅映射向导已建模字段;多容器:主容器完整 + 其余/子容器全量反解(mapSubContainer,与编辑面单源);
-// 复杂 affinity/自定义 strategy/未知 volume 类型等不映射或降级。
+// 复杂 affinity/自定义 strategy 不映射;未知 volume 类型原样透传(raw),卷回填与编辑面单源(logic/volumeBackfill)。
 // command/args 的文本切分约定见 src/utils/containerTokens.js:command 空格 join,args 每条一行。
 import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { SYSTEM_ANNOTATIONS } from '../utils/systemMeta.js'
 import { mapSubContainer } from '../logic/subContainer.js'
+import { backfillVolumes, splitContainers } from '../logic/volumeBackfill.js'
 
 function podSpecOf(obj, kind) {
   if (kind === 'CronJob') return obj?.spec?.jobTemplate?.spec?.template?.spec
@@ -58,26 +59,6 @@ function mapPairs(map) {
     .map(([k, v]) => ({ key: k, value: String(v) }))
 }
 
-function detectVolume(vol) {
-  // 字段名以 VolumeMountCard.vue 实测为准(Step 1)。下方为推断默认。
-  if (vol?.persistentVolumeClaim) return { type: 'pvc', pvcName: vol.persistentVolumeClaim.claimName || '' }
-  if (vol?.emptyDir) return { type: 'emptyDir' }
-  if (vol?.hostPath) return { type: 'hostPath', hostPath: vol.hostPath.path || '' }
-  if (vol?.configMap) return { type: 'configMap', cmName: vol.configMap.name || '' }
-  if (vol?.secret) return { type: 'secret', secretName: vol.secret.secretName || '' }
-  if (vol?.nfs) return { type: 'nfs', server: vol.nfs.server || '', nfsPath: vol.nfs.path || '' }
-  return { type: 'emptyDir' } // 未知类型降级为 emptyDir(仅保留 name/mountPath)
-}
-
-function mapVolumeMounts(mainContainer, volumes) {
-  if (!mainContainer) return []
-  const volByName = new Map((volumes || []).map(v => [v.name, v]))
-  return (mainContainer.volumeMounts || []).map(m => {
-    const vol = volByName.get(m.name)
-    return { target: 'main', name: m.name || '', mountPath: m.mountPath || '', subPath: m.subPath || '', readOnly: !!m.readOnly, ...(vol ? detectVolume(vol) : {}) }
-  })
-}
-
 export function workloadToForm(obj, kind) {
   if (!obj || !kind) return null
   const pod = podSpecOf(obj, kind) || {}
@@ -102,8 +83,9 @@ export function workloadToForm(obj, kind) {
 
   if (containers[0]) Object.assign(out, mapMainContainer(containers[0]))
   else { out.image = ''; out.containerName = ''; out.envVars = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
-  out.extraContainers = containers.slice(1).map(mapSubContainer)
-  out.initContainers = (pod.initContainers || []).map(mapSubContainer)
+  const { plainInits, plainSidecars, nativeSidecars } = splitContainers(pod)
+  out.extraContainers = [...plainSidecars, ...nativeSidecars].map(mapSubContainer)
+  out.initContainers = plainInits.map(mapSubContainer)
   out.nodeSelectors = Object.entries(pod.nodeSelector || {}).map(([k, v]) => ({ key: k, value: String(v) }))
   out.tolerations = (pod.tolerations || []).map(tl => ({
     key: tl.key || '',
@@ -111,6 +93,6 @@ export function workloadToForm(obj, kind) {
     value: tl.value || '',
     effect: tl.effect || '',
   }))
-  out.volumeMounts = mapVolumeMounts(containers[0], pod.volumes)
+  out.volumeMounts = backfillVolumes(pod)
   return out
 }
