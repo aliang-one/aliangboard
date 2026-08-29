@@ -12,7 +12,7 @@ import {
   buildHistory, truncateFromMessage,
 } from '../workbench-projects.mjs'
 import { contextWindowFor, estTokens } from '../model-context.mjs'
-import { maybeSummarize, compactConversation } from '../workbench-summarize.mjs'
+import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
 import { msg } from '../messages.mjs'
@@ -209,6 +209,7 @@ export function createWorkbenchConvRoutes(deps) {
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
+        maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆滚动摘要(spec §3.2,fire-and-forget)
         sendJson(res, 200, { status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.resumeFailed') }); return true }
@@ -328,6 +329,7 @@ export function createWorkbenchConvRoutes(deps) {
         pendingApproval: conv.pendingApproval, trace: conv.trace,
         userMessage: conv.userMessage,
         recap: conv.recap, summarizedUpTo: conv.summarizedUpTo,
+        projectRecap: db.prepare('SELECT projectRecap FROM workbench_projects WHERE id=?').get(conv.projectId)?.projectRecap ?? null,
         system: conv.system, // 透明面板:本对话创建时烘焙的提示词(逐对话审计)
         context: contextInfo(conv),
         // 出参剥掉历史版本烤进 user content 的 refsCtx 前缀(库内原文不动,agent/摘要不受

@@ -16,7 +16,7 @@ import {
   buildHistory,
   setActiveConversation,
   getActiveConversationId,
-  listMessages, truncateAfterLastUser, regenWatermark,
+  listMessages, truncateAfterLastUser, regenWatermark, appendHistory,
 } from './workbench-projects.mjs'
 
 function freshDb() {
@@ -506,4 +506,52 @@ test('POST edit:非归属用户 → 403', async () => {
   assert.ok(await routes.handle({ method: 'POST', on: () => {} }, res, new URL(`http://x/api/workbench/conversations/${conv.id}/edit`)))
   assert.equal(sent[sent.length - 1].status, 403, '非归属普通用户 → 403')
   assert.equal(listMessages(h.db, conv.id).length, 3, '403 零副作用')
+})
+
+// ── 项目记忆 T3:GET /:id 出参 projectRecap + append 路由 fire maybeSummarizeProject ──
+test('GET /:id 带 projectRecap;append 路由 fire maybeSummarizeProject', async () => {
+  const h = makeEditHarness()
+  // 场景 1:项目行置 projectRecap → GET /:id 原样出参
+  h.db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('记忆内容', h.pid)
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('GET', `/api/workbench/conversations/${conv.id}`), 'GET 路由命中')
+  assert.equal(h.sent[h.sent.length - 1].json.projectRecap, '记忆内容', 'GET /:id 出参 projectRecap')
+
+  // 场景 2:append(messages)fire——预置 8 条 history + llm mock 固定摘要 → POST → 轮询 projects 行非空
+  const h2 = makeEditHarness()
+  const llmContent = '滚动项目摘要产出'
+  // 覆写 createLlmClient 返回固定摘要(独立 routes 实例,避免与场景 1 串)
+  const sent2 = []
+  const res2 = { writeHead: () => {}, end: () => {} }
+  const body2 = { v: { message: '新问题' } }
+  const routes2 = createWorkbenchConvRoutes({
+    db: h2.db,
+    sendJson: (r, status, json) => { sent2.push({ status, json }) },
+    readBody: async () => body2.v,
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'mock-1' }),
+    createLlmClient: () => ({ chat: async () => ({ content: llmContent }) }),
+    buildCallContext: () => ({}),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+  })
+  const call2 = (method, pathname) => routes2.handle({ method, on: () => {} }, res2, new URL(`http://x${pathname}`))
+  for (let i = 0; i < 8; i++) appendHistory(h2.db, h2.pid, i % 2 ? 'assistant' : 'user', `历史消息 ${i + 1}`)
+  const conv2 = createConversation(h2.db, { projectId: h2.pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(h2.db, { conversationId: conv2.id, role: 'user', content: 'q1' })
+  h2.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv2.id)
+  assert.ok(await call2('POST', `/api/workbench/conversations/${conv2.id}/messages`), 'POST messages 路由命中')
+  assert.equal(sent2[sent2.length - 1].status, 200)
+  // 行为面轮询(≤2s):fire 异步落库,不断言调用次数(竞态 flaky)
+  const deadline = Date.now() + 2000
+  let recap = null
+  while (Date.now() < deadline) {
+    recap = h2.db.prepare('SELECT projectRecap FROM workbench_projects WHERE id=?').get(h2.pid)?.projectRecap ?? null
+    if (recap) break
+    await new Promise(r => setTimeout(r, 25))
+  }
+  assert.equal(recap, llmContent, 'append fire 后项目行 projectRecap 落库')
 })
