@@ -25,7 +25,7 @@ const q = useQuery({
   refetchIntervalInBackground: false,
   refetchOnWindowFocus: true,
   staleTime: 15_000,
-  retry: 1,
+  retry: 1, retryDelay: 0,   // 即时重试一次:默认 1000ms 退避会让失败态在测试假钟 150ms 内不可达
   placeholderData: keepPreviousData,
 })
 const totals = computed(() => q.data.value?.totals || {})
@@ -111,6 +111,50 @@ function relTime(ts) {
         class="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none">{{ pendingCount }}</span>
       <span v-else-if="runningCount > 0" data-test="pill-running" class="w-2 h-2 rounded-full bg-status-running"></span>
     </button>
-    <!-- 悬停面板:Task 4 接入(Teleport body + fixed + Z.popover) -->
+    <Teleport to="body">
+      <div v-if="panelOpen" data-test="wb-panel"
+        @mouseenter="clearTimeout(closeTimer)" @mouseleave="scheduleClose"
+        class="fixed bg-surface-container-lowest border border-outline-variant rounded-xl shadow-dropdown p-md"
+        :style="panelStyle">
+        <!-- 汇总 chips -->
+        <div class="flex items-center gap-xs flex-wrap mb-sm text-body-xs">
+          <span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ t('workbench.pill.projects', { n: totals.projects ?? 0 }) }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ t('workbench.pill.running', { n: runningCount }) }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-error/10 text-error">{{ t('workbench.pill.pending', { n: pendingCount }) }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ t('workbench.pill.ssh', { n: sshCount }) }}</span>
+        </div>
+        <!-- 项目行(≤8,服务端已待办优先排序) -->
+        <div v-if="!projects.length" class="py-md text-center">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.pill.noProjects') }}</p>
+          <button @click="go('/workbench?create=1')" class="mt-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('workbench.pill.newProject') }}</button>
+        </div>
+        <div v-else class="max-h-72 overflow-y-auto">
+          <button v-for="p in projects" :key="p.id" data-test="panel-project" @click="go('/workbench/' + p.id)"
+            class="w-full flex items-center justify-between gap-sm px-xs py-sm rounded-lg hover:bg-surface-container text-left">
+            <span class="min-w-0">
+              <span class="block text-body-sm font-semibold text-on-surface truncate">{{ p.name }}</span>
+              <span class="block text-body-xs text-on-surface-variant">
+                <template v-if="p.clusterId">{{ p.clusterName }}</template>
+                <template v-else><span class="inline-block px-1 py-px rounded bg-warning/10 text-warning">{{ t('workbench.unboundBadge') }}</span></template>
+              </span>
+            </span>
+            <span class="flex items-center gap-xs shrink-0 text-body-xs text-on-surface-variant">
+              <span v-if="p.pendingApprovals > 0" class="px-1.5 py-0.5 rounded bg-error/10 text-error">{{ t('workbench.pill.pendingChip', { n: p.pendingApprovals }) }}</span>
+              <span v-if="p.runningConvs > 0" class="w-1.5 h-1.5 rounded-full bg-status-running"></span>
+              <span v-if="p.lastActiveAt">{{ relTime(p.lastActiveAt) }}</span>
+            </span>
+          </button>
+        </div>
+        <!-- 快捷动作区 -->
+        <div class="flex items-center gap-md mt-sm pt-sm border-t border-outline-variant">
+          <button @click="go('/workbench?create=1')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-sm">add</span>{{ t('workbench.pill.newProject') }}</button>
+          <button @click="go('/workbench/ledger')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-sm">menu_book</span>{{ t('workbench.pill.openLedger') }}</button>
+          <button @click="go('/workbench?tab=records')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-sm">history</span>{{ t('workbench.pill.openRecords') }}</button>
+        </div>
+        <!-- 降级细字:失败有旧数据 → stale;首次失败 → loadFailed -->
+        <p v-if="q.isError.value && q.data.value" class="mt-xs text-body-xs text-on-surface-variant/70">{{ t('workbench.pill.stale', { t: relTime(q.dataUpdatedAt.value) }) }}</p>
+        <p v-else-if="q.isError.value && !q.data.value" class="mt-xs text-body-xs text-on-surface-variant/70">{{ t('workbench.pill.loadFailed') }}</p>
+      </div>
+    </Teleport>
   </div>
 </template>

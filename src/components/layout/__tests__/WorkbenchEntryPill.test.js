@@ -15,6 +15,8 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ path: mocks.path }),
   useRouter: () => ({ push: mocks.push }),
 }))
+const toast = vi.hoisted(() => ({ notify: vi.fn() }))
+vi.mock('@/composables/useToast.js', () => ({ notify: toast.notify }))
 
 import WorkbenchEntryPill from '../WorkbenchEntryPill.vue'
 
@@ -81,4 +83,104 @@ test('title 摘要由 summary 拼装', async () => {
   expect(title).toContain('1 运行中')
   expect(title).toContain('2 待审批')
   expect(title).toContain('3 SSH')
+})
+
+// ===== Task 4:悬停面板 =====
+test('悬停 150ms 开面板;面板含汇总 chips 与项目行', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY({
+    projects: [{ id: 'p1', name: 'ci-cd', clusterId: 'c1', clusterName: 'prod', lastActiveAt: Date.now() - 120_000, runningConvs: 1, pendingApprovals: 2 }],
+    totals: { projects: 1, runningConvs: 1, pendingApprovals: 2, sshSessions: 0 },
+  }))
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()   // 未到延迟
+  vi.advanceTimersByTime(150); await flushPromises()
+  const panel = document.body.querySelector('[data-test="wb-panel"]')
+  expect(panel).toBeTruthy()
+  expect(panel.textContent).toContain('ci-cd')
+  expect(panel.textContent).toContain('prod')
+  expect(panel.textContent).toContain('2 待审')            // pendingChip
+  expect(panel.textContent).toContain('2 分钟前')           // relTime
+  vi.useRealTimers()
+  w.unmount()
+})
+
+test('未绑定行显示未绑定徽章;行点击跳项目并关面板', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY({
+    projects: [{ id: 'p9', name: 'free', clusterId: '', clusterName: null, lastActiveAt: null, runningConvs: 0, pendingApprovals: 0 }],
+    totals: { projects: 1, runningConvs: 0, pendingApprovals: 0, sshSessions: 0 },
+  }))
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]').textContent).toContain('未绑定集群')
+  document.body.querySelector('[data-test="panel-project"]').click()      // Teleport:查 body
+  expect(mocks.push).toHaveBeenCalledWith('/workbench/p9')
+  await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
+  vi.useRealTimers()
+  w.unmount()
+})
+
+test('快捷区三键落点正确', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  const panel = document.body.querySelector('[data-test="wb-panel"]')
+  const btnByText = txt => [...panel.querySelectorAll('button')].find(b => b.textContent.includes(txt))
+  btnByText('新建项目').click(); expect(mocks.push).toHaveBeenLastCalledWith('/workbench?create=1')
+  btnByText('集群台账').click(); expect(mocks.push).toHaveBeenLastCalledWith('/workbench/ledger')
+  btnByText('记录').click(); expect(mocks.push).toHaveBeenLastCalledWith('/workbench?tab=records')
+  vi.useRealTimers()
+  w.unmount()
+})
+
+test('Escape 与点击外部关面板', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeTruthy()
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
+
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  document.body.dispatchEvent(new Event('click', { bubbles: true }))
+  await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
+  vi.useRealTimers()
+  w.unmount()
+})
+
+test('空状态:0 项目 → 还没有项目+新建按钮', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY({ projects: [], totals: { projects: 0, runningConvs: 0, pendingApprovals: 0, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  const panel = document.body.querySelector('[data-test="wb-panel"]')
+  expect(panel.textContent).toContain('还没有项目')
+  ;[...panel.querySelectorAll('button')].find(b => b.textContent.includes('新建项目')).click()
+  expect(mocks.push).toHaveBeenLastCalledWith('/workbench?create=1')
+  vi.useRealTimers(); w.unmount()
+})
+
+test('拉取失败静默:notify 不被调;首次失败面板显示加载失败', async () => {
+  vi.useFakeTimers()
+  toast.notify.mockClear()
+  mocks.summary.mockRejectedValue(new Error('boom'))
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]').textContent).toContain('加载失败')
+  expect(toast.notify).not.toHaveBeenCalled()
+  vi.useRealTimers()
+  w.unmount()
 })
