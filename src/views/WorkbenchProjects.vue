@@ -1,7 +1,7 @@
 <script setup>
 // 项目卡片网格(工作台 V2 P1):替代 WorkbenchList 的列表视图。
 // 每张卡显示项目名/简介/ns/manifests/reconcile;点击 → WorkbenchDetail。
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -14,6 +14,9 @@ const projects = ref([])
 const clusters = ref([])
 const loading = ref(true)
 const showCreate = ref(false)
+const props = defineProps({ openCreate: { type: Boolean, default: false } })
+// 顶栏胶囊快捷区「新建项目」(/workbench?create=1):进页即开创建弹窗
+watch(() => props.openCreate, v => { if (v) showCreate.value = true }, { immediate: true })
 const form = ref({ name: '', clusterId: '' })
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : null

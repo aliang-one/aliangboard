@@ -1,8 +1,8 @@
 <script setup>
 // 工作台 shell(2026-08-29 双域化):四 tab——项目(集群域工作单元)/服务器(服务器域,admin)/
 // 知识(跨域知识:集群台账+服务器台账)/记录(跨域记录)。tab 为组件内状态,无路由影响。
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import WorkbenchProjects from './WorkbenchProjects.vue'
@@ -11,9 +11,15 @@ import WorkbenchRecords from './WorkbenchRecords.vue'
 import WorkbenchServers from './WorkbenchServers.vue'
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 const auth = useAuthStore()
 const activeTab = ref('projects')
+onMounted(() => {
+  // 顶栏胶囊快捷区落点(2026-08-30 spec §4.3):一次性读 query;tab 仍是组件内状态,不做双向路由同步
+  const tab = route.query.tab
+  if (typeof tab === 'string' && tabs.value.some(x => x.key === tab)) activeTab.value = tab
+})
 const tabs = computed(() => [
   { key: 'projects', label: t('workbench.shell.tabProjects'), icon: 'folder' },
   ...(auth.isAdmin ? [{ key: 'servers', label: t('workbench.shell.tabServers'), icon: 'dns' }] : []),
@@ -46,7 +52,7 @@ const tabs = computed(() => [
     </div>
     <!-- Content -->
     <div class="flex-1 p-md overflow-y-auto">
-      <WorkbenchProjects v-if="activeTab === 'projects'" />
+      <WorkbenchProjects v-if="activeTab === 'projects'" :open-create="route.query.create === '1'" />
       <WorkbenchLedger v-else-if="activeTab === 'knowledge'" />
       <WorkbenchRecords v-else-if="activeTab === 'records'" />
       <WorkbenchServers v-else-if="activeTab === 'servers'" @open-files="s => {}" />
