@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
+import { enforceSessionCap } from './platform-session-reaper.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -39,6 +40,7 @@ function makeRoutes(db, over = {}) {
     normalizeServer: (s) => new URL(s), buildCallContext: () => ({}),
     requestKubernetes: async () => ({ body: {} }),
     checkLoginRate: () => ({ allowed: true }),
+    enforceSessionCap, maxPlatformSessionsPerUser: 10,
     writeAudit,
     extractPlatformToken: (req) => req.headers['x-platform-token'] || '',
     ...over,
@@ -225,4 +227,26 @@ test('DELETE sessions/:fingerprint:按 8 位指纹吊销;吊当前 400;未命中
   assert.equal(sent[1].status, 400, '当前会话不可自吊(防自锁)')
   await routes.routes.handle({ method: 'DELETE', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/sessions/deadbeef' }, {}, new URL('/api/auth/sessions/deadbeef', 'http://x'))
   assert.equal(sent[2].status, 404)
+})
+
+// === 会话保留(2026-08-30 设计 §3.2):登录超限踢旧 + cap 失败不阻断 ===
+
+test('登录:会话数超上限,踢最久未活跃的旧会话,本会话保留', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent, deps } = makeRoutes(db, { maxPlatformSessionsPerUser: 1 })
+  routes._body = { username: 'alice', password: 'right-password' }
+  await routes.routes.handle({ method: 'POST', headers: { 'user-agent': 'vitest' }, url: '/api/auth/login' }, {}, new URL('/api/auth/login', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(sent[0].payload.token, 'uuid-x')
+  assert.equal(deps.platformSessions.has('t-me'), false, '旧会话(lastSeenAt 回退 createdAt=1)应被踢')
+  assert.equal(deps.platformSessions.has('uuid-x'), true)
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM platform_sessions WHERE userId=?').get('u1').c, 1)
+})
+
+test('登录:cap 强制抛异常不阻断登录(降级不踢)', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { enforceSessionCap: () => { throw new Error('boom') } })
+  routes._body = { username: 'alice', password: 'right-password' }
+  await routes.routes.handle({ method: 'POST', headers: { 'user-agent': 'vitest' }, url: '/api/auth/login' }, {}, new URL('/api/auth/login', 'http://x'))
+  assert.equal(sent[0].status, 200, '登录应成功')
 })

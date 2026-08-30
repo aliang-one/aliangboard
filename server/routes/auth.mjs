@@ -11,6 +11,7 @@ export function createAuthRoutes(deps) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
+    enforceSessionCap, maxPlatformSessionsPerUser,
     hashPassword, extractPlatformToken,
   } = deps
 
@@ -56,6 +57,12 @@ export function createAuthRoutes(deps) {
         platformSessions.set(token, ps)
         db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
           .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
+        // 会话数量上限(2026-08-30 设计 §3.2):超出踢最久未活跃的旧会话,刚建的本会话永不踢;
+        // 被踢会话的 K8s 凭据由 enforceSessionCap 一并回收。强制失败不阻断登录(降级不踢)。
+        try {
+          enforceSessionCap?.({ platformSessions, db, sessions, userId: user.id, owner: user.username,
+            max: maxPlatformSessionsPerUser, keepToken: token, now: psNow, writeAudit })
+        } catch (e) { console.error('[auth] 会话上限强制失败(降级不踢):', e?.message || e) }
         auditLogin('ok')
         sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
         return true

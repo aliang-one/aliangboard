@@ -41,6 +41,7 @@ import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { touchSession } from './session-touch.mjs'
+import { reapExpiredSessions, enforceSessionCap } from './platform-session-reaper.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
@@ -71,6 +72,8 @@ const port = Number(process.env.PORT || 8787)
 const host = process.env.HOST || '127.0.0.1'
 const sessions = new Map()
 const sessionTtl = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000)
+// 每用户平台会话保留上限(2026-08-30 设计 §3.3):登录时超出踢最久未活跃;<1 视作关闭。
+const maxPlatformSessionsPerUser = Number(process.env.MAX_PLATFORM_SESSIONS_PER_USER || 10)
 
 // === 会话持久化（SQLite）：集群访问配置落盘，网关重启后浏览器 token 仍有效，无需重登 ===
 // ⚠️ 库文件含 K8s 凭据（token/账密/客户端证书私钥），须靠主机文件权限保护（默认 0600）。
@@ -1446,7 +1449,7 @@ async function handle(req, res) {
     db, sendJson, readBody, requirePlatform,
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
-    checkLoginRate, writeAudit,
+    checkLoginRate, writeAudit, enforceSessionCap, maxPlatformSessionsPerUser,
     hashPassword, extractPlatformToken,
   })
   const adminRoutes = createAdminRoutes({
@@ -2240,6 +2243,15 @@ httpServer.on('upgrade', (req, socket, head) => {
 loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不掉线）
 seedAdminFromEnv()
 loadPersistedPlatformSessions()
+
+// 会话保留(2026-08-30 设计 §3.2):启动清一次过期僵尸,60s sweep 兜底(与 SSH terminal sweep 同模式,.unref 不阻退出)。
+// ttl 每跳现读 env(热更新语义,回退启动值);整体异常跳过本轮,60s 后重试。
+reapExpiredSessions({ platformSessions, db, sessions, ttlMs: sessionTtl })
+setInterval(() => {
+  try {
+    reapExpiredSessions({ platformSessions, db, sessions, ttlMs: Number(process.env.SESSION_TTL_MS || sessionTtl) })
+  } catch (e) { console.error('[auth] platform session reap failed:', e?.message || e) }
+}, 60000).unref?.()
 
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)
