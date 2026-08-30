@@ -48,7 +48,8 @@ import { acquireSingleProcessLock } from './single-process-lock.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
-import { ensureSshSchema } from './ssh/store.mjs'
+import { ensureSshSchema, listSshServers } from './ssh/store.mjs'
+import { buildServerRefBlock } from './ssh/ref-block.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
@@ -1141,10 +1142,18 @@ function withTimeout(p, ms, label) {
 // 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
 // CSO #14:每块过 formatRefBlock(围栏头+16KB 截断);budget 每次调用新建=每轮对话单轮全部 ref 合计 ≤48KB,超预算的 ref 跳过。
 async function fetchRefContext(references, k8sSession) {
-  if (!Array.isArray(references) || !references.length || !k8sSession) return ''
+  if (!Array.isArray(references) || !references.length) return ''
   const budget = createRefContextBudget()
   const tasks = references.map(async ref => {
     const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+    // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不依赖 k8sSession——无集群项目可用
+    if (ref.kind === 'server') {
+      const rows = listSshServers(db, { exposedOnly: true })
+      const block = buildServerRefBlock(label, rows, ref)
+      if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
+      return block
+    }
+    if (!k8sSession) return `${label}: (not found / 无集群)` // guard 修正:K8s ref 无集群逐条标注,不再整块吞掉
     // 防御性归一:ref.kind 正常恒为前端 canonical,但库里有旧数据/手改可能 → 与工具链同源归一
     const path = getApiPath(normalizeKind(ref.kind), ref.namespace || '', ref.name)
     if (!path) return `${label}: (不支持的 kind)`
