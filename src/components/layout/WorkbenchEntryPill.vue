@@ -110,10 +110,17 @@ function relTime(ts) {
     >
       <span class="material-symbols-outlined text-lg">workspaces</span>
       {{ $t('nav.workbench') }}
-      <!-- 角标同一时刻一枚:待审批红数字(行动性最强)> 运行中静态绿点(无动画)-->
+      <!-- 角标常驻一枚(2026-08-30 用户反馈:入口一眼要有信息,0 也不空):
+           待审批红数字(行动性最强)> 运行中绿数字 > 项目数中性徽章 -->
       <span v-if="pendingCount > 0" data-test="pill-pending"
-        class="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none">{{ pendingCount }}</span>
-      <span v-else-if="runningCount > 0" data-test="pill-running" class="w-2 h-2 rounded-full bg-status-running"></span>
+        class="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
+        :title="$t('workbench.pill.pending', { n: pendingCount })">{{ pendingCount }}</span>
+      <span v-else-if="runningCount > 0" data-test="pill-running"
+        class="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-status-running/10 text-status-running text-body-xs font-bold leading-none"
+        :title="$t('workbench.pill.running', { n: runningCount })">{{ runningCount }}</span>
+      <span v-else data-test="pill-projects"
+        class="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant text-body-xs font-bold leading-none"
+        :title="$t('workbench.pill.projects', { n: totals.projects ?? 0 })">{{ totals.projects ?? 0 }}</span>
     </button>
     <Teleport to="body">
       <div v-if="panelOpen" data-test="wb-panel"

@@ -1,5 +1,5 @@
-// 工作台入口胶囊:① C3 契约(aria/文字/两态类/点击 /workbench);② 角标优先级
-// (待审批红数字 > 运行中绿点 > 无);③ summary 数据驱动 title 摘要。
+// 工作台入口胶囊:① C3 契约(aria/文字/两态类/点击 /workbench);② 角标常驻优先级
+// (待审批红数字 > 运行中绿数字 > 项目数中性,0 活跃也不空);③ summary 数据驱动 title 摘要。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
@@ -57,22 +57,27 @@ test('点击直达 /workbench(行为不变)', async () => {
   expect(mocks.push).toHaveBeenCalledWith('/workbench')
 })
 
-test('角标优先级:待审批红数字 > 运行中绿点 > 无', async () => {
+test('角标常驻优先级:待审批红数字 > 运行中绿数字 > 项目数中性(0 活跃也不空)', async () => {
   mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 1, runningConvs: 2, pendingApprovals: 3, sshSessions: 0 } }))
   let w = mountPill(); await flushPromises()
   expect(w.find('[data-test="pill-pending"]').text()).toBe('3')
   expect(w.find('[data-test="pill-running"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-projects"]').exists()).toBe(false)
   w.unmount()
 
   mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 1, runningConvs: 2, pendingApprovals: 0, sshSessions: 0 } }))
   w = mountPill(); await flushPromises()
-  expect(w.find('[data-test="pill-running"]').exists()).toBe(true)
+  expect(w.find('[data-test="pill-running"]').text()).toBe('2')
+  expect(w.find('[data-test="pill-pending"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-projects"]').exists()).toBe(false)
   w.unmount()
 
+  // 均零:常驻项目数徽章(用户反馈:入口一眼要有信息)
   mocks.summary.mockResolvedValue(SUMMARY())
   w = mountPill(); await flushPromises()
   expect(w.find('[data-test="pill-pending"]').exists()).toBe(false)
   expect(w.find('[data-test="pill-running"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-projects"]').text()).toBe('1')
 })
 
 test('title 摘要由 summary 拼装', async () => {
