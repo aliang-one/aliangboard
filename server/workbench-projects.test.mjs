@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
-import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage, learningLedgerPath } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -267,4 +267,10 @@ test('truncateFromMessage:首条锚全删 → keptMinSeq null;不存在/非 user
   assert.equal(truncateFromMessage(db, conv.id, 'no-such-id'), null)
   const a = appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'x' })
   assert.equal(truncateFromMessage(db, conv.id, a.id), null, 'assistant 锚拒绝')
+})
+
+test('learningLedgerPath:绑定项目落集群 context;未绑定落 _platform 全局池', () => {
+  const dir = '/wb'
+  assert.deepEqual(learningLedgerPath(dir, { clusterId: 'ck-9' }), { dir: join(dir, 'ck-9', 'cluster-context'), file: 'learnings.md' })
+  assert.deepEqual(learningLedgerPath(dir, { clusterId: '' }), { dir: join(dir, '_platform'), file: 'learnings.md' })
 })

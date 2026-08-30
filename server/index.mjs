@@ -26,7 +26,7 @@ import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_M
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
-import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath } from './workbench-projects.mjs'
+import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath, learningLedgerPath } from './workbench-projects.mjs'
 import { listApiPath, getApiPath } from './kind-paths.mjs'
 import { REFS_CTX_HEADER } from './refs-context.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
@@ -1188,7 +1188,8 @@ async function handle(req, res) {
   // 构建 workbench context(复用现有 agent chat 的 projectId 分支逻辑)
   function buildWbCtx(project) {
     const repo = projectRepoPath(WORKBENCH_DIR, project)
-    const ledgerRepo = join(WORKBENCH_DIR, project.clusterId, 'cluster-context')
+    const learn = learningLedgerPath(WORKBENCH_DIR, project)
+    const ledgerRepo = project.clusterId ? join(WORKBENCH_DIR, project.clusterId, 'cluster-context') : learn.dir
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
     // K8s 调查 helper:用项目绑定的集群凭据直连(不走 API key/tier),供 WB-principal 工具用。
@@ -1198,6 +1199,7 @@ async function handle(req, res) {
     return {
       ctx: {
         readLedger: async () => {
+          if (!project.clusterId) return '(项目未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后此处为集群能力台账)'
           let out = ''
           try { out += await wbReadFile(ledgerRepo, 'INDEX.md') } catch {}
           try { const l = await wbReadFile(ledgerRepo, 'learnings.md'); if (l && l.trim()) out += '\n\n# Learnings（团队知识/踩坑）\n' + l } catch {}
@@ -1207,7 +1209,11 @@ async function handle(req, res) {
         writeFile: (p, c) => wbWriteFile(repo, p, c),
         readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
         applyManifests: async (yaml) => { if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply')); return applyYamlPartial(k8sSession, yaml) },
-        appendLearning: async (content) => { let prev = ''; try { prev = await wbReadFile(ledgerRepo, 'learnings.md') } catch {}; await wbWriteFile(ledgerRepo, 'learnings.md', (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`) },
+        appendLearning: async (content) => {
+          const learn = learningLedgerPath(WORKBENCH_DIR, project)
+          let prev = ''; try { prev = await wbReadFile(learn.dir, learn.file) } catch {}
+          await wbWriteFile(learn.dir, learn.file, (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`)
+        },
         bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
         // === K8s 调查(workbench-principal,直连集群凭据) ===
         listResources: async (kind, namespace) => {

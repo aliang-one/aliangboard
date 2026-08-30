@@ -182,6 +182,13 @@ export function projectRepoPath(workbenchDir, project) {
     : join(workbenchDir, project.clusterId, 'projects', project.id)
 }
 
+// 台账 learnings 落点(spec §2.3):绑定项目归集群 cluster-context;未绑定归平台级 _platform 全局池(历史不搬迁)
+export function learningLedgerPath(workbenchDir, project) {
+  return project.clusterId
+    ? { dir: join(workbenchDir, project.clusterId, 'cluster-context'), file: 'learnings.md' }
+    : { dir: join(workbenchDir, '_platform'), file: 'learnings.md' }
+}
+
 // 列表按归属过滤:admin 见全部,普通用户只见自己的。
 export function listProjects(db, { userId, role }) {
   if (role === 'admin') return db.prepare('SELECT * FROM workbench_projects ORDER BY createdAt DESC').all()
