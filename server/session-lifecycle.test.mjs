@@ -119,12 +119,13 @@ test('降级后旧 token 不能再建管理员(级联吊销主动侧)', { timeou
   const oldToken = dave3.token // 降级前拿到的存量 token
   const r = await g.adminJson('PATCH', `/api/admin/users/${dave3.id}`, { role: 'user' })
   assert.equal(r.status, 200, `demote failed: ${r.status}`)
-  // 旧 token 建 admin → 拒绝(级联吊销后 401;读路径兜底口径 403 —— 两者都算收回)
+  // 旧 token 建 admin → 确定性 401(revoke 在 PATCH 处理器内同步完成、先于响应返回,
+  // platform_sessions 行已删,token 查无;不存在「仍有效→403」的世界线)
   const create = await fetch(`${g.base}/api/admin/users`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': oldToken },
     body: JSON.stringify({ username: 'eve3', password: 'y'.repeat(12) }),
   })
-  assert.ok([401, 403].includes(create.status), `old token should be rejected, got ${create.status}`)
+  assert.equal(create.status, 401)
   // 主动吊销生效:连 /api/auth/me 都 401(非仅读路径兜底)
   assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': oldToken } })).status, 401)
 })
