@@ -29,14 +29,14 @@ function execOnce(pool, serverId, label, cmd) {
   return pool.acquire(serverId, label).then(conn => new Promise(resolveP => {
     let done = false, timer = null
     let out = Buffer.alloc(0), errBuf = ''
-    const settle = r => { if (done) return; done = true; clearTimeout(timer); try { conn.release() } catch {} ; resolveP(r) }
+    const settle = r => { if (done) return; done = true; clearTimeout(timer); try { conn.release() } catch {}; resolveP(r) }
     timer = setTimeout(() => settle({ stdout: out, stderr: errBuf, exitCode: null, timedOut: true }), EXEC_ONCE_TIMEOUT_MS)
     conn.client.exec(cmd, (err, s) => {
       if (err) return settle({ stdout: out, stderr: String(err.message || err), exitCode: null, timedOut: false })
       s.on('data', d => { out = Buffer.concat([out, d]) })
       s.stderr?.on?.('data', d => { errBuf += d.toString('utf8') })
       s.on('exit', code => { settle({ stdout: out, stderr: errBuf, exitCode: code, timedOut: false }) })
-      s.on('error', e2 => settle({ stdout: out, stderr: String(e2.message || e2), exitCode: null, timedOut: false }) )
+      s.on('error', e2 => settle({ stdout: out, stderr: String(e2.message || e2), exitCode: null, timedOut: false }))
     })
   }))
 }
@@ -58,6 +58,12 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     : '服务器不可用'
   const listExposed = () => listSshServers(db, { exposedOnly: true })
     .map(s => ({ id: s.id, name: s.name, description: s.description || '', clusterRef: s.clusterRef || '' }))
+  // acquire 失败统一包装(终审 I1):此前裸抛 ssh2 错误,AI 会看到原始连接栈文案而非桥的错误形状
+  // (与 agent-bridge 的 `SSH 连接失败(${errorKind})` 一致);调用方按 `result.error` 早退。
+  const execJob = async (serverId, cmd) => {
+    try { return await execOnce(pool, serverId, label, cmd) }
+    catch (e) { return { error: `SSH 连接失败(${e?.errorKind || 'unknown'})`, stdout: '', stderr: '', exitCode: null, timedOut: false } }
+  }
 
   async function needsApproval(name, args) {   // 纯(同步 DB 读),agent-runner checkpoint/resume 两处咨询
     const r = resolve(args?.server)
@@ -86,15 +92,17 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
       if (p === 'readonly' && !classifyReadonly(cmd)) return { error: '该服务器审批策略为 readonly(仅只读命令免审),key 通道无人审,非只读任务已拒' }
     }
     // 并发上限:远端 RUNNING 数
-    const lst = await execOnce(pool, r.row.id, label, listScript())
+    const lst = await execJob(r.row.id, listScript())
+    if (lst.error) return lst
     const runningCount = parseListOutput(lst.stdout.toString('utf8')).filter(j => j.exitCode === null).length
     if (runningCount >= policy.maxPerServer) return { error: `该服务器运行中任务并发已达上限(${policy.maxPerServer}),请先等待或终止部分任务` }
     const jobId = randomUUID()
     const startedAt = Date.now()
-    const s = await execOnce(pool, r.row.id, label, launchScript({
+    const s = await execJob(r.row.id, launchScript({
       jobId, command: cmd, timeoutMin, maxOutMb, ttlMin: policy.ttlMin,
       meta: { jobId, projectId, startedAt, timeoutMin, maxOutMb },
     }))
+    if (s.error) return s
     const launchOut = s.stdout.toString('utf8')
     if (s.timedOut || !/OK/.test(launchOut)) return { error: '任务启动失败(远端不支持 setsid/timeout?异步任务仅支持 Linux 服务器)' }
     memory.set(jobId, { serverId: r.row.id, projectId, startedAt })
@@ -112,10 +120,17 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     const offset = clampN(args?.offset, 0, Number.MAX_SAFE_INTEGER, 0)
     const maxBytes = clampN(args?.maxBytes, 1, OUTBYTES_MAX, OUTBYTES_DEFAULT)
     const started = Date.now()
-    const s = await execOnce(pool, r.row.id, label, readScript({ jobId, offset, maxBytes }))
+    const s = await execJob(r.row.id, readScript({ jobId, offset, maxBytes }))
+    if (s.error) return s
     if (s.timedOut) return { error: '读取超时' }
     const sb = parseSideband(s.stderr)
-    if (sb.size === 0 && s.exitCode !== 0) return { error: '任务不存在或输出已被清理(TTL),请用 wb_ssh_job_list 确认' }
+    // 缺任务判定(终审 C1)只看边带,不看 exec 退出码:readScript 的远端退出码恒为 0(末命令是
+    // echo,`wc -c < missing || echo 0` 兜底),旧 guard `s.exitCode !== 0` 恰在本场景为 false ——
+    // TTL 清掉的/跨服务器错配的任务返回成功形空结果,AI 会误报「任务已结束无输出」。
+    // 「目录不存在」的边带签名 = size 0 + 未在跑 + 无退出码,且 exec 本身成功退出。
+    if (sb.size === 0 && !sb.running && sb.exitCode === null && s.exitCode === 0) {
+      return { error: '任务不存在或输出已被清理(TTL),请用 wb_ssh_job_list 确认' }
+    }
     return {
       server: r.row.name, jobId, chunk: s.stdout.toString('utf8'),
       size: sb.size, offset: Math.min(sb.size, offset + maxBytes),
@@ -132,7 +147,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     const text = String(args?.text ?? '')
     if (!text.length) return { error: 'text 为空' }
     if (text.length > WRITE_TEXT_MAX) return { error: `text 超长(上限 ${WRITE_TEXT_MAX})` }
-    const s = await execOnce(pool, r.row.id, label, stdinWriteScript({ jobId, text }))
+    const s = await execJob(r.row.id, stdinWriteScript({ jobId, text }))
+    if (s.error) return s
     if (s.exitCode === 3) return { error: '任务 stdin 已关闭(任务已结束或被清理)' }
     if (s.timedOut) return { error: '写入超时' }
     return { ok: true, server: r.row.name, jobId }
@@ -141,7 +157,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
   async function jobList(args) {
     const r = resolve(args?.server)
     if (!r.ok) return { error: refusal(r) }
-    const s = await execOnce(pool, r.row.id, label, listScript())
+    const s = await execJob(r.row.id, listScript())
+    if (s.error) return s
     const jobs = parseListOutput(s.stdout.toString('utf8')).map(j => ({
       ...j, projectId: memory.get(j.jobId)?.projectId || undefined,
     }))
@@ -154,14 +171,15 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     if (!r.ok) return { error: refusal(r) }
     const jobId = args?.jobId
     if (!validateJobId(jobId)) return { error: 'jobId 非法' }
-    const s = await execOnce(pool, r.row.id, label, killScript({ jobId }))
+    const s = await execJob(r.row.id, killScript({ jobId }))
+    if (s.error) return s
     if (/NOJOB/.test(s.stdout.toString('utf8'))) return { error: '任务不存在(已结束或 pid 文件缺失)' }
     memory.delete(jobId)
     return { ok: true, server: r.row.name, jobId }
   }
 
   async function sweepServer(id) {
-    try { await execOnce(pool, id, 'wb:__sweep__', sweepScript({ ttlMin: getPolicy().ttlMin })) } catch { /* 单台失败不阻断 */ }
+    try { await execJob(id, sweepScript({ ttlMin: getPolicy().ttlMin })) } catch { /* 单台失败不阻断 */ }
   }
   const sweepServerIds = () => [...sweepSeenServers]
   async function sweep() { for (const id of sweepServerIds()) await sweepServer(id) }

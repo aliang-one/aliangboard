@@ -42,6 +42,8 @@ const bridge = (pool, keyMode = false) => createSshJobBridge({
   db: fakeDb(), pool, projectId: 'p1', keyMode, getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }),
 })
 
+const JID = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+
 test('run:none 策略免审启动,返 jobId/pid;keyMode+readonly 策略拦非白名单', async () => {
   const sink = []
   // 第 1 次 exec=listScript(空表),第 2 次=launch(pid 行 + OK 确认行)
@@ -80,6 +82,25 @@ test('jobOut:chunk/size/offset/running;边带来自 stderr', async () => {
 test('jobOut:jobId 非法直接拒(路径注入防线)', async () => {
   const r = await bridge(fakePool([{ stdout: '' }])).jobOut({ server: 'dev-1', jobId: '../../etc' })
   assert.ok(r.error)
+})
+
+// 终审 C1:guard 曾看 exec 退出码(readScript 末命令是 echo ⇒ 远端退出码恒 0),
+// TTL 清掉的/跨服务器错配的任务返回成功形空结果,AI 误报「任务已结束无输出」。
+// 合法 UUID 形状但目录不存在,正是 guard 该拦而不拦的场景(../../etc 在更早处已被拦)。
+test('jobOut:合法 UUID 但远端目录不存在 → 明确报错(不再成功形空结果)', async () => {
+  // 「目录不存在」签名:size 0 + 未在跑 + 无退出码,且 exec 本身成功退出(退出码 0)
+  const pool = fakePool([{ stdout: '', stderr: 'AB_SIZE=0 AB_RUNNING=0 AB_EXIT=\n', exitCode: 0 }])
+  const r = await bridge(pool).jobOut({ server: 'dev-1', jobId: JID })
+  assert.ok(/任务不存在或输出已被清理/.test(r.error || ''), JSON.stringify(r))
+})
+
+test('jobOut:真任务的 0 输出不得误报缺任务——运行中(size 0)与刚结束(code 0)都成功形', async () => {
+  const running = await bridge(fakePool([{ stdout: '', stderr: 'AB_SIZE=0 AB_RUNNING=1 AB_EXIT=\n', exitCode: 0 }]))
+    .jobOut({ server: 'dev-1', jobId: JID })
+  assert.equal(running.error, undefined); assert.equal(running.running, true)
+  const done = await bridge(fakePool([{ stdout: '', stderr: 'AB_SIZE=0 AB_RUNNING=0 AB_EXIT=0\n', exitCode: 0 }]))
+    .jobOut({ server: 'dev-1', jobId: JID })
+  assert.equal(done.error, undefined); assert.equal(done.exitCode, 0); assert.equal(done.running, false)
 })
 
 test('jobWrite:none 免审 ok;readonly 策略 needsApproval=true;keyMode 恒拒', async () => {

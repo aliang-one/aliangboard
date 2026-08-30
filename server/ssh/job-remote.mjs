@@ -12,14 +12,41 @@ export function jobDir(id) {
 }
 export const capBlocks = mb => Math.ceil((Number(mb) * 1024 * 1024) / 4096)
 
-// 启动:机会性 TTL 清理 → 建目录/meta/fifo → setsid 后台 wrapper(远端 timeout 强制寿命;
-// 退出码经 .rc sidecar 精确落 code,dd SIGPIPE 杀命令时落 141)→ pid 落盘并回显。
+// TTL 清理片段(终审 C2:规格 §4 原写「按目录 mtime 扫」是被忠实实现的规格缺陷)。
+// 目录 mtime 在任务启动时就定格(wrapper 结束才因 `mv .rc code` 再变)——按目录年龄扫会删掉
+// **在跑**任务:超时上限(timeoutMax=120min)恰等于默认 ttl 时最长任务一结束就被扫,admin 调小
+// ttl 则常态化;叠加上 launchScript 开头的机会性清理,同服务器后来启动的任务 B 会静默删掉任务 A
+// 的输出 → job_list 不再显示、无法 kill、job_out 报干净空结束。
+// 改为只删**已达终态**的目录:
+//   ① `code` 文件存在(= 终态权威信号)→ 按其文件年龄删(结束时刻起算 TTL);
+//   ② 无 `code` 且目录已超 TTL 且 pid 已死(= kill/ wrapper 崩溃残留,无人再写)→ 删;
+//   ③ 其余(在跑:无 code 且 pid 活着)一律不碰。
+// root 可注入(仅测试):单测用临时目录跑真 sh 验证「在跑不删/已结束才删」。
+export function sweepSnippet(ttlMin, root = JOB_ROOT) {
+  const t = Number(ttlMin)
+  return [
+    `for f in ${root}/*/code; do`,
+    `[ -f "$f" ] || continue`,
+    `[ -n "$(find "$f" -mmin +${t} 2>/dev/null)" ] && rm -rf "$(dirname "$f")"`,
+    `done`,
+    `for d in ${root}/*/; do`,
+    `[ -d "$d" ] || continue`,
+    `[ -f "$d/code" ] && continue`,
+    `[ -n "$(find "$d" -maxdepth 0 -mmin +${t} 2>/dev/null)" ] || continue`,
+    `kill -0 "$(cat "$d/pid" 2>/dev/null)" 2>/dev/null && continue`,
+    `rm -rf "$d"`,
+    `done`,
+  ].join('\n')
+}
+
+// 启动:机会性 TTL 清理(sweepSnippet 同款终态判定)→ 建目录/meta/fifo → setsid 后台 wrapper
+// (远端 timeout 强制寿命;退出码经 .rc sidecar 精确落 code,dd SIGPIPE 杀命令时落 141)→ pid 落盘并回显。
 export function launchScript({ jobId, command, timeoutMin, maxOutMb, ttlMin, meta }) {
   const D = jobDir(jobId)
   const inner = `${String(command)}\nprintf '%s' "$?" > .rc\n`
   const wrapper = `exec 9<> in; timeout --kill-after=10 ${Number(timeoutMin)}m sh -c ${shQuote(inner)} <&9 2>&1 | dd of=out bs=4096 count=${capBlocks(maxOutMb)} 2>/dev/null; if [ -f .rc ]; then mv .rc code; else echo 141 > code; fi; rm -f .rc`
   return [
-    `find ${JOB_ROOT} -maxdepth 1 -type d -mmin +${Number(ttlMin)} -exec rm -rf {} + 2>/dev/null`,
+    sweepSnippet(ttlMin),
     `mkdir -p "${D}" && cd "${D}" || exit 1`,
     `printf '%s\\n' ${shQuote(JSON.stringify(meta))} > meta`,
     `mkfifo in || exit 1`,
@@ -54,6 +81,9 @@ export function listScript() {
   return `for d in ${JOB_ROOT}/*/; do [ -d "$d" ] || continue; echo "$(basename "$d") $(cat "$d/code" 2>/dev/null || echo RUNNING)"; done; echo LIST-END`
 }
 
+// 终审 I2:sshd Banner/motd 也会在 exec 通道输出。任何解析不了的行一律**丢弃**——曾把它们映射成
+// {jobId:<文本>,exitCode:null},桥里被数成 RUNNING:一行 banner 就虚增并发计数(maxPerServer=4 时
+// banner+3 真任务 ⇒ 误报「并发已达上限」),还会以假任务形态喂给 AI(它会去 kill)。
 export function parseListOutput(stdoutText) {
   return String(stdoutText || '').split('\n').filter(l => l && !l.includes('LIST-END')).map(l => {
     const [jobId, code] = l.trim().split(/\s+/)
@@ -67,6 +97,6 @@ export function killScript({ jobId }) {
   return `P=$(cat "${D}/pid" 2>/dev/null); if [ -z "$P" ]; then echo NOJOB; exit 0; fi; kill -TERM -- -"$P" 2>/dev/null; sleep 1; kill -KILL -- -"$P" 2>/dev/null; echo KILLED`
 }
 
-export function sweepScript({ ttlMin }) {
-  return `find ${JOB_ROOT} -maxdepth 1 -type d -mmin +${Number(ttlMin)} -exec rm -rf {} + 2>/dev/null; echo OK`
+export function sweepScript({ ttlMin, root = JOB_ROOT }) {
+  return `${sweepSnippet(ttlMin, root)}\necho OK`
 }

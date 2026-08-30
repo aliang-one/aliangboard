@@ -1,13 +1,21 @@
 // server/ssh/job-remote.test.mjs
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, existsSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   validateJobId, jobDir, launchScript, stdinWriteScript, readScript,
-  parseSideband, listScript, parseListOutput, killScript, sweepScript, capBlocks,
+  parseSideband, listScript, parseListOutput, killScript, sweepScript, sweepSnippet, capBlocks,
 } from './job-remote.mjs'
 import { shQuote } from './readonly-classifier.mjs'
 
 const ID = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+const ID2 = '1f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+const ID3 = '2f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+const ID4 = '3f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+const ID5 = '4f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
 
 // shQuote 的逃逸体(去掉首尾引号)。launchScript 里 inner→wrapper→setsid 是双层 shQuote 嵌套:
 // 最终脚本中内层片段 = escape(shQuote(inner)),期望值用 shQuote 自身派生,不手写引号字面量。
@@ -28,6 +36,9 @@ test('launchScript:含 TTL 机会清理/meta/mkfifo/setsid/timeout/-dd 封顶/pi
   })
   assert.ok(s.includes(`mkdir -p "/tmp/.ab-job/${ID}"`))
   assert.ok(s.includes('-mmin +120'))                     // 机会性 TTL 清理
+  // 终审 C2:机会性清理与 sweep 同款「终态才删」判定,不再是按目录 mtime 的 find(会删在跑任务)
+  assert.ok(s.includes('for f in /tmp/.ab-job/*/code'))
+  assert.ok(!s.includes('-type d -mmin'))
   assert.ok(s.includes('mkfifo in'))
   assert.ok(s.includes('setsid sh -c '))
   assert.ok(s.includes('exec 9<> in'))                    // fifo 读写持有,防 EOF/阻塞
@@ -96,7 +107,67 @@ test('killScript:TERM→1s→KILL 整进程组(负 pid);无 pid 不报错', () =
 })
 
 test('sweepScript:按 ttl 找目录删;capBlocks 数学', () => {
-  assert.ok(sweepScript({ ttlMin: 120 }).includes('-mmin +120'))
+  const s = sweepScript({ ttlMin: 120 })
+  assert.ok(s.includes('-mmin +120'))
+  assert.ok(s.endsWith('echo OK'))
+  assert.ok(s.includes('for f in /tmp/.ab-job/*/code'))
   assert.equal(capBlocks(64), 16384)
   assert.equal(capBlocks(1), 256)
 })
+
+// 终审 C2:老实现 `find -maxdepth 1 -type d -mmin +N` 按目录年龄删——目录 mtime 在启动时就定格
+// (结束才因 `mv .rc code` 再变),在跑任务超 TTL 即被删;launchScript 的机会性清理还会让同服务器
+// 后启动的任务静默删掉已有任务的输出(→ 不可见、不可 kill、job_out 报干净空结束)。
+// 这里对真 sh 跑片段,验证「只删已达终态的目录」:
+//   在跑(无 code 且 pid 活)超 TTL 不删 / code 新鲜不删 / code 超龄删 / kill 残留(无 code 且 pid 死)超 TTL 删。
+test('sweep:真 sh——在跑任务超 TTL 不删;已结束(code 超龄)才删;kill 残留(pid 死)也删', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ab-job-sweep-'))
+  const mk = (id, { code, pid, ageMin }) => {
+    const d = join(root, id)
+    mkdirSync(d, { recursive: true })
+    writeFileSync(join(d, 'out'), 'x')
+    writeFileSync(join(d, 'pid'), String(pid ?? ''))
+    if (code != null) writeFileSync(join(d, 'code'), String(code))
+    backdate(d, ageMin)                          // 目录 mtime 定格在启动时刻(C2 事故的触发形态)
+    if (code != null) backdate(join(d, 'code'), ageMin) // code 文件年龄 = 结束时刻
+    return d
+  }
+  const running = mk(ID, { pid: process.pid, ageMin: 90 })   // 在跑:目录已超 TTL,但 pid 活
+  const fresh = mk(ID2, { code: 0, ageMin: 0 })              // 刚结束:code 新鲜
+  const stale = mk(ID3, { code: 0, ageMin: 90 })             // 结束已超 TTL
+  const killed = mk(ID4, { pid: spawnSync('true').pid, ageMin: 90 }) // kill 残留:无 code 且 pid 死
+  const r = spawnSync('sh', ['-c', sweepScript({ ttlMin: 5, root })], { encoding: 'utf8' })
+  assert.equal(r.status, 0, `sweep 脚本须成功: stderr=${r.stderr}`)
+  assert.equal(existsSync(running), true, '在跑任务(无 code 且 pid 活)不得被 TTL 清掉')
+  assert.equal(existsSync(fresh), true, 'code 未超 TTL 不得删')
+  assert.equal(existsSync(stale), false, 'code 超龄才删')
+  assert.equal(existsSync(killed), false, 'kill 残留(无 code 且 pid 死)超 TTL 应删')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('sweep:真 sh——空/不存在 root 不炸(glob 无匹配);活 pid 守卫;无主残骸清掉', () => {
+  // 空目录:glob 不展开成字面路径,[ -f ]/[ -d ] 守卫兜底
+  const empty = mkdtempSync(join(tmpdir(), 'ab-job-sweep-empty-'))
+  const r = spawnSync('sh', ['-c', sweepSnippet(5, empty)], { encoding: 'utf8' })
+  assert.equal(r.status, 0, `空 root: stderr=${r.stderr}`)
+  // 不存在的 root 同理
+  const r2 = spawnSync('sh', ['-c', sweepSnippet(5, join(empty, 'nope'))], { encoding: 'utf8' })
+  assert.equal(r2.status, 0, `不存在 root: stderr=${r2.stderr}`)
+  const root = mkdtempSync(join(tmpdir(), 'ab-job-sweep-pid-'))
+  const live = join(root, ID5)
+  mkdirSync(live, { recursive: true })
+  writeFileSync(join(live, 'pid'), String(process.pid))
+  backdate(live, 90)
+  spawnSync('sh', ['-c', sweepSnippet(5, root)])
+  assert.equal(existsSync(live), true, '无 code 但 pid 活(在跑)不得被删')
+  // 无 code 且 pid 文件缺失 = 启动残骸(无主,无从 kill)→ 超 TTL 可清
+  const orphan = join(root, ID4)
+  mkdirSync(orphan, { recursive: true })
+  backdate(orphan, 90)
+  spawnSync('sh', ['-c', sweepSnippet(5, root)])
+  assert.equal(existsSync(orphan), false, '无 code 且无 pid 的启动残骸应清')
+  rmSync(empty, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true })
+})
+
+function backdate(p, ageMin) { const t = new Date(Date.now() - ageMin * 60000); utimesSync(p, t, t) }
