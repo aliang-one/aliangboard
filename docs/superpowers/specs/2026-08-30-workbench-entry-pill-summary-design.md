@@ -26,7 +26,7 @@
 3. **归属与隐私**:项目按 `listProjects(db,{userId,role})`(admin=全部,普通=own);SSH 会话数**人人只数自己的**(含 admin;`/api/ssh/sessions` 的 admin 全量观测语义不动)。
 4. **导航静默原则**:summary 拉取失败不 toast(全站挂载,失败弹窗=灾难),保留旧数据+面板内细字提示。
 5. **路由鉴权单表**:`/api/workbench/summary` 落在既有 `/api/workbench/` 前缀(platform)覆盖内,无需新登记;守卫测试不受影响。
-6. **单进程不变式**:待审批计数读 conv-bus 内存快照,依赖「单进程+单库」前提(已由启动锁保障);网关重启后内存快照清空,待审批归零属预期(DB running 态由既有 salvage 收敛)。
+6. **单进程不变式**:SSH 会话计数读 `terminal-sessions` 内存 Map(SSH 会话本就是进程态,重启归零属预期)。待审批计数**不依赖内存**——对话表 `pendingApproval` 列在 agent 暂停时落库(`status='paused'`),resume/取消时清空,重启不丢;纯 SQL 可查(conv-bus 内存快照仅服务实时 SSE,不作为计数源)。
 7. **样式/i18n 政策**:Material token、无新增强效动画;新键 zh/en 双语齐备,`npm run i18n:check` 门禁绿;消息值不含 HTML(无需 v-html)。
 8. **传送层惯例**:悬停面板 Teleport body + fixed 定位 + `zScale.popover`(110),防 TLS 下拉同款裁切。
 
@@ -49,10 +49,10 @@
 
 - **项目集**:`listProjects(db, { userId: ps.userId, role: ps.role })`,clusterName 同既有 `clusterNameOf`('' → null)。
 - **运行中/最近活跃**:一条 `SELECT projectId, count(*) FILTER (status='running') , max(updatedAt) FROM workbench_conversations GROUP BY projectId`(仅取该用户项目集),JS 合并。
-- **待审批**:该用户 running 对话逐个 `convBus.snapshot(convId)?.pending != null` 计数。conv-bus 快照按 convId 键控、与 DB status 冗余核对(running 且快照存在才有 pending 语义)。
+- **待审批/运行中**(与上一条同一查询):`SUM(CASE WHEN status='paused' AND pendingApproval IS NOT NULL THEN 1 ELSE 0 END)`——`pendingApproval` 列由 agent 暂停时落库、resume/取消时清空(workbench-agent.mjs),是持久权威源。
 - **SSH**:`sshTerminals.list().filter(s => s.userId === userId).length`(现成 userId 字段,2026-08-29 属主校验同源)。
 
-**deps 注入**:`createWorkbenchProjectRoutes` 增收 `convSnapshot`(=conv-bus.snapshot)与 `listSshSessions`(index.mjs 已有 `sshTerminals.list` 包装)——测试注入假件,不直依赖单例模块。
+**deps 注入**:`createWorkbenchProjectRoutes` 增收 `listSshSessions`(index.mjs 已有 `sshTerminals.list` 同名包装,复用同一表达式)——测试注入假件,不直依赖单例模块。错误消息键 `wbp.summaryReadFailed` 入 `server/messages/wbp.mjs`(zh/en 双语)。
 
 ## 4. 前端
 
@@ -71,7 +71,7 @@
 ### 4.2 悬停面板
 
 - **触发/关闭**:`mouseenter` 150ms 延迟开(防掠过);`mouseleave` 200ms 宽限关、`Escape` 关、点击面板外关、点击面板内任一链接后关。
-- **定位**:按钮 rect → Teleport body + `position: fixed`,顶部贴按钮下缘、右缘对齐按钮右缘并 clamp 视口内(≥16px 边距);`z-index: zScale.popover`。
+- **定位**:按钮 rect → Teleport body + `position: fixed`,顶部贴按钮下缘、右缘对齐按钮右缘并 clamp 视口内(≥16px 边距);`z-index` 取 `Z.popover`(`src/styles/zScale.js` 单一事实源)。Teleport 后面板不再是胶囊 DOM 子节点——跨 8px 间隙的面板 `mouseenter` 取消关闭、`mouseleave` 重启宽限。
 - **键盘路径**:面板为悬停增强、不抢焦点无 trap;键盘用户直达 `/workbench` 落地页(同信息同入口)。
 - **结构**:
   1. 汇总 chips 行:项目 N · 运行中 N · 待审批 N · SSH N
@@ -99,7 +99,8 @@
 **服务端**(node --test,deps 假件注入):
 - 普通用户只见自己项目/对话计数;admin 看全部
 - `''` 哨兵未绑定项目列出且 `clusterName: null`
-- running 计数;convSnapshot 假件注入 → pending 计数;非 running 有 pending 不计
+- running 计数;`status='paused' AND pendingApproval IS NOT NULL` 行 → pending 计数;paused 但 pendingApproval 为 NULL 不计
+- SSH 计数按 userId 过滤(admin 也只数自己;listSshSessions 假件注入)
 - SSH 数按 userId 过滤(admin 也只数自己)
 - >8 项目:projects 截 8 且待审/运行中排前;totals 全量
 - 未认证 401(requirePlatform 既有)
@@ -113,7 +114,7 @@
 
 **i18n 门禁**:`npm run i18n:check` 绿(新键双语齐备、无残留中文)。
 
-**手测**(需真机+网关重启):角标 30s 内更新/窗口聚焦即刷新;窄窗口面板不裁切;`?create=1` 自动开弹窗;普通用户 SSH 数不含他人;待审批真实对话中出现并计数;网关重启后待审批归零、running 由 salvage 收敛。
+**手测**(需真机+网关重启):角标 30s 内更新/窗口聚焦即刷新;窄窗口面板不裁切;`?create=1` 自动开弹窗;普通用户 SSH 数不含他人;待审批真实对话中出现并计数;网关重启后待审批仍在(`pendingApproval` 持久化)、running 由既有 salvage 收敛。
 
 ## 7. 不做的事(YAGNI)
 
