@@ -5,6 +5,8 @@ import { resolveApiKey } from './api-key-tools.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { effectiveTools, SSH_KEY_TOOLS } from './authorize.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
+import { createSshJobBridge } from './ssh/job-bridge.mjs'
+import { resolveJobPolicy } from './ssh/job-policy.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { registry } from './tool-registry.mjs'
 
@@ -31,7 +33,7 @@ function describeThrow(e) {
 }
 
 // 纯逻辑:处理一条 JSON-RPC 消息 → 响应对象(或 null=notification)。可单测,无 HTTP。
-export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db = null, sshBridgeFor = () => { throw new Error('ssh bridge unavailable') } }) {
+export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db = null, sshBridgeFor = () => { throw new Error('ssh bridge unavailable') }, sshJobBridgeFor = () => { throw new Error('ssh job bridge unavailable') } }) {
   if (!msg || typeof msg !== 'object') return err(null, -32600, 'invalid request')
   if (Array.isArray(msg)) return err(null, -32600, 'invalid request: batch(JSON-RPC 数组)不支持,请逐条 POST') // 审计 P2:数组曾被当 notification 静默吞成 202
   if (msg.id == null) return null // notification(如 notifications/initialized)→ 无响应
@@ -62,12 +64,16 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db =
       const bridge = sshBridgeFor(keyRow)
       const args = params?.arguments || {}
       const intent = { owner: keyRow.owner || keyRow.prefix || 'key', clusterId: keyRow.clusterId || null,
-        verb: name === 'wb_ssh_exec' ? 'write' : 'read', resource: args?.server ? `SshServer/${args.server}` : 'SshLedger',
+        verb: (name === 'wb_ssh_exec' || name === 'wb_ssh_run') ? 'write' : 'read',
+        resource: args?.server ? `SshServer/${args.server}` : 'SshLedger',
         tool: name, source: 'mcp', requestSummary: JSON.stringify(args).slice(0, 120) }
       reserveAudit(db, intent)
       try {
         const out = name === 'read_server_ledger' ? bridge.readLedger(args)
           : name === 'wb_ssh_read_file' ? await bridge.readFile(args)
+          : name === 'wb_ssh_run' ? await sshJobBridgeFor(keyRow).run(args)
+          : name === 'wb_ssh_job_out' ? await sshJobBridgeFor(keyRow).jobOut(args)
+          : name === 'wb_ssh_job_list' ? await sshJobBridgeFor(keyRow).jobList(args)
           : await bridge.exec(args)
         finalizeAudit(db, intent, out?.error ? { result: 'error', reason: String(out.error?.message || out.error).slice(0, 80) } : { result: 'ok' })
         return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
@@ -90,7 +96,7 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db =
 }
 
 // HTTP 包装:鉴权 + 解析 body + 派发 handleMcpMessage + 写响应(stateless Streamable HTTP)。
-export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting = () => '', setSetting = () => {} }) {
+export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting = () => '', setSetting = () => {}, getJobPolicy }) {
   // key 主体 SSH 桥(2026-08-29 per-key sshAccess):keyMode 策略闸在桥内(always→拒 exec,
   // readonly→仅只读命令,none→放行;台账写恒拒)。每 key 一个懒建桥,actor 记 key 前缀。
   const sshBridges = new Map()
@@ -101,6 +107,17 @@ export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting
       getSetting, setSetting, keyMode: true,
     }))
     return sshBridges.get(id)
+  }
+  // per-key SSH 异步任务桥(T7):keyMode fail-closed 在桥内(write/kill 恒拒、run 按策略);
+  // 分派层只负责名单(SSH_KEY_TOOLS 不含 write/kill → 不可列不可调)与路由。
+  const sshJobBridges = new Map()
+  function sshJobBridgeFor(keyRow) {
+    const id = keyRow?.prefix || keyRow?.owner || '__key__'
+    if (!sshJobBridges.has(id)) sshJobBridges.set(id, createSshJobBridge({
+      db, pool: sshPool, projectId: '__key__', keyMode: true,
+      getPolicy: () => getJobPolicy?.() || resolveJobPolicy(getSetting, process.env),
+    }))
+    return sshJobBridges.get(id)
   }
   async function readBody(req) { const chunks = []; for await (const c of req) chunks.push(c); const b = Buffer.concat(chunks).toString('utf8'); return b ? JSON.parse(b) : {} }
   function write(res, obj, status = 200, headers = {}) { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(obj)) }
@@ -123,7 +140,7 @@ export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting
     try { msg = await readBody(req) } catch { return write(res, err(null, -32700, 'parse error'), 400) }
 
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(keyRow.clusterId)
-    const resp = await handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db, sshBridgeFor })
+    const resp = await handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db, sshBridgeFor, sshJobBridgeFor })
     if (resp == null) { res.writeHead(202); return res.end() } // notification
     if (msg.method === 'initialize') return write(res, resp, 200, { 'Mcp-Session-Id': 'mcp-' + String(keyRow.id).slice(0, 8) })
     return write(res, resp)

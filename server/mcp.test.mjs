@@ -155,6 +155,50 @@ test('tools/call: 抛非 Error 对象 → isError 文本为可读 JSON,非 [obje
   assert.match(r.result.content[0].text, /raw object throw/)
 })
 
+// --- T7(SSH 异步任务):sshAccess key 的 job 三工具 —— 可列可调分派 + 审计 verb + write/kill 拒 ---
+test('MCP:sshAccess key 可列可调 wb_ssh_run/job_out/job_list;write/kill 不在列且被拒', async () => {
+  const sshKey = { ...readKey, sshAccess: 1, prefix: 'ak_test' }
+  // 审计捕获桩:reserve/finalize 都走 INSERT,verb 是第 8 个绑定参
+  const inserts = []
+  const auditDb = { prepare(sql) { return { get: () => ({ hash: 'h' }), run: (...a) => { if (/INSERT/.test(sql)) inserts.push(a); return { lastInsertRowid: 1 } } } } }
+  const jobCalls = { run: 0, jobOut: 0, jobList: 0, runArgs: null }
+  const jobBridge = {
+    run: async (args) => { jobCalls.run++; jobCalls.runArgs = args; return { jobId: 'j1' } },
+    jobOut: async () => { jobCalls.jobOut++; return { out: '', running: true } },
+    jobList: async () => { jobCalls.jobList++; return { jobs: [] } },
+  }
+  const bridge = { readLedger: () => ({}), readFile: async () => ({}), exec: async () => ({}) }
+  const deps = { keyRow: sshKey, cluster, db: auditDb, sshBridgeFor: () => bridge, sshJobBridgeFor: () => jobBridge,
+    apiKeyTools: { listTools: () => [], callTool: async () => { const e = new Error('PERMISSION_DENIED: policy'); e.code = 'PERMISSION_DENIED'; e.reason = 'policy'; e.detail = 'wb_ssh_job_write 仅工作台 AI 支持(需人审),key 通道不可用'; throw e } } }
+
+  // ① 列得出 run/out/list,列不出 write/kill
+  const lr = await handleMcpMessage({ jsonrpc: '2.0', id: 30, method: 'tools/list' }, deps)
+  const names = lr.result.tools.map(t => t.name)
+  for (const n of ['wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_list']) assert.ok(names.includes(n), `tools/list 应含 ${n}`)
+  for (const n of ['wb_ssh_job_write', 'wb_ssh_job_kill']) assert.ok(!names.includes(n), `tools/list 不应含 ${n}(keyMode 无人审)`)
+
+  // ② write 不在名单 → 落 callTool 被拒(「仅工作台」文案)
+  const wr = await handleMcpMessage({ jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'wb_ssh_job_write', arguments: {} } }, deps)
+  assert.equal(wr.error.code, -32603)
+  assert.match(wr.error.message, /仅工作台/)
+
+  // ③ run/out/list 分派到达 fake jobBridge
+  const rr = await handleMcpMessage({ jsonrpc: '2.0', id: 32, method: 'tools/call', params: { name: 'wb_ssh_run', arguments: { server: 's1', command: 'sleep 5' } } }, deps)
+  assert.equal(rr.result.isError, undefined)
+  assert.equal(jobCalls.run, 1); assert.equal(jobCalls.runArgs.command, 'sleep 5')
+  await handleMcpMessage({ jsonrpc: '2.0', id: 33, method: 'tools/call', params: { name: 'wb_ssh_job_out', arguments: { server: 's1', jobId: 'j1' } } }, deps)
+  await handleMcpMessage({ jsonrpc: '2.0', id: 34, method: 'tools/call', params: { name: 'wb_ssh_job_list', arguments: {} } }, deps)
+  assert.equal(jobCalls.jobOut, 1); assert.equal(jobCalls.jobList, 1)
+
+  // ④ 审计 intent verb:run=write;job_out/job_list=read;resource 沿 SshServer/<server>
+  const runInsert = inserts.find(a => a[8] === 'wb_ssh_run') // 绑定序:ts,status,keyId,owner,clusterId,ns,verb(7),resource(8),tool(9)
+  assert.equal(runInsert[6], 'write'); assert.equal(runInsert[7], 'SshServer/s1')
+  const outInsert = inserts.find(a => a[8] === 'wb_ssh_job_out')
+  assert.equal(outInsert[6], 'read')
+  const listInsert = inserts.find(a => a[8] === 'wb_ssh_job_list')
+  assert.equal(listInsert[6], 'read'); assert.equal(listInsert[7], 'SshLedger')
+})
+
 test('tools/call: 抛裸字符串 → isError 文本为该字符串', async () => {
   const tools = mockTools({ callTool: async () => { throw 'plain string failure' } })
   const r = await handleMcpMessage({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'exec_pod', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
