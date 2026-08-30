@@ -3,7 +3,7 @@
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
-import { registry } from '../tool-registry.mjs'
+import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
 import { listSshServers } from '../ssh/store.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
@@ -135,9 +135,12 @@ export function createWorkbenchConvRoutes(deps) {
       const cfg = getWorkbenchAiConfig(db)
       const disabled = new Set(cfg.disabledTools)
       const sshServers = sshPromptServers()
+      const sshless = sshServers.length === 0
       sendJson(res, 200, {
         effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers }),
-        tools: registry.workbenchTools().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
+        tools: registry.workbenchTools()
+          .filter(t => !(sshless && SSH_HIDDEN_TOOLS.includes(t.name)))
+          .map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
         additionalInstructions: cfg.additionalInstructions,
         model: getLlmConfig().model,
       })

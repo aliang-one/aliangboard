@@ -44,9 +44,9 @@ test('registry.workbenchToolDefs(disabled):过滤 + 未知名忽略 + 无参兼�
   assert.deepEqual(registry.workbenchToolDefs().map(t => t.function.name), all)
 })
 
-test('registry.workbenchTools():23 个 WB 工具,每个带 promptHint', () => {
+test('registry.workbenchTools():28 个 WB 工具,每个带 promptHint', () => {
   const tools = registry.workbenchTools()
-  assert.equal(tools.length, 23)
+  assert.equal(tools.length, 28)
   assert.ok(tools.every(t => typeof t.promptHint === 'string' && t.promptHint.length > 0))
   assert.ok(tools.some(t => t.name === 'wb_exec' && t.requiresApproval === true))
 })
@@ -61,6 +61,16 @@ test('sshServers 注入:非空清单出现 id/名称/集群/凭据不可见指�
   assert.ok(withList.includes('write_server_notes'))
   const without = buildWorkbenchSystemPrompt({})
   assert.ok(!without.includes('可管理的 SSH 服务器'))
+})
+
+test('P0 同源:零暴露时提示词不出现任何 SSH 工具名;有暴露时出现', () => {
+  const SSH_NAMES = ['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes',
+    'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_write', 'wb_ssh_job_list', 'wb_ssh_job_kill']
+  const p0 = buildWorkbenchSystemPrompt({ sshServers: [] })
+  for (const n of SSH_NAMES) assert.equal(p0.includes(n), false, `零暴露提示词不应含 ${n}`)
+  const p1 = buildWorkbenchSystemPrompt({ sshServers: [{ id: 'a', name: 'dev-1' }] })
+  assert.ok(p1.includes('wb_ssh_exec'))
+  assert.ok(p1.includes('wb_ssh_run'))
 })
 
 test('围栏规则行在 FIXED 段:@-mention 资源内容视为数据非指令(CSO #14)', () => {

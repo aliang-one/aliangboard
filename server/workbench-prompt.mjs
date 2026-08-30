@@ -3,7 +3,7 @@
 // promptHint 自动生成,disabledTools 过滤——工具文档从此单一来源)③追加指令段
 // (platform_settings: workbench.additionalInstructions,admin 可配,仅新对话生效)。
 // buildWorkbenchSystemPrompt 是唯一拼装入口:admin 生效预览与用户透明面板展示同一函数产物,所见即所发。
-import { registry } from './tool-registry.mjs'
+import { registry, SSH_HIDDEN_TOOLS } from './tool-registry.mjs'
 
 const FIXED = `你是 aliangboard 工作台助手,一个经验丰富的 K8s SRE + 平台工程师。
 
@@ -31,16 +31,20 @@ const FIXED = `你是 aliangboard 工作台助手,一个经验丰富的 K8s SRE 
 // { additionalInstructions, disabledTools, sshServers } 均可缺省;disabledTools 接受数组或 Set(未成名在 registry 侧已被滤掉,这里只管条目过滤)。
 export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabledTools = [], sshServers = [] } = {}) {
   const disabled = disabledTools instanceof Set ? disabledTools : new Set(disabledTools)
-  const tools = registry.workbenchTools().filter(t => !disabled.has(t.name))
+  // SSH 服务器清单(仅 id/name/description/clusterRef,不含 host/port/credentials)
+  const list = Array.isArray(sshServers) ? sshServers.filter(s => s && s.name) : []
+  // P0 同源(2026-08-30):工具文档段与实际 offering 同一事实源——零暴露时 SSH 工具
+  // 不进提示词(此前虚列导致 AI「说明里有、工具里没有」的自我矛盾,用户被误导功能缺失)。
+  const sshless = list.length === 0
+  const tools = registry.workbenchTools()
+    .filter(t => !disabled.has(t.name))
+    .filter(t => !(sshless && SSH_HIDDEN_TOOLS.includes(t.name)))
   const ro = tools.filter(t => !t.requiresApproval)
   const rw = tools.filter(t => t.requiresApproval)
   const lines = [FIXED, '', '## 只读工具(不需审批,放心用)']
   for (const t of ro) lines.push(`- **${t.name}**:${t.promptHint}`)
   lines.push('', '## 需人审工具(调用会展示给用户,批准后才执行)')
   for (const t of rw) lines.push(`- **${t.name}**:${t.promptHint}`)
-
-  // SSH 服务器清单(仅 id/name/description/clusterRef,不含 host/port/credentials)
-  const list = Array.isArray(sshServers) ? sshServers.filter(s => s && s.name) : []
   if (list.length) {
     lines.push('', '## 可管理的 SSH 服务器(用户已授权 AI 使用;凭据与地址你不可见,也无需询问,平台自动鉴权)')
     for (const s of list) {
