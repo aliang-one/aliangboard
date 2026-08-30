@@ -85,9 +85,17 @@ export function createWorkbenchConvRoutes(deps) {
     const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
+      // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不入 k8s 拉取序列,
+      // resources 对应位置 push null 占位——保持 fetchedResources 与 references 下标一一对应
+      // 是本函数不变式(终审 Important#1:缺位会让后续 K8s ref 的 ResourceCard 张冠李戴)。
+      if (ref.kind === 'server') {
+        blocks.push(`${label}: (服务器引用:上下文由系统提示注入)`)
+        resources.push(null)
+        continue
+      }
       // 防御性归一:ref.kind 正常恒为前端 canonical,与工具链同源归一以防旧数据
       const path = getApiPath(normalizeKind(ref.kind), ref.namespace || '', ref.name)
-      if (!path) { blocks.push(`${label}: (不支持的 kind)`); continue }
+      if (!path) { blocks.push(`${label}: (不支持的 kind)`); resources.push(null); continue }
       try {
         const res = await requestKubernetes(k8sSession, path)
         // requestKubernetes 返回 {status,headers,body};资源在 body(guard:可能 undefined)

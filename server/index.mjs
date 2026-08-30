@@ -1144,11 +1144,13 @@ function withTimeout(p, ms, label) {
 async function fetchRefContext(references, k8sSession) {
   if (!Array.isArray(references) || !references.length) return ''
   const budget = createRefContextBudget()
+  // 服务器清单与单个 ref 无关——提到 map 之外取一次,循环内复用(终审 Minor#3)
+  const sshServerRows = references.some(r => r?.kind === 'server') ? listSshServers(db, { exposedOnly: true }) : []
   const tasks = references.map(async ref => {
     const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
     // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不依赖 k8sSession——无集群项目可用
     if (ref.kind === 'server') {
-      const rows = listSshServers(db, { exposedOnly: true })
+      const rows = sshServerRows
       const block = buildServerRefBlock(label, rows, ref)
       if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
       return block
