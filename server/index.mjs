@@ -256,12 +256,14 @@ function seedAdminFromEnv() {
   if (out.action === 'rejected-weak') { console.error(`[auth] ${out.refuse}`); return }
   if (out.action === 'seeded') { console.log(`[auth] 已创建管理员: ${out.username}`); return }
   const credFile = join(__dirname, '..', 'data', 'first-admin-credentials.txt')
-  try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密并删除本文件)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) { console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message) }
-  console.log('══════════════════════════════════════════════════')
-  console.log(`[auth] 已创建管理员(口令自动生成): ${out.username}`)
-  console.log(`[auth] 一次性密码: ${out.password}`)
-  console.log(`[auth] 凭证已写入 ${credFile}(0600;登录后请修改密码并删除该文件)`)
-  console.log('══════════════════════════════════════════════════')
+  try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) {
+    // 文件写失败:密码仅此行日志可见——这是唯一恢复通道,有意保留打印(CSO #13 裁决)
+    console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message)
+    console.log(`[auth] 一次性密码: ${out.password}`)
+    return
+  }
+  // CSO #13:文件写成功不再把密码打进 stdout(= kubectl logs 可读);改密成功后自动删除
+  console.log(`[auth] 首管一次性凭证已写入 ${credFile}(0600;登录改密后自动删除)`)
 }
 // 平台 session（内存 Map + SQLite 持久化）
 const platformSessions = new Map()  // token -> {userId, username, role, createdAt, k8sSessionToken}
@@ -1448,6 +1450,7 @@ async function handle(req, res) {
   // 构造放 handle() 内(与 convRoutes 一致:closure deps 此处可见)。dispatch 顺序无要求(路由不重叠)。
   const authRoutes = createAuthRoutes({
     db, sendJson, readBody, requirePlatform,
+    dataDir: dirname(dbPath), // CSO #13:改密成功即删 <dataDir>/first-admin-credentials.txt(与 db 同目录信任边界)
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,

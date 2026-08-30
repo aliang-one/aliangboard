@@ -4,9 +4,14 @@
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { isPasswordOk } from '../password-policy.mjs'
+import { unlinkSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export function createAuthRoutes(deps) {
   const {
+    // 首管一次性凭证文件所在目录(默认 <repo>/data;改密成功即删,CSO #13)
+    dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data'),
     db, sendJson, readBody, requirePlatform,
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
@@ -128,6 +133,8 @@ export function createAuthRoutes(deps) {
           }
         }
         auditChange('ok', null, `revoked=${revoked}`)
+        // CSO #13:改密成功即删首管一次性凭证文件(best-effort;不存在/无权限静默忽略)
+        try { unlinkSync(join(dataDir, 'first-admin-credentials.txt')) } catch { /* noop */ }
         sendJson(res, 200, { ok: true, revoked })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.changePasswordFailed') }); return true }
