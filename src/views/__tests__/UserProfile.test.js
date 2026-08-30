@@ -110,6 +110,53 @@ test('当前会话行不渲染吊销按钮(防自锁)', async () => {
   w.unmount()
 })
 
+// === 会话列表分页(2026-08-30 设计 §4) ===
+function makeSessions(n) {
+  return Array.from({ length: n }, (_, i) => ({
+    fingerprint: `fp${String(i).padStart(2, '0')}`, ip: `10.0.0.${i}`, userAgent: 'Mozilla/5.0 Chrome',
+    createdAt: 1756400000000, lastSeenAt: 1756400000000 + i, current: false,
+  }))
+}
+
+test('会话分页:>10 条出现分页条,首屏切前 10 条,翻页看剩余', async () => {
+  apiMocks.listSessions.mockResolvedValue({ sessions: makeSessions(12) })
+  const w = mountPage()
+  await flushPromises()
+  expect(w.findAll('[data-testid="session-row"]')).toHaveLength(10)
+  const pag = w.find('[data-testid="sessions-pagination"]')
+  expect(pag.exists()).toBe(true)
+  await pag.findAll('button')[1].trigger('click')   // 下一页(Pagination 只有 prev/next 两按钮)
+  expect(w.findAll('[data-testid="session-row"]')).toHaveLength(2)
+  expect(w.findAll('[data-testid="session-row"]')[0].text()).toContain('10.0.0.10')
+  w.unmount()
+})
+
+test('会话分页:≤10 条不显示分页条', async () => {
+  const w = mountPage()
+  await flushPromises()
+  expect(w.findAll('[data-testid="session-row"]')).toHaveLength(2)
+  expect(w.find('[data-testid="sessions-pagination"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('会话分页:末页吊销后页码收敛(clamp),不悬空', async () => {
+  apiMocks.listSessions.mockResolvedValue({ sessions: makeSessions(11) })
+  const w = mountPage()
+  await flushPromises()
+  await w.find('[data-testid="sessions-pagination"]').findAll('button')[1].trigger('click')
+  expect(w.findAll('[data-testid="session-row"]')).toHaveLength(1)
+  apiMocks.revokeSession.mockResolvedValueOnce({ ok: true })
+  apiMocks.listSessions.mockResolvedValue({ sessions: makeSessions(10) })   // 重拉后只剩 10 条
+  await w.find('[data-testid="session-revoke-fp10"]').trigger('click')
+  document.body.querySelector('[data-testid="confirm-ok"]').click()
+  await flushPromises()
+  expect(apiMocks.listSessions).toHaveBeenCalledTimes(2)
+  expect(w.findAll('[data-testid="session-row"]')).toHaveLength(10)
+  // 页码收敛回第 1 页:首行是 fp00
+  expect(w.findAll('[data-testid="session-row"]')[0].text()).toContain('10.0.0.0')
+  w.unmount()
+})
+
 test('偏好卡:语言/主题选择联动 preferences store', async () => {
   const w = mountPage()
   await flushPromises()

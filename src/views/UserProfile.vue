@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import { notify } from '@/composables/useToast'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import { uaSummary } from '@/utils/uaSummary'
 
 const { t } = useI18n()
@@ -57,11 +58,17 @@ const sessions = ref([])
 const sessionsLoading = ref(false)
 const revokeTarget = ref(null)          // {fingerprint} 或 'others'
 const showRevokeConfirm = ref(false)
+// 会话列表分页(2026-08-30 设计 §4):客户端切片,>pageSize 才显示分页条;吊销重拉后页码收敛。
+const currentPage = ref(1)
+const pageSize = 10
+const totalPages = computed(() => Math.max(1, Math.ceil(sessions.value.length / pageSize)))
+const pagedSessions = computed(() => sessions.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize))
+function clampPage() { currentPage.value = Math.min(currentPage.value, totalPages.value) }
 async function loadSessions() {
   sessionsLoading.value = true
   try { sessions.value = (await authApi.listSessions()).sessions || [] }
   catch { /* 会话列表失败不阻塞页面 */ }
-  finally { sessionsLoading.value = false }
+  finally { sessionsLoading.value = false; clampPage() }
 }
 function askRevoke(s) { revokeTarget.value = s; showRevokeConfirm.value = true }
 function askRevokeOthers() { revokeTarget.value = { fingerprint: 'others' }; showRevokeConfirm.value = true }
@@ -144,7 +151,7 @@ const themeOptions = [{ v: 'light', icon: 'light_mode', key: 'userCenter.themeLi
       </div>
       <div v-if="sessionsLoading" class="py-md text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block">progress_activity</span></div>
       <div v-else class="flex flex-col gap-xs">
-        <div v-for="s in sessions" :key="s.fingerprint" data-testid="session-row"
+        <div v-for="s in pagedSessions" :key="s.fingerprint" data-testid="session-row"
           class="flex items-center gap-md px-md py-sm rounded-lg border border-outline-variant/50">
           <span class="material-symbols-outlined text-on-surface-variant" :class="s.current ? 'text-primary' : ''">{{ s.current ? 'phonelink_ring' : 'devices_other' }}</span>
           <div class="min-w-0 flex-1">
@@ -156,6 +163,9 @@ const themeOptions = [{ v: 'light', icon: 'light_mode', key: 'userCenter.themeLi
             @click="askRevoke(s)"><span class="material-symbols-outlined text-base">logout</span></button>
         </div>
       </div>
+      <Pagination v-if="sessions.length > pageSize" data-testid="sessions-pagination"
+        class="mt-sm" :total="sessions.length" :page-size="pageSize" :current-page="currentPage"
+        @page-change="(p) => (currentPage = p)" />
     </div>
 
     <!-- 偏好卡 -->
