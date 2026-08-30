@@ -3500,6 +3500,8 @@
       "userMessage": "Type a message...",
       "send": "Send",
       "writeFileApproval": "Write File Approval",
+      "sshApprovalTitle": "Remote Host Command Approval",
+      "sudoLabel": "Runs as root (sudo)",
       "execApprovalTitle": "Container Command Approval",
       "actionApprovalTitle": "Cluster Change Approval",
       "execDesc": "The command will run inside the target container (kubectl exec — one-shot, non-interactive, 30s timeout). Output goes back to the AI for further analysis; confirm the command is not destructive.",

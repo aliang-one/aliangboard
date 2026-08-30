@@ -3500,6 +3500,8 @@
       "userMessage": "输入消息…",
       "send": "发送",
       "writeFileApproval": "写文件审批",
+      "sshApprovalTitle": "远程主机命令审批",
+      "sudoLabel": "以 root 执行(sudo)",
       "execApprovalTitle": "容器命令执行审批",
       "actionApprovalTitle": "集群变更审批",
       "execDesc": "命令将在目标容器内执行（kubectl exec，一次性、非交互、30 秒超时）。执行结果会回给 AI 继续分析；请确认命令无破坏性。",
