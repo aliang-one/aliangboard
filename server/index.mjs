@@ -268,7 +268,8 @@ const platformSessions = new Map()  // token -> {userId, username, role, created
 // username 查 platform_users.role 判定。必须定义在模块顶层——upgrade 处理器在模块作用域
 // (曾错置在请求处理闭包内 → ReferenceError → 终端 socket 被毁,用户见「会话已终止」)。
 const isPlatformAdmin = username => {
-  try { return db.prepare('SELECT role FROM platform_users WHERE username=?').get(username)?.role === 'admin' } catch { return false }
+  // disabled=0:禁用用户的 WS 通道即时关闭(CSO 2026-08-30 #3)
+  try { return db.prepare('SELECT role FROM platform_users WHERE username=? AND disabled=0').get(username)?.role === 'admin' } catch { return false }
 }
 function loadPersistedPlatformSessions() {
   try {
@@ -297,6 +298,17 @@ function platformUserFromRequest(req) {
     try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
     return null
   }
+  // CSO 2026-08-30 #3:授权必须复读用户行 —— 会话行里的 role 是登录时快照。
+  // 删除/禁用即时踢出;降级即时生效。(每次请求一次主键查,SQLite 同步读,开销可忽略)
+  try {
+    const u = db.prepare('SELECT role, disabled FROM platform_users WHERE id=?').get(ps.userId)
+    if (!u || u.disabled) {
+      platformSessions.delete(token)
+      try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
+      return null
+    }
+    if (u.role !== ps.role) ps.role = u.role
+  } catch { /* 表不存在等边缘:维持旧行为 */ }
   touchSession(db, ps)
   return ps
 }
