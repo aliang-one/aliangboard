@@ -54,14 +54,16 @@ async function create() {
 </script>
 
 <template>
-  <Modal :model-value="modelValue" :title="t('component.createFromYaml.title')" width="max-w-3xl"
+  <Modal :model-value="modelValue" :title="t('component.createFromYaml.title')" width="max-w-3xl" maximizable
     @update:model-value="emit('update:modelValue', $event)">
-    <div class="flex flex-col gap-sm">
-      <p class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.hint') }}</p>
-      <YamlEditor v-model="yaml" height="420px" />
-      <p v-if="nsHint" class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.nsHint', { ns: props.namespace }) }}</p>
-      <p v-if="parseError" class="text-body-sm text-error">{{ parseError }}</p>
-    </div>
+    <template #default="{ maximized }">
+      <div data-testid="yaml-dialog-content" class="flex flex-col gap-sm" :class="maximized ? 'h-full' : ''">
+        <p class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.hint') }}</p>
+        <YamlEditor v-model="yaml" height="420px" :height-class="maximized ? 'flex-1 min-h-0' : ''" />
+        <p v-if="nsHint" class="text-body-sm text-on-surface-variant">{{ t('component.createFromYaml.nsHint', { ns: props.namespace }) }}</p>
+        <p v-if="parseError" class="text-body-sm text-error">{{ parseError }}</p>
+      </div>
+    </template>
     <template #actions>
       <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
       <button @click="create" :disabled="applying" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold disabled:opacity-50">

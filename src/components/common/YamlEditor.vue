@@ -9,6 +9,9 @@ const props = defineProps({
   height: { type: String, default: '400px' },
   diffMode: { type: Boolean, default: false },
   originalValue: { type: String, default: '' },
+  // 传入时根元素挂该 class 且内部单模式视图区改 flex 填充(供最大化弹窗用);
+  // 不传 = 行为与固定 height 模式完全一致。与 CodeTextarea 的 heightClass 契约镜像。
+  heightClass: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'save', 'discard', 'edit-start'])
@@ -55,7 +58,7 @@ function handleDiscard() {
 </script>
 
 <template>
-  <div class="flex flex-col rounded-lg overflow-hidden border border-outline-variant">
+  <div data-testid="yaml-editor-root" class="flex flex-col rounded-lg overflow-hidden border border-outline-variant" :class="heightClass">
     <!-- Toolbar -->
     <div class="flex items-center justify-between px-md py-sm bg-surface-container-low border-b border-outline-variant">
       <div class="flex items-center gap-sm">
@@ -90,11 +93,14 @@ function handleDiscard() {
     </div>
 
     <!-- Single Mode -->
-    <div v-else>
+    <div v-else data-testid="yaml-view" :class="heightClass ? 'flex-1 min-h-0 flex flex-col' : ''">
       <!-- 查看模式（默认）：CodeViewer YAML 高亮 -->
-      <CodeViewer v-if="!isEditing" :code="editableContent" lang="yaml" :max-height="height" />
+      <CodeViewer v-if="!isEditing" :code="editableContent" lang="yaml"
+        :class="heightClass ? 'flex-1 min-h-0' : ''" :max-height="heightClass ? '100%' : height" />
       <!-- 编辑模式：textarea -->
-      <textarea v-else v-model="editableContent" class="w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y" :style="{ minHeight: height, maxHeight: height }"></textarea>
+      <textarea v-else v-model="editableContent"
+        :class="['w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y', heightClass ? 'flex-1 min-h-0' : '']"
+        :style="heightClass ? undefined : { minHeight: height, maxHeight: height }"></textarea>
     </div>
 
     <!-- Action Bar（编辑且有改动时）-->
