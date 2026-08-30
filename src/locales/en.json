@@ -3343,6 +3343,16 @@
     "resource": "Resource"
   },
   "workbench": {
+    "pill": {
+      "projects": "{n} projects",
+      "running": "{n} running",
+      "pending": "{n} pending approvals",
+      "ssh": "{n} SSH",
+      "relNow": "just now", "relMin": "{n}m ago", "relHour": "{n}h ago", "relDay": "{n}d ago",
+      "newProject": "New project", "openLedger": "Cluster ledger", "openRecords": "Records",
+      "noProjects": "No projects yet", "pendingChip": "{n} pending",
+      "stale": "Update failed, showing data from {t}", "loadFailed": "Failed to load"
+    },
     "unboundBadge": "No cluster",
     "unboundBanner": "No cluster bound: draft manifests and manage SSH servers now; bind a cluster to unlock resource investigation and apply — existing drafts apply as-is",
     "bindClusterPlaceholder": "Bind a cluster…",
