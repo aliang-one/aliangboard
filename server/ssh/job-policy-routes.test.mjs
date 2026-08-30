@@ -44,8 +44,10 @@ test('SSH 任务策略:GET 空态=默认;PUT 部分更新;越界 400;非 admin 4
     body: JSON.stringify({ ttlMin: 60 }) })).json()
   assert.deepEqual(put1.policy, { ttlMin: 60, maxPerServer: 4 })
 
-  // 越界 → 400
-  for (const bad of [{ ttlMin: 0 }, { maxPerServer: 99 }, { ttlMin: 10081 }, { maxPerServer: 'x' }]) {
+  // 越界 → 400;小数 → 400(终审 I3:`-mmin +1.5` 让 find 报错被 2>/dev/null 吞,该服务器
+  // 每轮 sweep 静默 no-op 而 admin 看到成功——小数必须被闸在门外)
+  for (const bad of [{ ttlMin: 0 }, { maxPerServer: 99 }, { ttlMin: 10081 }, { maxPerServer: 'x' },
+    { ttlMin: 1.5 }, { maxPerServer: 2.5 }, { ttlMin: 60.000001 }]) {
     const r = await fetch(`${BASE}/api/admin/ssh-job-policy`, { method: 'PUT', headers: H, body: JSON.stringify(bad) })
     assert.equal(r.status, 400, JSON.stringify(bad))
   }

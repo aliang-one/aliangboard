@@ -183,7 +183,9 @@ export function createAdminRoutes(deps) {
         for (const k of keys) {
           if (input[k] === undefined) continue
           const [lo, hi] = range[k]; const n = Number(input[k])
-          if (!Number.isFinite(n) || n < lo || n > hi) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
+          // 必须整数(终审 I3):`-mmin +1.5` 让 find 报错(被 2>/dev/null 吞)→ 该服务器每轮 sweep
+          // 静默 no-op 而 admin 看到成功。镜像 reap-policy 的 isValidMinutes(Number.isInteger)。
+          if (!Number.isInteger(n) || n < lo || n > hi) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
         }
         for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.job.${k}`, String(input[k]))
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_job_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })

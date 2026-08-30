@@ -3,8 +3,12 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
+import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { handleMcpMessage, TOOL_META, createMcpServer } from './mcp.mjs'
 import { createApiKeysSchema, mintKey } from './auth-keys.mjs'
+import { ensureSshSchema } from './ssh/store.mjs'
+import { createAuditSchema } from './audit.mjs'
 import { checkRate } from './rate-limit.mjs'
 
 function mockTools({ callTool } = {}) {
@@ -204,4 +208,75 @@ test('tools/call: 抛裸字符串 → isError 文本为该字符串', async () =
   const r = await handleMcpMessage({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'exec_pod', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
   assert.equal(r.result.isError, true)
   assert.match(r.result.content[0].text, /plain string failure/)
+})
+
+// --- 终审 I4:走 createMcpServer 真实工厂的 keyMode 集成测试 ---
+// 既有 T7 测试注入 sshJobBridgeFor 桩,真实惰性工厂(含 keyMode:true 与 getJobPolicy 兜底)从未被
+// 走到:若 mcp.mjs 丢了 keyMode:true,没有任何测试会红,key 通道将对 always 策略服务器获得无人审的
+// wb_ssh_run。这里用真 sqlite(api_keys + ssh_servers 行)+ 真 createMcpServer 直打 HTTP handler。
+test('MCP 真实工厂:keyMode fail-closed(always 拒 / none 放行)+ getJobPolicy 被消费', async () => {
+  const db = new DatabaseSync(':memory:')
+  createApiKeysSchema(db)
+  createAuditSchema(db)
+  db.exec('CREATE TABLE IF NOT EXISTS clusters (id TEXT PRIMARY KEY, name TEXT)')
+  ensureSshSchema(db)
+  const insServer = db.prepare(`INSERT INTO ssh_servers
+    (id,name,host,port,username,authMethod,status,exposeToAi,aiApprovalPolicy,createdAt,updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+  insServer.run('srv-always', 'always-box', '203.0.113.10', 22, 'root', 'password', 'ok', 1, 'always', 1, 1)
+  insServer.run('srv-none', 'none-box', '203.0.113.11', 22, 'root', 'password', 'ok', 1, 'none', 1, 1)
+  const minted = mintKey(db, { owner: 'ssh-op', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', sshAccess: 1 })
+
+  // 假 ssh 池:记录每条 exec 并按命令形态回放(list=空清单 / launch=pid 行 + OK)
+  const execs = []
+  let listOut = ''
+  const fakeSshPool = { acquire: async serverId => ({ client: {
+    exec: (cmd, cb) => {
+      execs.push([serverId, cmd])
+      const s = new EventEmitter(); s.stderr = new EventEmitter()
+      cb(null, s)
+      setImmediate(() => {
+        if (cmd.includes('setsid')) { s.emit('data', Buffer.from('42\nOK\n')) } else { s.emit('data', Buffer.from(listOut)) }
+        s.emit('exit', 0); s.emit('close')
+      })
+    },
+    end: () => {} }, release: () => {} }) }
+  let jobPolicy = { ttlMin: 60, maxPerServer: 4 }
+  const handler = createMcpServer({ db, apiKeyTools: mockTools(), sshPool: fakeSshPool, getJobPolicy: () => jobPolicy })
+  const call = async body => {
+    const req = { headers: { authorization: `Bearer ${minted.plaintext}` }, method: 'POST',
+      async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify(body)) } }
+    const res = { statusCode: null, body: null, setHeader() {}, writeHead(s) { this.statusCode = s }, end(b) { this.body = b ? JSON.parse(b) : null } }
+    await handler(req, res)
+    return res.body
+  }
+  const callTool = async (name, args) => {
+    const r = await call({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })
+    return JSON.parse(r.result.content[0].text)
+  }
+
+  // ① sshAccess key 列得出异步任务三工具
+  const lr = await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+  const names = lr.result.tools.map(t => t.name)
+  for (const n of ['wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_list']) assert.ok(names.includes(n), `应含 ${n}`)
+
+  // ② always 策略服务器 → keyMode fail-closed 拒启动,且零远端动作(闸在桥内,先于任何 exec)
+  const denied = await callTool('wb_ssh_run', { server: 'always-box', command: 'apt install -y htop' })
+  assert.ok(/key 通道无人审不可启动/.test(denied.error || ''), JSON.stringify(denied))
+  assert.equal(execs.length, 0, `fail-closed 不得触碰远端,实际: ${JSON.stringify(execs)}`)
+
+  // ③ none 策略服务器 → 真实桥走 list+launch 放行,返回 jobId/pid(证明 ② 拒的是 keyMode 闸,非链路坏)
+  const okRun = await callTool('wb_ssh_run', { server: 'none-box', command: 'make all' })
+  assert.ok(/^[0-9a-f-]{36}$/.test(okRun.jobId || ''), JSON.stringify(okRun))
+  assert.equal(okRun.pid, '42')
+  assert.equal(execs.length, 2, 'list + launch 两条 exec')
+  assert.ok(execs[1][1].includes('setsid') && execs[1][0] === 'srv-none')
+  // 注册表分派确认:到达的是 job 桥(mcp.mjs sshJobBridgeFor)而非同步 exec 桥
+  assert.ok(execs[1][1].includes('mkfifo in'), 'launch 脚本形态 = 异步任务桥')
+
+  // ④ getJobPolicy 被真实工厂消费:maxPerServer=1 + 远端 1 个 RUNNING → 并发上限拒
+  jobPolicy = { ttlMin: 60, maxPerServer: 1 }
+  listOut = `${randomUUID()} RUNNING\n`
+  const capped = await callTool('wb_ssh_run', { server: 'none-box', command: 'x' })
+  assert.ok(/并发已达上限\(1\)/.test(capped.error || ''), JSON.stringify(capped))
 })

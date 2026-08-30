@@ -2122,11 +2122,12 @@ setInterval(() => {
         requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
     })
   } catch (e) { console.error('[ssh] reap sweep failed:', e?.message || e) }
-  // SSH 异步任务 TTL 清理:单台失败不阻断(catch 全吞),sweep 只依赖 pool/db,projectId 无关
+  // SSH 异步任务 TTL 清理:单台失败不阻断(catch 全吞),sweep 只依赖 pool/db,projectId 无关。
+  // 但失败必须可见(终审 T6):ops 文档声称周期清理有效,静默失败 = 清理从未发生而无人知。
   ;(async () => {
     for (const id of jobBridgeForSweep.sweepServerIds())
       await jobBridgeForSweep.sweepServer(id)
-  })().catch(() => {})
+  })().catch(e => console.error('[ssh] job sweep failed:', e?.message || e))
 }, 60000).unref?.()
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
 setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
