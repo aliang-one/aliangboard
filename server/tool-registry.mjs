@@ -193,6 +193,31 @@ const WB = [
     promptHint: '读 SSH 服务器上文件(SFTP 只读,默认 64KB)。排查远端配置/日志时用;server=服务器名称。',
     inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称' }, path: { type: 'string', description: '绝对路径,如 /etc/nginx/nginx.conf' }, maxBytes: { type: 'number' } }, required: ['server', 'path'] },
     exec: async (ctx, args) => { try { return await ctx.ssh.readFile(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_run', requiresApproval: true,
+    description: '在平台托管的 SSH 服务器上启动长时/交互任务(后台运行,立即返回 jobId)。适用:装包/构建/备份等超 120s 的命令、需要应答的安装器(配合 wb_ssh_job_write)。服务器按其审批策略在启动时审一次;寿命上限远端强制(默认 30min,上限 120);输出封顶(默认 64MB,超出会终止任务并记 code=141)。不支持 sudo 长任务(密码会与交互应答抢 stdin)。轮询输出用 wb_ssh_job_out。',
+    promptHint: 'SSH 服务器长时任务(装包/构建/交互安装器)。server=服务器名称;启动即返 jobId,用 wb_ssh_job_out 轮询(建议 2-5s)、wb_ssh_job_write 应答、wb_ssh_job_kill 终止。启动按服务器策略可能展示给用户审批。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称(见系统提示清单)' }, command: { type: 'string', description: '非交互起跑的命令;交互应答交给 wb_ssh_job_write' }, timeoutMin: { type: 'number', description: '任务寿命上限(分钟),默认 30,上限 120,远端强制' }, maxOutMb: { type: 'number', description: '输出封顶(MB),默认 64,超出终止任务' } }, required: ['server', 'command'] },
+    exec: async (ctx, args) => { try { return await ctx.sshJobs.run(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_job_out', requiresApproval: false,
+    description: '读取 SSH 异步任务的输出块(增量):传上次返回的 offset 取新数据,返回体含 size/running/exitCode。免审。任务由 wb_ssh_run 启动。',
+    promptHint: '读长任务输出(增量轮询,建议 2-5s 一次)。offset=上次返回的 offset;看 running/exitCode 判断是否结束,结束前别急着下结论。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string' }, jobId: { type: 'string', description: 'wb_ssh_run 返回的 jobId' }, offset: { type: 'number', description: '字节偏移,上次返回值;缺省 0' }, maxBytes: { type: 'number', description: '本次最多读多少字节,默认 16384,上限 32768' } }, required: ['server', 'jobId'] },
+    exec: async (ctx, args) => { try { return await ctx.sshJobs.jobOut(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_job_write', requiresApproval: true,
+    description: '向 SSH 异步任务的 stdin 写一行应答(自动补换行)。用于交互安装器(y/n/回车)或 REPL 输入。审批随服务器策略(none 免审;readonly/always 每条人审——应答会改变任务执行流)。',
+    promptHint: '给长任务的交互提示写应答(安装器 y/n、REPL 输入)。中高审批策略下每条应答都需用户批准,所以应答要一次给准。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string' }, jobId: { type: 'string' }, text: { type: 'string', description: '一行应答,如 "y" 或 SQL 语句' } }, required: ['server', 'jobId', 'text'] },
+    exec: async (ctx, args) => { try { return await ctx.sshJobs.jobWrite(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_job_list', requiresApproval: false,
+    description: '列出某 SSH 服务器上的异步任务(远端目录扫描,含网关重启前的任务)。免审。',
+    promptHint: '列服务器上的异步任务与状态。网关重启后靠它找回 jobId。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string' } }, required: ['server'] },
+    exec: async (ctx, args) => { try { return await ctx.sshJobs.jobList(args) } catch (e) { return { error: e.message } } } },
+  { name: 'wb_ssh_job_kill', requiresApproval: false,
+    description: '终止 SSH 服务器上的异步任务(kill 整进程组)。免审——止损是安全动作,恒审计。',
+    promptHint: '终止失控/不再需要的长任务。发现任务卡死或用户改主意时用。',
+    inputSchema: { type: 'object', properties: { server: { type: 'string' }, jobId: { type: 'string' } }, required: ['server', 'jobId'] },
+    exec: async (ctx, args) => { try { return await ctx.sshJobs.jobKill(args) } catch (e) { return { error: e.message } } } },
 ].map(t => ({ ...t, principal: 'platform', exec: t.exec }))
 
 const ENTRIES = [...K8S, ...WB]
@@ -204,7 +229,9 @@ const toDef = t => ({ type: 'function', function: { name: t.name, description: t
 const UNCLUSTERED_TOOLS = ['wb_list_resources', 'wb_get_pod_logs', 'wb_describe_resource', 'wb_get_resource', 'wb_get_events',
   'wb_rollout_status', 'wb_read_pod_file', 'wb_top', 'wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo',
   'wb_exec', 'bootstrap_ledger', 'apply_project_manifests', 'read_ledger']
-const SSH_HIDDEN_TOOLS = ['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes']
+// 零暴露时整组隐藏(工具定义 + 提示词文档 + 透明面板共用此单一事实源)
+export const SSH_HIDDEN_TOOLS = ['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes',
+  'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_write', 'wb_ssh_job_list', 'wb_ssh_job_kill']
 export function workbenchExcludeTools({ hasCluster, sshExposedCount }) {
   const names = []
   if (!hasCluster) names.push(...UNCLUSTERED_TOOLS)

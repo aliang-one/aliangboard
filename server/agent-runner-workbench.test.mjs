@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { registry, workbenchExcludeTools } from './tool-registry.mjs'
+import { registry, workbenchExcludeTools, SSH_HIDDEN_TOOLS } from './tool-registry.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { createAuditSchema } from './audit.mjs'
 
@@ -306,7 +306,7 @@ test('工作台 runner:disabledTools 从 offering 消失,其余保留', () => {
 })
 
 // Task 3: 工具可见性随绑定状态伸缩(2026-08-30 无集群工作台 spec §3)
-test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露叠 4 个;两条件全无 → null', () => {
+test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露叠 9 个;两条件全无 → null', () => {
   const unbound = workbenchExcludeTools({ hasCluster: false, sshExposedCount: 2 })
   for (const n of ['wb_list_resources', 'wb_get_pod_logs', 'wb_describe_resource', 'wb_get_resource', 'wb_get_events',
     'wb_rollout_status', 'wb_read_pod_file', 'wb_top', 'wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo',
@@ -315,10 +315,10 @@ test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露�
   }
   assert.equal(unbound.size, 16)
   const noSsh = workbenchExcludeTools({ hasCluster: true, sshExposedCount: 0 })
-  assert.deepEqual([...noSsh].sort(), ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file', 'write_server_notes'])
+  assert.deepEqual([...noSsh].sort(), [...SSH_HIDDEN_TOOLS].sort())
   assert.equal(workbenchExcludeTools({ hasCluster: true, sshExposedCount: 2 }), null)
-  // 双条件叠加:并集 20 个
-  assert.equal(workbenchExcludeTools({ hasCluster: false, sshExposedCount: 0 }).size, 20)
+  // 双条件叠加:并集 16+9=25 个
+  assert.equal(workbenchExcludeTools({ hasCluster: false, sshExposedCount: 0 }).size, 16 + SSH_HIDDEN_TOOLS.length)
   // 被裁的都是注册表在册工具(防名单漂移出死名字)
   const all = new Set(registry.all().map(t => t.name))
   for (const n of unbound) assert.ok(all.has(n), n)
