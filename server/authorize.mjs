@@ -32,7 +32,9 @@ export function tierTools(tier) {
 // keyRow.tool_overrides 来自 DB(TEXT 串)或内存对象,两者都兼容。
 // per-key SSH 服务器访问(2026-08-29,开源从简:布尔授予):授予即并入 MCP 面三个只读/受限工具。
 // 注意:write_server_notes 不对 key 开放(台账写仅工作台 AI,带人审)。可见性仍由服务器 exposeToAi 双重把关。
-export const SSH_KEY_TOOLS = ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file']
+// T7(2026-08-30)扩容:异步任务三工具入列(run=启动即返 jobId 的后台任务;out/list 只读轮询)。
+// write/kill 恒不入:keyMode 无人审,应答/终止仅工作台 AI(桥内也 fail-closed 双保险)。
+export const SSH_KEY_TOOLS = ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file', 'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_list']
 export function effectiveTools(keyRow) {
   const set = new Set(tierTools(keyRow?.tier))
   if (keyRow?.sshAccess) for (const t of SSH_KEY_TOOLS) set.add(t)
