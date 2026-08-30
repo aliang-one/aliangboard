@@ -190,9 +190,21 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
 
     <!-- 键映射 items（仅 configMap/secret；key 下拉选择）—— 置上 -->
     <div v-if="showItems" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-xs">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-xs flex-wrap">
         <span class="text-[10px] font-semibold text-on-surface-variant">{{ t('component.volumeMount.keyMapping') }}</span>
-        <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ t('common.add') }}</button>
+        <div class="flex items-center gap-xs">
+          <div class="flex items-center gap-0.5">
+            <label class="text-[10px] font-medium text-on-surface-variant whitespace-nowrap">{{ t('component.volumeMount.defaultMode') }}</label>
+            <select v-model="defaultModeChoice" data-testid="default-mode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="!w-auto">
+              <option value="">{{ t('component.volumeMount.defaultModeDefault') }}</option>
+              <option value="0400">0400</option>
+              <option value="0640">0640</option>
+              <option value="custom">{{ t('component.volumeMount.defaultModeCustom') }}</option>
+            </select>
+            <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="w-16" placeholder="0444" />
+          </div>
+          <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ t('common.add') }}</button>
+        </div>
       </div>
       <p class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.keyMappingHint') }}</p>
       <div v-for="(it, idx) in entry.items" :key="idx" class="flex flex-col">
@@ -208,18 +220,6 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
         <p v-for="(i, ii) in rowIssues(idx)" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <p v-if="(entry.cmName || entry.secretName) && selectedKeys && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.noKeysHint') }}</p>
-      <div class="grid grid-cols-[1fr_auto] gap-xs items-end">
-        <div>
-          <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.defaultMode') }}</label>
-          <select v-model="defaultModeChoice" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')">
-            <option value="">{{ t('component.volumeMount.defaultModeDefault') }}</option>
-            <option value="0400">0400</option>
-            <option value="0640">0640</option>
-            <option value="custom">{{ t('component.volumeMount.defaultModeCustom') }}</option>
-          </select>
-        </div>
-        <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="w-20" placeholder="0444" />
-      </div>
 
       <!-- 落点预览(projectMountFiles 驱动):整目录/单文件两种形态 + key 来源/缺失/重复标注 -->
       <div data-testid="mount-preview" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-0.5">

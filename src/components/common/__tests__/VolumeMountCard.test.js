@@ -258,3 +258,24 @@ test('VolumeMountCard: 键映射问题区收编 items/defaultMode;itemsPath 行�
   expect(clean.find('[data-testid="issues-mount-row"]').exists()).toBe(false)
   clean.unmount()
 })
+
+test('VolumeMountCard: defaultMode 收进键映射头行——与「＋添加」同容器;custom 输入就地展开', async () => {
+  const cm = makeEntry(); cm.type = 'configMap'; cm.cmName = 'cm'
+  const wrapper = mount(VolumeMountCard, {
+    props: { modelValue: cm, pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const modeSel = wrapper.find('[data-testid="default-mode"]')
+  expect(modeSel.exists()).toBe(true)
+  // 与「＋添加」按钮同一头行容器(独占行已删除的结构性断言:
+  // 按钮的父容器 = 头行右侧 flex,须同时包含权限 select)
+  const addBtn = wrapper.findAll('button').find(b => b.text().includes(i18n.global.t('common.add')))
+  expect(addBtn).toBeTruthy()
+  expect(addBtn.element.parentElement.contains(modeSel.element)).toBe(true)
+  await modeSel.setValue('custom')
+  const customInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '0444')
+  expect(customInput).toBeTruthy()
+  await customInput.setValue('0640')
+  expect(cm.defaultMode).toBe('0640')
+  wrapper.unmount()
+})
