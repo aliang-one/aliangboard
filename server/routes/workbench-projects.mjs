@@ -19,6 +19,7 @@ import { reconcileProject } from '../reconcile.mjs'
 import { msg } from '../messages.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
 import { listApiPath } from '../kind-paths.mjs'
+import { listSshServers } from '../ssh/store.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
@@ -201,14 +202,25 @@ export function createWorkbenchProjectRoutes(deps) {
 
     // ====== 项目集群资源搜索(P3 @-mention)。GET /api/workbench/search?projectId=X&kind=pod&q=nginx ======
     if (url.pathname === '/api/workbench/search' && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true
       const projectId = url.searchParams.get('projectId')
-      const kind = normalizeKind(url.searchParams.get('kind')) || 'pods'
+      const kindRaw = (url.searchParams.get('kind') || '').toLowerCase()
       const q = (url.searchParams.get('q') || '').toLowerCase()
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
+      // server 分支(2026-08-30 @server spec §3):与集群无关;exposedOnly 单一事实源;host 仅 admin 响应携带
+      if (kindRaw === 'server') {
+        const items = listSshServers(db, { exposedOnly: true })
+          .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
+          .slice(0, 50)
+          .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', ...(ps.role === 'admin' ? { host: s.host } : {}) }))
+        sendJson(res, 200, { items })
+        return true
+      }
+      const psAdmin = requireAdmin(req, res); if (!psAdmin) return true   // K8s 分支维持 admin(原函数级门下移到分支内)
       if (!p.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.noBoundCluster') }); return true }
+      const kind = normalizeKind(kindRaw) || 'pods'
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
       if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
 
