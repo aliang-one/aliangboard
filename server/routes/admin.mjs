@@ -260,8 +260,15 @@ export function createAdminRoutes(deps) {
     if (url.pathname.startsWith('/api/admin/clusters/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.slice('/api/admin/clusters/'.length))
+      const row = db.prepare('SELECT * FROM clusters WHERE id=?').get(id)
       db.prepare('DELETE FROM clusters WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
+      // CSO #11:删集群回收其派生的 K8s 会话凭据。apiServer 匹配是尽力回收
+      // (sessions 凭据行无属主列),同址多集群时宁可错杀——孤儿明文凭据更危险。
+      if (row) {
+        try { db.prepare('DELETE FROM sessions WHERE apiServer=?').run(row.apiServer) } catch { /* noop */ }
+        for (const [t, s] of sessions) if (String(s.apiServer) === row.apiServer) sessions.delete(t)
+      }
       clusterProber.invalidate(id)
       sendJson(res, 200, { ok: true })
       return true

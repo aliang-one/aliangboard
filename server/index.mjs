@@ -2076,6 +2076,19 @@ setInterval(() => {
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
 setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
 
+// CSO 2026-08-30 #11:过期会话行定时清扫 —— 此前只在 token 重放时懒删,
+// 明文凭证行在库内无限累积(loadPersistedSessions 启动还全量复活)。
+const sessionSweeper = setInterval(() => {
+  try {
+    const cutoff = Date.now() - sessionTtl
+    db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
+    db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
+    for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
+    for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
+  } catch { /* noop */ }
+}, 10 * 60 * 1000)
+sessionSweeper.unref?.()
+
 async function handleSshTerminal(ws, ps, url) {
   const serverId = url.searchParams.get('serverId')
   // sid 必传(2026-08-29 审计):此前缺失时 crypto.randomUUID() 补位 → 客户端永远无从知道

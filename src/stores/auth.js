@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, saveSession, clearSession, getSessionToken } from '@/api/client'
+import { api, authApi, saveSession, clearSession, getSessionToken } from '@/api/client'
 import { usePreferencesStore } from '@/stores/preferences'
 
 const LAST_CLUSTER_KEY = 'aliangboard.lastCluster'
@@ -67,7 +67,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // CSO #11:best-effort 回收两侧会话——平台登出(级联 k8s 凭据)+ K8s 会话 DELETE(死码接活)
     if (token.value) { authApi.logout().catch(() => {}) }
+    if (k8sToken.value) { api.logout().catch(() => {}) }
     token.value = ''
     user.value = null
     k8sToken.value = ''

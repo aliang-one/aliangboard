@@ -24,6 +24,7 @@
 //   apiserver(可参考 server/k8s-proxy-origin.test.mjs 的 createServer 写法)。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -85,6 +86,68 @@ async function createUser(g, username, { password, role } = {}) {
   const { token } = await login(g, username, pw)
   return { id: user.id, token, password: pw }
 }
+
+// ═══ Task 8 夹具:假 apiserver + 注册集群 + connect-cluster ═══
+// startGatewayWithCluster(t) → startGateway(t) 的全部字段,外加:
+//   clusterId — 已注册集群 id(指向下述假 apiserver)
+//   connectCluster() → Promise<k8sBearerToken>(管理员平台会话接入该集群)
+// 假 apiserver:/version 供 connect-cluster 探测,其余路径通配 200 {kind:'PodList',items:[]},
+// 供 GET /api/k8s/api/v1/namespaces/default/pods 断言;t.after 自动关闭。
+async function startGatewayWithCluster(t) {
+  const k8s = createServer((req, res) => {
+    if (req.url === '/version') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ gitVersion: 'v1.31.0-fake' }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ kind: 'PodList', items: [] }))
+  })
+  await new Promise((r) => k8s.listen(0, '127.0.0.1', r))
+  t.after(() => k8s.close())
+  const addr = k8s.address()
+  const g = await startGateway(t)
+  const r = await g.adminJson('POST', '/api/admin/clusters', {
+    name: 'c1', apiServer: `http://127.0.0.1:${addr.port}`, authMethod: 'token', token: 'fake-cluster-token',
+  })
+  assert.equal(r.status, 200, `register cluster failed: ${r.status}`)
+  const { cluster } = await r.json()
+  g.clusterId = cluster.id
+  g.connectCluster = async () => {
+    const cc = await fetch(`${g.base}/api/connect-cluster`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': g.ptok },
+      body: JSON.stringify({ clusterId: cluster.id }),
+    })
+    assert.equal(cc.status, 200, `connect-cluster failed: ${cc.status}`)
+    return (await cc.json()).token
+  }
+  return g
+}
+
+const k8sGet = (g, tok) =>
+  fetch(`${g.base}/api/k8s/api/v1/namespaces/default/pods`, { headers: { authorization: `Bearer ${tok}` } })
+
+test('重连替换旧 k8s token;logout 回收 k8s 凭据', { timeout: 60000 }, async (t) => {
+  const g = await startGatewayWithCluster(t)
+  const t1 = await g.connectCluster()
+  const t2 = await g.connectCluster()
+  // 重连后旧 token 应已失效(此前孤儿存活 8h)
+  assert.equal((await k8sGet(g, t1)).status, 401)
+  assert.equal((await k8sGet(g, t2)).status, 200)
+  // logout 后最后一个也没了
+  await fetch(`${g.base}/api/auth/logout`, { method: 'POST', headers: { 'x-platform-token': g.ptok } })
+  assert.equal((await k8sGet(g, t2)).status, 401)
+})
+
+test('删除集群回收其派生的 K8s 会话', { timeout: 60000 }, async (t) => {
+  const g = await startGatewayWithCluster(t)
+  const tok = await g.connectCluster()
+  assert.equal((await k8sGet(g, tok)).status, 200)
+  const r = await g.adminJson('DELETE', `/api/admin/clusters/${g.clusterId}`)
+  assert.equal(r.status, 200, `delete cluster failed: ${r.status}`)
+  // 集群已删,其派生凭据行/内存会话一并回收(apiServer 匹配,尽力而为)
+  assert.equal((await k8sGet(g, tok)).status, 401)
+})
 
 test('禁用/删除用户后,存量 token 立即失效', { timeout: 60000 }, async (t) => {
   const g = await startGateway(t)

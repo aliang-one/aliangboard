@@ -199,7 +199,13 @@ export function createAuthRoutes(deps) {
     // POST /api/auth/logout — 登出(删平台 session)
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
       const token = req.headers['x-platform-token']
-      if (token) { platformSessions.delete(token); try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ } }
+      if (token) {
+        // CSO #11:logout 同时回收该平台会话派生的 K8s 凭据(旧行为只删平台行,k8s token 成孤儿活 8h)
+        const dead = platformSessions.get(token)
+        const k8sTok = dead?.k8sSessionToken
+        platformSessions.delete(token); try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
+        if (k8sTok) { sessions.delete(k8sTok); try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* noop */ } }
+      }
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -235,6 +241,9 @@ export function createAuthRoutes(deps) {
         const probe = await requestKubernetes(k8sSession, '/version')
         k8sSession.version = probe.body?.gitVersion || 'unknown'
         const k8sToken = randomUUID()
+        // CSO #11:重连先吊销旧 k8s token(旧行为只覆盖单标量,旧行留存成孤儿活 8h、重启还复活)
+        const oldTok = ps.k8sSessionToken
+        if (oldTok) { sessions.delete(oldTok); try { db.prepare('DELETE FROM sessions WHERE token=?').run(oldTok) } catch { /* noop */ } }
         sessions.set(k8sToken, k8sSession)
         persistSession(k8sToken, k8sSession)
         // 更新平台会话的 k8sSessionToken
