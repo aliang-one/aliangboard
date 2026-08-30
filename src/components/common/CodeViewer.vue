@@ -24,46 +24,8 @@ function escapeHtml(s) {
 
 // Prism + 语法 + 主题懒加载：仅在组件首次渲染时拉取（~200KB），移出首屏。命中后缓存复用。
 // 依赖顺序：clike → javascript → typescript；c → cpp；markup-templating → php。按序 await import 确保 dependent 在 dependency 之后注册。
-let PrismPromise = null
-function loadPrism() {
-  if (!PrismPromise) {
-    PrismPromise = (async () => {
-      const Prism = (await import('prismjs')).default
-      // 原有
-      await import('prismjs/components/prism-json')
-      await import('prismjs/components/prism-yaml')
-      await import('prismjs/components/prism-toml')
-      await import('prismjs/components/prism-ini')
-      await import('prismjs/components/prism-properties')
-      await import('prismjs/components/prism-bash')
-      await import('prismjs/components/prism-python')
-      // 新增：基础 + 依赖链
-      await import('prismjs/components/prism-markup')      // html/xml/svg/rss
-      await import('prismjs/components/prism-css')
-      await import('prismjs/components/prism-clike')
-      await import('prismjs/components/prism-c')            // c/h
-      await import('prismjs/components/prism-cpp')          // 依赖 c
-      await import('prismjs/components/prism-java')
-      await import('prismjs/components/prism-csharp')
-      await import('prismjs/components/prism-javascript')
-      await import('prismjs/components/prism-typescript')   // 依赖 javascript
-      await import('prismjs/components/prism-go')
-      await import('prismjs/components/prism-rust')
-      await import('prismjs/components/prism-sql')
-      await import('prismjs/components/prism-markup-templating') // prism-php 依赖
-      await import('prismjs/components/prism-php')
-      await import('prismjs/components/prism-ruby')
-      await import('prismjs/components/prism-markdown')
-      await import('prismjs/components/prism-graphql')
-      await import('prismjs/components/prism-docker')       // 注册 id 'docker'（Dockerfile 映射用）
-      await import('prismjs/components/prism-makefile')
-      await import('prismjs/components/prism-diff')
-      await import('prismjs/themes/prism-tomorrow.css')
-      return Prism
-    })()
-  }
-  return PrismPromise
-}
+// Prism 懒加载抽到共享 prismLoader(CodeTextarea 编辑器同用)
+import { loadPrism } from '@/utils/prismLoader'
 
 // 高亮结果：首帧同步渲染转义文本(绝不裸渲原文,内容立即可见);Prism 异步加载后再升级为
 // 高亮 HTML(过 DOMPurify)。none/无 grammar/失败 → 停留在转义文本。过期守卫:await 后
