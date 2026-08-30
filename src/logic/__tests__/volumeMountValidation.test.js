@@ -250,3 +250,16 @@ test('映射完备性:全部 error code 在两张映射表中,且全部 issue/ga
       expect(has(en, k), `en missing ${k}`).toBe(true)
     }
 })
+
+// —— Task 4: unknown 卷 raw 深拷贝透传;YAML 路径交还调用方 ——
+test('toVolumeDef/toVolumeDefYaml: unknown 卷 raw 深拷贝透传;YAML 路径交还调用方(null)', () => {
+  const raw = { name: 'proj-1', projected: { sources: [{ configMap: { name: 'cm' } }] } }
+  const e = { name: 'proj-1', type: 'unknown', raw, mountPath: '/p', subPath: '', readOnly: false, items: [] }
+  const def = toVolumeDef(e)
+  expect(def).toEqual(raw)
+  expect(def).not.toBe(raw)                     // 克隆,不是同引用
+  def.projected.sources.push({ x: 1 })          // 改克隆不影响原 raw
+  expect(raw.projected.sources).toHaveLength(1)
+  expect(toVolumeDef({ name: 'x', type: 'unknown', raw: null })).toBe(null)
+  expect(toVolumeDefYaml(e)).toBe(null)         // YAML 序列化由 DeployApp 用 js-yaml 特判
+})

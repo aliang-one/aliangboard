@@ -38,6 +38,7 @@ import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } fr
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
+import { backfillVolumes } from '@/logic/volumeBackfill'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 
 const route = useRoute()
@@ -869,42 +870,6 @@ function scToForm(sc) {
   if (sc.capabilities) { f.addCaps = (sc.capabilities.add || []).join(','); f.dropCaps = (sc.capabilities.drop || []).join(',') }
   return f
 }
-// 合并 volumes（pod spec）与各容器 volumeMounts → 表单条目（带 target/items/server/nfsPath，支持多容器挂载）
-function mergeVolumes(tplSpec, c0) {
-  const byKey = new Map()
-  const volDefByName = new Map()
-  const octalOf = m => (m == null ? '' : Number(m).toString(8).padStart(4, '0'))
-  ;(tplSpec.volumes || []).forEach(v => {
-    const d = { type: 'emptyDir', pvcName: '', hostPath: '', hostPathType: v.hostPath?.type || '', server: '', nfsPath: '', cmName: '', secretName: '', defaultMode: octalOf(v.configMap?.defaultMode ?? v.secret?.defaultMode), items: (v.configMap?.items || v.secret?.items || []).map(it => ({ key: it.key || '', path: it.path || '' })) }
-    if (v.persistentVolumeClaim) { d.type = 'pvc'; d.pvcName = v.persistentVolumeClaim.claimName }
-    else if (v.hostPath) { d.type = 'hostPath'; d.hostPath = v.hostPath.path }
-    else if (v.nfs) { d.type = 'nfs'; d.server = v.nfs.server || ''; d.nfsPath = v.nfs.path || '' }
-    else if (v.configMap) { d.type = 'configMap'; d.cmName = v.configMap.name }
-    else if (v.secret) { d.type = 'secret'; d.secretName = v.secret.secretName }
-    volDefByName.set(v.name, d)
-  })
-  const push = (target, m) => {
-    const d = volDefByName.get(m.name) || { type: 'emptyDir', pvcName: '', hostPath: '', hostPathType: '', server: '', nfsPath: '', cmName: '', secretName: '', defaultMode: '', items: [] }
-    byKey.set(`${target}|${m.name}|${m.mountPath || ''}`, {
-      name: m.name, target, type: d.type, mountPath: m.mountPath || '', subPath: m.subPath || '', readOnly: !!m.readOnly,
-      pvcName: d.pvcName, hostPath: d.hostPath, hostPathType: d.hostPathType || '', server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, defaultMode: d.defaultMode || '', items: d.items.map(it => ({ ...it })),
-    })
-  }
-  ;(c0.volumeMounts || []).forEach(m => push('main', m))
-  // 挂载 target 须与 openEdit 分流后的索引对齐:非 Always init → init:<过滤后序>;Always(原生 sidecar)→ sidecar:<plain sidecar 之后追加序>
-  let initFilteredIdx = 0
-  let nativeOrdinal = Math.max(0, (tplSpec.containers || []).length - 1)
-  ;(tplSpec.initContainers || []).forEach(c => {
-    if (c.restartPolicy === 'Always') (c.volumeMounts || []).forEach(m => push(`sidecar:${nativeOrdinal++}`, m))
-    else { const i = initFilteredIdx++; (c.volumeMounts || []).forEach(m => push(`init:${i}`, m)) }
-  })
-  ;((tplSpec.containers || []).slice(1)).forEach((c, i) => (c.volumeMounts || []).forEach(m => push(`sidecar:${i}`, m)))
-  // 只定义未挂载的卷也保留（挂到主容器占位）
-  volDefByName.forEach((d, name) => {
-    if (![...byKey.values()].some(e => e.name === name)) byKey.set(`main|${name}|`, { name, target: 'main', type: d.type, mountPath: '', subPath: '', readOnly: false, pvcName: d.pvcName, hostPath: d.hostPath, hostPathType: d.hostPathType || '', server: d.server, nfsPath: d.nfsPath, cmName: d.cmName, secretName: d.secretName, defaultMode: d.defaultMode || '', items: d.items.map(it => ({ ...it })) })
-  })
-  return [...byKey.values()]
-}
 // 卷挂载目标 + PVC 候选
 const containerTargets = computed(() => {
   const targets = [{ value: 'main', label: t('workload.edit.mainContainer') }]
@@ -985,7 +950,7 @@ function openEdit() {
     readiness: probeToForm(c0.readinessProbe, { httpPath: '/ready', port: 8080 }),
     startup: probeToForm(c0.startupProbe, { httpPath: '/', port: 8080 }),
     // 卷与挂载
-    volumeMounts: mergeVolumes(tplSpec, c0),
+    volumeMounts: backfillVolumes(tplSpec),
     // 安全上下文 + 生命周期
     securityContext: scToForm(c0.securityContext),
     lifecycle: { postStart: joinCommandTokens(c0.lifecycle?.postStart?.exec?.command || []), preStop: joinCommandTokens(c0.lifecycle?.preStop?.exec?.command || []) },

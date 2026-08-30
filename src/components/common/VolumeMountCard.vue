@@ -48,6 +48,8 @@ const TYPES = [
   { value: 'secret', label: 'Secret', icon: 'key' },
 ]
 const typeIcon = computed(() => TYPES.find(t => t.value === entry.value.type)?.icon || 'folder')
+// unknown 卷锁定标签:raw 的首个非 name 键即真实卷类型(如 projected/downwardAPI)
+const unknownKind = computed(() => { const r = entry.value.raw || {}; return Object.keys(r).find(k => k !== 'name') || '?' })
 const showItems = computed(() => entry.value.type === 'configMap' || entry.value.type === 'secret')
 if (entry.value.server == null) entry.value.server = ''
 if (entry.value.nfsPath == null) entry.value.nfsPath = ''
@@ -117,8 +119,13 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <p v-for="(i, ii) in issuesFor('name')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
     </div>
 
-    <!-- 类型：图标胶囊 -->
-    <div class="flex flex-wrap gap-xs">
+    <!-- 类型：图标胶囊;unknown 锁定(仅展示 raw 类型键,不可切换) -->
+    <div v-if="entry.type === 'unknown'" class="flex items-center gap-1 flex-wrap">
+      <span class="flex items-center gap-0.5 px-sm py-0.5 rounded-full bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs">
+        <span class="material-symbols-outlined text-sm">lock</span>{{ unknownKind }}
+      </span>
+    </div>
+    <div v-else class="flex flex-wrap gap-xs">
       <button v-for="t in TYPES" :key="t.value" type="button" @click="entry.type = t.value"
         class="flex items-center gap-0.5 px-sm py-0.5 rounded-full border text-xs transition-colors"
         :class="entry.type === t.value ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
@@ -167,6 +174,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
           <option value="">{{ t('component.volumeMount.selectSecret') }}</option>
           <option v-for="s in secretOptions" :key="s" :value="s">{{ s }}</option>
         </select>
+        <p v-else-if="entry.type === 'unknown'" class="text-xs text-on-surface-variant/80 py-1.5">{{ t('component.volumeMount.unknownNotice') }}</p>
         <p v-else class="text-xs text-on-surface-variant/70 py-1.5">{{ t('component.volumeMount.emptyDirHint') }}</p>
         <template v-if="issuesFor('source').length || issuesFor('hostPath').length || issuesFor('nfsPath').length">
           <p v-for="(i, ii) in [...issuesFor('source'), ...issuesFor('hostPath'), ...issuesFor('nfsPath')]" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>

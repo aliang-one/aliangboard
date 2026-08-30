@@ -558,6 +558,38 @@ test('workloadToForm: NFS volume 映射 type/server/nfsPath', () => {
   assert.equal(f.volumeMounts[0].nfsPath, '/export')
 })
 
+test('workloadToForm: native sidecar(Always init)归位到 extraContainers 尾部', () => {
+  const obj = { metadata: { name: 'w', namespace: 'ns' }, spec: { template: { spec: {
+    containers: [{ name: 'main', image: 'img' }, { name: 'side-a', image: 'img2' }],
+    initContainers: [{ name: 'init-a', image: 'img3' }, { name: 'nat', image: 'img4', restartPolicy: 'Always' }],
+  } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.deepEqual(f.initContainers.map(c => c.name), ['init-a'])
+  assert.deepEqual(f.extraContainers.map(c => c.name), ['side-a', 'nat'])
+  assert.equal(f.extraContainers[1].nativeSidecar, true)
+})
+
+test('workloadToForm: 卷回填走单源——items/未知卷透传/子容器挂载', () => {
+  const obj = { metadata: { name: 'w', namespace: 'ns' }, spec: { template: { spec: {
+    containers: [
+      { name: 'main', image: 'img' },
+      { name: 'side-a', image: 'img2', volumeMounts: [{ name: 'proj-1', mountPath: '/p' }] },
+    ],
+    volumes: [
+      { name: 'cm-v', configMap: { name: 'cm1', items: [{ key: 'a', path: 'a.yml' }], defaultMode: 420 } },
+      { name: 'proj-1', projected: { sources: [{ configMap: { name: 'cm' } }] } },
+    ],
+  } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  const cm = f.volumeMounts.find(r => r.name === 'cm-v')
+  assert.deepEqual(cm.items, [{ key: 'a', path: 'a.yml' }])
+  assert.equal(cm.defaultMode, '0644')   // 420(十进制)= 0o644,brief 原文 '0640' 是笔误
+  const proj = f.volumeMounts.find(r => r.name === 'proj-1')
+  assert.equal(proj.type, 'unknown')
+  assert.deepEqual(proj.raw, obj.spec.template.spec.volumes[1])
+  assert.equal(proj.target, 'sidecar:0')
+})
+
 test('workloadToForm: toleration 带 operator Equal + value 原样保留', () => {
   const obj = { kind: 'Deployment', metadata: { name: 't', namespace: 'n' }, spec: { template: { spec: { tolerations: [{ key: 'k', operator: 'Equal', value: 'v', effect: 'NoSchedule' }] } } } }
   const f = workloadToForm(obj, 'Deployment')

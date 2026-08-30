@@ -336,12 +336,14 @@ export function toVolumeDef(entry) {
       if (mode != null) sec.defaultMode = mode
       return { name: entry.name, secret: sec }
     }
+    case 'unknown': return entry.raw ? JSON.parse(JSON.stringify(entry.raw)) : null   // 原样透传(克隆,防 reactive 代理/引用共享)
     default: return null
   }
 }
 
 // volumes 元素 → 手拼 YAML 行(DeployApp 预览/提交沿用既有手拼格式,6/8/10 空格缩进不变)
 export function toVolumeDefYaml(entry) {
+  if (entry.type === 'unknown') return null   // 任意对象序列化由 DeployApp 用 js-yaml 特判,纯模块不引 YAML 依赖
   const def = toVolumeDef(entry)
   if (!def) return null
   const head = `      - name: ${def.name}`

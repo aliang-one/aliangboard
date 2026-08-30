@@ -188,3 +188,19 @@ test('VolumeMountCard: 落点预览——无 items 列全部键(binaryData 键�
   w3.unmount()
   qData.cm.value = []
 })
+
+test('VolumeMountCard: unknown 卷——锁定标签+原样保留提示;mountPath 可编辑;items/defaultMode 区不渲染', () => {
+  const entry = makeEntry()
+  entry.type = 'unknown'
+  entry.raw = { name: 'proj-1', projected: { sources: [] } }
+  const wrapper = mount(VolumeMountCard, {
+    props: { modelValue: entry, pvcs: [], namespace: 'default', issues: [{ code: 'mountPathRequired', field: 'mountPath', level: 'error' }] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  expect(wrapper.text()).toContain('projected')                        // 锁定标签展示 raw 类型键
+  expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.unknownNotice'))
+  const mpInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '/etc/config')
+  expect(mpInput).toBeTruthy()                                          // mountPath 仍可编辑
+  expect(wrapper.text()).not.toContain(i18n.global.t('component.volumeMount.keyMapping'))
+  wrapper.unmount()
+})
