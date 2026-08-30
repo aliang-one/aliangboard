@@ -44,6 +44,8 @@ function execOnce(pool, serverId, label, cmd) {
 // 跨实例的服务器活跃名单(T6 sweep 用):每实例的 memory 是私有闭包,网关级 sweep 专用实例
 // 看不到别的实例——run 成功时登记到模块级集合,进程重启即清空(与「重启后该轮不扫」语义一致)。
 const sweepSeenServers = new Set()
+// 测试专用复位:模块级集合会让断言与用例顺序耦合,用例开头先复位(T6 审查加固)。
+export function _resetSweepSeenServersForTest() { sweepSeenServers.clear() }
 
 export function createSshJobBridge({ db, pool, projectId, getPolicy = () => resolveJobPolicy(), keyMode = false }) {
   const label = `wb:${projectId}`

@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { EventEmitter } from 'node:events'
-import { createSshJobBridge } from './job-bridge.mjs'
+import { createSshJobBridge, _resetSweepSeenServersForTest } from './job-bridge.mjs'
 
 const ROW = [{ id: 'srv1', name: 'dev-1', exposeToAi: 1, aiApprovalPolicy: 'none' }]
 const fakeDb = (rows = ROW) => ({
@@ -131,4 +131,21 @@ test('not-exposed 不泄露 host', async () => {
   })
   const r = await b.run({ server: 'hid', command: 'x' })
   assert.ok(r.error); assert.ok(!JSON.stringify(r).includes('9.9.9.9'))
+})
+
+// T6 审查加固:sweepSeenServers 是模块级集合——run 成功登记,供网关级 sweep 专用实例读取。
+// 复位钩子防止既有 run 用例静默污染后续断言(与用例顺序解耦)。
+test('sweepServerIds:run 成功登记 serverId;复位钩子清空;sweepServer 单台失败不抛', async () => {
+  _resetSweepSeenServersForTest()
+  assert.deepEqual(createSshJobBridge({ db: fakeDb(), pool: fakePool([]), projectId: 'p1', getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }) }).sweepServerIds(), [])
+  // run 成功(与上面 run 用例同款两段 exec:list + launch)→ 名单含解析出的 serverId
+  const pool = fakePool([{ stdout: '' }, { stdout: '42\nOK\n' }])
+  await bridge(pool).run({ server: 'dev-1', command: 'apt install -y htop' })
+  assert.deepEqual(createSshJobBridge({ db: fakeDb(), pool, projectId: '__sweep__', getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }) }).sweepServerIds(), ['srv1'])
+  // 复位后恒空:跨实例语义(网关重启=清空,该轮不扫)
+  _resetSweepSeenServersForTest()
+  assert.deepEqual(createSshJobBridge({ db: fakeDb(), pool, projectId: '__sweep__', getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }) }).sweepServerIds(), [])
+  // sweepServer:远端 sweep 失败被吞(单台失败不阻断整轮)
+  const badPool = { acquire: async () => { throw new Error('conn refused') } }
+  await createSshJobBridge({ db: fakeDb(), pool: badPool, projectId: '__sweep__', getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }) }).sweepServer('srv1')
 })

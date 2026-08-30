@@ -19,6 +19,15 @@ import { workbenchExcludeTools } from './tool-registry.mjs'
 //   createAgentRunner —— ({ llmClient, workbench }) → { run, toolDefs }(agent-runner.mjs)
 //   busEmit           —— (convId, evt) => void(conv-bus.mjs emit)
 //   busDispose        —— (convId) => void(conv-bus.mjs dispose)
+// 动态审批复合路由(2026-08-30,单一事实源):wb_ssh_run / wb_ssh_job_* 由任务桥按其策略裁决,
+// 其余走同步桥。两处装配点(run/resume)必须都走这里;两桥缺谁走默认收紧(true)。
+// 纯函数:不落地/无副作用——needsApproval 在 checkpoint 与 resume 两处被咨询。
+export async function routeDynamicApproval(n, args, sshBridge, sshJobs) {
+  return (n === 'wb_ssh_run' || n.startsWith('wb_ssh_job_'))
+    ? (sshJobs ? sshJobs.needsApproval(n, args) : true)
+    : (sshBridge ? sshBridge.needsApproval(n, args) : true)
+}
+
 export function createWorkbenchAgent(deps) {
   const { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose } = deps
 
@@ -163,12 +172,8 @@ const CK_TIME_MS = 500
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
-        // 动态审批复合路由(2026-08-30):wb_ssh_job_* 由任务桥按其策略裁决,其余走同步桥
-        dynamicApproval: (sshBridge || sshJobs) ? async (n, args) =>
-          (n === 'wb_ssh_run' || n.startsWith('wb_ssh_job_'))
-            ? (sshJobs ? sshJobs.needsApproval(n, args) : true)
-            : (sshBridge ? sshBridge.needsApproval(n, args) : true)
-        : undefined,
+        // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
+        dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
       })
       const k8sSession = buildK8sSession(project.clusterId)
@@ -258,12 +263,8 @@ const CK_TIME_MS = 500
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
-        // 动态审批复合路由(2026-08-30):wb_ssh_job_* 由任务桥按其策略裁决,其余走同步桥
-        dynamicApproval: (sshBridge || sshJobs) ? async (n, args) =>
-          (n === 'wb_ssh_run' || n.startsWith('wb_ssh_job_'))
-            ? (sshJobs ? sshJobs.needsApproval(n, args) : true)
-            : (sshBridge ? sshBridge.needsApproval(n, args) : true)
-        : undefined,
+        // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
+        dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
       })
       const k8sSession = buildK8sSession(project.clusterId)
