@@ -255,7 +255,9 @@ function seedAdminFromEnv() {
   if (out.action === 'noop') { console.warn('[auth] 未设置 ADMIN_USERNAME，无法创建管理员；旧 K8s 直连模式仍可用'); return }
   if (out.action === 'rejected-weak') { console.error(`[auth] ${out.refuse}`); return }
   if (out.action === 'seeded') { console.log(`[auth] 已创建管理员: ${out.username}`); return }
-  const credFile = join(__dirname, '..', 'data', 'first-admin-credentials.txt')
+  // 与注入 auth.mjs 的 dataDir 同源(= dirname(dbPath)):ALIANG_DB 指向别处时写/删才同目录,
+  // 否则改密删不到实际写出的凭证文件,一次性明文密码永久残留(评审 Important,CSO #13)。
+  const credFile = join(dirname(dbPath), 'first-admin-credentials.txt')
   try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) {
     // 文件写失败:密码仅此行日志可见——这是唯一恢复通道,有意保留打印(CSO #13 裁决)
     console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message)
