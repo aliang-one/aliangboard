@@ -2,7 +2,7 @@
 // handler/dispatcher 模式。零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
 import { join } from 'node:path'
 import {
-  listProjects, createProject, getProject,
+  listProjects, createProject, getProject, projectRepoPath,
   getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
   getActiveConversationId,
 } from '../workbench-projects.mjs'
@@ -22,7 +22,7 @@ import { listApiPath } from '../kind-paths.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
-    db, sendJson, readBody, requirePlatform, requireAdmin,
+    db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit,
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
@@ -72,10 +72,10 @@ export function createWorkbenchProjectRoutes(deps) {
         if (req.method === 'POST') {
           try {
             const input = await readBody(req)
-            if (!input.name || !input.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
-            if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+            if (!input.name) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
+            if (input.clusterId && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
             const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
-            const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+            const repo = projectRepoPath(WORKBENCH_DIR, p)
             await initRepo(repo)
             await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
             await wbCommit(repo, `初始化项目 ${p.name}`)
@@ -90,13 +90,24 @@ export function createWorkbenchProjectRoutes(deps) {
       const p = getProject(db, id)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
       if (p.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
-      const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+      const repo = projectRepoPath(WORKBENCH_DIR, p)
 
       // 详情:文件树 + 最近提交
       if (req.method === 'GET' && seg.length === 1) {
         let files = [], commits = []
         try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
         sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
+        return true
+      }
+
+      // 绑定/解绑集群(2026-08-30 spec §4):仅改 clusterId 一列;''=解绑;不动 manifests/repo/对话
+      if (seg[1] === 'cluster' && req.method === 'PUT') {
+        const input = await readBody(req)
+        const cid = input.clusterId ?? ''
+        if (cid && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(cid)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+        db.prepare('UPDATE workbench_projects SET clusterId=? WHERE id=?').run(cid, id)
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'workbench_project_cluster', result: 'ok', requestSummary: `project=${id} clusterId=${cid || '(unbound)'}`, source: 'platform' })
+        sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(cid) } })
         return true
       }
 

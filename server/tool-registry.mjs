@@ -199,6 +199,19 @@ const ENTRIES = [...K8S, ...WB]
 
 const toDef = t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } })
 
+// 未绑定集群的项目裁掉全部 K8s 依赖工具;SSH 零暴露裁掉 SSH 4 工具;并集语义,无需排除时返 null
+// (2026-08-30 无集群工作台 spec §3;名单必须逐个是注册表在册工具,测试有守卫)
+const UNCLUSTERED_TOOLS = ['wb_list_resources', 'wb_get_pod_logs', 'wb_describe_resource', 'wb_get_resource', 'wb_get_events',
+  'wb_rollout_status', 'wb_read_pod_file', 'wb_top', 'wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo',
+  'wb_exec', 'bootstrap_ledger', 'apply_project_manifests', 'read_ledger']
+const SSH_HIDDEN_TOOLS = ['wb_ssh_exec', 'wb_ssh_read_file', 'read_server_ledger', 'write_server_notes']
+export function workbenchExcludeTools({ hasCluster, sshExposedCount }) {
+  const names = []
+  if (!hasCluster) names.push(...UNCLUSTERED_TOOLS)
+  if (sshExposedCount === 0) names.push(...SSH_HIDDEN_TOOLS)
+  return names.length ? new Set(names) : null
+}
+
 export const registry = {
   get: name => ENTRIES.find(t => t.name === name) || null,
   // K8s 工具按 tier(WB 工具 minTier 缺失 → rank 99 → 自动排除)

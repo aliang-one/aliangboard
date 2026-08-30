@@ -245,6 +245,8 @@ export const workbenchApi = {
   // 工作台「记录」页:跨项目对话记录 + 计数 + 存储信息(admin)
   records: () => platformHttp.request('/api/workbench/records'),
   createProject: payload => platformHttp.request('/api/workbench/projects', { method: 'POST', body: JSON.stringify(payload) }),
+  // 无集群项目(2026-08-30):换绑/解绑——clusterId '' = 解绑 → { ok, project }
+  updateProjectCluster: (id, clusterId) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/cluster`, { method: 'PUT', body: JSON.stringify({ clusterId }) }),
   getProject: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`),
   readFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
   writeFile: (id, path, content) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),

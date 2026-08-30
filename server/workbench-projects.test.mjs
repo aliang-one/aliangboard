@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { createWorkbenchSchema, createProject, listProjects, getProject, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage } from './workbench-projects.mjs'
+import { join } from 'node:path'
+import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage, learningLedgerPath } from './workbench-projects.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -21,10 +22,27 @@ test('createProject + getProject:写入可读回,字段齐全', () => {
   assert.equal(getProject(db, 'nope'), null)
 })
 
-test('createProject:缺字段抛错', () => {
+test('createProject:缺 name/ownerId 抛错(clusterId 2026-08-30 起可缺省)', () => {
   const db = makeDb()
   assert.throws(() => createProject(db, { clusterId: 'c1', ownerId: 'u1' }), /缺/)
-  assert.throws(() => createProject(db, { name: 'x', ownerId: 'u1' }), /缺/)
+  assert.throws(() => createProject(db, { name: 'x', clusterId: 'c1' }), /缺/)
+})
+
+test('projectRepoPath:repoRoot 定格路径方案——新项目绑集群前后同路径,存量走旧路径', () => {
+  const dir = '/wb'
+  assert.equal(projectRepoPath(dir, { id: 'p1', clusterId: '', repoRoot: 'projects' }), join(dir, 'projects', 'p1'))
+  assert.equal(projectRepoPath(dir, { id: 'p1', clusterId: 'ck-9', repoRoot: 'projects' }), join(dir, 'projects', 'p1'))  // 绑集群后不变
+  assert.equal(projectRepoPath(dir, { id: 'p2', clusterId: 'ck-9', repoRoot: null }), join(dir, 'ck-9', 'projects', 'p2'))  // 存量
+})
+
+test('createProject:clusterId 缺省写哨兵空串;repoRoot 恒 projects;带 clusterId 时照旧', () => {
+  const db = makeDb()
+  const unbound = createProject(db, { name: 'u1', ownerId: 'user-1' })
+  assert.equal(unbound.clusterId, '')
+  assert.equal(unbound.repoRoot, 'projects')
+  const bound = createProject(db, { name: 'b1', clusterId: 'ck-1', ownerId: 'user-1' })
+  assert.equal(bound.clusterId, 'ck-1')
+  assert.equal(bound.repoRoot, 'projects')
 })
 
 test('listProjects:归属过滤——admin 见全部,普通用户只见自己的', () => {
@@ -249,4 +267,10 @@ test('truncateFromMessage:首条锚全删 → keptMinSeq null;不存在/非 user
   assert.equal(truncateFromMessage(db, conv.id, 'no-such-id'), null)
   const a = appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'x' })
   assert.equal(truncateFromMessage(db, conv.id, a.id), null, 'assistant 锚拒绝')
+})
+
+test('learningLedgerPath:绑定项目落集群 context;未绑定落 _platform 全局池', () => {
+  const dir = '/wb'
+  assert.deepEqual(learningLedgerPath(dir, { clusterId: 'ck-9' }), { dir: join(dir, 'ck-9', 'cluster-context'), file: 'learnings.md' })
+  assert.deepEqual(learningLedgerPath(dir, { clusterId: '' }), { dir: join(dir, '_platform'), file: 'learnings.md' })
 })

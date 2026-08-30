@@ -3341,6 +3341,10 @@
     "resource": "资源"
   },
   "workbench": {
+    "unboundBadge": "未绑定集群",
+    "unboundBanner": "当前未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后可调查资源与 apply,已写好的草稿直接生效",
+    "bindClusterPlaceholder": "绑定集群…",
+    "bindClusterSaved": "已更新项目集群绑定",
     "list": {
       "title": "工作台",
       "subtitle": "目标驱动的工程 repo:每个项目一个 git 仓库,存 manifests / notes;后续接 AI authoring + 人审 apply(越用越懂集群)。",
@@ -3635,6 +3639,7 @@
       "create": "新建项目",
       "nameLabel": "项目名称",
       "selectCluster": "选择集群",
+      "noClusterOption": "不绑定,稍后再说",
       "loadFailed": "加载失败",
       "createFailed": "创建失败",
       "created": "创建成功"
