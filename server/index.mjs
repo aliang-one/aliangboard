@@ -1495,7 +1495,7 @@ async function handle(req, res) {
     },
   })
   const projectRoutes = createWorkbenchProjectRoutes({
-    db, sendJson, readBody, requirePlatform, requireAdmin,
+    db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit,
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,

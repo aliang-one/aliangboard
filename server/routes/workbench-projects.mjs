@@ -22,7 +22,7 @@ import { listApiPath } from '../kind-paths.mjs'
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
-    db, sendJson, readBody, requirePlatform, requireAdmin,
+    db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit,
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
@@ -97,6 +97,17 @@ export function createWorkbenchProjectRoutes(deps) {
         let files = [], commits = []
         try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
         sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
+        return true
+      }
+
+      // 绑定/解绑集群(2026-08-30 spec §4):仅改 clusterId 一列;''=解绑;不动 manifests/repo/对话
+      if (seg[1] === 'cluster' && req.method === 'PUT') {
+        const input = await readBody(req)
+        const cid = input.clusterId ?? ''
+        if (cid && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(cid)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+        db.prepare('UPDATE workbench_projects SET clusterId=? WHERE id=?').run(cid, id)
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'workbench_project_cluster', result: 'ok', requestSummary: `project=${id} clusterId=${cid || '(unbound)'}`, source: 'platform' })
+        sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(cid) } })
         return true
       }
 
