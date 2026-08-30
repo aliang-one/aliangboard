@@ -204,3 +204,78 @@ test('VolumeMountCard: unknown 卷——锁定标签+原样保留提示;mountPat
   expect(wrapper.text()).not.toContain(i18n.global.t('component.volumeMount.keyMapping'))
   wrapper.unmount()
 })
+
+test('VolumeMountCard: 三区块合并问题区——顶行/底行文案进区块问题区,字段红框保留', () => {
+  const entry = makeEntry()
+  const wrapper = mount(VolumeMountCard, {
+    props: {
+      modelValue: entry, pvcs: [], namespace: 'default',
+      issues: [
+        { code: 'sourceNotFound', field: 'source', level: 'error' },
+        { code: 'mountPathRoot', field: 'mountPath', level: 'error' },
+        { code: 'subPathNotInVolume', field: 'subPath', level: 'warn' },
+      ],
+    },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const top = wrapper.find('[data-testid="issues-source-row"]')
+  expect(top.exists()).toBe(true)
+  expect(top.text()).toContain(i18n.global.t('component.volumeMount.issue.sourceNotFound'))
+  const mountRow = wrapper.find('[data-testid="issues-mount-row"]')
+  expect(mountRow.text()).toContain(i18n.global.t('component.volumeMount.issue.mountPathRoot'))
+  expect(mountRow.text()).toContain(i18n.global.t('component.volumeMount.issue.subPathNotInVolume'))
+  // 字段级红框仍在(问题区只管文案,框定位字段)
+  const mpInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '/etc/config')
+  expect(mpInput.classes().join(' ')).toContain('!border-error')
+  wrapper.unmount()
+})
+
+test('VolumeMountCard: 键映射问题区收编 items/defaultMode;itemsPath 行级文案仍在行内;无问题零渲染', () => {
+  const cm = makeEntry(); cm.type = 'configMap'; cm.cmName = 'cm'
+  cm.items = [{ key: 'k1', path: '' }]
+  const wrapper = mount(VolumeMountCard, {
+    props: {
+      modelValue: cm, pvcs: [], namespace: 'default',
+      issues: [
+        { code: 'itemsIncomplete', field: 'items', level: 'error' },
+        { code: 'itemPathInvalid', field: 'itemsPath:0', level: 'error' },
+      ],
+    },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const itemsBlock = wrapper.find('[data-testid="issues-items"]')
+  expect(itemsBlock.exists()).toBe(true)
+  expect(itemsBlock.text()).toContain(i18n.global.t('component.volumeMount.issue.itemsIncomplete'))
+  expect(itemsBlock.text()).not.toContain(i18n.global.t('component.volumeMount.issue.itemPathInvalid'))
+  expect(wrapper.text()).toContain(i18n.global.t('component.volumeMount.issue.itemPathInvalid')) // 行内仍在
+  wrapper.unmount()
+
+  const clean = mount(VolumeMountCard, {
+    props: { modelValue: makeEntry(), pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  expect(clean.find('[data-testid="issues-source-row"]').exists()).toBe(false)
+  expect(clean.find('[data-testid="issues-mount-row"]').exists()).toBe(false)
+  clean.unmount()
+})
+
+test('VolumeMountCard: defaultMode 收进键映射头行——与「＋添加」同容器;custom 输入就地展开', async () => {
+  const cm = makeEntry(); cm.type = 'configMap'; cm.cmName = 'cm'
+  const wrapper = mount(VolumeMountCard, {
+    props: { modelValue: cm, pvcs: [], namespace: 'default', issues: [] },
+    global: { plugins: [createPinia(), i18n], stubs: { CreatePvcDialog: CreatePvcStub } },
+  })
+  const modeSel = wrapper.find('[data-testid="default-mode"]')
+  expect(modeSel.exists()).toBe(true)
+  // 与「＋添加」按钮同一头行容器(独占行已删除的结构性断言:
+  // 按钮的父容器 = 头行右侧 flex,须同时包含权限 select)
+  const addBtn = wrapper.findAll('button').find(b => b.text().includes(i18n.global.t('common.add')))
+  expect(addBtn).toBeTruthy()
+  expect(addBtn.element.parentElement.contains(modeSel.element)).toBe(true)
+  await modeSel.setValue('custom')
+  const customInput = wrapper.findAll('input').find(i => i.attributes('placeholder') === '0444')
+  expect(customInput).toBeTruthy()
+  await customInput.setValue('0640')
+  expect(cm.defaultMode).toBe('0640')
+  wrapper.unmount()
+})

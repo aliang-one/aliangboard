@@ -69,6 +69,12 @@ const issueCls = f => (fldErr(f) ? '!border-error focus:!border-error' : fldWarn
 const ariaInvalid = f => (fldErr(f) ? 'true' : null)
 const issueTextCls = { error: 'text-error', warn: 'text-tertiary-container', hint: 'text-on-surface-variant/60' }
 const rowIssues = idx => props.issues.filter(i => i.field === 'itemsPath:' + idx)
+// 区块问题区(spec §2.2):顶行/键映射/底行各一条全宽问题区,字段级红框仍由 issueCls 负责;
+// itemsPath:<i> 行级文案不收编(行定位需要,且 item 行纵向独立块无错位问题)。
+const blockIssues = fields => props.issues.filter(i => fields.includes(i.field))
+const topBlockIssues = computed(() => blockIssues(['target', 'source', 'hostPath', 'nfsPath']))
+const itemsBlockIssues = computed(() => blockIssues(['items', 'defaultMode']))
+const mountBlockIssues = computed(() => blockIssues(['mountPath', 'subPath', 'readOnly']))
 const cardLevel = computed(() => props.issues.some(i => i.level === 'error') ? 'error' : props.issues.some(i => i.level === 'warn') ? 'warn' : 'ok')
 const dotCls = { error: 'bg-error', warn: 'bg-tertiary-container' } // ok → 不渲染
 
@@ -176,22 +182,31 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
         </select>
         <p v-else-if="entry.type === 'unknown'" class="text-xs text-on-surface-variant/80 py-1.5">{{ t('component.volumeMount.unknownNotice') }}</p>
         <p v-else class="text-xs text-on-surface-variant/70 py-1.5">{{ t('component.volumeMount.emptyDirHint') }}</p>
-        <template v-if="issuesFor('source').length || issuesFor('hostPath').length || issuesFor('nfsPath').length">
-          <p v-for="(i, ii) in [...issuesFor('source'), ...issuesFor('hostPath'), ...issuesFor('nfsPath')]" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
-        </template>
       </div>
+    </div>
+    <div v-if="topBlockIssues.length" data-testid="issues-source-row" class="flex flex-col">
+      <p v-for="(i, ii) in topBlockIssues" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
     </div>
 
     <!-- 键映射 items（仅 configMap/secret；key 下拉选择）—— 置上 -->
     <div v-if="showItems" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-xs">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-xs flex-wrap">
         <span class="text-[10px] font-semibold text-on-surface-variant">{{ t('component.volumeMount.keyMapping') }}</span>
-        <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ t('common.add') }}</button>
+        <div class="flex items-center gap-xs">
+          <div class="flex items-center gap-0.5">
+            <label class="text-[10px] font-medium text-on-surface-variant whitespace-nowrap">{{ t('component.volumeMount.defaultMode') }}</label>
+            <select v-model="defaultModeChoice" data-testid="default-mode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="!w-auto">
+              <option value="">{{ t('component.volumeMount.defaultModeDefault') }}</option>
+              <option value="0400">0400</option>
+              <option value="0640">0640</option>
+              <option value="custom">{{ t('component.volumeMount.defaultModeCustom') }}</option>
+            </select>
+            <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="w-16" placeholder="0444" />
+          </div>
+          <button type="button" @click="entry.items.push({ key: '', path: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ t('common.add') }}</button>
+        </div>
       </div>
       <p class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.keyMappingHint') }}</p>
-      <template v-if="issuesFor('items').length">
-        <p v-for="(i, ii) in issuesFor('items')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
-      </template>
       <div v-for="(it, idx) in entry.items" :key="idx" class="flex flex-col">
         <div class="grid grid-cols-[1fr_auto_1fr_auto] gap-xs items-center">
           <select v-model="it.key" @change="onItemKey(it)" :class="[fld, issueCls('itemsPath:' + idx)]" :aria-invalid="ariaInvalid('itemsPath:' + idx)">
@@ -205,21 +220,6 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
         <p v-for="(i, ii) in rowIssues(idx)" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <p v-if="(entry.cmName || entry.secretName) && selectedKeys && !selectedKeys.length" class="text-[10px] text-on-surface-variant/60">{{ t('component.volumeMount.noKeysHint') }}</p>
-      <div class="grid grid-cols-[1fr_auto] gap-xs items-end">
-        <div>
-          <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.defaultMode') }}</label>
-          <select v-model="defaultModeChoice" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')">
-            <option value="">{{ t('component.volumeMount.defaultModeDefault') }}</option>
-            <option value="0400">0400</option>
-            <option value="0640">0640</option>
-            <option value="custom">{{ t('component.volumeMount.defaultModeCustom') }}</option>
-          </select>
-        </div>
-        <input v-if="defaultModeChoice === 'custom'" v-model="entry.defaultMode" :class="[fld, issueCls('defaultMode')]" :aria-invalid="ariaInvalid('defaultMode')" class="w-20" placeholder="0444" />
-      </div>
-      <template v-if="issuesFor('defaultMode').length">
-        <p v-for="(i, ii) in issuesFor('defaultMode')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
-      </template>
 
       <!-- 落点预览(projectMountFiles 驱动):整目录/单文件两种形态 + key 来源/缺失/重复标注 -->
       <div data-testid="mount-preview" class="border-t border-outline-variant/40 pt-sm flex flex-col gap-0.5">
@@ -243,6 +243,9 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
           <p v-if="projection.keysLoaded && !projection.entries.length" class="text-[10px] text-on-surface-variant/60 pl-3">{{ t('component.volumeMount.previewWholeVolume') }}</p>
         </template>
       </div>
+      <div v-if="itemsBlockIssues.length" data-testid="issues-items" class="flex flex-col">
+        <p v-for="(i, ii) in itemsBlockIssues" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
+      </div>
     </div>
 
     <!-- 挂载到 / subPath / 只读 —— 置下 -->
@@ -250,19 +253,17 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.mountPath') }}</label>
         <input v-model="entry.mountPath" :class="[fld, issueCls('mountPath')]" :aria-invalid="ariaInvalid('mountPath')" placeholder="/etc/config" @blur="onBlurMountPath" />
-        <p v-for="(i, ii) in issuesFor('mountPath')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <div>
         <label class="text-[10px] font-medium text-on-surface-variant block mb-0.5">{{ t('component.volumeMount.subPathLabel') }}</label>
         <input v-model="entry.subPath" :class="[fld, issueCls('subPath')]" :aria-invalid="ariaInvalid('subPath')" :placeholder="t('component.volumeMount.subPathPlaceholder')" />
-        <p v-for="(i, ii) in issuesFor('subPath')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>
       <label class="flex items-center gap-0.5 text-xs text-on-surface-variant pb-1.5 whitespace-nowrap">
         <input type="checkbox" v-model="entry.readOnly" class="h-3.5 w-3.5 accent-primary" /> {{ t('component.volumeMount.readOnly') }}
-        <template v-if="issuesFor('readOnly').length">
-          <span v-for="(i, ii) in issuesFor('readOnly')" :key="ii" class="block text-[10px]" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</span>
-        </template>
       </label>
+    </div>
+    <div v-if="mountBlockIssues.length" data-testid="issues-mount-row" class="flex flex-col">
+      <p v-for="(i, ii) in mountBlockIssues" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
     </div>
   </div>
 </template>
