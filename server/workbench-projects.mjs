@@ -1,6 +1,7 @@
 // 工作台项目存储(W2):workbench_projects 表 + CRUD。
 // 纯函数、db 注入(无全局状态),便于单测传临时 db。repo 路径由 index.mjs 按 clusterId+id 派生,git 操作走 workbench-repos。
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 // 项目 = 一个目标 = 一个 git repo。创建时绑 clusterId(项目 ⊂ 集群)+ owner(userId)。
 export function createWorkbenchSchema(db) {
@@ -17,6 +18,8 @@ export function createWorkbenchSchema(db) {
   // 项目记忆(2026-08-29 spec §3.1):滚动摘要 + history 水位
   try { db.exec('ALTER TABLE workbench_projects ADD COLUMN projectRecap TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE workbench_projects ADD COLUMN historyWatermark INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
+  // repo 路径方案(2026-08-30 无集群工作台 spec §2.2):'projects'=新方案 <dir>/projects/<id>;NULL=存量旧方案 <dir>/<clusterId>/projects/<id>
+  try { db.exec("ALTER TABLE workbench_projects ADD COLUMN repoRoot TEXT DEFAULT NULL") } catch { /* 列已存在 */ }
   // 项目对话历史(跨会话;不进 git repo——决策 5:隐私 + repo 只放工程产物)
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_history (
     projectId TEXT NOT NULL,
@@ -163,11 +166,20 @@ export function appendTrace(db, id, step) {
 }
 
 export function createProject(db, { name, clusterId, ownerId }) {
-  if (!name || !clusterId || !ownerId) throw new Error('createProject 缺 name / clusterId / ownerId')
+  if (!name || !ownerId) throw new Error('createProject 缺 name / ownerId')
   const id = randomUUID()
   const createdAt = Date.now()
-  db.prepare('INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES (?,?,?,?,?)').run(id, name, clusterId, ownerId, createdAt)
+  // clusterId 可空(2026-08-30 spec §2.1):缺省 ''=未绑定哨兵(falsy 贯通既有降级);repoRoot 恒新方案
+  db.prepare('INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt,repoRoot) VALUES (?,?,?,?,?,?)')
+    .run(id, name, clusterId || '', ownerId, createdAt, 'projects')
   return getProject(db, id)
+}
+
+// repo 路径唯一事实源(spec §2.2):repoRoot 在创建时定格,绑/换/解绑集群都不动文件
+export function projectRepoPath(workbenchDir, project) {
+  return project.repoRoot === 'projects'
+    ? join(workbenchDir, 'projects', project.id)
+    : join(workbenchDir, project.clusterId, 'projects', project.id)
 }
 
 // 列表按归属过滤:admin 见全部,普通用户只见自己的。

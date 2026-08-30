@@ -2,7 +2,7 @@
 // handler/dispatcher 模式。零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
 import { join } from 'node:path'
 import {
-  listProjects, createProject, getProject,
+  listProjects, createProject, getProject, projectRepoPath,
   getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
   getActiveConversationId,
 } from '../workbench-projects.mjs'
@@ -72,10 +72,10 @@ export function createWorkbenchProjectRoutes(deps) {
         if (req.method === 'POST') {
           try {
             const input = await readBody(req)
-            if (!input.name || !input.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
-            if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+            if (!input.name) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
+            if (input.clusterId && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
             const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
-            const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+            const repo = projectRepoPath(WORKBENCH_DIR, p)
             await initRepo(repo)
             await wbWriteFile(repo, 'project.md', `# ${p.name}\n\n> aliangboard 工作台项目。\n`)
             await wbCommit(repo, `初始化项目 ${p.name}`)
@@ -90,7 +90,7 @@ export function createWorkbenchProjectRoutes(deps) {
       const p = getProject(db, id)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
       if (p.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
-      const repo = join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)
+      const repo = projectRepoPath(WORKBENCH_DIR, p)
 
       // 详情:文件树 + 最近提交
       if (req.method === 'GET' && seg.length === 1) {
