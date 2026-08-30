@@ -182,6 +182,7 @@ Backend environment variables:
 | `PORT` | `8787` | API gateway listen port |
 | `CORS_ORIGIN` | `*` | Allowed frontend origins; set to your actual domain in production |
 | `SESSION_TTL_MS` | `28800000` | In-memory session lifetime, 8 hours by default |
+| `MAX_PLATFORM_SESSIONS_PER_USER` | `10` | Max platform sessions kept per user; the least recently active one is evicted on login when exceeded, disabled when < 1 |
 | `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API request timeout, in milliseconds |
 | `K8S_ALLOWED_HOSTS` | empty | Comma-separated allowlist of API server hosts |
 | `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | Skip cluster certificate verification; use only in development |

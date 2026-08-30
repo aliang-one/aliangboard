@@ -12,6 +12,7 @@ export function createAuthRoutes(deps) {
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
     enforceSessionCap, maxPlatformSessionsPerUser,
+    removeSessionRecord,
     hashPassword, extractPlatformToken,
   } = deps
 
@@ -203,10 +204,10 @@ export function createAuthRoutes(deps) {
       return true
     }
 
-    // POST /api/auth/logout — 登出(删平台 session)
+    // POST /api/auth/logout — 登出(三处同清:内存+platform_sessions+K8s 凭据,与 reaper/cap 共用 removeSessionRecord)
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
       const token = req.headers['x-platform-token']
-      if (token) { platformSessions.delete(token); try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ } }
+      if (token) removeSessionRecord(platformSessions, db, sessions, token)
       sendJson(res, 200, { ok: true })
       return true
     }

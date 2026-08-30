@@ -181,6 +181,7 @@ Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 设置」里填写 `ba
 | `PORT` | `8787` | API 网关监听端口 |
 | `CORS_ORIGIN` | `*` | 允许的前端来源;生产环境请设置为实际域名 |
 | `SESSION_TTL_MS` | `28800000` | 内存会话有效期,默认 8 小时 |
+| `MAX_PLATFORM_SESSIONS_PER_USER` | `10` | 每用户平台会话保留上限,默认 10;登录时超出自动踢最久未活跃,<1 关闭 |
 | `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API 请求超时,单位毫秒 |
 | `K8S_ALLOWED_HOSTS` | 空 | API server 主机白名单,逗号分隔 |
 | `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | 跳过集群证书校验;仅限开发环境使用 |

@@ -41,7 +41,7 @@ import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { touchSession } from './session-touch.mjs'
-import { reapExpiredSessions, enforceSessionCap } from './platform-session-reaper.mjs'
+import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
@@ -296,8 +296,8 @@ function platformUserFromRequest(req) {
   }
   if (!ps) return null
   if (Date.now() - ps.createdAt > sessionTtl) {
-    platformSessions.delete(token)
-    try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
+    // 三处同清(内存+platform_sessions+K8s 凭据),与 reaper/cap/登出共用同一不变式
+    removeSessionRecord(platformSessions, db, sessions, token)
     return null
   }
   touchSession(db, ps)
@@ -1450,6 +1450,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit, enforceSessionCap, maxPlatformSessionsPerUser,
+    removeSessionRecord,
     hashPassword, extractPlatformToken,
   })
   const adminRoutes = createAdminRoutes({

@@ -116,3 +116,22 @@ test('cap:未超限不踢不审计;max<1 视作关闭', () => {
   assert.equal(platformSessions.size, 2)
 })
 
+test('cap:跨用户隔离——对 u1 超限踢除不波及 u2 会话(即便 u2 更旧)', () => {
+  const { db, platformSessions, sessions } = setup({ rows: [
+    { token: 'u1-a', userId: 'u1', createdAt: 1, lastSeenAt: 5, k8s: 'k-u1a' },
+    { token: 'u1-b', userId: 'u1', createdAt: 2, lastSeenAt: 6 },
+    { token: 'u1-keep', userId: 'u1', createdAt: 3, lastSeenAt: 700 },
+    { token: 'u2-old', userId: 'u2', createdAt: 1, lastSeenAt: 1, k8s: 'k-u2old' },
+    { token: 'u2-old2', userId: 'u2', createdAt: 1, lastSeenAt: 2 },
+  ] })
+  const { evicted } = enforceSessionCap({ platformSessions, db, sessions, userId: 'u1', owner: 'alice', max: 1, keepToken: 'u1-keep', now: 800, writeAudit })
+  assert.equal(evicted, 2)
+  assert.equal(platformSessions.has('u1-a'), false)
+  assert.equal(platformSessions.has('u1-b'), false)
+  assert.equal(platformSessions.has('u1-keep'), true)
+  assert.equal(platformSessions.has('u2-old'), true, 'u2 更旧也不该被踢')
+  assert.equal(platformSessions.has('u2-old2'), true)
+  assert.equal(sessions.has('k-u2old'), true, 'u2 的 K8s 凭据不动')
+  assert.ok(db.prepare("SELECT token FROM platform_sessions WHERE token='u2-old'").get(), 'u2 DB 行不动')
+})
+
