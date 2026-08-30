@@ -326,9 +326,8 @@
       "base64Hint": "值将以 base64 编码存储",
       "emptyKeys": "还没有数据键,点左侧添加",
       "addKey": "添加键",
-      "switchToYamlEdit": "切换为纯 YAML 编辑",
-      "backToForm": "返回表单",
       "yamlKindError": "YAML 解析失败或 kind 不符",
+      "yamlDirtyHint": "已手改 YAML——提交将以此为准；修改表单字段会覆盖此处",
       "yamlParseError": "YAML 解析失败",
       "discardConfirm": "返回表单将丢弃 YAML 手动修改,继续?"
     },

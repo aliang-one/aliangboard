@@ -4,7 +4,7 @@
 // - 四 tab：数据 / 注解 / 标签 / YAML（实时派生预览 + 纯 YAML 编辑模式）
 // - freeKeys 唯一数据源：自由键与固定字段都经 DataKeysEditor v-model
 // - {ok} 契约提交：r.ok === false 时 Modal 不关（store 已 toast）
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { load as yamlLoad } from 'js-yaml'
 import Modal from './Modal.vue'
@@ -35,12 +35,11 @@ const freeKeys = ref([{ key: '', value: '' }])
 const labels = ref([])
 const annotations = ref([])
 const activeTab = ref('data')
-// YAML tab 两态：preview（实时派生预览）/ edit（纯 YAML 手编）
-const yamlMode = ref('preview')
+// YAML tab 直编(2026-08-29 交互简化):textarea 常驻,未手改时实时派生当前配置;
+// 用户手改(yamlDirty=true)后以手改 YAML 为准提交,再改任何表单字段则表单恢复权威
+// (dirty 自动清,下次进 YAML tab 重新派生)——「最后编辑者权威」,无需确认弹窗。
+const yamlDirty = ref(false)
 const rawYaml = ref('')
-// 进入编辑态时的内容快照(QA ISSUE-03 关闭守卫的脏判定基线);null=非编辑态。
-// 声明须在 watch(modelValue,{immediate:true}) 之前(immediate 回调会写入)。
-const yamlEditSnapshot = ref(null)
 
 const isSecret = computed(() => props.kind === 'secret')
 const currentType = computed(
@@ -61,11 +60,19 @@ function resetTypeData() {
 // 类型切换：重置 freeKeys（避免跨类型脏数据）
 watch(secretTypeId, resetTypeData)
 
+// 表单任一字段被编辑 → 表单恢复权威(YAML 手改标记清,见顶部注释)。
+// suppress:打开时的程序性重置(watch modelValue)不算用户编辑,否则会抹掉 startInYaml 的 dirty。
+let suppressDirtyReset = false
+watch([name, secretTypeId, freeKeys, labels, annotations], () => {
+  if (!suppressDirtyReset) yamlDirty.value = false
+}, { deep: true })
+
 // 弹窗打开时重置表单
 watch(
   () => props.modelValue,
   (open) => {
     if (open) {
+      suppressDirtyReset = true
       name.value = ''
       secretTypeId.value = 'Opaque'
       labels.value = []
@@ -75,14 +82,14 @@ watch(
       resetTypeData()
       if (props.startInYaml) {
         activeTab.value = 'yaml'
-        yamlMode.value = 'edit'
         rawYaml.value = yamlTemplates[isSecret.value ? 'Secret' : 'ConfigMap'](props.namespace || 'default')
-        yamlEditSnapshot.value = rawYaml.value // 未改动基线:直达模板本身不视为脏
+        yamlDirty.value = true // 直达即以 YAML 为准(粘贴创建一等入口)
       } else {
         activeTab.value = 'data'
-        yamlMode.value = 'preview'
-        yamlEditSnapshot.value = null
+        rawYaml.value = ''
+        yamlDirty.value = false
       }
+      nextTick(() => { suppressDirtyReset = false })
     }
   },
   // immediate:组件可能以 modelValue=true 直接挂载(测试/父组件先开再渲染),此时也须初始化起始态
@@ -142,7 +149,7 @@ const dataComplete = computed(() => {
 })
 
 const canCreate = computed(() =>
-  yamlMode.value === 'edit' ? yamlValid.value : nameValid.value && metaValid.value && dataComplete.value && !dataKeysInvalid.value,
+  yamlDirty.value ? yamlValid.value : nameValid.value && metaValid.value && dataComplete.value && !dataKeysInvalid.value,
 )
 
 // ---- YAML tab ----
@@ -155,9 +162,9 @@ const derivedYaml = computed(() => {
   })
 })
 
-// edit 模式校验：可解析 + kind 与弹窗 kind 一致
+// 手改 YAML 校验:可解析 + kind 与弹窗 kind 一致;未手改(实时派生)恒合法,不显示错误
 const yamlErrorKey = computed(() => {
-  if (yamlMode.value !== 'edit') return ''
+  if (!yamlDirty.value) return ''
   let o
   try {
     o = yamlLoad(rawYaml.value)
@@ -169,23 +176,17 @@ const yamlErrorKey = computed(() => {
   }
   return ''
 })
-const yamlValid = computed(() => yamlMode.value === 'edit' && !yamlErrorKey.value)
+const yamlValid = computed(() => yamlDirty.value && !yamlErrorKey.value)
 
-function switchToEdit() {
-  rawYaml.value = derivedYaml.value // 当前派生值快照,后续表单改动不再跟随
-  yamlEditSnapshot.value = rawYaml.value
-  yamlMode.value = 'edit'
-}
-function backToForm() {
-  if (!window.confirm(t('component.createConfigModal.discardConfirm'))) return
-  yamlMode.value = 'preview'
-  activeTab.value = 'data' // 「返回表单」落回数据 tab(QA ISSUE-05:此前停留 YAML tab 与文案不符)
+// textarea 输入:进入「YAML 权威」态
+function onYamlInput(e) {
+  rawYaml.value = e.target.value
+  yamlDirty.value = true
 }
 
-// 关闭守卫(QA ISSUE-03):编辑态有未保存修改时,X/遮罩/ESC 须确认丢弃;未改动直接关。
+// 关闭守卫(QA ISSUE-03):YAML 手改未提交时,X/遮罩/ESC 须确认丢弃;其余直接关。
 function guardClose() {
-  if (yamlMode.value !== 'edit') return true
-  if (rawYaml.value === yamlEditSnapshot.value) return true
+  if (!yamlDirty.value) return true
   return window.confirm(t('component.createConfigModal.discardConfirm'))
 }
 
@@ -236,7 +237,7 @@ async function submit() {
   submitting.value = true
   let r
   try {
-    r = yamlMode.value === 'edit'
+    r = yamlDirty.value
       ? await store.applyResourceYaml(rawYaml.value)
       : props.kind === 'configmap' ? await store.addConfigMap(payload.value) : await store.addSecret(payload.value)
   } finally {
@@ -278,7 +279,6 @@ function cancel() {
       <div class="flex gap-xs border-b border-outline-variant" role="tablist">
         <button v-for="tab in ['data', 'annotations', 'labels', 'yaml']" :key="tab" type="button" role="tab"
           :data-testid="`ccm-tab-${tab}`"
-          :disabled="yamlMode === 'edit' && tab !== 'yaml'"
           @click="activeTab = tab"
           class="px-md py-sm text-body-sm font-medium rounded-t-lg transition-colors"
           :class="activeTab === tab
@@ -291,7 +291,6 @@ function cancel() {
       <!-- tab 内容（固定高度内滚） -->
       <div :class="['overflow-y-auto', maximized ? 'flex-1 min-h-0' : 'max-h-[55vh]']">
         <!-- 纯 YAML 编辑模式：表单面板整体置灰锁交互 -->
-        <div :class="yamlMode === 'edit' ? 'opacity-50 pointer-events-none' : ''">
           <div v-show="activeTab === 'data'" data-testid="ccm-panel-data">
             <!-- 数据键重复/非法行内错误（重复键会被 Object.fromEntries 静默折叠丢值） -->
             <p v-if="dataKeysInvalid" data-testid="ccm-datakeys-error" class="text-body-sm text-error mb-xs">
@@ -307,44 +306,26 @@ function cancel() {
           <div v-if="activeTab === 'labels'" data-testid="ccm-panel-labels">
             <KeyValueRowsEditor v-model="labels" />
           </div>
-        </div>
 
-        <!-- YAML tab -->
+        <!-- YAML tab:直编(未手改实时派生当前配置;手改后以 YAML 为准,见脚本注释) -->
         <div v-if="activeTab === 'yaml'" data-testid="ccm-panel-yaml" class="flex flex-col gap-sm" :class="maximized ? 'h-full min-h-0' : ''">
-          <!-- 预览模式：实时派生（表单继续可改,computed 实时反映） -->
-          <template v-if="yamlMode === 'preview'">
-            <div class="flex items-center justify-between">
-              <button type="button" data-testid="ccm-yaml-switch" @click="switchToEdit"
-                class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
-                {{ t('component.createConfigModal.switchToYamlEdit') }}
-              </button>
-              <button type="button" data-testid="ccm-yaml-copy" @click="copyYaml"
-                class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
-                {{ t('common.copy') }}
-              </button>
-            </div>
-            <p v-if="copyState" class="text-body-sm" :class="copyState === 'ok' ? 'text-primary' : 'text-error'">
-              {{ t(copyState === 'ok' ? 'common.copySuccess' : 'common.copyFailed') }}
-            </p>
-            <pre data-testid="ccm-yaml-preview"
-              class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono whitespace-pre-wrap">{{ derivedYaml }}</pre>
-          </template>
-
-          <!-- 纯 YAML 编辑模式 -->
-          <template v-else>
-            <div class="flex items-center justify-between">
-              <button type="button" data-testid="ccm-yaml-back" @click="backToForm"
-                class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
-                {{ t('component.createConfigModal.backToForm') }}
-              </button>
-            </div>
-            <p v-if="yamlErrorKey" data-testid="ccm-yaml-error" class="text-body-sm text-error">
-              {{ t(yamlErrorKey) }}
-            </p>
-            <textarea v-model="rawYaml" data-testid="ccm-yaml-input" rows="14" spellcheck="false"
-              :class="maximized ? 'flex-1 min-h-0 w-full resize-none' : ''"
-              class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono" />
-          </template>
+          <div class="flex items-center justify-between">
+            <p v-if="yamlDirty" class="text-xs text-on-surface-variant">{{ t('component.createConfigModal.yamlDirtyHint') }}</p>
+            <span v-else />
+            <button type="button" data-testid="ccm-yaml-copy" @click="copyYaml"
+              class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+              {{ t('common.copy') }}
+            </button>
+          </div>
+          <p v-if="copyState" class="text-body-sm" :class="copyState === 'ok' ? 'text-primary' : 'text-error'">
+            {{ t(copyState === 'ok' ? 'common.copySuccess' : 'common.copyFailed') }}
+          </p>
+          <p v-if="yamlErrorKey" data-testid="ccm-yaml-error" class="text-body-sm text-error">
+            {{ t(yamlErrorKey) }}
+          </p>
+          <textarea :value="yamlDirty ? rawYaml : derivedYaml" @input="onYamlInput" data-testid="ccm-yaml-input" rows="14" spellcheck="false"
+            :class="maximized ? 'flex-1 min-h-0 w-full resize-none' : ''"
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono" />
         </div>
       </div>
     </div>

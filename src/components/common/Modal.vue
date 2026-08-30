@@ -66,7 +66,7 @@ function confirm() {
                 :title="maximized ? t('component.modal.restore') : t('component.modal.maximize')"
                 :aria-label="maximized ? t('component.modal.restore') : t('component.modal.maximize')"
                 class="p-1 text-on-surface-variant hover:bg-surface-container rounded-lg">
-                <span class="material-symbols-outlined">{{ maximized ? 'close_fullscreen' : 'open_fullscreen' }}</span>
+                <span class="material-symbols-outlined">{{ maximized ? 'close_fullscreen' : 'open_in_full' }}</span>
               </button>
               <button @click="close" class="p-1 text-on-surface-variant hover:bg-surface-container rounded-lg">
                 <span class="material-symbols-outlined">close</span>
