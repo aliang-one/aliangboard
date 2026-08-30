@@ -39,7 +39,16 @@ async function createProject() {
   } catch (e) { notify('error', e.message || t('workbench.card.createFailed')) }
 }
 
-const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '-')
+const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? id.slice(0, 8) : '')
+
+// 无集群项目(2026-08-30):卡片就地换绑/解绑('' = 未绑定),成功后刷新列表
+async function bindCluster(p, v) {
+  try {
+    await workbenchApi.updateProjectCluster(p.id, v)
+    notify('success', t('workbench.bindClusterSaved'))
+    load()
+  } catch (e) { notify('error', e.message || t('workbench.card.loadFailed')) }
+}
 </script>
 
 <template>
@@ -68,10 +77,17 @@ const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? i
         <div class="flex items-start justify-between mb-sm">
           <div>
             <h3 class="text-body-md font-bold text-on-surface group-hover:text-primary transition-colors">{{ p.name }}</h3>
-            <p class="text-body-xs text-on-surface-variant">{{ clusterName(p.clusterId) }}</p>
+            <p v-if="p.clusterId" class="text-body-xs text-on-surface-variant">{{ clusterName(p.clusterId) }}</p>
+            <span v-else data-test="unbound-badge" class="inline-block px-1.5 py-0.5 rounded bg-warning/10 text-warning text-body-xs">{{ t('workbench.unboundBadge') }}</span>
           </div>
           <span class="material-symbols-outlined text-on-surface-variant/30 group-hover:text-primary transition-colors">arrow_forward</span>
         </div>
+        <!-- 换绑下拉(无集群项目也可事后绑定;整卡 click 进详情,须 stop) -->
+        <select data-test="bind-cluster" :value="p.clusterId || ''" @click.stop @change="bindCluster(p, $event.target.value)"
+          class="mb-sm bg-surface-container-low border border-outline-variant rounded px-xs py-0.5 text-body-xs text-on-surface-variant">
+          <option value="">{{ t('workbench.unboundBadge') }}</option>
+          <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
+        </select>
         <!-- Attribute chips -->
         <div class="flex flex-wrap gap-xs mb-sm">
           <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-body-xs font-mono">{{ p.namespace || p.boundSA_namespace || 'default' }}</span>
@@ -101,14 +117,14 @@ const clusterName = id => clusters.value.find(c => c.id === id)?.name || (id ? i
         <div>
           <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.selectCluster') }}</label>
           <select v-model="form.clusterId" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-            <option value="" disabled>{{ t('workbench.card.selectCluster') }}</option>
+            <option value="">{{ t('workbench.card.noClusterOption') }}</option>
             <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </div>
       </div>
       <template #actions>
         <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
-        <button @click="createProject" :disabled="!form.name.trim() || !form.clusterId" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
+        <button @click="createProject" :disabled="!form.name.trim()" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
       </template>
     </Modal>
   </div>

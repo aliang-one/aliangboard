@@ -3,7 +3,7 @@
 // Agent: 左对话列表 + 右全宽 chat(Cursor 风格)。Edit: 文件树 + 编辑器 + commit。
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { workbenchApi } from '@/api/client'
+import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
@@ -193,6 +193,24 @@ async function reconcile() {
 }
 onMounted(async () => { await load(); loadConversations() })
 
+// ── 无集群项目(2026-08-30):能力提示条 + 就地绑定 ──
+// 未绑定也能写 manifests 草稿/SSH 运维;绑定后解锁资源调查与 apply。
+const clusters = ref([])
+onMounted(async () => {
+  try {
+    const cr = await authApi.myClusters()
+    clusters.value = Array.isArray(cr) ? cr : (cr.clusters || [])
+  } catch { /* 集群列表失败不阻塞详情页 */ }
+})
+async function bindCluster(v) {
+  if (v === (project.value?.clusterId || '')) return
+  try {
+    await workbenchApi.updateProjectCluster(id, v)
+    notify('success', t('workbench.bindClusterSaved'))
+    await load()
+  } catch (e) { notify('error', e.message || t('workbench.detail.loadFailed')) }
+}
+
 async function openFile(path) {
   if (dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return
   try {
@@ -294,6 +312,16 @@ const treeRows = computed(() => {
         <span class="material-symbols-outlined text-lg">workspaces</span>{{ project.name }}
       </h2>
       <span class="text-body-xs text-on-surface-variant">{{ project.clusterName }}</span>
+
+      <!-- 未绑定集群:能力提示条 + 绑定入口(草稿/SSH 可用,绑定后解锁资源调查与 apply) -->
+      <div v-if="!project?.clusterId" data-test="bind-cluster-banner" class="flex items-center gap-sm px-md py-xs rounded-lg bg-warning/10 border border-warning/30 text-body-xs">
+        <span class="material-symbols-outlined text-warning text-sm">info</span>
+        <span class="flex-1">{{ t('workbench.unboundBanner') }}</span>
+        <select data-test="bind-cluster" class="bg-surface-container-low border border-outline-variant rounded px-xs py-0.5" @change="bindCluster($event.target.value)">
+          <option value="">{{ t('workbench.bindClusterPlaceholder') }}</option>
+          <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
+        </select>
+      </div>
 
       <!-- 挂到后台:agent 模式专属——对话 detached 继续跑,状态由悬浮入口(ChatPresence)接管 -->
       <button v-if="mode === 'agent'" data-testid="background-chat-btn" @click="backgroundToTopology"

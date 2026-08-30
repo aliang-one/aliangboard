@@ -3341,6 +3341,10 @@
     "resource": "Resource"
   },
   "workbench": {
+    "unboundBadge": "No cluster",
+    "unboundBanner": "No cluster bound: draft manifests and manage SSH servers now; bind a cluster to unlock resource investigation and apply — existing drafts apply as-is",
+    "bindClusterPlaceholder": "Bind a cluster…",
+    "bindClusterSaved": "Project cluster binding updated",
     "list": {
       "title": "Workbench",
       "subtitle": "Goal-driven engineering repo: one git repository per project, stores manifests/notes; later supports AI authoring + human review apply (learns your cluster over time).",
@@ -3635,6 +3639,7 @@
       "create": "New Project",
       "nameLabel": "Project Name",
       "selectCluster": "Select cluster",
+      "noClusterOption": "Don't bind, decide later",
       "loadFailed": "Load failed",
       "createFailed": "Create failed",
       "created": "Created"
