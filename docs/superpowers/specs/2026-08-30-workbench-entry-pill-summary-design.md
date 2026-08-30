@@ -101,7 +101,6 @@
 - `''` 哨兵未绑定项目列出且 `clusterName: null`
 - running 计数;`status='paused' AND pendingApproval IS NOT NULL` 行 → pending 计数;paused 但 pendingApproval 为 NULL 不计
 - SSH 计数按 userId 过滤(admin 也只数自己;listSshSessions 假件注入)
-- SSH 数按 userId 过滤(admin 也只数自己)
 - >8 项目:projects 截 8 且待审/运行中排前;totals 全量
 - 未认证 401(requirePlatform 既有)
 
@@ -123,3 +122,8 @@
 - 不做面板内审批决策/会话终止等操作(只读概览+跳转)
 - 不做 tab 路由双向同步(仅一次性 query 读取)
 - 不做白名单排序配置/用户自定义面板内容
+
+## 8. 迭代补记(2026-08-30 当日用户反馈,均已合 main)
+
+1. **角标常驻化**(2a504d2):原设计角标仅在待审批/运行中 >0 时出现,用户反馈「入口一眼要有信息」→ 改三态常驻:待审批红数字 > 运行中绿数字 > 项目数中性徽章,0 活跃也不空。
+2. **内联迷你统计条**(ee44067):≥lg 视口胶囊内直接展示「N 项目 · N 运行中 · N 待审批」三段(0 也显示),数字按状态着色(项目中性/运行绿/待审批红),标签词弱灰;SSH 不上条(悬停面板看)。`hidden lg:inline-flex`,窄屏由单枚状态徽章接管(`lg:hidden`),两形态互斥防信息重复。复用既有 pill 键 + 新增短标签键 `kProjects/kRunning/kPending`(zh/en)。顶栏预算:整胶囊 ≈210px,shrink-0 由搜索收缩链吸收(issue #3 契约)。
