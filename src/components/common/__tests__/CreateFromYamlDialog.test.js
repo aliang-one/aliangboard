@@ -2,6 +2,7 @@ import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { i18n } from '@/i18n'
+import { nextTick } from 'vue'
 
 const { applyYamlMock } = vi.hoisted(() => ({ applyYamlMock: vi.fn() }))
 // 组件挂载即触发 useResourceApply()→useClusterStore()→activeApiServer()→localStorage,
@@ -64,5 +65,24 @@ test('parse 失败分支:无效 YAML → 内联报错,不调 applyYaml', async (
   await w.vm.create()
   expect(document.body.textContent).toContain(i18n.global.t('component.createFromYaml.parseError'))
   expect(applyYamlMock).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+test('最大化:按钮存在,最大化后内容根 h-full + 编辑器 flex 填充,可还原', async () => {
+  const w = mount(CreateFromYamlDialog, { props: { modelValue: true, namespace: 'demo', kind: 'Service' }, global: { plugins: [createPinia(), i18n] } })
+  const maxBtn = () => document.querySelector('[data-testid="modal-maximize-btn"], [data-testid="modal-restore-btn"]')
+  expect(maxBtn()).not.toBe(null)
+  maxBtn().click(); await nextTick()
+  // 最大化态:内容根挂 h-full;YamlEditor 根获得 heightClass 的填充类
+  const contentRoot = document.querySelector('[data-testid="yaml-dialog-content"]')
+  expect(contentRoot).not.toBe(null)
+  expect(contentRoot.className).toContain('h-full')
+  const yamlRoot = contentRoot.querySelector('[data-testid="yaml-editor-root"]')
+  expect(yamlRoot.className).toContain('flex-1')
+  // 还原
+  maxBtn().click(); await nextTick()
+  expect(document.querySelector('[data-testid="modal-maximize-btn"]')).not.toBe(null)
+  expect(contentRoot.className).not.toContain('h-full')
+  expect(yamlRoot.className).not.toContain('flex-1')
   w.unmount()
 })
