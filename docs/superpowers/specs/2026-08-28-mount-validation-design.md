@@ -66,7 +66,7 @@ toVolumeDef(entry) / toMountSpec(entry)
 | 4 | items 的 path:绝对路径/含 `..` 段/含空段或空白 → error;非空 path 重复 → warn;placeholder 改「相对路径,可含子目录 conf/app.yml」 | error/warn | ValidateLocalNonReservedPath 422;重复 path 投影互相覆盖 |
 | 5 | items 的 key 不在所选 CM/Secret 的 `data ∪ binaryData` 键集 → error(键集已加载才判);换绑 cmName/secretName 后旧行失效 → 逐行标红,**不自动删数据** | error | pod 卡 ContainerCreating:`references non-existent config key` |
 | 6 | cmName/secretName/pvcName 不在当前 ns 已知名单 → error(名单未加载不判) | error | `configmap "x" not found` / `PersistentVolumeClaim not found` 事件 |
-| 7 | subPath:绝对路径/含 `..` → error;与投影集(items path 集,无 items 时键全集)求交集不在其中 → error「卷内不存在此路径,kubelet 会创建空目录」(投影集未加载 → hint) | error | 422 `must be a relative path`;kubernetes#62156 静默建目录 |
+| 7 | subPath:绝对路径/含 `..` → error;与投影集(items path 集,无 items 时键全集)求交集不在其中 → **warn**(2026-08-30 降级,原 error)「卷内不存在此路径,kubelet 会创建空目录」(投影集未加载 → hint) | error/warn | 422 `must be a relative path`(API 真拒,error);kubernetes#62156 静默建目录——但 YAML 合法、pod 能跑,拦门禁过严(2026-08-30 用户报障 subPath=test 卡死 step2「无法下一步」),降 warn 与 mountPathNested/systemPathShadow 同类 |
 | 8 | subPath 非空 → 卡片显示「单文件挂载:mountPath 须为文件完整路径,且不随 ConfigMap/Secret 更新」 | hint | 官方文档明确 subPath 挂载不热更新 |
 | 9 | NFS:server 填而 nfsPath 空 → warn「将挂载整个导出 `/`」;nfsPath 非空不以 `/` 开头 → error | error/warn | API 默认 `path: /`(整导出);相对路径 MountVolume.SetUp failed |
 | 10 | hostPath 命中敏感清单(`/`、`/etc`、`/var/run`、`/var/run/docker.sock`、`/root`、`/home`)→ error「等于交出节点级权限」 | error | 容器逃逸/节点提权经典路径 |

@@ -86,16 +86,30 @@ test('validateEntry: 来源在名单中不存在 → sourceNotFound;名单未加
   expect(codes(validateEntry({ ...entryBase, pvcName: 'ghost' }, { validTargets: ['main'] }))).not.toContain('sourceNotFound')
 })
 
-test('validateEntry: subPath 绝对路径/.. → subPathInvalid;指向卷内不存在 → subPathNotInVolume;合法 → 单文件 hint', () => {
+test('validateEntry: subPath 绝对路径/.. → subPathInvalid(error);指向卷内不存在 → subPathNotInVolume(warn);合法 → 单文件 hint', () => {
   const cm = { ...entryBase, type: 'configMap', cmName: 'cm', pvcName: '' }
-  expect(codes(validateEntry({ ...cm, subPath: '/etc/a.conf' }, ENTRY_CTX))).toContain('subPathInvalid')
+  const invalid = validateEntry({ ...cm, subPath: '/etc/a.conf' }, ENTRY_CTX)
+  expect(codes(invalid)).toContain('subPathInvalid')
+  expect(invalid.find(i => i.code === 'subPathInvalid').level).toBe('error')   // API 真拒 → error
   expect(codes(validateEntry({ ...cm, subPath: '../x' }, ENTRY_CTX))).toContain('subPathInvalid')
-  expect(codes(validateEntry({ ...cm, subPath: 'ghost.conf' }, ENTRY_CTX))).toContain('subPathNotInVolume')
+  // 2026-08-30 降级(用户报障 subPath=test 卡死 step2):YAML 合法 pod 能跑(kubelet 静默建空目录),
+  // 与 mountPathNested/systemPathShadow 同类 → warn,不再拦门禁
+  const notIn = validateEntry({ ...cm, subPath: 'ghost.conf' }, ENTRY_CTX)
+  expect(codes(notIn)).toContain('subPathNotInVolume')
+  expect(notIn.find(i => i.code === 'subPathNotInVolume').level).toBe('warn')
   expect(codes(validateEntry({ ...cm, subPath: 'k1' }, ENTRY_CTX))).toContain('subPathSingleFileNote')
   // 有 items 时 subPath 对 items path 求交集
   const withItems = { ...cm, items: [{ key: 'k1', path: 'conf/a.yml' }] }
   expect(codes(validateEntry({ ...withItems, subPath: 'k1' }, ENTRY_CTX))).toContain('subPathNotInVolume')
   expect(codes(validateEntry({ ...withItems, subPath: 'conf/a.yml' }, ENTRY_CTX))).toContain('subPathSingleFileNote')
+})
+
+test('subPathNotInVolume 不拦门禁:只有该 issue 的条目 firstError 为 null(2026-08-30 用户报障回归)', () => {
+  const gate = validateVolumeMounts(
+    [{ ...entryBase, type: 'configMap', cmName: 'cm', pvcName: '', mountPath: '/etc/config', subPath: 'ghost.conf' }],
+    ENTRY_CTX)
+  expect(codes(gate.byEntry[0])).toContain('subPathNotInVolume')
+  expect(firstError(gate)).toBe(null)
 })
 
 test('validateEntry: NFS path 留空 warn 挂整个导出、相对路径 error;hostPath 敏感路径 error', () => {

@@ -123,11 +123,14 @@ export function validateEntry(entry, ctx = {}) {
     else if (m !== '0400' && m !== '0640') add('defaultModePermissive', 'defaultMode', 'hint')
   }
 
-  // 规则 7 后半:subPath 指向卷内不存在的路径(投影集 = items path 集,无 items 时键全集;未加载不判)
+  // 规则 7 后半:subPath 指向卷内不存在的路径(投影集 = items path 集,无 items 时键全集;未加载不判)。
+  // warn 不拦门禁(2026-08-30 降级,用户报障 subPath=test 卡死 step2):这份 YAML K8s 接受、pod 正常跑
+  // (kubelet 静默建空目录,kubernetes#62156),与 mountPathNested/systemPathShadow 同属「可继续但可疑」;
+  // error 仅留给 API 真拒的 subPathInvalid(绝对路径/..)。
   if (isProjection && entry.subPath && !issues.some(i => i.code === 'subPathInvalid')) {
     const projected = (entry.items || []).filter(it => it.key && it.path).map(it => it.path)
     const pool = projected.length ? projected : allKeys
-    if (pool && !pool.includes(entry.subPath)) add('subPathNotInVolume', 'subPath', 'error')
+    if (pool && !pool.includes(entry.subPath)) add('subPathNotInVolume', 'subPath', 'warn')
   }
 
   return issues
