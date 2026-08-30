@@ -3351,6 +3351,7 @@
       "relNow": "just now", "relMin": "{n}m ago", "relHour": "{n}h ago", "relDay": "{n}d ago",
       "newProject": "New project", "openLedger": "Cluster ledger", "openRecords": "Records",
       "noProjects": "No projects yet", "pendingChip": "{n} pending",
+      "kProjects": " projects", "kRunning": " running", "kPending": " pending",
       "stale": "Update failed, showing data from {t}", "loadFailed": "Failed to load"
     },
     "unboundBadge": "No cluster",

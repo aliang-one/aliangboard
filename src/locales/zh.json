@@ -3351,6 +3351,7 @@
       "relNow": "刚刚", "relMin": "{n} 分钟前", "relHour": "{n} 小时前", "relDay": "{n} 天前",
       "newProject": "新建项目", "openLedger": "集群台账", "openRecords": "记录",
       "noProjects": "还没有项目", "pendingChip": "{n} 待审",
+      "kProjects": "项目", "kRunning": "运行中", "kPending": "待审批",
       "stale": "更新失败,显示 {t}的数据", "loadFailed": "加载失败"
     },
     "unboundBadge": "未绑定集群",

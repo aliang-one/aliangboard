@@ -80,6 +80,21 @@ test('角标常驻优先级:待审批红数字 > 运行中绿数字 > 项目数�
   expect(w.find('[data-test="pill-projects"]').text()).toBe('1')
 })
 
+test('迷你统计条(≥lg):三段常驻,数字状态着色;徽章 lg 隐藏防重复', async () => {
+  mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 5, runningConvs: 1, pendingApprovals: 2, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  const stats = w.find('[data-test="pill-stats"]')
+  expect(stats.exists()).toBe(true)
+  expect(stats.classes()).toContain('hidden')                       // 窄屏整条隐藏
+  expect(stats.text()).toContain('5') && expect(stats.text()).toContain('项目')
+  expect(stats.text()).toContain('运行中')
+  expect(stats.text()).toContain('待审批')
+  expect(stats.find('.text-status-running').text()).toBe('1')       // 运行绿
+  expect(stats.find('.text-error').text()).toBe('2')                // 待审批红
+  // ≥lg 时单枚徽章隐藏,防止与统计条信息重复
+  expect(w.find('[data-test="pill-pending"]').classes()).toContain('lg:hidden')
+})
+
 test('title 摘要由 summary 拼装', async () => {
   mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 5, runningConvs: 1, pendingApprovals: 2, sshSessions: 3 } }))
   const w = mountPill(); await flushPromises()
