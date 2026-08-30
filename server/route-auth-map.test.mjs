@@ -16,7 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 test('authClassFor:精确/前缀/方法匹配语义', () => {
   assert.equal(authClassFor('GET', '/api/health'), 'none')
   assert.equal(authClassFor('POST', '/api/auth/login'), 'none')
-  assert.equal(authClassFor('POST', '/api/session'), 'none', '旧直连建会话=公有(设计内)')
+  assert.equal(authClassFor('POST', '/api/session'), undefined, '旧直连建会话已下线(CSO #1:未认证 SSRF 链)')
   assert.equal(authClassFor('GET', '/api/session'), 'session', '同路径不同方法不同 class')
   assert.equal(authClassFor('GET', '/api/terminals'), 'session')
   assert.equal(authClassFor('PATCH', '/api/terminals/xyz'), 'session', '前缀条目吃子路径')
@@ -58,7 +58,6 @@ test('公有(none)路由集合与显式清单逐项一致——多一条都是�
     'GET /api/health',       // 存活探针
     'POST /api/auth/login',
     'POST /api/auth/logout',
-    'POST /api/session',     // 旧直连模式(BYO kubeconfig);关闭开关=审计 #5 backlog
   ])
 })
 

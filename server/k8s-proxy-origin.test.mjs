@@ -115,3 +115,14 @@ test('正向对照:普通资源路径 → 200 正常代理', { timeout: 60000 },
   })
   assert.equal(r.status, 200, `status=${r.status}`)
 })
+
+// CSO #1 回归:旧直连建会话端点已整体下线,POST /api/session 必 404(表外路由)。
+test('POST /api/session 已下线 → 404', { timeout: 60000 }, async (t) => {
+  const { base } = await startGateway(t)
+  const r = await fetch(`${base}/api/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ authMethod: 'token', apiServer: 'http://127.0.0.1:1', token: 'x' }),
+  })
+  assert.equal(r.status, 404, `status=${r.status}`)
+})

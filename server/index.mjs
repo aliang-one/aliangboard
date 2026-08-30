@@ -470,34 +470,6 @@ function certMaterial(node, dataKey, fileKey) {
 
 // 调用上下文(call context)抽象:normalizeServer / getDispatcher / buildCallContext 见 ./call-context.mjs
 // (T1:抽模块 + 可单测。所有 kube 调用吃 buildCallContext 返回的形状;浏览器 session 与 API-key 共用。)
-
-// 自动发现控制面端点：GET /api/v1/nodes → 过滤 control-plane → InternalIP → 候选 https://<ip>:<port>。
-// 端口从原始 apiServer 继承；发现失败 → 只返回 [apiServer]（降级不阻断）。
-async function discoverEndpoints(session) {
-  try {
-    const result = await requestOnce(session, session.apiServer, '/api/v1/nodes?limit=500')
-    const nodes = result.body?.items || []
-    const port = session.apiServer.port || (session.apiServer.protocol === 'https:' ? '443' : '80')
-    const seen = new Set([session.apiServer.origin])
-    const candidates = []
-    for (const node of nodes) {
-      const labels = node.metadata?.labels || {}
-      const isCP = labels['node-role.kubernetes.io/control-plane'] !== undefined || labels['node-role.kubernetes.io/master'] !== undefined
-      if (!isCP) continue
-      const ip = node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
-      if (!ip) continue
-      const url = new URL(`${session.apiServer.protocol}//${ip}:${port}`)
-      if (!seen.has(url.origin)) { seen.add(url.origin); candidates.push(url) }
-    }
-    const all = [session.apiServer, ...candidates]
-    console.log(`[failover] 发现 ${all.length} 个端点: ${all.map(u => u.host).join(', ')}`)
-    return all
-  } catch (e) {
-    console.warn('[failover] 控制面节点发现失败，使用单端点:', e?.message || e)
-    return [session.apiServer]
-  }
-}
-
 // CSO 2026-08-30 #2:K8s 代理目标必须与本次请求的 endpoint 同源。
 // new URL 的协议相对路径('//host/x')与反斜杠都会改写 authority —— 不校验时网关会把
 // 集群凭证(authHeader/客户端证书)发往任意主机。此处是唯一收口:所有 K8s 出站都经 requestOnce/流式分支。
@@ -1562,49 +1534,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     }
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/session') {
-    try {
-      const input = await readBody(req)
-      let apiServer, authHeader = null, ca, cert, key
-      if (input.authMethod === 'kubeconfig') {
-        // 直接粘贴 kubeconfig：从中解析 server / CA / 凭据（token|账密|客户端证书）
-        const parsed = parseKubeconfig(input.kubeconfig)
-        apiServer = normalizeServer(parsed.server)
-        ca = certMaterial(parsed.cluster, 'certificate-authority-data', 'certificate-authority')
-        cert = certMaterial(parsed.user, 'client-certificate-data', 'client-certificate')
-        key = certMaterial(parsed.user, 'client-key-data', 'client-key')
-        if (parsed.user?.token) authHeader = `Bearer ${parsed.user.token}`
-        else if (parsed.user?.username != null || parsed.user?.password != null) {
-          authHeader = `Basic ${Buffer.from(`${parsed.user.username || ''}:${parsed.user.password || ''}`).toString('base64')}`
-        }
-        if (!authHeader && !(cert && key)) throw new Error(msg(req, 'api.kubeconfigNoCredentials'))
-      } else if (input.authMethod === 'basic') {
-        if (!input.username || !input.password) return sendJson(res, 400, { message: msg(req, 'api.emptyCredentials') })
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`
-      } else {
-        if (!input.token) return sendJson(res, 400, { message: msg(req, 'api.tokenRequired') })
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Bearer ${String(input.token)}`
-      }
-      const insecure = input.insecure === true || process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true'
-      const sessionId = randomUUID()
-      const session = { ...buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), createdAt: Date.now() }
-      const probe = await requestKubernetes(session, '/version')
-      session.version = probe.body?.gitVersion || 'unknown'
-      session.endpoints = await discoverEndpoints(session)
-      session.endpointIdx = 0
-      session.insecureDispatcher = getDispatcher({ ca, cert, key, insecure: true })
-      sessions.set(sessionId, session)
-      persistSession(sessionId, session) // 落盘：重启后浏览器 token 仍有效
-      return sendJson(res, 200, {
-        token: sessionId,
-        cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: session.version },
-      })
-    } catch (error) {
-      return sendJson(res, error.status || 400, { message: error.message || msg(req, 'api.connectK8sFailed') })
-    }
-  }
+  // POST /api/session(旧直连建会话)已下线(CSO #1:auth:none 允许未认证者指定任意 apiServer,
+  // 配合 /api/k8s 透传构成未认证 SSRF 链)。GET(查会话)/DELETE(幂等登出)保留。
 
   if (req.method === 'GET' && url.pathname === '/api/session') {
     const session = req.abSession // 路由鉴权门已预检并缓存

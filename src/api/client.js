@@ -129,7 +129,7 @@ export function activeApiServer() {
 }
 
 export const api = {
-  connect: payload => k8sHttp.request('/api/session', { method: 'POST', body: JSON.stringify(payload) }),
+  // connect(POST /api/session)已删——旧直连建会话已下线(CSO #1)
   session: () => k8sHttp.request('/api/session'),
   logout: () => k8sHttp.request('/api/session', { method: 'DELETE' }),
   health: () => k8sHttp.request('/api/health'),
