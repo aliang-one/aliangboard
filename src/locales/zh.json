@@ -2873,6 +2873,8 @@
     "tabEvents": "事件"
   },
   "admin": {
+    "roleInvalid": "非法的 role",
+    "selfProtected": "不能降级或禁用自己的账号",
     "crdDetail": {
       "backToList": "返回列表",
       "overview": "概览",

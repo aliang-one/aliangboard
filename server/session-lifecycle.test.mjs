@@ -106,9 +106,43 @@ test('降级 admin→user 后,存量 token 的 admin 权限立即收回', { time
   const dave2 = await createUser(g, 'dave2', { role: 'admin' })
   // 基线:降级前是 admin,/api/admin/users 可访问
   assert.equal((await fetch(`${g.base}/api/admin/users`, { headers: { 'x-platform-token': dave2.token } })).status, 200)
-  // 降级 → 同一 token 再访问 admin 端点即 403(role 以用户行为准)
+  // 降级 → 级联吊销(Task 7):token 本身失效,admin 端点与 me 均 401
+  // (此前仅靠读路径兜底收回 admin 权限:403 + me 200;级联吊销后更严 —— 连平台身份都踢)
   await g.adminJson('PATCH', `/api/admin/users/${dave2.id}`, { role: 'user' })
-  assert.equal((await fetch(`${g.base}/api/admin/users`, { headers: { 'x-platform-token': dave2.token } })).status, 403)
-  // 平台身份仍在(未禁用/删除)→ /api/auth/me 200
-  assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': dave2.token } })).status, 200)
+  assert.equal((await fetch(`${g.base}/api/admin/users`, { headers: { 'x-platform-token': dave2.token } })).status, 401)
+  assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': dave2.token } })).status, 401)
+})
+
+test('降级后旧 token 不能再建管理员(级联吊销主动侧)', { timeout: 60000 }, async (t) => {
+  const g = await startGateway(t)
+  const dave3 = await createUser(g, 'dave3', { role: 'admin' })
+  const oldToken = dave3.token // 降级前拿到的存量 token
+  const r = await g.adminJson('PATCH', `/api/admin/users/${dave3.id}`, { role: 'user' })
+  assert.equal(r.status, 200, `demote failed: ${r.status}`)
+  // 旧 token 建 admin → 拒绝(级联吊销后 401;读路径兜底口径 403 —— 两者都算收回)
+  const create = await fetch(`${g.base}/api/admin/users`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': oldToken },
+    body: JSON.stringify({ username: 'eve3', password: 'y'.repeat(12) }),
+  })
+  assert.ok([401, 403].includes(create.status), `old token should be rejected, got ${create.status}`)
+  // 主动吊销生效:连 /api/auth/me 都 401(非仅读路径兜底)
+  assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': oldToken } })).status, 401)
+})
+
+test('重置密码踢掉该用户全部存量会话', { timeout: 60000 }, async (t) => {
+  const g = await startGateway(t)
+  const dave4 = await createUser(g, 'dave4')
+  const t1 = dave4.token
+  const { token: t2 } = await login(g, 'dave4', dave4.password)
+  assert.notEqual(t1, t2)
+  const r = await g.adminJson('POST', `/api/admin/users/${dave4.id}/reset-password`, { newPassword: 'z'.repeat(12) })
+  assert.equal(r.status, 200, `reset-password failed: ${r.status}`)
+  assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': t1 } })).status, 401)
+  assert.equal((await fetch(`${g.base}/api/auth/me`, { headers: { 'x-platform-token': t2 } })).status, 401)
+  // 新密码可登录(新会话不受影响)
+  const re = await fetch(`${g.base}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'dave4', password: 'z'.repeat(12) }),
+  })
+  assert.equal(re.status, 200)
 })

@@ -2873,6 +2873,8 @@
     "tabEvents": "Events"
   },
   "admin": {
+    "roleInvalid": "Invalid role",
+    "selfProtected": "Cannot demote or disable your own account",
     "crdDetail": {
       "backToList": "Back to List",
       "overview": "Overview",
