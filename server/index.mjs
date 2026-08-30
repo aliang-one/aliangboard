@@ -26,7 +26,7 @@ import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_M
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
-import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted } from './workbench-projects.mjs'
+import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath } from './workbench-projects.mjs'
 import { listApiPath, getApiPath } from './kind-paths.mjs'
 import { REFS_CTX_HEADER } from './refs-context.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
@@ -1187,7 +1187,7 @@ async function handle(req, res) {
 
   // 构建 workbench context(复用现有 agent chat 的 projectId 分支逻辑)
   function buildWbCtx(project) {
-    const repo = join(WORKBENCH_DIR, project.clusterId, 'projects', project.id)
+    const repo = projectRepoPath(WORKBENCH_DIR, project)
     const ledgerRepo = join(WORKBENCH_DIR, project.clusterId, 'cluster-context')
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     const k8sSession = cluster ? { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() } : null
@@ -2302,7 +2302,7 @@ if (reconcileInterval > 0) {
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
           if (!cluster) continue
           const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
-          const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(join(WORKBENCH_DIR, p.clusterId, 'projects', p.id)), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
+          const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(projectRepoPath(WORKBENCH_DIR, p)), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
           if (r.failed?.length) console.error(`[reconcile] ${p.name}: ${r.failed.length} 失败`)
         } catch (e) { console.error(`[reconcile] project ${p.id} 失败:`, e.message) }
       }
