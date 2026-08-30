@@ -1083,3 +1083,33 @@ test('A3:编辑态选剧本 → banner 消失 + 输入框含剧本正文', async
   expect(w.find('textarea').element.value).toContain('ImagePullBackOff', '输入框=剧本正文(非编辑回填)')
   w.unmount()
 })
+
+// --- @server 引用(Task 3,2026-08-30):alias 路由到 server 搜索分支 + dns chip(无 namespace) ---
+test('@server:关键字 → server 搜索分支 + dns chip(无 namespace 空串)', async () => {
+  api.search.mockReset()
+  api.search.mockImplementation(async (_pid, kind, q) => {
+    if (kind !== 'server') return { items: [] }
+    return '网关机'.includes(q || '') ? { items: [{ kind: 'server', name: '网关机', description: '入口网关', clusterRef: 'ck-1' }] } : { items: [] }
+  })
+  const w = await mountChat()
+  const input = w.find('textarea')
+  await input.setValue('看下 @server:网关')
+  // debounce 200ms(宿主无 fake timers,真实等待)
+  await new Promise(r => setTimeout(r, 260))
+  await flushPromises()
+  expect(api.search).toHaveBeenCalledWith(expect.any(String), 'server', '网关')
+  // 下拉项含名称/备注/clusterRef 标签(@-mention 下拉:z-30 面板内结果按钮)
+  const dropBtn = w.findAll('button').find(b => b.text().includes('网关机'))
+  expect(dropBtn).toBeTruthy()
+  expect(dropBtn.text()).toContain('入口网关')
+  expect(dropBtn.text()).toContain('ck-1')
+  // 选中 → chip:dns 图标 + 名称,且无空 namespace/undefined 文本
+  await dropBtn.trigger("mousedown")
+  await flushPromises()
+  const chip = w.findAll('div').find(d => d.classes().join(' ').includes('bg-primary/10') && d.text().includes('网关机'))
+  expect(chip).toBeTruthy()
+  const icon = chip.find('.material-symbols-outlined')
+  expect(icon.text()).toBe('dns')
+  expect(chip.text()).not.toContain('undefined')
+  w.unmount()
+})

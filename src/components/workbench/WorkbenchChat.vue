@@ -77,8 +77,8 @@ const searchOpen = ref(false)
 const kindHints = ref([])  // @ 后无 : → kind 补全
 const activeIndex = ref(-1)  // @-mention 下拉键盘选中索引(-1=无)
 const mentionItems = computed(() => kindHints.value.length ? kindHints.value : searchResults.value)
-const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets', sts:'statefulsets', statefulset:'statefulsets', ds:'daemonsets', daemonset:'daemonsets', node:'nodes', nodes:'nodes', pv:'persistentvolumes', persistentvolume:'persistentvolumes', pvc:'persistentvolumeclaims', persistentvolumeclaim:'persistentvolumeclaims', sc:'storageclasses', storageclass:'storageclasses', netpol:'networkpolicies', networkpolicy:'networkpolicies', sa:'serviceaccounts', serviceaccount:'serviceaccounts' }
-const KIND_LABELS = { pod:'Pod', pods:'Pod', deploy:'Deployment', deployment:'Deployment', svc:'Service', service:'Service', cm:'ConfigMap', configmap:'ConfigMap', ns:'Namespace', namespace:'Namespace', ingress:'Ingress', secret:'Secret', sts:'StatefulSet', statefulset:'StatefulSet', ds:'DaemonSet', daemonset:'DaemonSet', node:'Node', nodes:'Node', pv:'PersistentVolume', persistentvolume:'PersistentVolume', pvc:'PersistentVolumeClaim', persistentvolumeclaim:'PersistentVolumeClaim', sc:'StorageClass', storageclass:'StorageClass', netpol:'NetworkPolicy', networkpolicy:'NetworkPolicy', sa:'ServiceAccount', serviceaccount:'ServiceAccount' }
+const KIND_ALIASES = { pod:'pods', pods:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', cm:'configmaps', configmap:'configmaps', ns:'namespaces', namespace:'namespaces', ingress:'ingresses', secret:'secrets', sts:'statefulsets', statefulset:'statefulsets', ds:'daemonsets', daemonset:'daemonsets', node:'nodes', nodes:'nodes', pv:'persistentvolumes', persistentvolume:'persistentvolumes', pvc:'persistentvolumeclaims', persistentvolumeclaim:'persistentvolumeclaims', sc:'storageclasses', storageclass:'storageclasses', netpol:'networkpolicies', networkpolicy:'networkpolicies', sa:'serviceaccounts', serviceaccount:'serviceaccounts', server:'server', ssh:'server' }
+const KIND_LABELS = { pod:'Pod', pods:'Pod', deploy:'Deployment', deployment:'Deployment', svc:'Service', service:'Service', cm:'ConfigMap', configmap:'ConfigMap', ns:'Namespace', namespace:'Namespace', ingress:'Ingress', secret:'Secret', sts:'StatefulSet', statefulset:'StatefulSet', ds:'DaemonSet', daemonset:'DaemonSet', node:'Node', nodes:'Node', pv:'PersistentVolume', persistentvolume:'PersistentVolume', pvc:'PersistentVolumeClaim', persistentvolumeclaim:'PersistentVolumeClaim', sc:'StorageClass', storageclass:'StorageClass', netpol:'NetworkPolicy', networkpolicy:'NetworkPolicy', sa:'ServiceAccount', serviceaccount:'ServiceAccount', server:'Server' }
 // @-syntax: @ → kind hints; @pod: → resources; @pod:ns/ → ns-scoped resources; @pod:ns/name → filtered
 const MENTION_RE = /@(\w*):([^@\s]*)$/
 const AT_RE = /@(\w*)$/
@@ -101,6 +101,18 @@ function selectSlashItem(item) {
   input.value = t(item.bodyKey)     // 剧本:替换整个输入框(spec D1,插入后可编辑)
   clearSlash()
   nextTick(() => { if (taEl.value) { taEl.value.style.height = 'auto'; taEl.value.focus?.() } })
+}
+
+// @server 搜索:与 doSearch 同构但无 namespace 维度(server 无 ns,不做 ns/ 斜杠解析)
+async function doServerSearch(q) {
+  searching.value = true
+  searchOpen.value = true
+  try {
+    const data = await workbenchApi.search(props.projectId, 'server', q)
+    searchResults.value = (data && data.items) || []
+    activeIndex.value = searchResults.value.length ? 0 : -1
+  } catch { searchResults.value = [] }
+  finally { searching.value = false }
 }
 
 async function doSearch(kind, q, ns) {
@@ -135,14 +147,14 @@ watch(input, (val) => {
     const rawQuery = m[2]
     const kind = KIND_ALIASES[alias]
     if (!kind) { clearSearch(); return }
-    // Parse ns/name from query: "default/nginx" → ns=default, q=nginx; "nginx" → q=nginx
-    let ns = null, q = rawQuery
-    if (rawQuery.includes('/')) { const [n, ...rest] = rawQuery.split('/'); ns = n; q = rest.join('/') }
-    // 切到搜索模式:清掉 kind hints(否则模板 v-if="kindHints.length" 持续命中,搜索结果永不显示);
-    // 立即置 searching=true,避免 200ms debounce 期间先闪一下"无匹配资源"。
     kindHints.value = []
     searching.value = true
     searchOpen.value = true
+    // server 无 namespace,整体作为查询词(含 / 也不切)
+    if (kind === 'server') { debounceTimer = setTimeout(() => doServerSearch(rawQuery), 200); return }
+    // Parse ns/name from query: "default/nginx" → ns=default, q=nginx; "nginx" → q=nginx
+    let ns = null, q = rawQuery
+    if (rawQuery.includes('/')) { const [n, ...rest] = rawQuery.split('/'); ns = n; q = rest.join('/') }
     debounceTimer = setTimeout(() => doSearch(kind, q, ns), 200)
   } else {
     // @alias (no colon yet) → show kind hints immediately
@@ -162,7 +174,7 @@ watch(input, (val) => {
 })
 
 function selectRef(item) {
-  refs.value.push({ kind: item.kind, namespace: item.namespace, name: item.name })
+  refs.value.push({ kind: item.kind, namespace: item.namespace || '', name: item.name })
   // 从 input 删除 @kind:query token
   input.value = input.value.replace(MENTION_RE, '').trimEnd()
   clearSearch()
@@ -227,7 +239,7 @@ const HINTS = computed(() => [
   t('workbench.chat.hintListFiles'),
 ])
 
-const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns', Node:'memory', Persistentvolume:'sd_storage', Persistentvolumeclaim:'save', Storageclass:'database', Networkpolicy:'shield', Serviceaccount:'badge' }
+const KIND_ICONS = { Pod:'podcasts', Deployment:'deployed_code', Service:'hub', Namespace:'folder', Ingress:'dns', ConfigMap:'description', Secret:'lock', StatefulSet:'storage', DaemonSet:'dns', Node:'memory', Persistentvolume:'sd_storage', Persistentvolumeclaim:'save', Storageclass:'database', Networkpolicy:'shield', Serviceaccount:'badge', Server:'dns' }
 function refIcon(kind) {
   if (!kind) return 'label'
   const k = kind.charAt(0).toUpperCase() + kind.slice(1).replace(/s$/, '')
@@ -1050,7 +1062,7 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <div v-for="(r, i) in refs" :key="i" class="flex items-center gap-xs bg-primary/10 border border-primary/20 rounded-lg px-sm py-xs">
           <span class="material-symbols-outlined text-sm text-primary">{{ refIcon(r.kind) }}</span>
           <span class="text-body-xs font-mono font-semibold text-primary">{{ r.name }}</span>
-          <span class="text-body-xs text-on-surface-variant">{{ r.namespace }}</span>
+          <span v-if="r.namespace" class="text-body-xs text-on-surface-variant">{{ r.namespace }}</span>
           <button @click="removeRef(i)" class="ml-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
       </div>
@@ -1116,8 +1128,10 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
               <span class="material-symbols-outlined text-base text-primary">{{ refIcon(item.kind) }}</span>
               <div class="flex flex-col">
                 <span class="text-body-sm font-mono font-semibold text-on-surface">{{ item.name }}</span>
-                <span class="text-body-xs text-on-surface-variant">{{ item.namespace }}</span>
+                <span v-if="item.kind === 'server'" class="text-body-xs text-on-surface-variant">{{ item.description }}</span>
+                <span v-else class="text-body-xs text-on-surface-variant">{{ item.namespace }}</span>
               </div>
+              <span v-if="item.kind === 'server' && item.clusterRef" class="ml-auto text-body-xs font-mono text-on-surface-variant border border-outline-variant rounded px-xs">{{ item.clusterRef }}</span>
             </button>
           </template>
         </div>
