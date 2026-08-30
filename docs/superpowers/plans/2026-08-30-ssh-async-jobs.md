@@ -40,7 +40,7 @@
   - `killScript({ jobId }) -> string`;`sweepScript({ ttlMin }) -> string`
   - `capBlocks(maxOutMb) -> number`(= ceil(maxOutMb*1024*1024/4096))
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 // server/ssh/job-remote.test.mjs
@@ -147,12 +147,12 @@ test('sweepScript:按 ttl 找目录删;capBlocks 数学', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test server/ssh/job-remote.test.mjs`
 Expected: FAIL(模块不存在)
 
-- [ ] **Step 3: 实现 job-remote.mjs**
+- [x] **Step 3: 实现 job-remote.mjs**
 
 ```js
 // SSH 异步任务远端命令拼装/解析(纯函数,零 IO)。规格 2026-08-30 §3。
@@ -240,12 +240,12 @@ export function stdinWriteScript({ jobId, text }) {
 
 若改用此形态,**同步修正 Step 1 测试**的断言形状为 `exec 9<>'/tmp/.ab-job/<ID>/in'`(引号形状以实现为准,测试锁行为:O_RDWR 打开 + exit 3 + shQuote 文本)。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `node --test server/ssh/job-remote.test.mjs`
 Expected: PASS(9 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/ssh/job-remote.mjs server/ssh/job-remote.test.mjs
@@ -263,7 +263,7 @@ git commit -m "feat(ssh): 异步任务远端命令拼装/解析纯函数——la
 **Interfaces:**
 - Produces: `resolveJobPolicy(getFn, env) -> { ttlMin:number, maxPerServer:number }`;默认 `{ ttlMin: 120, maxPerServer: 4 }`;设置键 `ssh.job.ttlMin` / `ssh.job.maxPerServer`;env `SSH_JOB_TTL_MIN` / `SSH_JOB_MAX_PER_SERVER`。范围:ttlMin 1..10080,maxPerServer 1..16,越界回落默认。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 // server/ssh/job-policy.test.mjs
@@ -284,9 +284,9 @@ test('默认值;设置>env>默认;越界回落默认', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-policy.test.mjs` → FAIL
+- [x] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-policy.test.mjs` → FAIL
 
-- [ ] **Step 3: 实现**(镜像 `reap-policy.mjs` 的 resolvePolicy 形状)
+- [x] **Step 3: 实现**(镜像 `reap-policy.mjs` 的 resolvePolicy 形状)
 
 ```js
 // SSH 异步任务策略:设置>env>默认(每跳现读,改动即时生效)。规格 2026-08-30 §4。
@@ -303,8 +303,8 @@ export function resolveJobPolicy(getFn, env = {}) {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-policy.test.mjs` → PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-policy.test.mjs` → PASS
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/ssh/job-policy.mjs server/ssh/job-policy.test.mjs
@@ -333,7 +333,7 @@ git commit -m "feat(ssh): 异步任务策略 resolveJobPolicy——设置>env>�
   - `sweep() -> Promise<void>`(便捷组合:遍历 sweepServerIds 逐台 sweepServer)
   - 内部 `execOnce(pool, serverId, label, cmd) -> { stdout:Buffer, stderr:string, exitCode, timedOut }`(settle 单次结算闩模式,总定时器 15s,覆盖死连接;与 agent-bridge exec 同款但**不改它**——那是经过 sudo/stdin 审计的已测代码, duplication 是有意决策)
 
-- [ ] **Step 1: 写失败测试**(沿用 agent-bridge.test.mjs 的 fakeDb + fakeStream 模式)
+- [x] **Step 1: 写失败测试**(沿用 agent-bridge.test.mjs 的 fakeDb + fakeStream 模式)
 
 ```js
 // server/ssh/job-bridge.test.mjs
@@ -470,9 +470,9 @@ test('not-exposed 不泄露 host', async () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-bridge.test.mjs` → FAIL
+- [x] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-bridge.test.mjs` → FAIL
 
-- [ ] **Step 3: 实现 job-bridge.mjs**
+- [x] **Step 3: 实现 job-bridge.mjs**
 
 ```js
 // AI↔SSH 异步任务桥(规格 2026-08-30 §3-5):启动/读输出/stdin 应答/列表/终止。
@@ -635,8 +635,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
 
 实现时把 Global Constraints 的 clamp 常量**放本文件导出**(上方代码已含),Task 1 测试无需引用它们。
 
-- [ ] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-bridge.test.mjs` → PASS(10 tests)
-- [ ] **Step 5: Commit**
+- [x] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-bridge.test.mjs` → PASS(10 tests)
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/ssh/job-bridge.mjs server/ssh/job-bridge.test.mjs
@@ -658,7 +658,7 @@ git commit -m "feat(ssh): 异步任务桥——run/out/write/list/kill 五方法
   - 5 个新注册项(name/requiresApproval/exec 挂载点如下,Task 5/6 依赖)
   - `workbenchExcludeTools` 行为零变化(零暴露时隐藏全部 9 个 SSH 工具)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 // server/tool-registry.test.mjs
@@ -688,9 +688,9 @@ test('SSH_HIDDEN_TOOLS 单一事实源导出(供 workbench-prompt 同源)', () =
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/tool-registry.test.mjs` → FAIL
+- [x] **Step 2: 跑测试确认失败** — `node --test server/tool-registry.test.mjs` → FAIL
 
-- [ ] **Step 3: 修改 tool-registry.mjs**
+- [x] **Step 3: 修改 tool-registry.mjs**
 
 (a) WB 数组(`wb_ssh_read_file` 条目之后、`.map(t => ({ ...t, principal: 'platform', exec: t.exec }))` 之前)追加:
 
@@ -730,8 +730,8 @@ export const SSH_HIDDEN_TOOLS = ['wb_ssh_exec', 'wb_ssh_read_file', 'read_server
   'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_write', 'wb_ssh_job_list', 'wb_ssh_job_kill']
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — `node --test server/tool-registry.test.mjs` → PASS;回归 `node --test server/workbench-agent.test.mjs server/agent-runner-workbench.test.mjs` → PASS(零暴露隐藏语义不变)
-- [ ] **Step 5: Commit**
+- [x] **Step 4: 跑测试确认通过** — `node --test server/tool-registry.test.mjs` → PASS;回归 `node --test server/workbench-agent.test.mjs server/agent-runner-workbench.test.mjs` → PASS(零暴露隐藏语义不变)
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tool-registry.mjs server/tool-registry.test.mjs
@@ -751,7 +751,7 @@ git commit -m "feat(ssh): 注册表登记异步任务 5 工具+SSH_HIDDEN_TOOLS 
 - Consumes: Task 4 导出的 `SSH_HIDDEN_TOOLS`
 - Produces: `buildWorkbenchSystemPrompt({ sshServers: [] })` 的产物**不含任何** SSH_HIDDEN_TOOLS 工具名;`sshServers` 非空时含。透明面板 `tools` 数组同语义。
 
-- [ ] **Step 1: 写失败测试**(追加到现有 `server/workbench-prompt.test.mjs`)
+- [x] **Step 1: 写失败测试**(追加到现有 `server/workbench-prompt.test.mjs`)
 
 ```js
 test('P0 同源:零暴露时提示词不出现任何 SSH 工具名;有暴露时出现', () => {
@@ -767,9 +767,9 @@ test('P0 同源:零暴露时提示词不出现任何 SSH 工具名;有暴露时�
 
 (按该测试文件现有 import 形状引入 `buildWorkbenchSystemPrompt`;若它是逐字断言风格,新用例独立成 test 块即可。)
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/workbench-prompt.test.mjs` → 新用例 FAIL(零暴露提示词含 wb_ssh_exec 等)
+- [x] **Step 2: 跑测试确认失败** — `node --test server/workbench-prompt.test.mjs` → 新用例 FAIL(零暴露提示词含 wb_ssh_exec 等)
 
-- [ ] **Step 3: 修改 workbench-prompt.mjs**
+- [x] **Step 3: 修改 workbench-prompt.mjs**
 
 ```js
 import { registry, SSH_HIDDEN_TOOLS } from './tool-registry.mjs'
@@ -788,7 +788,7 @@ import { registry, SSH_HIDDEN_TOOLS } from './tool-registry.mjs'
 
 (原 `const tools = ...` 与 `const list = ...` 的先后顺序调整:list 先算,tools 后算。)
 
-- [ ] **Step 4: 修改 workbench-conversations.mjs ai-config 端点**
+- [x] **Step 4: 修改 workbench-conversations.mjs ai-config 端点**
 
 ```js
       const sshServers = sshPromptServers()
@@ -805,8 +805,8 @@ import { registry, SSH_HIDDEN_TOOLS } from './tool-registry.mjs'
 
 (顶部 import 处加 `SSH_HIDDEN_TOOLS`。)
 
-- [ ] **Step 5: 跑测试确认通过** — `node --test server/workbench-prompt.test.mjs server/routes/` 下相关路由测试 → PASS;回归 `node --test server/workbench-prompt.test.mjs`
-- [ ] **Step 6: Commit**
+- [x] **Step 5: 跑测试确认通过** — `node --test server/workbench-prompt.test.mjs server/routes/` 下相关路由测试 → PASS;回归 `node --test server/workbench-prompt.test.mjs`
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/workbench-prompt.mjs server/workbench-prompt.test.mjs server/routes/workbench-conversations.mjs
@@ -831,7 +831,7 @@ git commit -m "fix(workbench): 提示词/透明面板与工具 offering 同源�
   - dynamicApproval 复合路由:`wb_ssh_job_*` → jobBridge.needsApproval,其余 → 原逻辑
   - 审计:run/write/kill = write,out/list = read;resource 沿用 `SshServer/<server>` 分支(run 发生时尚无 jobId;jobId 已含于 requestSummary 的 args JSON)
 
-- [ ] **Step 1: 写失败测试**(追加到 `server/agent-runner-workbench.test.mjs`,沿用其现有 fake 形状)
+- [x] **Step 1: 写失败测试**(追加到 `server/agent-runner-workbench.test.mjs`,沿用其现有 fake 形状)
 
 ```js
 test('动态审批路由:wb_ssh_job_* 走 sshJobs.needsApproval,其余走 ssh.needsApproval', async () => {
@@ -851,9 +851,9 @@ test('动态审批路由:wb_ssh_job_* 走 sshJobs.needsApproval,其余走 ssh.ne
 
 (实现者按该测试文件现有的 runner 驱动方式落地此用例——文件里已有 approval 路径的测试可照抄驱动方式;断言核心是**路由分流**,不是审批值本身。)
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/agent-runner-workbench.test.mjs` → FAIL(ctx.sshJobs 不存在/路由不分流)
+- [x] **Step 2: 跑测试确认失败** — `node --test server/agent-runner-workbench.test.mjs` → FAIL(ctx.sshJobs 不存在/路由不分流)
 
-- [ ] **Step 3: 修改 index.mjs**
+- [x] **Step 3: 修改 index.mjs**
 
 (a) import 区(`server/ssh/agent-bridge.mjs` import 旁):
 
@@ -897,7 +897,7 @@ const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__
 
 (e) `createMcpServer({...})` 调用点(index.mjs:568)追加 dep:`getJobPolicy: getSshJobPolicy`(Task 7 消费)。
 
-- [ ] **Step 4: 修改 workbench-agent.mjs(两处装配同改)**
+- [x] **Step 4: 修改 workbench-agent.mjs(两处装配同改)**
 
 `runConversation` 与 `resumeConversation` 中,原:
 
@@ -925,7 +925,7 @@ const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__
         : undefined,
 ```
 
-- [ ] **Step 5: 修改 agent-runner.mjs**
+- [x] **Step 5: 修改 agent-runner.mjs**
 
 (a) WRITE_TOOLS(line 13)追加 `'wb_ssh_run', 'wb_ssh_job_write'`(`wb_ssh_job_kill` 语义上是 write verb——也加入;kick 三个都算变更类):
 
@@ -942,8 +942,8 @@ const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_ro
 
 (c) wbAuditIntent 不改(资源归因沿用 `args.server` → `SshServer/<server>` 分支;run 时 jobId 尚不存在,jobId 已在 requestSummary 的 args JSON 里——此为对规格 §5 的落地解释,写进提交信息)。
 
-- [ ] **Step 6: 跑测试** — `node --test server/agent-runner-workbench.test.mjs server/workbench-agent.test.mjs server/ssh/job-bridge.test.mjs` → PASS
-- [ ] **Step 7: Commit**
+- [x] **Step 6: 跑测试** — `node --test server/agent-runner-workbench.test.mjs server/workbench-agent.test.mjs server/ssh/job-bridge.test.mjs` → PASS
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/index.mjs server/workbench-agent.mjs server/agent-runner.mjs server/agent-runner-workbench.test.mjs server/ssh/job-bridge.mjs
@@ -965,7 +965,7 @@ git commit -m "feat(ssh): 异步任务接线——ctx.sshJobs/动态审批分流
   - `SSH_KEY_TOOLS = ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file', 'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_list']`(write/kill 不入——keyMode 无人审)
   - mcp.mjs 增 `sshJobBridgeFor(keyRow)`(per-key 惰性 map,`projectId: '__key__'`,`getPolicy` 来自新 dep `getJobPolicy`)
 
-- [ ] **Step 1: 写失败测试**(追加到 `server/mcp.test.mjs`,沿用其 handleMcpMessage 驱动方式)
+- [x] **Step 1: 写失败测试**(追加到 `server/mcp.test.mjs`,沿用其 handleMcpMessage 驱动方式)
 
 ```js
 test('MCP:sshAccess key 可列可调 wb_ssh_run/job_out/job_list;write/kill 不在列且被拒', async () => {
@@ -978,16 +978,16 @@ test('MCP:sshAccess key 可列可调 wb_ssh_run/job_out/job_list;write/kill 不�
 
 (用例主体按 mcp.test.mjs 现有 SSH 用例的 fake keyRow/bridge 组装逐字扩写;断言四点:列得出、分派到达、verb 正确、write/kill 被拒。)
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/mcp.test.mjs` → FAIL
+- [x] **Step 2: 跑测试确认失败** — `node --test server/mcp.test.mjs` → FAIL
 
-- [ ] **Step 3: 修改 authorize.mjs**
+- [x] **Step 3: 修改 authorize.mjs**
 
 ```js
 export const SSH_KEY_TOOLS = ['read_server_ledger', 'wb_ssh_exec', 'wb_ssh_read_file',
   'wb_ssh_run', 'wb_ssh_job_out', 'wb_ssh_job_list']
 ```
 
-- [ ] **Step 4: 修改 mcp.mjs**
+- [x] **Step 4: 修改 mcp.mjs**
 
 (a) import:
 
@@ -1032,8 +1032,8 @@ import { resolveJobPolicy } from './ssh/job-policy.mjs'
 
 (d) `createMcpServer` 返回/handle 调用处(index.mjs:126 的 `handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db, sshBridgeFor })`)补 `sshJobBridgeFor`。
 
-- [ ] **Step 5: 跑测试确认通过** — `node --test server/mcp.test.mjs server/authorize.test.mjs` → PASS
-- [ ] **Step 6: Commit**
+- [x] **Step 5: 跑测试确认通过** — `node --test server/mcp.test.mjs server/authorize.test.mjs` → PASS
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/authorize.mjs server/mcp.mjs server/mcp.test.mjs
@@ -1053,7 +1053,7 @@ git commit -m "feat(ssh): MCP 通道异步任务——SSH_KEY_TOOLS 扩 3 项+pe
 - Consumes: Task 2 `resolveJobPolicy`;admin.mjs 现有 deps(`getSshSessionPolicy` 注入模式,index.mjs:1479)
 - Produces: `GET /api/admin/ssh-job-policy` → `{ ttlMin, maxPerServer }`;`PUT` 部分更新(键 `ttlMin`/`maxPerServer`,范围校验 1..10080 / 1..16),审计 tool=`ssh_job_policy`;设置键 `ssh.job.ttlMin` / `ssh.job.maxPerServer`
 
-- [ ] **Step 1: 写失败测试**(复制 `session-policy-routes.test.mjs` 的 harness,替换路由与键)
+- [x] **Step 1: 写失败测试**(复制 `session-policy-routes.test.mjs` 的 harness,替换路由与键)
 
 ```js
 // server/ssh/job-policy-routes.test.mjs —— 断言:
@@ -1065,8 +1065,8 @@ git commit -m "feat(ssh): MCP 通道异步任务——SSH_KEY_TOOLS 扩 3 项+pe
 
 (测试体按被复制文件的实际结构填写——该文件是本仓同类路由的既定测试形状,复制后替换 6 处标识符即可,禁止凭空新造 harness。)
 
-- [ ] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-policy-routes.test.mjs` → FAIL(404)
-- [ ] **Step 3: 实现**(admin.mjs,session-policy PUT 路由块之后,结构逐字镜像):
+- [x] **Step 2: 跑测试确认失败** — `node --test server/ssh/job-policy-routes.test.mjs` → FAIL(404)
+- [x] **Step 3: 实现**(admin.mjs,session-policy PUT 路由块之后,结构逐字镜像):
 
 ```js
     if (url.pathname === '/api/admin/ssh-job-policy' && req.method === 'GET') {
@@ -1095,8 +1095,8 @@ git commit -m "feat(ssh): MCP 通道异步任务——SSH_KEY_TOOLS 扩 3 项+pe
 
 (createAdminRoutes 的 deps 解构处加 `getSshJobPolicy`;index.mjs 组 deps 对象处加同名键。)
 
-- [ ] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-policy-routes.test.mjs server/ssh/session-policy-routes.test.mjs` → PASS(后者回归)
-- [ ] **Step 5: Commit**
+- [x] **Step 4: 跑测试确认通过** — `node --test server/ssh/job-policy-routes.test.mjs server/ssh/session-policy-routes.test.mjs` → PASS(后者回归)
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/routes/admin.mjs server/index.mjs server/ssh/job-policy-routes.test.mjs
@@ -1115,7 +1115,7 @@ git commit -m "feat(ssh): admin 任务策略端点——GET/PUT /api/admin/ssh-j
 - Consumes: 全部前序任务的成品(经真实 sshd 的完整链路)
 - Produces: e2e 通过记录 + 运维清单文档
 
-- [ ] **Step 1: 写 e2e 脚本**
+- [x] **Step 1: 写 e2e 脚本**
 
 复制 `scripts/key-ssh-e2e.mjs` 的连接方式(其 env/鉴权形状照抄),目标主机用 env `SSHJOBS_E2E_HOST`(缺省 127.0.0.1,可指向本机 sshd 或 kind 节点)。断言序列(每步打印 ✓,失败 exit 1):
 
@@ -1128,15 +1128,15 @@ git commit -m "feat(ssh): admin 任务策略端点——GET/PUT /api/admin/ssh-j
 7. `PUT /api/admin/ssh-job-policy {ttlMin:1}` → 200;再设回 120
 8. 非法 `timeoutMin:999` 启动 → 实际拼装含 `120m`(从 job_list/远端 meta 验证)
 
-- [ ] **Step 2: 跑 e2e** — `node scripts/ssh-jobs-e2e.mjs` → 全断言 ✓(环境无 sshd 时记录 SKIP 原因到 ops 文档,不阻塞门禁)
-- [ ] **Step 3: 全量门禁**
+- [x] **Step 2: 跑 e2e** — `node scripts/ssh-jobs-e2e.mjs` → 全断言 ✓(环境无 sshd 时记录 SKIP 原因到 ops 文档,不阻塞门禁)
+- [x] **Step 3: 全量门禁**
 
 ```bash
 node --test server/ && npm run i18n:check && npm run build
 ```
 Expected: 全绿(本特性零新 i18n 键)
 
-- [ ] **Step 4: 写运维清单** `docs/superpowers/specs/2026-08-30-ssh-async-jobs-ops.md`
+- [x] **Step 4: 写运维清单** `docs/superpowers/specs/2026-08-30-ssh-async-jobs-ops.md`
 
 内容(照规格 §8 展开,每条带验证命令/页面路径):
 1. 集群实例镜像更新(SSH 桥已在 origin/main):pull 最新镜像 + rollout restart
@@ -1146,7 +1146,7 @@ Expected: 全绿(本特性零新 i18n 键)
 5. 任务产物位置/清理语义(`/tmp/.ab-job`,TTL 120min,admin 可调 `PUT /api/admin/ssh-job-policy`)
 6. 已知边界:Linux-only、无 sudo 长任务、输出 64MB 封顶
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/ssh-jobs-e2e.mjs docs/superpowers/specs/2026-08-30-ssh-async-jobs-ops.md
