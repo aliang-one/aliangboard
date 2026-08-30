@@ -498,9 +498,21 @@ async function discoverEndpoints(session) {
   }
 }
 
+// CSO 2026-08-30 #2:K8s 代理目标必须与本次请求的 endpoint 同源。
+// new URL 的协议相对路径('//host/x')与反斜杠都会改写 authority —— 不校验时网关会把
+// 集群凭证(authHeader/客户端证书)发往任意主机。此处是唯一收口:所有 K8s 出站都经 requestOnce/流式分支。
+function assertSameOrigin(target, endpoint) {
+  if (target.origin !== endpoint.origin) {
+    const err = new Error(`K8s 代理目标越界: ${target.host} 不在 ${endpoint.host} 同源范围内`)
+    err.status = 403
+    throw err
+  }
+  return target
+}
+
 // 单端点请求（不转移）：给指定 endpoint 发一次请求，返回 {status, headers, body}，失败抛错。
 async function requestOnce(session, endpoint, path, init = {}) {
-  const target = new URL(path, endpoint)
+  const target = assertSameOrigin(new URL(path, endpoint), endpoint)
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
@@ -2038,7 +2050,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
   if (isStreaming) {
     try {
-      const target = new URL(kubernetesPath, currentEndpoint(session))
+      const ep = currentEndpoint(session)
+      const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
       const upstream = await kubeFetch(target, {
         method: 'GET',
         headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
