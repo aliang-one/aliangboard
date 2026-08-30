@@ -385,10 +385,7 @@ function loadPersistedSessions() {
   if (sessions.size) console.log(`[sqlite] 已恢复 ${sessions.size} 个集群会话`)
 }
 
-if (process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-  console.warn('WARNING: Kubernetes TLS certificate verification is disabled')
-}
+// CSO 2026-08-30 #9:进程级 TLS 开关已移除;K8S_INSECURE_SKIP_TLS_VERIFY 仅在 buildCallContext 内按会话生效
 
 // CORS 单源(2026-08-28 架构治理):此前 4 处手拼同一表达式,漂移即事故;收敛于此。
 function corsOrigin() { return process.env.CORS_ORIGIN || '*' }
