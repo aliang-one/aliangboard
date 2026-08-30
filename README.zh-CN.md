@@ -183,7 +183,7 @@ Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 设置」里填写 `ba
 | `SESSION_TTL_MS` | `28800000` | 内存会话有效期,默认 8 小时 |
 | `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API 请求超时,单位毫秒 |
 | `K8S_ALLOWED_HOSTS` | 空 | API server 主机白名单,逗号分隔 |
-| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | 跳过集群证书校验;仅限开发环境使用 |
+| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | 跳过集群证书校验**仅对 K8s 会话生效**;不关闭进程级 TLS(LLM/版本检查等不受影响)。仅限开发/自签环境使用 |
 | `PORT_FORWARD_HOST` | `127.0.0.1` | 端口转发本地监听地址(与 kubectl port-forward 相同;只监听网关主机本地,浏览器须能访问到) |
 | `LLM_BASE_URL` | 空 | OpenAI 兼容的 LLM baseURL(也可在管理后台「LLM 设置」中配置) |
 | `LLM_MODEL` | 空 | LLM 模型名(也可在管理后台配置) |
@@ -201,7 +201,30 @@ Agent 走 **OpenAI 兼容协议**。在管理后台「LLM 设置」里填写 `ba
 K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 ```
 
-生产环境请勿跳过 TLS 校验;应改为给 API 网关配置可信 CA,并设置 `K8S_ALLOWED_HOSTS` 与准确的 `CORS_ORIGIN`。
+**注意**:该变量仅影响 K8s 会话的 TLS 校验(到集群 API server 的连接)。不关闭进程级 TLS 校验(LLM 调用/版本检查等)。仅限开发/自签环境使用。
+
+## 🔒 生产部署安全要求
+
+### TLS 终结
+
+**生产部署必须在边缘层终结 TLS**(反向代理或 Ingress Controller)。`deployment.yaml` 默认的 NodePort 暴露仅限内网评估使用。
+
+- **Ingress(推荐)**:参考 `deploy/ingress-tls.yaml` 完整 nginx Ingress + TLS 示例
+  - TLS 在 Ingress 层终结
+  - 后端 Service 保持明文 HTTP (containerPort: 8787)
+  - 支持 cert-manager 自动化或手工 TLS secret
+- **其他反向代理**:配置 nginx/HAProxy/Envory 等 TLS 终结后代理到 NodePort 或 Service
+
+### K8s 会话 TLS
+
+`K8S_INSECURE_SKIP_TLS_VERIFY` 环境变量具有**会话级语义**:
+
+- **作用范围**:仅控制 K8s 集群连接的 TLS 校验(会话级)
+- **不影响**:进程级 TLS(LLM API 调用、版本检查等)
+- **使用场景**:仅限开发/自签证书集群
+- **生产环境**:应配置可信 CA 与 `K8S_ALLOWED_HOSTS`
+
+生产环境未经安全审查不得跳过 TLS 校验。
 
 ## 🔐 RBAC 建议
 

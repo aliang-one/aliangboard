@@ -1,0 +1,50 @@
+# AliangBoard Ingress + TLS 示例
+#
+# 此清单展示如何通过 nginx Ingress Controller 暴露 AliangBoard 并启用 TLS。
+#
+# TLS 终结:
+#   TLS 连接在 Ingress 层终结,后端 Service 仍为明文 HTTP (containerPort: 8787)。
+#   明文 NodePort (deployment.yaml) 仅限内网评估使用,生产环境必须启用 TLS。
+#
+# Secret 来源 (二选一):
+#   1. cert-manager 自动管理 (推荐):
+#      - 在 ingress 上添加 annotation: cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#      - cert-manager 自动创建 secretName 指定的 TLS Secret
+#   2. 手工创建 Secret:
+#      kubectl -n aliangboard create secret tls aliangboard-tls \
+#        --cert=path/to/tls.crt --key=path/to/tls.key
+#
+# 使用前:
+#   1. 确保 nginx Ingress Controller 已安装 (kubectl get ingressclass nginx)
+#   2. 将 board.example.com 替换为你的实际域名
+#   3. 确保 DNS 已指向 Ingress Controller 的外部 IP
+#   4. 应用: kubectl apply -f deploy/ingress-tls.yaml
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aliangboard
+  namespace: aliangboard
+  labels:
+    app: aliangboard
+  annotations:
+    # cert-manager 自动证书 (可选,需安装 cert-manager)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - board.example.com
+      secretName: aliangboard-tls
+  rules:
+    - host: board.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aliangboard
+                port:
+                  number: 8787
