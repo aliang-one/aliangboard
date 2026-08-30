@@ -89,18 +89,45 @@ const first = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: job
 const second = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: jobId3, offset: first.offset }))
 ok('4. offset 增量(首读含内容,续读空块)', (first.chunk || '').length > 0 && (second.chunk || '') === '' && second.offset === first.offset)
 
-// 5) kill 步骤 1 的任务(wb 通道执行)→ job_list 状态改变/进程消失
-await wbTurn(`在服务器 jobs-e2e 上,用 wb_ssh_job_kill 终止任务 jobId=${jobId},然后发 wb_ssh_job_list 给我看结果。不要做别的。`)
-await sleep(2000)
-const r5 = text(await call('wb_ssh_job_list', { server: 'jobs-e2e' }))
-const after = (r5.jobs || []).find(x => x.jobId === jobId)
-ok('5. kill 后任务不再 RUNNING', !after || after.exitCode !== null)
+// 5) kill 步骤 1 的任务(wb 通道执行)→ 终止信号可辨。job-bridge 真实语义:killScript 杀整个
+//    进程组(含 wrapper),`if [ -f .rc ]` 永不执行 → 远端无 code 文件 ⇒ job_out 报
+//    running=false + exitCode=null,而 out 里步骤 1 已落盘的 'ready' 仍在(size>0)。
+//    「被杀」签名 = size>0 + running=false + exitCode=null 且无 error;若 job_out 报
+//    「任务不存在」或 size=0,则与「从未存在」不可区分 → 判失败(不虚过)。
+//    前置自愈:步骤 1 的 sleep 60 可能已被前面 LLM 轮耗时自然跑完(exitCode=0 正常收尾),
+//    那样 kill 断言会空转——先确认活体;已死则重新起一个同款长任务作受害者。
+let victim = jobId
+let pre = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: victim }))
+if (pre.running !== true || !(pre.size > 0)) {
+  const r5b = text(await call('wb_ssh_run', { server: 'jobs-e2e', command: "printf 'ready\\n'; sleep 60" }))
+  if (!r5b.jobId) pre = {}
+  else {
+    victim = r5b.jobId
+    await sleep(2000)
+    pre = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: victim }))
+  }
+}
+ok('5a. kill 前置:受害者任务在跑且有输出', pre.running === true && pre.size > 0)
+await wbTurn(`在服务器 jobs-e2e 上,用 wb_ssh_job_kill 终止任务 jobId=${victim},然后发 wb_ssh_job_list 给我看结果。不要做别的。`)
+let o5 = {}
+for (let i = 0; i < 15; i++) {
+  o5 = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: victim }))
+  if (o5.running === false) break
+  await sleep(1000)
+}
+ok('5b. kill 后「被杀」签名可辨(size>0 + running=false + exitCode=null,非「任务不存在」)',
+  !o5.error && o5.size > 0 && o5.running === false && (o5.exitCode ?? null) === null)
 
 // 6) 注入防线:jobId '../../etc'
 const badOut = text(await call('wb_ssh_job_out', { server: 'jobs-e2e', jobId: '../../etc' }))
 ok('6a. job_out 注入 jobId → 明确报错', (badOut.error || '').includes('非法'))
-const badWrite = await call('wb_ssh_job_write', { server: 'jobs-e2e', jobId: '../../etc', text: 'x' })
-ok('6b. job_write 注入 jobId → fail-closed(key 通道不可调,无执行)', badWrite.result == null || !!badWrite.error || !!(badWrite.result && badWrite.result.content))
+// key 通道没有 wb_ssh_job_write(不在 SSH_KEY_TOOLS)→ 分派落到集群工具层:未知工具 throw
+// PermissionDeniedError → JSON-RPC -32603;或(key 未绑集群)isError:true。断言「肯定被拒」:
+// JSON-RPC error 对象 与 isError===true 二者必居其一,且响应里不得出现桥的成功形状 {ok:true}。
+const w6 = await call('wb_ssh_job_write', { server: 'jobs-e2e', jobId: '../../etc', text: 'x' })
+const denied6b = w6.error != null || w6.result?.isError === true
+ok('6b. job_write 注入 jobId → 明确被拒(isError/JSON-RPC error,非成功形状)',
+  denied6b && !JSON.stringify(w6.result?.content || '').includes('"ok":true'))
 
 // 7) admin 策略可调:ttlMin=1 → 200;设回 120
 const p1 = await fetch(`${BASE}/api/admin/ssh-job-policy`, { method: 'PUT', headers: H, body: JSON.stringify({ ttlMin: 1 }) })
