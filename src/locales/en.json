@@ -3868,7 +3868,7 @@
   "secret": {
     "templateTls": "Contains tls.crt (certificate) + tls.key (private key)",
     "templateSsh": "Contains ssh-privatekey{known_hosts ? ' + known_hosts' : ''}",
-    "templateBasicAuth": "Username: <span class=\"font-mono\">{username}</span>",
+    "basicAuthUsernameLabel": "Username",
     "templateAws": "AWS credentials (3 keys)",
     "templateDb": "Database connection ({count} keys)"
   },

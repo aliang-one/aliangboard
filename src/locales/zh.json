@@ -3868,7 +3868,7 @@
   "secret": {
     "templateTls": "包含 tls.crt (证书) + tls.key (私钥)",
     "templateSsh": "包含 ssh-privatekey{known_hosts ? ' + known_hosts' : ''}",
-    "templateBasicAuth": "用户: <span class=\"font-mono\">{username}</span>",
+    "basicAuthUsernameLabel": "用户名",
     "templateAws": "AWS 凭证 (3 keys)",
     "templateDb": "数据库连接 ({count} keys)"
   },
