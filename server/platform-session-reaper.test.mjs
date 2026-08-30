@@ -2,7 +2,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { reapExpiredSessions } from './platform-session-reaper.mjs'
+import { reapExpiredSessions, enforceSessionCap } from './platform-session-reaper.mjs'
+import { createAuditSchema, writeAudit } from './audit.mjs'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -11,6 +12,7 @@ function makeDb() {
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
     createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
   db.exec('CREATE TABLE sessions (token TEXT PRIMARY KEY)')
+  createAuditSchema(db)
   return db
 }
 
@@ -64,3 +66,53 @@ test('reap:db 不可用时跳过该条不中断整批(内存仍清)', () => {
   assert.equal(expired, 2)
   assert.equal(platformSessions.size, 0)
 })
+
+test('cap:超限踢最久未活跃,keepToken 永不踢', () => {
+  const { db, platformSessions, sessions } = setup({ rows: [
+    { token: 't-a', createdAt: 1, lastSeenAt: 100 },
+    { token: 't-b', createdAt: 2, lastSeenAt: 300 },
+    { token: 't-keep', createdAt: 3, lastSeenAt: 500 },
+  ] })
+  const { evicted } = enforceSessionCap({ platformSessions, db, sessions, userId: 'u1', owner: 'alice', max: 2, keepToken: 't-keep', now: 600, writeAudit })
+  assert.equal(evicted, 1)
+  assert.equal(platformSessions.has('t-a'), false, '最久未活跃的应被踢')
+  assert.equal(platformSessions.has('t-b'), true)
+  assert.equal(platformSessions.has('t-keep'), true, '本会话永不踢')
+})
+
+test('cap:lastSeenAt 缺省回退 createdAt 排序', () => {
+  const { db, platformSessions } = setup({ rows: [
+    { token: 't-a', createdAt: 50 },              // 无 lastSeenAt → 回退 50,最旧
+    { token: 't-b', createdAt: 100 },
+    { token: 't-keep', createdAt: 200 },
+  ] })
+  const { evicted } = enforceSessionCap({ platformSessions, db, sessions: new Map(), userId: 'u1', owner: 'alice', max: 2, keepToken: 't-keep', now: 300 })
+  assert.equal(evicted, 1)
+  assert.equal(platformSessions.has('t-a'), false)
+})
+
+test('cap:被踢会话 K8s 凭据回收 + 审计写入 platform_session_evict', () => {
+  const { db, platformSessions, sessions } = setup({ rows: [
+    { token: 't-a', createdAt: 1, lastSeenAt: 10, k8s: 'k-a' },
+    { token: 't-keep', createdAt: 2, lastSeenAt: 500 },
+  ] })
+  enforceSessionCap({ platformSessions, db, sessions, userId: 'u1', owner: 'alice', max: 1, keepToken: 't-keep', now: 600, writeAudit })
+  assert.equal(sessions.has('k-a'), false)
+  const row = db.prepare("SELECT owner,tool,requestSummary FROM audit_log WHERE tool='platform_session_evict'").get()
+  assert.ok(row, '应写审计')
+  assert.equal(row.owner, 'alice')
+  assert.match(row.requestSummary, /evicted=1/)
+})
+
+test('cap:未超限不踢不审计;max<1 视作关闭', () => {
+  const { db, platformSessions } = setup({ rows: [
+    { token: 't-a', createdAt: 1 }, { token: 't-b', createdAt: 2 },
+  ] })
+  const r1 = enforceSessionCap({ platformSessions, db, sessions: new Map(), userId: 'u1', owner: 'alice', max: 5, keepToken: 't-b', now: 10, writeAudit })
+  assert.equal(r1.evicted, 0)
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM audit_log WHERE tool='platform_session_evict'").get().c, 0)
+  const r2 = enforceSessionCap({ platformSessions, db, sessions: new Map(), userId: 'u1', owner: 'alice', max: 0, keepToken: 't-b', now: 10, writeAudit })
+  assert.equal(r2.evicted, 0, 'max<1 = 关闭上限')
+  assert.equal(platformSessions.size, 2)
+})
+
