@@ -18,6 +18,19 @@ test('podPathDenied:/proc /sys /dev /run/secrets /var/run/secrets 拒绝', () =>
   for (const p of ['/etc/nginx/nginx.conf', '/var/log/app.log', '/home/app/.env.production']) assert.equal(podPathDenied(p), false, p)
 })
 
+// 终审 R1:归一化防绕过——白名单允许 . .. //,前缀正则原会被以下形态骗过
+test('podPathDenied:归一化后拒绝 //、./、../ 绕过形态', () => {
+  for (const p of [
+    '//run/secrets/x',
+    '/run//secrets/x',
+    '/etc/../run/secrets/kubernetes.io/serviceaccount/token',
+    '/var/./run/secrets/x',
+    '/proc/../proc/self/environ',
+  ]) assert.equal(podPathDenied(p), true, p)
+  // 对照:归一化后仍合法的路径继续放行
+  assert.equal(podPathDenied('/etc/nginx/../nginx/nginx.conf'), false)
+})
+
 test('safePodPath 行为不变(既有字符白名单仍生效)', () => {
   assert.throws(() => safePodPath('a;rm'), Error)
 })

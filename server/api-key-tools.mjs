@@ -450,4 +450,17 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
 // CSO #4:workbench 免审读文件路径的敏感面拒绝清单(只挂在 wb_read_pod_file;
 // api-key 管理员档 read_file 的 /proc 调试语义不受影响)。
 const WB_POD_PATH_DENY = [/^\/proc(?:\/|$)/, /^\/sys(?:\/|$)/, /^\/dev(?:\/|$)/, /^\/run\/secrets(?:\/|$)/, /^\/var\/run\/secrets(?:\/|$)/]
-export function podPathDenied(p) { const s = String(p || ''); return WB_POD_PATH_DENY.some(re => re.test(s)) }
+export function podPathDenied(p) {
+  let s = String(p || '')
+  if (!s.startsWith('/')) return false
+  // 终审 R1:归一化后再判——safePodPath 白名单放行 . .. // 空格,前缀正则会被
+  // '//run/secrets/x'、'/etc/../run/secrets/...' 等形态绕过(cat 解析到的与字面不同)。
+  const out = []
+  for (const seg of s.split('/')) {
+    if (seg === '' || seg === '.') continue // '' 折叠双斜杠;'.' 跳过
+    if (seg === '..') { out.pop(); continue } // 根外的 .. 就地吞掉(路径以 / 开头,越根无意义)
+    out.push(seg)
+  }
+  const norm = '/' + out.join('/')
+  return WB_POD_PATH_DENY.some(re => re.test(norm))
+}

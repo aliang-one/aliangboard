@@ -213,7 +213,7 @@ K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
   - TLS 在 Ingress 层终结
   - 后端 Service 保持明文 HTTP (containerPort: 8787)
   - 支持 cert-manager 自动化或手工 TLS secret
-- **其他反向代理**:配置 nginx/HAProxy/Envory 等 TLS 终结后代理到 NodePort 或 Service
+- **其他反向代理**:配置 nginx/HAProxy/Envoy 等 TLS 终结后代理到 NodePort 或 Service
 
 ### K8s 会话 TLS
 

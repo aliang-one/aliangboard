@@ -1235,8 +1235,9 @@ async function handle(req, res) {
           const buf = Buffer.from(logsText, 'utf8')
           const truncated = buf.length > LOG_MAX
           // CSO #4:日志文本过高精度脱敏(JWT/PEM 私钥/AKIA)——免审工具输出会进 LLM 请求与 trace 落库
-          const logsOut = truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8')
-          return { logs: maskSensitiveText(logsOut), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
+          // 终审 R1:先脱敏后截断——截断点切中 JWT/PEM 会留半截明文;truncated 仍按原始字节判定
+          const logsMasked = maskSensitiveText(buf.toString('utf8'))
+          return { logs: truncated ? logsMasked.slice(0, LOG_MAX) : logsMasked, tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },
         // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
@@ -1250,7 +1251,8 @@ async function handle(req, res) {
           // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
           // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', ['cat', '--', p], false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
-          return { pod: args.pod, path: p, content: maskSensitiveText((r.stdout?.toString('utf8') || '').slice(0, 32768)), timedOut: !!r.timedOut, truncated: !!r.truncated }
+          // 终审 R1:先脱敏后截断,防截断点切中 JWT/PEM 留半截明文
+          return { pod: args.pod, path: p, content: maskSensitiveText(r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
@@ -1421,8 +1423,9 @@ async function handle(req, res) {
           return {
             pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
             // CSO #4:审批通过后输出同样进 LLM/trace,stdout/stderr 一并高精度脱敏
-            stdout: maskSensitiveText((r.stdout?.toString('utf8') || '').slice(0, 32768)),
-            stderr: maskSensitiveText((r.stderr || '').slice(0, 8192)),
+            // 终审 R1:先脱敏后截断,防截断点切中 JWT/PEM 留半截明文
+            stdout: maskSensitiveText(r.stdout?.toString('utf8') || '').slice(0, 32768),
+            stderr: maskSensitiveText(r.stderr || '').slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
             ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }
