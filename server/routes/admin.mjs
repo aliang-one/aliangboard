@@ -21,7 +21,7 @@ export function createAdminRoutes(deps) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword, getSshSessionPolicy, writeAudit, platformSessions, sessions,
+    hashPassword, getSshSessionPolicy, getSshJobPolicy, writeAudit, platformSessions, sessions,
   } = deps
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -165,6 +165,29 @@ export function createAdminRoutes(deps) {
         for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.session.${k}`, String(input[k]))
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_session_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })
         sendJson(res, 200, { ok: true, policy: getSshSessionPolicy() })
+        return true
+      } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+    // ====== SSH 异步任务策略(2026-08-30 spec):ttlMin/maxPerServer 全局,部分更新语义 ======
+    if (url.pathname === '/api/admin/ssh-job-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, getSshJobPolicy())
+      return true
+    }
+    if (url.pathname === '/api/admin/ssh-job-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const keys = ['ttlMin', 'maxPerServer']
+        const range = { ttlMin: [1, 10080], maxPerServer: [1, 16] }
+        for (const k of keys) {
+          if (input[k] === undefined) continue
+          const [lo, hi] = range[k]; const n = Number(input[k])
+          if (!Number.isFinite(n) || n < lo || n > hi) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
+        }
+        for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.job.${k}`, String(input[k]))
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_job_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })
+        sendJson(res, 200, { ok: true, policy: getSshJobPolicy() })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
     }
