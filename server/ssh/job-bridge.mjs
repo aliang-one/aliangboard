@@ -41,6 +41,10 @@ function execOnce(pool, serverId, label, cmd) {
   }))
 }
 
+// 跨实例的服务器活跃名单(T6 sweep 用):每实例的 memory 是私有闭包,网关级 sweep 专用实例
+// 看不到别的实例——run 成功时登记到模块级集合,进程重启即清空(与「重启后该轮不扫」语义一致)。
+const sweepSeenServers = new Set()
+
 export function createSshJobBridge({ db, pool, projectId, getPolicy = () => resolveJobPolicy(), keyMode = false }) {
   const label = `wb:${projectId}`
   const memory = new Map() // jobId -> { serverId, projectId, startedAt }
@@ -92,6 +96,7 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     const launchOut = s.stdout.toString('utf8')
     if (s.timedOut || !/OK/.test(launchOut)) return { error: '任务启动失败(远端不支持 setsid/timeout?异步任务仅支持 Linux 服务器)' }
     memory.set(jobId, { serverId: r.row.id, projectId, startedAt })
+    sweepSeenServers.add(r.row.id)
     // launchScript 输出 = pid 行 + 'OK' 确认行;pid 取首个非 OK 行。
     const pid = launchOut.split('\n').map(l => l.trim()).find(l => l && l !== 'OK') || ''
     return { jobId, pid, server: r.row.name, startedAt, timeoutMin, maxOutMb }
@@ -156,7 +161,7 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
   async function sweepServer(id) {
     try { await execOnce(pool, id, 'wb:__sweep__', sweepScript({ ttlMin: getPolicy().ttlMin })) } catch { /* 单台失败不阻断 */ }
   }
-  const sweepServerIds = () => [...new Set([...memory.values()].map(v => v.serverId))]
+  const sweepServerIds = () => [...sweepSeenServers]
   async function sweep() { for (const id of sweepServerIds()) await sweepServer(id) }
 
   return { listExposed, needsApproval, run, jobOut, jobWrite, jobList, jobKill, sweep, sweepServer, sweepServerIds }
