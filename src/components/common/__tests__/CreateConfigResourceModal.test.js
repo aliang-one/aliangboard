@@ -224,32 +224,54 @@ test('secret 类型切换重置 freeKeys', async () => {
   expect(w.findComponent({ name: 'DataKeysEditor' }).props('modelValue')).toEqual([{ key: '', value: '' }])
 })
 
-test('YAML tab 预览:派生自 payload(含 labels)', async () => {
+test('YAML tab 直编:textarea 实时派生当前配置(未手改时跟随表单)', async () => {
   const w = mountModal('configmap')
   await w.find('[data-testid="ccm-name"]').setValue('cm3')
   await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
-  const pre = w.find('[data-testid="ccm-yaml-preview"]')
-  expect(pre.text()).toContain('kind: ConfigMap')
-  expect(pre.text()).toContain('name: cm3')
+  const ta = w.find('[data-testid="ccm-yaml-input"]')
+  expect(ta.exists()).toBe(true)
+  expect(ta.element.value).toContain('kind: ConfigMap')
+  expect(ta.element.value).toContain('name: cm3')
+  // 无切换按钮(两态机已废)
+  expect(w.find('[data-testid="ccm-yaml-switch"]').exists()).toBe(false)
+  expect(w.find('[data-testid="ccm-yaml-back"]').exists()).toBe(false)
 })
 
-test('切换纯 YAML 编辑:填合法 ConfigMap YAML → applyResourceYaml 提交', async () => {
+test('YAML 手改后提交:以手改 YAML 走 applyResourceYaml(表单路径不动)', async () => {
   const w = mountModal('configmap')
   await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
-  await w.find('[data-testid="ccm-yaml-switch"]').trigger('click')
   await w.find('[data-testid="ccm-yaml-input"]').setValue('apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: y1\n  namespace: default\ndata:\n  k: v')
   await w.find('[data-testid="ccm-create"]').trigger('click')
   expect(applyResourceYaml).toHaveBeenCalled()
   expect(addConfigMap).not.toHaveBeenCalled()
 })
 
-test('纯 YAML kind 不对 → 创建禁用 + 错误提示', async () => {
+test('YAML 手改后 kind 不对 → 创建禁用 + 错误提示;未手改不校验不提示', async () => {
   const w = mountModal('configmap')
   await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
-  await w.find('[data-testid="ccm-yaml-switch"]').trigger('click')
+  // 未手改:派生 YAML 恒合法,无错误提示
+  expect(w.find('[data-testid="ccm-yaml-error"]').exists()).toBe(false)
   await w.find('[data-testid="ccm-yaml-input"]').setValue('apiVersion: v1\nkind: Service\nmetadata:\n  name: s\n  namespace: default')
   expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeDefined()
   expect(w.find('[data-testid="ccm-yaml-error"]').exists()).toBe(true)
+})
+
+test('权威回归:手改 YAML 后修改表单字段 → 表单恢复权威(提交走表单,不再按 YAML)', async () => {
+  const w = mountModal('configmap')
+  await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
+  await w.find('[data-testid="ccm-yaml-input"]').setValue('apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: y1\n  namespace: default\ndata:\n  k: v')
+  // 回数据 tab 改表单
+  await w.find('[data-testid="ccm-tab-data"]').trigger('click')
+  await w.find('[data-testid="ccm-name"]').setValue('form-wins')
+  // 提交走表单
+  await w.findComponent({ name: 'DataKeysEditor' }).vm.$emit('update:modelValue', [{ key: 'a', value: 'b' }])
+  await w.find('[data-testid="ccm-create"]').trigger('click')
+  expect(addConfigMap).toHaveBeenCalled()
+  expect(addConfigMap.mock.calls[0][0].name).toBe('form-wins')
+  expect(applyResourceYaml).not.toHaveBeenCalled()
+  // 再进 YAML tab:内容已重新派生(跟随表单)
+  await w.find('[data-testid="ccm-tab-yaml"]').trigger('click')
+  expect(w.find('[data-testid="ccm-yaml-input"]').element.value).toContain('name: form-wins')
 })
 
 // ---- 「从 YAML 开始」直达入口(2026-08-28:粘贴创建升一等入口,同一 Modal 同一路径)----
@@ -261,8 +283,7 @@ test('startInYaml: 打开即 YAML 编辑模式,预填 ConfigMap 模板且可直�
   expect(input.element.value).toContain('kind: ConfigMap')
   expect(input.element.value).toContain('name: my-configmap')
   expect(input.element.value).toContain('namespace: default')
-  // 编辑模式:预览节点不在;模板 kind 匹配 → 创建可直接点(一等入口)
-  expect(w.find('[data-testid="ccm-yaml-preview"]').exists()).toBe(false)
+  // 直达即手改态(模板以 YAML 为准) → 创建可直接点(一等入口)
   expect(w.find('[data-testid="ccm-create"]').attributes('disabled')).toBeUndefined()
 })
 
@@ -277,13 +298,13 @@ test('startInYaml: secret 模板用 stringData(粘贴免 base64)', () => {
 test('无 startInYaml: 默认数据 tab(现状);startInYaml 开→关重开后回数据 tab(重置契约)', async () => {
   const w = mountModal('configmap')
   expect(w.find('[data-testid="ccm-yaml-input"]').exists()).toBe(false)
-  expect(w.find('[data-testid="ccm-yaml-preview"]').exists()).toBe(false)
   const w2 = mountModal('configmap', { startInYaml: true })
   expect(w2.find('[data-testid="ccm-yaml-input"]').exists()).toBe(true)
   await w2.find('[data-testid="ccm-cancel"]').trigger('click')
   await w2.setProps({ modelValue: false })
   await w2.setProps({ modelValue: true, startInYaml: false })
   expect(w2.find('[data-testid="ccm-yaml-input"]').exists()).toBe(false)
+  expect(w2.find('[data-testid="ccm-tab-data"]')).toBeTruthy()
 })
 
 // ===== 最大化:YAML 编辑区撑满(2026-08-29 设计)——真实挂 Modal(不 stub)走 Teleport DOM =====
@@ -295,15 +316,10 @@ test('最大化后 tab 容器与 YAML textarea 切撑满形态;还原回普通�
   // 等待 Teleport 完成
   await nextTick()
   await new Promise(resolve => setTimeout(resolve, 0))
-  // 进 YAML 编辑态(「从 YAML 开始」之外的常规路径:tab → 切编辑)
-  // Modal 内容被 Teleport 到 body,需用 DOM API 直查
+  // 进 YAML tab(直编,无切换步骤);Modal 内容被 Teleport 到 body,需用 DOM API 直查
   const tabBtn = document.querySelector('[data-testid="ccm-tab-yaml"]')
   expect(tabBtn).toBeTruthy()
   tabBtn.click()
-  await nextTick()
-  const switchBtn = document.querySelector('[data-testid="ccm-yaml-switch"]')
-  expect(switchBtn).toBeTruthy()
-  switchBtn.click()
   await nextTick()
   const tabWrap = () => document.querySelector('[data-testid="ccm-panel-yaml"]').parentElement
   const ta = () => document.querySelector('[data-testid="ccm-yaml-input"]')
@@ -343,11 +359,9 @@ function mountReal(kind, props = {}) {
   })
 }
 
-test('QA03: YAML 编辑态有改动时,遮罩/X 关闭被丢弃确认拦截(confirm=false 不关,=true 关)', async () => {
+test('QA03: YAML 手改未提交时,遮罩/X 关闭被丢弃确认拦截(confirm=false 不关,=true 关)', async () => {
   const w = mountReal('configmap')
   await document.querySelector('[data-testid="ccm-tab-yaml"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  await document.querySelector('[data-testid="ccm-yaml-switch"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
   const ta = document.querySelector('[data-testid="ccm-yaml-input"]')
   ta.value += '\n# 手动修改'
@@ -369,8 +383,14 @@ test('QA03: YAML 编辑态有改动时,遮罩/X 关闭被丢弃确认拦截(conf
   w.unmount(); document.body.innerHTML = ''
 })
 
-test('QA03b: 编辑态未改动(快照相等)时直接关,不弹确认', async () => {
-  const w = mountReal('configmap', { startInYaml: true })   // 直达 edit,未改动
+test('QA03b: YAML 未手改时直接关,不弹确认', async () => {
+  const w = mountReal('configmap', { startInYaml: true })   // 直达即 dirty,先回数据 tab 清 dirty
+  await nextTick()
+  document.querySelector('[data-testid="ccm-tab-data"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  const nameInput = document.querySelector('[data-testid="ccm-name"]')
+  nameInput.value = 'form-edit'
+  nameInput.dispatchEvent(new Event('input', { bubbles: true }))
   await nextTick()
   const confirmSpy = vi.fn(() => true); window.confirm = confirmSpy
   document.querySelector('body div.fixed.inset-0 > div.absolute').click()
@@ -406,17 +426,14 @@ test('QA04: 键值编辑草稿(未保存)切 tab 再回来保留', async () => {
   w.unmount(); document.body.innerHTML = ''
 })
 
-test('QA05: 返回表单确认后落在数据 tab(而非 YAML tab)', async () => {
-  const w = mountReal('configmap')
-  await document.querySelector('[data-testid="ccm-tab-yaml"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+test('QA05: startInYaml 直达落在 YAML tab 且可直接编辑;无两态按钮', async () => {
+  const w = mountReal('configmap', { startInYaml: true })
   await nextTick()
-  await document.querySelector('[data-testid="ccm-yaml-switch"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  const confirmSpy = vi.fn(() => true); window.confirm = confirmSpy
-  await document.querySelector('[data-testid="ccm-yaml-back"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  delete window.confirm
-  expect(document.querySelector('[data-testid="ccm-panel-data"]')).toBeTruthy()
-  expect(document.querySelector('[data-testid="ccm-panel-yaml"]')).toBe(null)
+  expect(document.querySelector('[data-testid="ccm-panel-yaml"]')).toBeTruthy()
+  const ta = document.querySelector('[data-testid="ccm-yaml-input"]')
+  expect(ta).toBeTruthy()
+  expect(ta.value).toContain('kind: ConfigMap')
+  expect(document.querySelector('[data-testid="ccm-yaml-switch"]')).toBe(null)
+  expect(document.querySelector('[data-testid="ccm-yaml-back"]')).toBe(null)
   w.unmount(); document.body.innerHTML = ''
 })

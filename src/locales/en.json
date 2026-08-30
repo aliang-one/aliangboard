@@ -326,9 +326,8 @@
       "base64Hint": "Values will be stored base64-encoded",
       "emptyKeys": "No data keys yet — add one on the left",
       "addKey": "Add Key",
-      "switchToYamlEdit": "Switch to raw YAML editing",
-      "backToForm": "Back to form",
       "yamlKindError": "Invalid YAML or wrong kind",
+      "yamlDirtyHint": "YAML edited — submit uses this; editing form fields overwrites it",
       "yamlParseError": "YAML parse error",
       "discardConfirm": "Return to form and discard manual YAML edits?"
     },
