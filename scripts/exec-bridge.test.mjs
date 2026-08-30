@@ -37,7 +37,8 @@ const k8sUrl = `http://127.0.0.1:${fakeK8s.address().port}`
 const DIR = mkdtempSync(join(tmpdir(), 'exec-bridge-'))
 const gwPort = 18000 + Math.floor(Math.random() * 2000)
 const gw = spawn('node', [join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, PORT: String(gwPort), HOST: '127.0.0.1', ALIANG_DB: join(DIR, 'exec-bridge.db') },
+  env: { ...process.env, PORT: String(gwPort), HOST: '127.0.0.1', ALIANG_DB: join(DIR, 'exec-bridge.db'),
+    ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
 })
 gw.stderr.on('data', d => process.stderr.write(d))
 let gwStderr = ''
@@ -60,14 +61,26 @@ async function http(path, opts = {}) {
 const cleanUp = () => { try { gw.kill() } catch { /* noop */ }; try { fakeK8s.close() } catch { /* noop */ }; setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch { /* noop */ } }, 300) }
 
 try {
-  // 1) 登录拿 session
-  const login = await http('/api/session', {
+  // 1) 登录拿 k8s session(POST /api/session 旧直连已下线 CSO #1,改走
+  //    平台登录 → 注册集群 → connect-cluster 正规链路,session 由假 apiserver /version 探活)
+  const login = await http('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ apiServer: k8sUrl, authMethod: 'token', token: 'fake-token' }),
+    body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }),
   })
-  assert.equal(login.status, 200, '登录应成功（fake /version 探活通过）')
+  assert.equal(login.status, 200, '平台登录应成功')
+  const ptok = login.body.token
+  const ac = await http('/api/admin/clusters', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': ptok },
+    body: JSON.stringify({ name: 'fake', apiServer: k8sUrl, authMethod: 'token', token: 'fake-token' }),
+  })
+  assert.equal(ac.status, 200, '注册假集群应成功')
+  const cc = await http('/api/connect-cluster', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': ptok },
+    body: JSON.stringify({ clusterId: ac.body.cluster.id }),
+  })
+  assert.equal(cc.status, 200, 'connect-cluster 应成功（fake /version 探活通过）')
   ok('登录建立 session（对接 fake K8s /version）')
-  const token = login.body.token
+  const token = cc.body.token
   const auth = { 'content-type': 'application/json', authorization: `Bearer ${token}` }
 
   // 2) exec WebSocket 无 session -> 必须被拒

@@ -15,7 +15,7 @@ import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
-import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
+import { resolveApiKey, createApiKeyTools, safePodPath, podPathDenied } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
@@ -61,7 +61,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
-import { maskSecretResource } from './secret-mask.mjs'
+import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
+import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -257,13 +258,17 @@ function seedAdminFromEnv() {
   if (out.action === 'noop') { console.warn('[auth] 未设置 ADMIN_USERNAME，无法创建管理员；旧 K8s 直连模式仍可用'); return }
   if (out.action === 'rejected-weak') { console.error(`[auth] ${out.refuse}`); return }
   if (out.action === 'seeded') { console.log(`[auth] 已创建管理员: ${out.username}`); return }
-  const credFile = join(__dirname, '..', 'data', 'first-admin-credentials.txt')
-  try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密并删除本文件)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) { console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message) }
-  console.log('══════════════════════════════════════════════════')
-  console.log(`[auth] 已创建管理员(口令自动生成): ${out.username}`)
-  console.log(`[auth] 一次性密码: ${out.password}`)
-  console.log(`[auth] 凭证已写入 ${credFile}(0600;登录后请修改密码并删除该文件)`)
-  console.log('══════════════════════════════════════════════════')
+  // 与注入 auth.mjs 的 dataDir 同源(= dirname(dbPath)):ALIANG_DB 指向别处时写/删才同目录,
+  // 否则改密删不到实际写出的凭证文件,一次性明文密码永久残留(评审 Important,CSO #13)。
+  const credFile = join(dirname(dbPath), 'first-admin-credentials.txt')
+  try { writeFileSync(credFile, `AliangBoard 首次管理员凭证(一次性;登录后请改密)\n用户名: ${out.username}\n密码: ${out.password}\n生成时间: ${new Date().toISOString()}\n`, { mode: 0o600 }); chmodSync(credFile, 0o600) } catch (e) {
+    // 文件写失败:密码仅此行日志可见——这是唯一恢复通道,有意保留打印(CSO #13 裁决)
+    console.error('[auth] 一次性凭证文件写入失败(密码仅在本行日志可见):', e.message)
+    console.log(`[auth] 一次性密码: ${out.password}`)
+    return
+  }
+  // CSO #13:文件写成功不再把密码打进 stdout(= kubectl logs 可读);改密成功后自动删除
+  console.log(`[auth] 首管一次性凭证已写入 ${credFile}(0600;登录改密后自动删除)`)
 }
 // 平台 session（内存 Map + SQLite 持久化）
 const platformSessions = new Map()  // token -> {userId, username, role, createdAt, k8sSessionToken}
@@ -271,7 +276,8 @@ const platformSessions = new Map()  // token -> {userId, username, role, created
 // username 查 platform_users.role 判定。必须定义在模块顶层——upgrade 处理器在模块作用域
 // (曾错置在请求处理闭包内 → ReferenceError → 终端 socket 被毁,用户见「会话已终止」)。
 const isPlatformAdmin = username => {
-  try { return db.prepare('SELECT role FROM platform_users WHERE username=?').get(username)?.role === 'admin' } catch { return false }
+  // disabled=0:禁用用户的 WS 通道即时关闭(CSO 2026-08-30 #3)
+  try { return db.prepare('SELECT role FROM platform_users WHERE username=? AND disabled=0').get(username)?.role === 'admin' } catch { return false }
 }
 function loadPersistedPlatformSessions() {
   try {
@@ -300,6 +306,17 @@ function platformUserFromRequest(req) {
     removeSessionRecord(platformSessions, db, sessions, token)
     return null
   }
+  // CSO 2026-08-30 #3:授权必须复读用户行 —— 会话行里的 role 是登录时快照。
+  // 删除/禁用即时踢出;降级即时生效。(每次请求一次主键查,SQLite 同步读,开销可忽略)
+  try {
+    const u = db.prepare('SELECT role, disabled FROM platform_users WHERE id=?').get(ps.userId)
+    if (!u || u.disabled) {
+      platformSessions.delete(token)
+      try { db.prepare('DELETE FROM platform_sessions WHERE token=?').run(token) } catch { /* noop */ }
+      return null
+    }
+    if (u.role !== ps.role) ps.role = u.role
+  } catch { /* 表不存在等边缘:维持旧行为 */ }
   touchSession(db, ps)
   return ps
 }
@@ -388,10 +405,7 @@ function loadPersistedSessions() {
   if (sessions.size) console.log(`[sqlite] 已恢复 ${sessions.size} 个集群会话`)
 }
 
-if (process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-  console.warn('WARNING: Kubernetes TLS certificate verification is disabled')
-}
+// CSO 2026-08-30 #9:进程级 TLS 开关已移除;K8S_INSECURE_SKIP_TLS_VERIFY 仅在 buildCallContext 内按会话生效
 
 // CORS 单源(2026-08-28 架构治理):此前 4 处手拼同一表达式,漂移即事故;收敛于此。
 function corsOrigin() { return process.env.CORS_ORIGIN || '*' }
@@ -473,37 +487,21 @@ function certMaterial(node, dataKey, fileKey) {
 
 // 调用上下文(call context)抽象:normalizeServer / getDispatcher / buildCallContext 见 ./call-context.mjs
 // (T1:抽模块 + 可单测。所有 kube 调用吃 buildCallContext 返回的形状;浏览器 session 与 API-key 共用。)
-
-// 自动发现控制面端点：GET /api/v1/nodes → 过滤 control-plane → InternalIP → 候选 https://<ip>:<port>。
-// 端口从原始 apiServer 继承；发现失败 → 只返回 [apiServer]（降级不阻断）。
-async function discoverEndpoints(session) {
-  try {
-    const result = await requestOnce(session, session.apiServer, '/api/v1/nodes?limit=500')
-    const nodes = result.body?.items || []
-    const port = session.apiServer.port || (session.apiServer.protocol === 'https:' ? '443' : '80')
-    const seen = new Set([session.apiServer.origin])
-    const candidates = []
-    for (const node of nodes) {
-      const labels = node.metadata?.labels || {}
-      const isCP = labels['node-role.kubernetes.io/control-plane'] !== undefined || labels['node-role.kubernetes.io/master'] !== undefined
-      if (!isCP) continue
-      const ip = node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
-      if (!ip) continue
-      const url = new URL(`${session.apiServer.protocol}//${ip}:${port}`)
-      if (!seen.has(url.origin)) { seen.add(url.origin); candidates.push(url) }
-    }
-    const all = [session.apiServer, ...candidates]
-    console.log(`[failover] 发现 ${all.length} 个端点: ${all.map(u => u.host).join(', ')}`)
-    return all
-  } catch (e) {
-    console.warn('[failover] 控制面节点发现失败，使用单端点:', e?.message || e)
-    return [session.apiServer]
+// CSO 2026-08-30 #2:K8s 代理目标必须与本次请求的 endpoint 同源。
+// new URL 的协议相对路径('//host/x')与反斜杠都会改写 authority —— 不校验时网关会把
+// 集群凭证(authHeader/客户端证书)发往任意主机。此处是唯一收口:所有 K8s 出站都经 requestOnce/流式分支。
+function assertSameOrigin(target, endpoint) {
+  if (target.origin !== endpoint.origin) {
+    const err = new Error(`K8s 代理目标越界: ${target.host} 不在 ${endpoint.host} 同源范围内`)
+    err.status = 403
+    throw err
   }
+  return target
 }
 
 // 单端点请求（不转移）：给指定 endpoint 发一次请求，返回 {status, headers, body}，失败抛错。
 async function requestOnce(session, endpoint, path, init = {}) {
-  const target = new URL(path, endpoint)
+  const target = assertSameOrigin(new URL(path, endpoint), endpoint)
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
@@ -1141,8 +1139,10 @@ function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
 }
 // 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
+// CSO #14:每块过 formatRefBlock(围栏头+16KB 截断);budget 每次调用新建=每轮对话单轮全部 ref 合计 ≤48KB,超预算的 ref 跳过。
 async function fetchRefContext(references, k8sSession) {
   if (!Array.isArray(references) || !references.length || !k8sSession) return ''
+  const budget = createRefContextBudget()
   const tasks = references.map(async ref => {
     const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
     // 防御性归一:ref.kind 正常恒为前端 canonical,但库里有旧数据/手改可能 → 与工具链同源归一
@@ -1151,7 +1151,9 @@ async function fetchRefContext(references, k8sSession) {
     try {
       const res = await withTimeout(requestKubernetes(k8sSession, path), 5000, `ref ${ref.kind}/${ref.name}`)
       const body = maskSecretResource(res?.body)
-      return `${label}:\n${JSON.stringify(body, null, 2)}`
+      const block = formatRefBlock(label, JSON.stringify(body, null, 2))
+      if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
+      return block
     } catch { return `${label}: (not found / 已删除)` }
   })
   const blocks = await Promise.all(tasks)
@@ -1241,7 +1243,10 @@ async function handle(req, res) {
           const logsText = typeof resp?.body === 'string' ? resp.body : (resp?.body == null ? '' : JSON.stringify(resp.body, null, 2))
           const buf = Buffer.from(logsText, 'utf8')
           const truncated = buf.length > LOG_MAX
-          return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
+          // CSO #4:日志文本过高精度脱敏(JWT/PEM 私钥/AKIA)——免审工具输出会进 LLM 请求与 trace 落库
+          // 终审 R1:先脱敏后截断——截断点切中 JWT/PEM 会留半截明文;truncated 仍按原始字节判定
+          const logsMasked = maskSensitiveText(buf.toString('utf8'))
+          return { logs: truncated ? logsMasked.slice(0, LOG_MAX) : logsMasked, tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },
         // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
@@ -1249,10 +1254,14 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const p = safePodPath(args.path)
+          // CSO #4:免审读文件的敏感面拒绝清单(/proc /sys /dev /run/secrets)——SA token 等
+          // 密钥路径畅通会直接明文进 LLM;管理员档 read_file 的 /proc 调试语义不受影响。
+          if (podPathDenied(p)) throw new Error(msg(req, 'api.podPathDenied'))
           // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
           // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', ['cat', '--', p], false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
-          return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
+          // 终审 R1:先脱敏后截断,防截断点切中 JWT/PEM 留半截明文
+          return { pod: args.pod, path: p, content: maskSensitiveText(r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
@@ -1422,8 +1431,10 @@ async function handle(req, res) {
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return {
             pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
-            stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
-            stderr: (r.stderr || '').slice(0, 8192),
+            // CSO #4:审批通过后输出同样进 LLM/trace,stdout/stderr 一并高精度脱敏
+            // 终审 R1:先脱敏后截断,防截断点切中 JWT/PEM 留半截明文
+            stdout: maskSensitiveText(r.stdout?.toString('utf8') || '').slice(0, 32768),
+            stderr: maskSensitiveText(r.stderr || '').slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
             ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }
@@ -1453,6 +1464,7 @@ async function handle(req, res) {
   // 构造放 handle() 内(与 convRoutes 一致:closure deps 此处可见)。dispatch 顺序无要求(路由不重叠)。
   const authRoutes = createAuthRoutes({
     db, sendJson, readBody, requirePlatform,
+    dataDir: dirname(dbPath), // CSO #13:改密成功即删 <dataDir>/first-admin-credentials.txt(与 db 同目录信任边界)
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit, enforceSessionCap, maxPlatformSessionsPerUser,
@@ -1464,7 +1476,7 @@ async function handle(req, res) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword, getSshSessionPolicy, writeAudit,
+    hashPassword, getSshSessionPolicy, writeAudit, platformSessions, sessions,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
@@ -1560,49 +1572,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     }
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/session') {
-    try {
-      const input = await readBody(req)
-      let apiServer, authHeader = null, ca, cert, key
-      if (input.authMethod === 'kubeconfig') {
-        // 直接粘贴 kubeconfig：从中解析 server / CA / 凭据（token|账密|客户端证书）
-        const parsed = parseKubeconfig(input.kubeconfig)
-        apiServer = normalizeServer(parsed.server)
-        ca = certMaterial(parsed.cluster, 'certificate-authority-data', 'certificate-authority')
-        cert = certMaterial(parsed.user, 'client-certificate-data', 'client-certificate')
-        key = certMaterial(parsed.user, 'client-key-data', 'client-key')
-        if (parsed.user?.token) authHeader = `Bearer ${parsed.user.token}`
-        else if (parsed.user?.username != null || parsed.user?.password != null) {
-          authHeader = `Basic ${Buffer.from(`${parsed.user.username || ''}:${parsed.user.password || ''}`).toString('base64')}`
-        }
-        if (!authHeader && !(cert && key)) throw new Error(msg(req, 'api.kubeconfigNoCredentials'))
-      } else if (input.authMethod === 'basic') {
-        if (!input.username || !input.password) return sendJson(res, 400, { message: msg(req, 'api.emptyCredentials') })
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`
-      } else {
-        if (!input.token) return sendJson(res, 400, { message: msg(req, 'api.tokenRequired') })
-        apiServer = normalizeServer(input.apiServer)
-        authHeader = `Bearer ${String(input.token)}`
-      }
-      const insecure = input.insecure === true || process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true'
-      const sessionId = randomUUID()
-      const session = { ...buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }), createdAt: Date.now() }
-      const probe = await requestKubernetes(session, '/version')
-      session.version = probe.body?.gitVersion || 'unknown'
-      session.endpoints = await discoverEndpoints(session)
-      session.endpointIdx = 0
-      session.insecureDispatcher = getDispatcher({ ca, cert, key, insecure: true })
-      sessions.set(sessionId, session)
-      persistSession(sessionId, session) // 落盘：重启后浏览器 token 仍有效
-      return sendJson(res, 200, {
-        token: sessionId,
-        cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: session.version },
-      })
-    } catch (error) {
-      return sendJson(res, error.status || 400, { message: error.message || msg(req, 'api.connectK8sFailed') })
-    }
-  }
+  // POST /api/session(旧直连建会话)已下线(CSO #1:auth:none 允许未认证者指定任意 apiServer,
+  // 配合 /api/k8s 透传构成未认证 SSRF 链)。GET(查会话)/DELETE(幂等登出)保留。
 
   if (req.method === 'GET' && url.pathname === '/api/session') {
     const session = req.abSession // 路由鉴权门已预检并缓存
@@ -2048,7 +2019,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
   if (isStreaming) {
     try {
-      const target = new URL(kubernetesPath, currentEndpoint(session))
+      const ep = currentEndpoint(session)
+      const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
       const upstream = await kubeFetch(target, {
         method: 'GET',
         headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
@@ -2132,6 +2104,19 @@ setInterval(() => {
 }, 60000).unref?.()
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
 setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
+
+// CSO 2026-08-30 #11:过期会话行定时清扫 —— 此前只在 token 重放时懒删,
+// 明文凭证行在库内无限累积(loadPersistedSessions 启动还全量复活)。
+const sessionSweeper = setInterval(() => {
+  try {
+    const cutoff = Date.now() - sessionTtl
+    db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
+    db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
+    for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
+    for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
+  } catch { /* noop */ }
+}, 10 * 60 * 1000)
+sessionSweeper.unref?.()
 
 async function handleSshTerminal(ws, ps, url) {
   const serverId = url.searchParams.get('serverId')

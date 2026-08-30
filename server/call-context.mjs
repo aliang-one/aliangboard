@@ -59,11 +59,13 @@ export function getDispatcher(opts) {
 // 构造调用上下文。apiServer 传 URL(原样保留)或字符串(规范化,含 allowedHosts 校验)。
 // 浏览器 session、平台 connect-cluster、API-key 请求都经此构造 → 统一形状,6 条 kube 路径零改动。
 export function buildCallContext({ apiServer, authHeader, ca, cert, key, insecure }) {
+  // CSO #9:env 仅作用 K8s 出站(LLM/GitHub 不受影响)
+  const effectiveInsecure = !!(insecure || process.env.K8S_INSECURE_SKIP_TLS_VERIFY === 'true')
   return {
     apiServer: apiServer instanceof URL ? apiServer : normalizeServer(apiServer),
     authHeader: authHeader || null,
     ca: ca || null, cert: cert || null, key: key || null,
-    insecure: !!insecure,
-    dispatcher: getDispatcher({ ca, cert, key, insecure }),
+    insecure: effectiveInsecure,
+    dispatcher: getDispatcher({ ca, cert, key, insecure: effectiveInsecure }),
   }
 }

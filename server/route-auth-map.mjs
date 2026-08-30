@@ -20,8 +20,7 @@ export const ROUTE_AUTH = [
   { method: 'GET',    pattern: '/api/health',    auth: 'none' },  // 存活探针(无鉴权,deployment.yaml 探针依赖)
   { method: 'POST',   pattern: '/api/auth/login', auth: 'none' },
   { method: 'POST',   pattern: '/api/auth/logout', auth: 'none' }, // 幂等:无 token 也 200
-  { method: 'POST',   pattern: '/api/session',   auth: 'none' },  // 旧直连模式(BYO kubeconfig);关闭开关=CSO 审计 #5 backlog
-  { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204
+  { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
   { method: 'PATCH', pattern: '/api/auth/me',              auth: 'platform' }, // 自助改 displayName

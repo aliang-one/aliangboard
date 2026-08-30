@@ -2872,6 +2872,8 @@
     "tabEvents": "Events"
   },
   "admin": {
+    "roleInvalid": "Invalid role",
+    "selfProtected": "Cannot demote or disable your own account",
     "crdDetail": {
       "backToList": "Back to List",
       "overview": "Overview",
@@ -3501,6 +3503,8 @@
       "userMessage": "Type a message...",
       "send": "Send",
       "writeFileApproval": "Write File Approval",
+      "sshApprovalTitle": "Remote Host Command Approval",
+      "sudoLabel": "Runs as root (sudo)",
       "execApprovalTitle": "Container Command Approval",
       "actionApprovalTitle": "Cluster Change Approval",
       "execDesc": "The command will run inside the target container (kubectl exec — one-shot, non-interactive, 30s timeout). Output goes back to the AI for further analysis; confirm the command is not destructive.",
@@ -3868,7 +3872,7 @@
   "secret": {
     "templateTls": "Contains tls.crt (certificate) + tls.key (private key)",
     "templateSsh": "Contains ssh-privatekey{known_hosts ? ' + known_hosts' : ''}",
-    "templateBasicAuth": "Username: <span class=\"font-mono\">{username}</span>",
+    "basicAuthUsernameLabel": "Username",
     "templateAws": "AWS credentials (3 keys)",
     "templateDb": "Database connection ({count} keys)"
   },

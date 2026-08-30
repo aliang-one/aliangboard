@@ -6,6 +6,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
 import { enforceSessionCap } from './platform-session-reaper.mjs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 function makeDb() {
   const db = new DatabaseSync(':memory:')
@@ -214,6 +217,35 @@ test('DELETE sessions/others:原子吊销其余全部,保留当前', async () =>
   assert.deepEqual(sent[0].payload, { ok: true, revoked: 1 })
   assert.equal(deps.platformSessions.has('t-me'), true)
   assert.equal(deps.platformSessions.has('t-other'), false)
+})
+
+// === Task 12(CSO #13):改密成功即删首管一次性凭证文件 ===
+test('change-password:成功 → best-effort 删除 dataDir/first-admin-credentials.txt', async () => {
+  const db = makeDb(); seedMulti(db)
+  const dir = mkdtempSync(join(tmpdir(), 'ab-cred-'))
+  const credFile = join(dir, 'first-admin-credentials.txt')
+  writeFileSync(credFile, '用户名: admin\n密码: one-time\n')
+  try {
+    const { routes, sent } = makeRoutes(db, { dataDir: dir })
+    routes._body = { currentPassword: 'right-password', newPassword: 'newpassword1' }
+    await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+    assert.equal(sent[0].status, 200)
+    assert.equal(existsSync(credFile), false, '改密成功后凭证文件应被删除')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('change-password:失败(旧密错)→ 凭证文件保留', async () => {
+  const db = makeDb(); seedMulti(db)
+  const dir = mkdtempSync(join(tmpdir(), 'ab-cred-'))
+  const credFile = join(dir, 'first-admin-credentials.txt')
+  writeFileSync(credFile, '用户名: admin\n密码: one-time\n')
+  try {
+    const { routes, sent } = makeRoutes(db, { dataDir: dir })
+    routes._body = { currentPassword: 'wrong', newPassword: 'newpassword1' }
+    await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+    assert.equal(sent[0].status, 401)
+    assert.equal(existsSync(credFile), true, '改密失败凭证文件应保留')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('DELETE sessions/:fingerprint:按 8 位指纹吊销;吊当前 400;未命中 404', async () => {

@@ -185,7 +185,7 @@ Backend environment variables:
 | `MAX_PLATFORM_SESSIONS_PER_USER` | `10` | Max platform sessions kept per user; the least recently active one is evicted on login when exceeded, disabled when < 1 |
 | `K8S_REQUEST_TIMEOUT` | `15000` | Kubernetes API request timeout, in milliseconds |
 | `K8S_ALLOWED_HOSTS` | empty | Comma-separated allowlist of API server hosts |
-| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | Skip cluster certificate verification; use only in development |
+| `K8S_INSECURE_SKIP_TLS_VERIFY` | `false` | Skip cluster certificate verification **for K8s sessions only**; does not disable process-level TLS (LLM/version checks unaffected). Use only in development with self-signed clusters |
 | `PORT_FORWARD_HOST` | `127.0.0.1` | Port-forward local listen address (same as kubectl port-forward; local to the gateway host, the browser must be able to reach it) |
 | `LLM_BASE_URL` | empty | OpenAI-compatible baseURL for the LLM (can also be set in the admin console "LLM Settings") |
 | `LLM_MODEL` | empty | LLM model name (can also be set in the admin console) |
@@ -203,7 +203,30 @@ To connect to a cluster with a self-signed certificate during development, you c
 K8S_INSECURE_SKIP_TLS_VERIFY=true npm run server
 ```
 
-Do not skip TLS verification in production. Configure a trusted CA for the API gateway instead, and set `K8S_ALLOWED_HOSTS` plus an accurate `CORS_ORIGIN`.
+**Note:** This variable only affects K8s session verification (TLS to the cluster API server). It does not disable process-level TLS verification for LLM calls or version checks. Use only in development/self-signed environments.
+
+## 🔒 Production Deployment Security Requirements
+
+### TLS Termination
+
+**Production deployments MUST terminate TLS at an edge layer** (reverse proxy or Ingress Controller). The default NodePort exposure in `deployment.yaml` is intended for internal network evaluation only.
+
+- **Ingress (recommended):** See `deploy/ingress-tls.yaml` for a complete nginx Ingress + TLS example
+  - TLS is terminated at the Ingress layer
+  - Backend Service remains plain HTTP (containerPort: 8787)
+  - Supports cert-manager automation or manual TLS secrets
+- **Alternative reverse proxy:** Configure nginx/HAProxy/Envoy with TLS termination, proxying to the NodePort or Service
+
+### K8s Session TLS
+
+The `K8S_INSECURE_SKIP_TLS_VERIFY` environment variable has **session-scoped semantics**:
+
+- **Purpose:** Only controls TLS verification for K8s cluster connections (session-level)
+- **Does NOT affect:** Process-level TLS (LLM API calls, version checks, etc.)
+- **Use case:** Development/self-signed clusters only
+- **Production:** Configure a trusted CA and `K8S_ALLOWED_HOSTS` instead
+
+Do not skip TLS verification in production without proper security review.
 
 ## 🔐 RBAC Recommendations
 

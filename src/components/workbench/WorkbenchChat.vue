@@ -199,6 +199,8 @@ const APPROVAL_ICONS = { apply_project_manifests: 'rocket_launch', bootstrap_led
 const approvalIcon = computed(() => APPROVAL_ICONS[pendingApproval.value?.name] || 'edit_document')
 const approvalTitle = computed(() => {
   const n = pendingApproval.value?.name
+  // CSO #5(2026-08-30):SSH 工具走独立标题,别落到泛化「集群变更审批」造成盲批观感
+  if (n === 'wb_ssh_exec' || n === 'wb_ssh_read_file') return t('workbench.chat.sshApprovalTitle')
   if (n === 'wb_exec') return t('workbench.chat.execApprovalTitle')
   if (n && n.startsWith('wb_')) return t('workbench.chat.actionApprovalTitle')
   return t('workbench.chat.writeFileApproval')
@@ -210,7 +212,9 @@ const approvalTarget = computed(() => {
   let target = ''
   if (a.pod) target = `${ns}${a.pod}${a.container ? ` (${a.container})` : ''}`
   else if (a.kind && a.name) target = `${ns}${a.kind}/${a.name}`
+  else if (a.server) target = String(a.server) // SSH 远程主机目标
   const intents = []
+  if (a.sudo) intents.push('sudo')
   if (a.replicas != null) intents.push(`replicas=${a.replicas}`)
   if (a.image) intents.push(`image=${a.image}`)
   if (a.toRevision != null) intents.push(`rev=${a.toRevision}`)
@@ -1135,9 +1139,11 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.bootstrapLedgerDesc')"></p>
         <p v-else-if="pendingApproval.name === 'wb_exec'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.execDesc')"></p>
         <!-- wb_* 运维工具目标行(kind/name 或 pod),wb_exec 的 ns/pod/container 归入命令块上方的目标行 -->
-        <p v-if="approvalTarget && pendingApproval.name !== 'wb_exec'" class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
-        <template v-if="pendingApproval.name === 'wb_exec'">
-          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
+        <p v-if="approvalTarget && !pendingApproval.args?.command" class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
+        <!-- CSO #5:凡 args.command 存在(wb_exec/wb_ssh_exec)一律渲染 目标+命令+sudo,SSH root 命令不再盲批 -->
+        <template v-if="pendingApproval.args?.command">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span></p>
+          <p v-if="pendingApproval.args?.sudo" class="text-body-sm font-semibold text-status-warning">{{ t('workbench.chat.sudoLabel') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args?.command }}</pre>
         </template>
         <template v-if="pendingApproval.args?.path">

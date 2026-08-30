@@ -11,7 +11,7 @@ import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { maskSecretResource } from './secret-mask.mjs'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
-import { listApiPath, getApiPath } from './kind-paths.mjs'
+import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -73,6 +73,22 @@ function oversizedJson(body) {
     truncated: true, originalBytes, byteCap: LOG_BYTE_MAX,
     hint: '对象超过 32KB 上限已截断(保护 AI 上下文);可改查具体子字段,或用 get_resource_yaml 看同限 YAML',
   }
+}
+
+// CSO 2026-08-30 #7:路径安全校验必须在「URL 解析语义」之后。WHATWG URL 会折叠点段、
+// 把 '//host' 与 '\' 当 authority —— 在原始串上做正则=形同虚设。这里只做「拒绝」判定,
+// 不改写路径(合法编码段原样透传给传输层)。
+export function assertSafeApiPath(p) {
+  const raw = String(p || '')
+  const deny = (detail) => { throw new PermissionDeniedError('policy', { detail }) }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) deny(`path 不允许为绝对 URL: ${raw.slice(0, 80)}`)
+  if (raw.startsWith('//') || raw.includes('\\')) deny(`path 不允许 // 或反斜杠: ${raw.slice(0, 80)}`)
+  let decoded = raw
+  try { decoded = decodeURIComponent(raw) } catch { deny(`path 百分号编码非法: ${raw.slice(0, 80)}`) }
+  const hasDotSeg = (s) => s.split('/').some(seg => seg === '.' || seg === '..')
+  if (hasDotSeg(raw) || hasDotSeg(decoded)) deny(`path 不允许点段(. / ..): ${raw.slice(0, 80)}`)
+  if (decoded.startsWith('//') || decoded.includes('\\')) deny(`path 解码后仍不允许 // 或反斜杠: ${raw.slice(0, 80)}`)
+  return { raw, decoded }
 }
 
 // path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> ∈ allowedNs(来自 effectiveNamespaces);集群级 path 或他 ns → policy 拒。
@@ -148,8 +164,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       if (a.path) {
         return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
           fn: async (saCtx) => {
-            assertPathInNs(a.path, effectiveNamespaces(keyRow))
-            const { body } = await requestFn(saCtx, a.path)
+            const p = assertSafeApiPath(a.path)
+            assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+            const { body } = await requestFn(saCtx, p.raw)
             const all = body?.items || []
             const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
             return { kind: '(path)', count: all.length, returned: items.length, items }
@@ -184,8 +201,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'get_resource_yaml', source, namespace: a.namespace, verb: 'get', resource: a.path || '?', summary: `get ${(a.path || '').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
-        assertPathInNs(a.path, effectiveNamespaces(keyRow))
-        const { body } = await requestFn(saCtx, a.path)
+        const p = assertSafeApiPath(a.path)
+        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        const { body } = await requestFn(saCtx, p.raw)
         if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
         const full = yamlDump(maskSecretResource(body)) // 脱敏 T3:Secret 值掩码后再 dump
         const originalBytes = Buffer.byteLength(full, 'utf8')
@@ -393,6 +411,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           const ns = o?.metadata?.namespace
           if (!ns) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `apply_yaml 要求每个资源显式指定 metadata.namespace(防跨 ns / 集群级越权);kind=${o?.kind || '?'}` })
           if (!allowedNs.has(ns)) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `命名空间 '${ns}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}])` })
+          // CSO 复核 adjacent:apply-yaml 对集群级 kind 会丢弃 namespace 段 —— 上面的 ns 检查
+          // 拦不住「ClusterRole + metadata.namespace: <允许 ns>」混过门。集群级资源对 ns 绑定 key 一律拒。
+          // 归一化复用 normalizeKind(kindAlias 单一事实源);空 kind 维持现状只走 ns 检查(不误伤)。
+          const clusterScoped = o?.kind && KIND_API[normalizeKind(o.kind)]
+          if (clusterScoped && clusterScoped.ns === false) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `ns 绑定 key 不允许 apply 集群级资源: kind=${o.kind}` })
         })
         return applyYamlFn(saCtx, a.yaml)
       } }),
@@ -400,8 +423,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
-        assertPathInNs(a.path, effectiveNamespaces(keyRow))
-        await requestFn(saCtx, a.path, { method: 'DELETE' })
+        const p = assertSafeApiPath(a.path)
+        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        await requestFn(saCtx, p.raw, { method: 'DELETE' })
         return { deleted: a.path }
       } }),
     kubectl_debug: async (keyRow, cluster, a, source) => runBoundedTool({
@@ -421,4 +445,22 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
   }
 
   return { callTool, getPodLogs: tools.get_pod_logs, listTools: () => Object.keys(tools) }
+}
+
+// CSO #4:workbench 免审读文件路径的敏感面拒绝清单(只挂在 wb_read_pod_file;
+// api-key 管理员档 read_file 的 /proc 调试语义不受影响)。
+const WB_POD_PATH_DENY = [/^\/proc(?:\/|$)/, /^\/sys(?:\/|$)/, /^\/dev(?:\/|$)/, /^\/run\/secrets(?:\/|$)/, /^\/var\/run\/secrets(?:\/|$)/]
+export function podPathDenied(p) {
+  let s = String(p || '')
+  if (!s.startsWith('/')) return false
+  // 终审 R1:归一化后再判——safePodPath 白名单放行 . .. // 空格,前缀正则会被
+  // '//run/secrets/x'、'/etc/../run/secrets/...' 等形态绕过(cat 解析到的与字面不同)。
+  const out = []
+  for (const seg of s.split('/')) {
+    if (seg === '' || seg === '.') continue // '' 折叠双斜杠;'.' 跳过
+    if (seg === '..') { out.pop(); continue } // 根外的 .. 就地吞掉(路径以 / 开头,越根无意义)
+    out.push(seg)
+  }
+  const norm = '/' + out.join('/')
+  return WB_POD_PATH_DENY.some(re => re.test(norm))
 }

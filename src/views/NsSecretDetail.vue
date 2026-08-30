@@ -243,7 +243,7 @@ const refCount = computed(() =>
             <!-- SSH -->
             <p v-else-if="secretTemplateId === 'ssh'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.templateSsh', { known_hosts: secret.value?.data?.known_hosts } ) }}</p>
             <!-- Basic Auth -->
-            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs" v-html="t('secret.templateBasicAuth', { username: decode(secret.value?.data?.username) || '—' } )"></p>
+            <p v-else-if="secretTemplateId === 'basic-auth'" class="text-body-sm text-on-surface-variant mt-xs">{{ t('secret.basicAuthUsernameLabel') }}: <span class="font-mono text-on-surface break-all">{{ decode(secret.value?.data?.username) || '—' }}</span></p>
             <!-- Git Token -->
             <p v-else-if="secretTemplateId === 'git-token'" class="text-body-sm text-on-surface-variant mt-xs">{{ $t('ns.secretDetail.gitTokenKey') }} <span class="font-mono text-primary">{{ Object.keys(secret.value?.data || {})[0] || '—' }}</span></p>
             <!-- AWS -->

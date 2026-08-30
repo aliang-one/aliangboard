@@ -13,6 +13,7 @@ import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from '
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
 import { isValidMinutes } from '../ssh/reap-policy.mjs'
+import { revokeUserSessions } from '../session-revoke.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -20,7 +21,7 @@ export function createAdminRoutes(deps) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword, getSshSessionPolicy, writeAudit,
+    hashPassword, getSshSessionPolicy, writeAudit, platformSessions, sessions,
   } = deps
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -259,8 +260,15 @@ export function createAdminRoutes(deps) {
     if (url.pathname.startsWith('/api/admin/clusters/') && req.method === 'DELETE') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.slice('/api/admin/clusters/'.length))
+      const row = db.prepare('SELECT * FROM clusters WHERE id=?').get(id)
       db.prepare('DELETE FROM clusters WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE clusterId=?').run(id)
+      // CSO #11:删集群回收其派生的 K8s 会话凭据。apiServer 匹配是尽力回收
+      // (sessions 凭据行无属主列),同址多集群时宁可错杀——孤儿明文凭据更危险。
+      if (row) {
+        try { db.prepare('DELETE FROM sessions WHERE apiServer=?').run(row.apiServer) } catch { /* noop */ }
+        for (const [t, s] of sessions) if (String(s.apiServer) === row.apiServer) sessions.delete(t)
+      }
       clusterProber.invalidate(id)
       sendJson(res, 200, { ok: true })
       return true
@@ -332,7 +340,7 @@ export function createAdminRoutes(deps) {
       const input = await readBody(req)
       const ok = setKeySshAccess(db, id, !!input.enabled)
       if (!ok) { sendJson(res, 404, { message: msg(req, 'admin.apiKeyNotFound') || 'key not found or revoked' }); return true }
-      audit('update', 'ssh_key_access', 'ok', { owner: ps.username, summary: `${id} → ${!!input.enabled}` })
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'ssh_key_access', result: 'ok', requestSummary: `${id} → ${!!input.enabled}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -543,8 +551,10 @@ export function createAdminRoutes(deps) {
       if (!target) { sendJson(res, 404, { message: msg(req, 'admin.userNotFound') }); return true }
       const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
       if (target.role === 'admin' && adminCount <= 1) { sendJson(res, 400, { message: msg(req, 'admin.lastAdminProtected') }); return true }
+      revokeUserSessions({ db, platformSessions, sessions }, id)
       db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
+      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_user_delete', result: 'ok', requestSummary: `id=${id}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -552,11 +562,24 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = decodeURIComponent(url.pathname.slice('/api/admin/users/'.length))
       const input = await readBody(req)
+      const target = db.prepare('SELECT role FROM platform_users WHERE id=?').get(id)
+      if (!target) { sendJson(res, 404, { message: msg(req, 'admin.userNotFound') }); return true }
+      if (input.role != null && !['admin', 'user'].includes(input.role)) { sendJson(res, 400, { message: msg(req, 'admin.roleInvalid') }); return true }
+      // 降级判定:role 从 admin 变非 admin,或禁用一个 admin —— 两者都收权,须过自我/末管保护
+      const demoting = (input.role != null && input.role !== 'admin' && target.role === 'admin') || (input.disabled != null && !!input.disabled && target.role === 'admin')
+      if (demoting) {
+        if (id === ps.userId) { sendJson(res, 400, { message: msg(req, 'admin.selfProtected') }); return true }
+        const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
+        if (adminCount <= 1) { sendJson(res, 400, { message: msg(req, 'admin.lastAdminProtected') }); return true }
+      }
       const fields = [], vals = []
       for (const k of ['role', 'displayName', 'disabled']) { if (input[k] != null) { fields.push(`${k}=?`); vals.push(input[k]) } }
       if (!fields.length) { sendJson(res, 400, { message: msg(req, 'admin.noUpdateFields') }); return true }
       vals.push(id)
       db.prepare(`UPDATE platform_users SET ${fields.join(',')} WHERE id=?`).run(...vals)
+      // CSO #3:role/disabled 变更即级联吊销存量会话(降级后 token 不再是「快照 admin」)
+      if (input.disabled != null || input.role != null) revokeUserSessions({ db, platformSessions, sessions }, id)
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_user_update', result: 'ok', requestSummary: `id=${id} fields=${fields.join(',')}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -567,6 +590,9 @@ export function createAdminRoutes(deps) {
       if (!newPassword) { sendJson(res, 400, { message: msg(req, 'admin.newPasswordRequired') }); return true }
       if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'admin.passwordTooShort') }); return true }
       db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
+      // CSO #3:重置密码踢掉该用户全部存量会话(防旧 token 继续用旧密码体系外的凭据)
+      revokeUserSessions({ db, platformSessions, sessions }, userId)
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_user_reset_password', result: 'ok', requestSummary: `id=${userId}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }

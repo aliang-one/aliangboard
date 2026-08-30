@@ -4,9 +4,14 @@
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { isPasswordOk } from '../password-policy.mjs'
+import { unlinkSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export function createAuthRoutes(deps) {
   const {
+    // 首管一次性凭证文件所在目录(默认 <repo>/data;改密成功即删,CSO #13)
+    dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data'),
     db, sendJson, readBody, requirePlatform,
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
@@ -136,6 +141,8 @@ export function createAuthRoutes(deps) {
           }
         }
         auditChange('ok', null, `revoked=${revoked}`)
+        // CSO #13:改密成功即删首管一次性凭证文件(best-effort;不存在/无权限静默忽略)
+        try { unlinkSync(join(dataDir, 'first-admin-credentials.txt')) } catch { /* noop */ }
         sendJson(res, 200, { ok: true, revoked })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.changePasswordFailed') }); return true }
@@ -207,6 +214,7 @@ export function createAuthRoutes(deps) {
     // POST /api/auth/logout — 登出(三处同清:内存+platform_sessions+K8s 凭据,与 reaper/cap 共用 removeSessionRecord)
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
       const token = req.headers['x-platform-token']
+      // CSO #11:logout 同时回收该平台会话派生的 K8s 凭据(removeSessionRecord 内含,与 reaper/cap 共用)
       if (token) removeSessionRecord(platformSessions, db, sessions, token)
       sendJson(res, 200, { ok: true })
       return true
@@ -243,6 +251,9 @@ export function createAuthRoutes(deps) {
         const probe = await requestKubernetes(k8sSession, '/version')
         k8sSession.version = probe.body?.gitVersion || 'unknown'
         const k8sToken = randomUUID()
+        // CSO #11:重连先吊销旧 k8s token(旧行为只覆盖单标量,旧行留存成孤儿活 8h、重启还复活)
+        const oldTok = ps.k8sSessionToken
+        if (oldTok) { sessions.delete(oldTok); try { db.prepare('DELETE FROM sessions WHERE token=?').run(oldTok) } catch { /* noop */ } }
         sessions.set(k8sToken, k8sSession)
         persistSession(k8sToken, k8sSession)
         // 更新平台会话的 k8sSessionToken
