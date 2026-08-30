@@ -36,6 +36,7 @@ vi.mock('@/api/client', () => ({
   api: {},
   clearSession: vi.fn(),
   getSession: () => false,
+  getPlatformToken: () => null,
   workbenchApi: { summary: vi.fn().mockResolvedValue({ projects: [], totals: { projects: 0, runningConvs: 0, pendingApprovals: 0, sshSessions: 0 } }) },
 }))
 

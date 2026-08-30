@@ -7,7 +7,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, keepPreviousData } from '@tanstack/vue-query'
-import { workbenchApi, getSession } from '@/api/client'
+import { workbenchApi, getPlatformToken } from '@/api/client'
 import { Z } from '@/styles/zScale'
 
 const route = useRoute()
@@ -20,7 +20,8 @@ const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
 const q = useQuery({
   queryKey: ['workbench-summary'],
   queryFn: () => workbenchApi.summary(),
-  enabled: computed(() => !!getSession()),
+  // 随平台登录态启停:不能用 K8s session(无集群用户 requiresCluster:false 恒 false,整块无数据)
+  enabled: computed(() => !!getPlatformToken()),
   refetchInterval: 30_000,
   refetchIntervalInBackground: false,
   refetchOnWindowFocus: true,
@@ -68,6 +69,9 @@ function scheduleClose() {
   closeTimer = setTimeout(() => { panelOpen.value = false }, 200)
 }
 function closeNow() { clearTimeout(openTimer); clearTimeout(closeTimer); panelOpen.value = false }
+// 鼠标移进面板取消宽限关闭。必须经函数:clearTimeout 不在 Vue 模板全局白名单,
+// 裸写会编译成 _ctx.clearTimeout(...) 运行时 TypeError(→ 面板自关,2026-08-30 终审 C1)。
+function holdPanel() { clearTimeout(closeTimer) }
 function go(path) { closeNow(); router.push(path) }
 function onDocClick(e) {
   if (panelOpen.value && !e.target.closest?.('[data-test="wb-pill"], [data-test="wb-panel"]')) closeNow()
@@ -113,7 +117,7 @@ function relTime(ts) {
     </button>
     <Teleport to="body">
       <div v-if="panelOpen" data-test="wb-panel"
-        @mouseenter="clearTimeout(closeTimer)" @mouseleave="scheduleClose"
+        @mouseenter="holdPanel" @mouseleave="scheduleClose"
         class="fixed bg-surface-container-lowest border border-outline-variant rounded-xl shadow-dropdown p-md"
         :style="panelStyle">
         <!-- 汇总 chips -->

@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 const mocks = vi.hoisted(() => ({ summary: vi.fn(), push: vi.fn(), path: '/cluster' }))
 vi.mock('@/api/client', () => ({
   workbenchApi: { summary: mocks.summary },
-  getSession: () => true,
+  getPlatformToken: () => 'tok',   // I1:enabled 走平台登录态(非 K8s session)
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ path: mocks.path }),
@@ -181,6 +181,42 @@ test('拉取失败静默:notify 不被调;首次失败面板显示加载失败',
   vi.advanceTimersByTime(150); await flushPromises()
   expect(document.body.querySelector('[data-test="wb-panel"]').textContent).toContain('加载失败')
   expect(toast.notify).not.toHaveBeenCalled()
+  vi.useRealTimers()
+  w.unmount()
+})
+
+// C1 回归:模板裸 clearTimeout 编译成 _ctx.clearTimeout → TypeError → 宽限定时器不取消 → 面板自关
+test('鼠标移进面板取消宽限关闭(holdPanel):300ms 后面板仍在', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  const panel = document.body.querySelector('[data-test="wb-panel"]')
+  expect(panel).toBeTruthy()
+  panel.dispatchEvent(new Event('mouseenter', { bubbles: true }))   // 移进面板:取消 200ms 宽限
+  vi.advanceTimersByTime(300)
+  await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeTruthy()   // 未被宽限关闭
+  vi.useRealTimers()
+  w.unmount()
+})
+
+// I2 回归:stale 文案不得与 relTime 的「前」叠成「前前」
+test('降级细字:失败有旧数据 → 含「更新失败」且不含「前前」', async () => {
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(150); await flushPromises()
+  let panel = document.body.querySelector('[data-test="wb-panel"]')
+  expect(panel.textContent).not.toContain('更新失败')
+  mocks.summary.mockRejectedValue(new Error('boom'))
+  vi.advanceTimersByTime(30_000); await flushPromises()   // 触发 30s 轮询 → 失败,保旧数据
+  vi.advanceTimersByTime(10); await flushPromises()       // retry:1 retryDelay:0 的重试也要走完才进 isError
+  panel = document.body.querySelector('[data-test="wb-panel"]')
+  expect(panel.textContent).toContain('更新失败')
+  expect(panel.textContent).not.toContain('前前')
   vi.useRealTimers()
   w.unmount()
 })
