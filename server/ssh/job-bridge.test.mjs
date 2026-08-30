@@ -1,6 +1,7 @@
 // server/ssh/job-bridge.test.mjs
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { createSshJobBridge, _resetSweepSeenServersForTest } from './job-bridge.mjs'
 
@@ -57,7 +58,7 @@ test('run:none 策略免审启动,返 jobId/pid;keyMode+readonly 策略拦非白
 })
 
 test('run:并发上限——远端 4 个 RUNNING 时拒', async () => {
-  const listing = Array.from({ length: 4 }, (_, i) => `id-${i} RUNNING`).join('\n')
+  const listing = Array.from({ length: 4 }, () => `${randomUUID()} RUNNING`).join('\n')
   const pool = fakePool([{ stdout: listing }, { stdout: '1\n' }])
   const r = await bridge(pool).run({ server: 'dev-1', command: 'x' })
   assert.ok(/并发/.test(r.error))
@@ -101,6 +102,99 @@ test('jobOut:真任务的 0 输出不得误报缺任务——运行中(size 0)�
   const done = await bridge(fakePool([{ stdout: '', stderr: 'AB_SIZE=0 AB_RUNNING=0 AB_EXIT=0\n', exitCode: 0 }]))
     .jobOut({ server: 'dev-1', jobId: JID })
   assert.equal(done.error, undefined); assert.equal(done.exitCode, 0); assert.equal(done.running, false)
+})
+
+// 终审 I1:acquire 失败必须包装成桥的错误形状,而非把 ssh2 原始错误抛给上层(AI 可见)。
+test('acquire 拒绝 → 返回 {error:"SSH 连接失败(...)"} 而非抛出(errorKind 透传,未知归 unknown)', async () => {
+  const mkPool = err => ({ acquire: async () => { throw err } })
+  const kinded = new Error('connect ECONNREFUSED 1.2.3.4:22'); kinded.errorKind = 'unreachable'
+  const r1 = await bridge(mkPool(kinded)).run({ server: 'dev-1', command: 'x' })
+  assert.ok(/SSH 连接失败\(unreachable\)/.test(r1.error || ''), JSON.stringify(r1))
+  const r2 = await bridge(mkPool(kinded)).jobOut({ server: 'dev-1', jobId: JID })
+  assert.ok(/SSH 连接失败\(unreachable\)/.test(r2.error || ''), JSON.stringify(r2))
+  const plain = await bridge(mkPool(new Error('boom'))).jobWrite({ server: 'dev-1', jobId: JID, text: 'y' })
+  assert.ok(/SSH 连接失败\(unknown\)/.test(plain.error || ''), JSON.stringify(plain))
+  const kl = await bridge(mkPool(kinded)).jobKill({ server: 'dev-1', jobId: JID })
+  assert.ok(/SSH 连接失败/.test(kl.error || ''), JSON.stringify(kl))
+  const ls = await bridge(mkPool(kinded)).jobList({ server: 'dev-1' })
+  assert.ok(/SSH 连接失败/.test(ls.error || ''), JSON.stringify(ls))
+  assert.ok(!JSON.stringify(r1).includes('1.2.3.4'), '错误文案不回显 host')
+})
+
+// 终审 I1:超时死亡处置——stream 已拿到(命令慢)只 close 流,不拆共享客户端;exec 回调从未
+// 触发(死连接,stream==null)才 client.end()。此前两者都不做,半死连接还池,后续任务操作全烧满 15s。
+test('execOnce 超时:stream 已拿到 → close 流且不拆池化客户端(跨会话杀伤防线)', async (t) => {
+  const calls = []
+  const pool = { acquire: async () => ({ client: {
+    exec: (cmd, cb) => { const s = new EventEmitter(); s.stderr = new EventEmitter(); s.close = () => calls.push('stream-close'); cb(null, s) /* 拿到流但永不结束 */ },
+    end: () => calls.push('end') }, release: () => calls.push('release') }) }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const p = bridge(pool).jobOut({ server: 'dev-1', jobId: JID })
+    await new Promise(r => setImmediate(r))   // 让 acquire/exec 回调先跑(setImmediate 不在 fake 范围)
+    t.mock.timers.tick(15000)
+    const r = await p
+    assert.ok(/读取超时/.test(r.error || ''), `超时应以错误呈现,实际: ${JSON.stringify(r)}`)
+    assert.ok(calls.includes('stream-close'), '本命令的流被关')
+    assert.ok(calls.includes('release'), '池句柄归还')
+    assert.ok(!calls.includes('end'), '共享客户端不拆(该服务器其他会话存活)')
+  } finally { t.mock.timers.reset() }
+})
+
+test('execOnce 超时:exec 回调从未触发(死连接)→ client.end 拆客户端', async (t) => {
+  const calls = []
+  const pool = { acquire: async () => ({ client: { exec: () => { calls.push('exec-no-cb') } /* cb 永不回调 */, end: () => calls.push('end') }, release: () => calls.push('release') }) }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const p = bridge(pool).jobOut({ server: 'dev-1', jobId: JID })
+    await new Promise(r => setImmediate(r))
+    t.mock.timers.tick(15000)
+    const r = await p
+    assert.ok(/读取超时/.test(r.error || ''), `超时应以错误呈现,实际: ${JSON.stringify(r)}`)
+    assert.ok(calls.includes('end'), '死连接客户端被拆')
+    assert.ok(calls.includes('release'), '池句柄归还')
+  } finally { t.mock.timers.reset() }
+})
+
+test('run 超时文案:报「连接或执行超时」,不再误报「远端不支持 setsid/Linux」', async (t) => {
+  const pool = { acquire: async () => ({ client: { exec: () => {} /* 永不回调 → 烧满超时 */, end: () => {} }, release: () => {} }) }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const p = bridge(pool).run({ server: 'dev-1', command: 'apt install -y htop' })
+    await new Promise(r => setImmediate(r))
+    t.mock.timers.tick(15000)              // 第 1 次 exec(list)超时
+    await new Promise(r => setImmediate(r)) // 第 2 次 exec(launch)的定时器此刻才被安装
+    t.mock.timers.tick(15000)
+    const r = await p
+    assert.ok(/连接或执行超时/.test(r.error || ''), JSON.stringify(r))
+    assert.ok(!/setsid|Linux/.test(r.error || ''), '死连接不得误报为服务器不支持 Linux')
+  } finally { t.mock.timers.reset() }
+})
+
+// 终审 I2:banner 噪音不虚增并发计数——banner + 3 真任务 ≠ 「并发已达上限」(maxPerServer=4)。
+test('run 并发上限:banner 噪音行不计入 RUNNING,不误报并发上限', async () => {
+  const listing = ['Connected to 203.0.113.7.', 'Welcome to Ubuntu 22.04 LTS',
+    `${JID} RUNNING`, '1f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 RUNNING',
+    '2f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 RUNNING'].join('\n')
+  const sink = []
+  const pool = fakePool([{ stdout: listing }, { stdout: '42\nOK\n' }], sink)
+  const r = await bridge(pool).run({ server: 'dev-1', command: 'x' })
+  assert.ok(!/并发/.test(r.error || ''), `3 真任务 + banner 应放行,实际: ${JSON.stringify(r)}`)
+  assert.ok(r.jobId)
+  // 对照:第 4 个真 RUNNING 任务(无 banner)即触发上限
+  const full = Array.from({ length: 4 }, () => `${randomUUID()} RUNNING`).join('\n')
+  const r2 = await bridge(fakePool([{ stdout: full }])).run({ server: 'dev-1', command: 'x' })
+  assert.ok(/并发/.test(r2.error || ''))
+})
+
+// 终审 I2:pid 只接受纯数字行——banner 曾被当 pid 回显给 AI(它会拿去 kill)。
+test('run pid:跳过 banner 行取纯数字行;全是噪音则不采信(pid 空)', async () => {
+  const withBanner = fakePool([{ stdout: '' }, { stdout: 'Welcome to Ubuntu 22.04\n42\nOK\n' }])
+  const r = await bridge(withBanner).run({ server: 'dev-1', command: 'x' })
+  assert.equal(r.pid, '42')
+  const noisy = fakePool([{ stdout: '' }, { stdout: 'Connected to 203.0.113.7.\nOK\n' }])
+  const r2 = await bridge(noisy).run({ server: 'dev-1', command: 'x' })
+  assert.equal(r2.pid, '', `banner 文本不得当 pid,实际: ${JSON.stringify(r2.pid)}`)
 })
 
 test('jobWrite:none 免审 ok;readonly 策略 needsApproval=true;keyMode 恒拒', async () => {

@@ -87,14 +87,32 @@ test('parseSideband:size/running/exitCode 解析;运行中 exitCode=null', () =>
   assert.deepEqual(junk, { size: 0, running: false, exitCode: null })
 })
 
-test('listScript/parseListOutput:RUNNING→null;非数字 code→null', () => {
+test('listScript/parseListOutput:RUNNING→null;非数字 code→null;非 jobId 行丢弃', () => {
   assert.ok(listScript().includes('/tmp/.ab-job/*/'))
-  const rows = parseListOutput('aaa RUNNING\nbbb 0\nccc 141\n')
+  const rows = parseListOutput(`${ID} RUNNING\n${ID2} 0\n${ID3} 141\n`)
   assert.deepEqual(rows, [
-    { jobId: 'aaa', exitCode: null },
-    { jobId: 'bbb', exitCode: 0 },
-    { jobId: 'ccc', exitCode: 141 },
+    { jobId: ID, exitCode: null },
+    { jobId: ID2, exitCode: 0 },
+    { jobId: ID3, exitCode: 141 },
   ])
+})
+
+// 终审 I2:sshd Banner/motd 也会在 exec 通道输出。解析不了的行必须**丢弃**——曾映射成
+// {jobId:<文本>,exitCode:null} 被桥数成 RUNNING(一行 banner 即虚增并发计数,误报并发上限),
+// 还会以假任务形态喂给 AI(它会去 kill)。运行中判定(并发上限)依赖 exitCode===null,故
+// 「banner 行不计入 RUNNING」是这条防线的核心断言。
+test('parseListOutput:banner/motd 噪音行不计入 RUNNING,也不喂给 AI', () => {
+  const noisy = [
+    'Connected to 203.0.113.7.', 'Welcome to Ubuntu 22.04.4 LTS (GNU/Linux 5.15.0 x86_64)', '',
+    ` * Documentation:  https://help.ubuntu.com`, `0 updates can be applied immediately`, `${ID} RUNNING`,
+    `${ID2} 0`, 'LIST-END', '', '',
+  ].join('\n')
+  const rows = parseListOutput(noisy)
+  assert.deepEqual(rows, [
+    { jobId: ID, exitCode: null },
+    { jobId: ID2, exitCode: 0 },
+  ])
+  assert.equal(rows.filter(j => j.exitCode === null).length, 1, 'banner 行不得数成 RUNNING')
 })
 
 test('killScript:TERM→1s→KILL 整进程组(负 pid);无 pid 不报错', () => {

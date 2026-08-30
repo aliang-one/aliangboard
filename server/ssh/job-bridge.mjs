@@ -25,17 +25,28 @@ const clampN = (v, lo, hi, fb) => {
 
 // 单次结算闩:超时/exec 回调/close/error 谁先到谁赢(与 agent-bridge exec 同款语义;
 // 有意不复用其函数——那里缠着 sudo/stdin/审计,是已测代码,不动)。
+// 死亡处置(终审 I1,移植 agent-bridge):超时先 `stream.close()`(只是这条命令慢,流可收);
+// 仅「exec 回调从未触发」(stream==null=疑似死连接)才拆整条池化客户端——client.end 会杀掉
+// 该服务器上所有用户共享的连接。此前两者都不做,把半死连接还给池:后续该服务器每个任务操作
+// 都烧满 15s 返回垃圾。exit 只记退出码、close 才结算:stdout/stderr 需在流关闭后才算完整。
 function execOnce(pool, serverId, label, cmd) {
   return pool.acquire(serverId, label).then(conn => new Promise(resolveP => {
-    let done = false, timer = null
+    let done = false, stream = null, timer = null
     let out = Buffer.alloc(0), errBuf = ''
-    const settle = r => { if (done) return; done = true; clearTimeout(timer); try { conn.release() } catch {}; resolveP(r) }
-    timer = setTimeout(() => settle({ stdout: out, stderr: errBuf, exitCode: null, timedOut: true }), EXEC_ONCE_TIMEOUT_MS)
+    const settle = r => { if (done) return; done = true; if (timer) clearTimeout(timer); try { conn.release() } catch {}; resolveP(r) }
+    timer = setTimeout(() => {
+      try { stream?.close?.() } catch {}
+      if (stream == null) { try { conn.client.end?.() } catch {} }
+      settle({ stdout: out, stderr: errBuf, exitCode: null, timedOut: true })
+    }, EXEC_ONCE_TIMEOUT_MS)
     conn.client.exec(cmd, (err, s) => {
       if (err) return settle({ stdout: out, stderr: String(err.message || err), exitCode: null, timedOut: false })
+      stream = s
+      let exitCode = null
       s.on('data', d => { out = Buffer.concat([out, d]) })
       s.stderr?.on?.('data', d => { errBuf += d.toString('utf8') })
-      s.on('exit', code => { settle({ stdout: out, stderr: errBuf, exitCode: code, timedOut: false }) })
+      s.on('exit', code => { exitCode = code })
+      s.on('close', () => { settle({ stdout: out, stderr: errBuf, exitCode, timedOut: false }) })
       s.on('error', e2 => settle({ stdout: out, stderr: String(e2.message || e2), exitCode: null, timedOut: false }))
     })
   }))
@@ -104,11 +115,15 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     }))
     if (s.error) return s
     const launchOut = s.stdout.toString('utf8')
-    if (s.timedOut || !/OK/.test(launchOut)) return { error: '任务启动失败(远端不支持 setsid/timeout?异步任务仅支持 Linux 服务器)' }
+    // 失败文案分流(终审 I1):超时(含死连接烧满 15s)≠ 远端不支持 Linux 原语——
+    // 死连接曾被误报成「服务器不支持 setsid/timeout」,误导 AI 去换服务器。
+    if (s.timedOut) return { error: '任务启动失败(连接或执行超时,请稍后重试)' }
+    if (!/OK/.test(launchOut)) return { error: '任务启动失败(远端不支持 setsid/timeout?异步任务仅支持 Linux 服务器)' }
     memory.set(jobId, { serverId: r.row.id, projectId, startedAt })
     sweepSeenServers.add(r.row.id)
-    // launchScript 输出 = pid 行 + 'OK' 确认行;pid 取首个非 OK 行。
-    const pid = launchOut.split('\n').map(l => l.trim()).find(l => l && l !== 'OK') || ''
+    // launchScript 输出 = pid 行 + 'OK' 确认行;pid 只接受纯数字行(终审 I2:
+    // banner/motd 噪音曾被当 pid 回显给 AI,它会拿去 kill)。
+    const pid = launchOut.split('\n').map(l => l.trim()).find(l => /^\d+$/.test(l)) || ''
     return { jobId, pid, server: r.row.name, startedAt, timeoutMin, maxOutMb }
   }
 

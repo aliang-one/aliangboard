@@ -85,11 +85,15 @@ export function listScript() {
 // {jobId:<文本>,exitCode:null},桥里被数成 RUNNING:一行 banner 就虚增并发计数(maxPerServer=4 时
 // banner+3 真任务 ⇒ 误报「并发已达上限」),还会以假任务形态喂给 AI(它会去 kill)。
 export function parseListOutput(stdoutText) {
-  return String(stdoutText || '').split('\n').filter(l => l && !l.includes('LIST-END')).map(l => {
-    const [jobId, code] = l.trim().split(/\s+/)
-    const n = Number(code)
-    return { jobId, exitCode: code === 'RUNNING' || !Number.isFinite(n) ? null : n }
-  })
+  return String(stdoutText || '').split('\n').map(l => l.trim())
+    .filter(l => l && !l.includes('LIST-END'))
+    .map(l => {
+      const [jobId, code] = l.split(/\s+/)
+      if (!validateJobId(jobId)) return null
+      const n = Number(code)
+      return { jobId, exitCode: code === 'RUNNING' || !Number.isFinite(n) ? null : n }
+    })
+    .filter(Boolean)
 }
 
 export function killScript({ jobId }) {
