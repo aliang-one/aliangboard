@@ -53,6 +53,8 @@ import { buildServerRefBlock } from './ssh/ref-block.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
+import { createSshJobBridge } from './ssh/job-bridge.mjs'
+import { resolveJobPolicy } from './ssh/job-policy.mjs'
 import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
 import { resolvePolicy } from './ssh/reap-policy.mjs'
 import { attachSocketToSession, broadcastToSockets } from './ssh/terminal-wire.mjs'
@@ -224,6 +226,8 @@ function getSshfileLimitBytes() {
 }
 // SSH 会话回收策略(2026-08-29 spec):设置>env SSH_IDLE_REAP_MS>内置默认;每跳现读,改动 ≤60s 生效
 const getSshSessionPolicy = () => resolvePolicy(getSetting, process.env)
+// SSH 异步任务策略:设置>env>默认,每跳现读(规格 2026-08-30 §4)
+const getSshJobPolicy = () => resolveJobPolicy(getSetting, process.env)
 
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
@@ -566,7 +570,7 @@ const WB_EXEC_STREAM_MAX = 262144 // 256KB 流式缓冲(最终 stdout 仍截 32K
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
 const clusterProber = createClusterProber({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
-const mcpHandler = createMcpServer({ db, apiKeyTools, cryptKey: sshCryptKey, sshPool, getSetting, setSetting })
+const mcpHandler = createMcpServer({ db, apiKeyTools, cryptKey: sshCryptKey, sshPool, getSetting, setSetting, getJobPolicy: getSshJobPolicy })
 
 
 // 工作台:台账 bootstrap(survey 集群 → 事实型 INDEX.md)。/ledger/bootstrap 端点 + agent bootstrap_ledger 工具共用。
@@ -1454,6 +1458,8 @@ async function handle(req, res) {
       // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 工具经 agent-runner ctx.ssh 到达;
       // 池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbench-agent 会 excludeTools 隐藏两工具。
       ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id, getSetting, setSetting }),
+      // SSH 异步任务桥(规格 2026-08-30):wb_ssh_run/out/write/list/kill 经 ctx.sshJobs 到达
+      sshJobs: createSshJobBridge({ db, pool: sshPool, projectId: project.id, getPolicy: getSshJobPolicy }),
       k8sSession,
     }
   }
@@ -2098,6 +2104,9 @@ const httpServer = createServer((req, res) => {
 // ===== SSH 服务器终端(/api/ssh/terminal) =====
 // 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
 const sshTerminals = createTerminalRegistry()
+// SSH 异步任务 TTL 清理(规格 2026-08-30 §4):对内存 map 里活跃过的服务器逐台远端 find。
+// 网关重启后内存为空 → 该轮不扫;孤儿目录由下次该服务器 run() 的机会性清理兜底(launchScript 已含)。
+const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__sweep__', getPolicy: getSshJobPolicy })
 // 60s sweep:每跳现读策略(改设置 ≤60s 生效,无需重启);命中即回收(关 channel+还池句柄+审计),
 // 有附着浏览器的(attached-idle/max-lifetime)先广播告知再关。detached-idle 无人可告,直接收。
 setInterval(() => {
@@ -2113,6 +2122,11 @@ setInterval(() => {
         requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
     })
   } catch (e) { console.error('[ssh] reap sweep failed:', e?.message || e) }
+  // SSH 异步任务 TTL 清理:单台失败不阻断(catch 全吞),sweep 只依赖 pool/db,projectId 无关
+  ;(async () => {
+    for (const id of jobBridgeForSweep.sweepServerIds())
+      await jobBridgeForSweep.sweepServer(id)
+  })().catch(() => {})
 }, 60000).unref?.()
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
 setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()

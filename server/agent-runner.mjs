@@ -10,7 +10,8 @@ import { reserveAudit, finalizeAudit } from './audit.mjs'
 // 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
 // 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
 // 仅当传入 audit={db,owner,clusterId} 时启用(workbench 路径);API key 路径不传 → 不重复审计。
-const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'wb_exec', 'wb_ssh_exec', 'write_server_notes', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger'])
+const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_rollout_undo', 'wb_exec', 'wb_ssh_exec', 'write_server_notes', 'write_project_file', 'apply_project_manifests', 'propose_learning', 'bootstrap_ledger',
+  'wb_ssh_run', 'wb_ssh_job_write', 'wb_ssh_job_kill'])
 function wbAuditIntent(audit, name, args) {
   let resource = null
   if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
@@ -49,7 +50,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   ].filter(d => !(excludeTools && excludeTools.has(d.function.name)))
   const offered = new Set(toolDefs.map(t => t.function.name))
   const requiringApproval = new Set(registry.requiringApproval())
-  const ctx = { apiKeyTools, keyRow, cluster, wb: workbench, ssh: workbench?.ssh || null }
+  const ctx = { apiKeyTools, keyRow, cluster, wb: workbench, ssh: workbench?.ssh || null, sshJobs: workbench?.sshJobs || null }
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)

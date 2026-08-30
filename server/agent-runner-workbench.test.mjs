@@ -323,3 +323,42 @@ test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露�
   const all = new Set(registry.all().map(t => t.name))
   for (const n of unbound) assert.ok(all.has(n), n)
 })
+
+// Task 6(2026-08-30):动态审批复合路由分流——wb_ssh_job_* 走任务桥,其余走同步桥。
+// 复合路由与 workbench-agent.mjs 两处装配同款(勿漂移);断言核心是路由分流而非审批值。
+test('动态审批路由:wb_ssh_run→sshJobs.needsApproval;wb_ssh_job_write→sshJobs;wb_ssh_exec→ssh.needsApproval', async () => {
+  const calls = []
+  const jobRuns = []
+  const sshExecs = []
+  const workbench = {
+    ssh: { exec: async (a) => { sshExecs.push(a); return { ok: true } },
+      needsApproval: async (n) => { calls.push(['ssh', n]); return false } }, // wb_exec 放宽 → 直执行
+    sshJobs: { run: async (a) => { jobRuns.push(a); return { jobId: 'j1' } },
+      needsApproval: async (n) => { calls.push(['jobs', n]); return true } }, // 任务工具收紧 → checkpoint
+  }
+  const sshBridge = workbench.ssh, sshJobs = workbench.sshJobs
+  const dynamicApproval = async (n, args) =>
+    (n === 'wb_ssh_run' || n.startsWith('wb_ssh_job_'))
+      ? (sshJobs ? sshJobs.needsApproval(n, args) : true)
+      : (sshBridge ? sshBridge.needsApproval(n, args) : true)
+  // ① wb_ssh_run(静态需审)→ 路由到任务桥 → 收紧 → checkpoint,resume 批准后 ctx.sshJobs.run 才被调
+  let r = createAgentRunner({ llmClient: { chat: seqChat([tc('1', 'wb_ssh_run', { server: 's1', command: 'x' }), fin('已起')]) }, workbench, dynamicApproval })
+  let cp = await r.run({ history: [{ role: 'user', content: '跑个长任务' }] })
+  assert.equal(cp.status, 'pending_approval')
+  assert.equal(cp.pending.name, 'wb_ssh_run')
+  assert.deepEqual(jobRuns, [], 'checkpoint 时不应启动任务')
+  let out = await r.run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  assert.equal(out.content, '已起')
+  assert.equal(jobRuns.length, 1)
+  // ② wb_ssh_job_write(静态需审)同样路由到任务桥
+  r = createAgentRunner({ llmClient: { chat: seqChat([tc('2', 'wb_ssh_job_write', { server: 's1', jobId: 'j1', text: 'y' }), fin('ok')]) }, workbench, dynamicApproval })
+  cp = await r.run({ history: [] })
+  assert.equal(cp.status, 'pending_approval')
+  // ③ wb_ssh_exec(静态需审)→ 路由到同步桥 → 放宽 → 直执行(不经 checkpoint)
+  r = createAgentRunner({ llmClient: { chat: seqChat([tc('3', 'wb_ssh_exec', { server: 's1', command: 'echo hi' }), fin('done')]) }, workbench, dynamicApproval })
+  out = await r.run({ history: [] })
+  assert.equal(out.content, 'done')
+  assert.equal(sshExecs.length, 1, '放宽后直执行')
+  // 路由分流总账:任务工具全部进 jobs,同步工具进 ssh
+  assert.deepEqual(calls, [['jobs', 'wb_ssh_run'], ['jobs', 'wb_ssh_job_write'], ['ssh', 'wb_ssh_exec']])
+})
