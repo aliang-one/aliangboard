@@ -25,7 +25,7 @@ export function createWorkbenchProjectRoutes(deps) {
     db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit,
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
-    bootstrapLedgerForCluster,
+    bootstrapLedgerForCluster, listSshSessions,
   } = deps
 
   // 匹配工作台非对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -52,6 +52,47 @@ export function createWorkbenchProjectRoutes(deps) {
         const storage = await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db })
         sendJson(res, 200, { conversations, counts, storage })
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.recordsReadFailed') }); return true }
+      return true
+    }
+
+    // GET /api/workbench/summary — 顶栏胶囊单一汇总端点(2026-08-30 spec §3):
+    // 项目(归属过滤,待办优先排序,截 8)+ 全量计数(运行中/待审批/SSH 按用户)。
+    // 待审批=paused + pendingApproval 非空(workbench-agent 暂停落库/resume 清空,持久权威源)。
+    if (url.pathname === '/api/workbench/summary' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const projects = listProjects(db, { userId: ps.userId, role: ps.role })
+        const clusterNameOf = cid => (cid ? db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || null : null)
+        const byProject = new Map(db.prepare(`
+          SELECT projectId,
+                 SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS runningConvs,
+                 SUM(CASE WHEN status='paused' AND pendingApproval IS NOT NULL THEN 1 ELSE 0 END) AS pendingApprovals,
+                 MAX(updatedAt) AS lastActiveAt
+          FROM workbench_conversations GROUP BY projectId
+        `).all().map(r => [r.projectId, r]))
+        const enriched = projects.map(p => {
+          const a = byProject.get(p.id)
+          return {
+            id: p.id, name: p.name, clusterId: p.clusterId || '',
+            clusterName: clusterNameOf(p.clusterId),
+            lastActiveAt: a?.lastActiveAt || null,
+            runningConvs: a?.runningConvs || 0,
+            pendingApprovals: a?.pendingApprovals || 0,
+          }
+        })
+        // 待办优先:待审批 ↓ 运行中 ↓ 最近活跃 ↓(并列保 listProjects 的 createdAt DESC 稳定序)
+        enriched.sort((a, b) =>
+          b.pendingApprovals - a.pendingApprovals ||
+          b.runningConvs - a.runningConvs ||
+          (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
+        const totals = {
+          projects: enriched.length,
+          runningConvs: enriched.reduce((s, r) => s + r.runningConvs, 0),
+          pendingApprovals: enriched.reduce((s, r) => s + r.pendingApprovals, 0),
+          sshSessions: (listSshSessions?.() || []).filter(s => s.userId === ps.userId).length,
+        }
+        sendJson(res, 200, { projects: enriched.slice(0, 8), totals })
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.summaryReadFailed') }) }
       return true
     }
 
