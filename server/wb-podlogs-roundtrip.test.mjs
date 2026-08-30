@@ -150,3 +150,72 @@ test('conversations @-mention 注入:进 LLM 的是资源 body,不是 {status,he
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
   }
 })
+
+// CSO 2026-08-30 #4:日志含 JWT(SA token 形态)→ 进 LLM 的 role:'tool' 消息须含 [redacted-jwt] 且不含原始串。
+test('wb_get_pod_logs:日志含 JWT → 工具结果打码 [redacted-jwt],明文不进 LLM', { timeout: 60000 }, async () => {
+  const [K8S_PORT, LLM_PORT, GW_PORT] = ports()
+  const JWT = 'eyJhbGciOiJSUzI1NiIsImtpZCI6Ik1ZS0VZIn0.eyJpc3MiOiJrdWJlcm5ldGVzIn0.SflKxwRJSMeKKF2QT4fXWx'
+  const LOG = `app starting\nsa token: ${JWT}\nready`
+  const DIR = mkdtempSync(join(tmpdir(), 'wb-podlogs-jwt-'))
+  const k8s = createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname
+    if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31","gitVersion":"v1.31.4"}') }
+    if (p === '/api/v1/namespaces/ns1/pods/p1/log') { res.writeHead(200, { 'content-type': 'text/plain;charset=utf-8' }); return res.end(LOG) }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end(`{"kind":"Status","message":"not found: ${p}"}`)
+  })
+  const llmRounds = []
+  const llm = createServer((req, res) => {
+    let body = ''; req.on('data', c => body += c); req.on('end', () => {
+      const { messages = [], stream } = JSON.parse(body || '{}')
+      llmRounds.push(messages)
+      const toolArgs = JSON.stringify({ namespace: 'ns1', pod: 'p1' })
+      if (stream) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        const ch = delta => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`
+        if (!messages.some(m => m.role === 'tool')) {
+          res.write(ch({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'wb_get_pod_logs', arguments: '' } }] }))
+          res.write(ch({ tool_calls: [{ index: 0, function: { arguments: toolArgs } }] }))
+        } else res.write(ch({ role: 'assistant', content: '日志已查看' }))
+        res.write('data: [DONE]\n\n'); return res.end()
+      }
+      const msg = messages.some(m => m.role === 'tool')
+        ? { role: 'assistant', content: '日志已查看' }
+        : { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'wb_get_pod_logs', arguments: toolArgs } }] }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ choices: [{ message: msg }] }))
+    })
+  })
+  await new Promise(r => k8s.listen(K8S_PORT, '127.0.0.1', r))
+  await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
+  const gw = spawn(process.execPath, ['server/index.mjs'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(GW_PORT), ALIANG_DB: join(DIR, 'wb.db'), ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+  const BASE = `http://127.0.0.1:${GW_PORT}`
+  try {
+    let up = false
+    for (let i = 0; i < 60 && !up; i++) { try { await fetch(`${BASE}/api/auth/login`, { method: 'POST', body: '{}' }); up = true } catch { await new Promise(r => setTimeout(r, 300)) } }
+    assert.ok(up, '网关未启动')
+    const lr = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+    const H = { 'content-type': 'application/json', 'x-platform-token': lr.token }
+    await fetch(`${BASE}/api/admin/llm-config`, { method: 'PUT', headers: H, body: JSON.stringify({ baseURL: `http://127.0.0.1:${LLM_PORT}`, model: 'mock-1' }) })
+    const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user:\n    token: d\n`
+    const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
+    const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't3', clusterId: cr.cluster?.id || cr.id }) })).json()
+    const cv = await (await fetch(`${BASE}/api/workbench/conversations`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '看日志' }) })).json()
+    let status = 'running'
+    for (let i = 0; i < 60 && (status === 'running' || status === 'paused'); i++) {
+      await new Promise(r => setTimeout(r, 400))
+      const c = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
+      status = c.conversation?.status || c.status || status
+    }
+    const toolMsg = llmRounds.flatMap(m => m.filter(x => x.role === 'tool')).map(x => String(x.content || '')).join('\n')
+    assert.ok(toolMsg.includes('[redacted-jwt]'), `工具结果须含 [redacted-jwt],实际:${toolMsg.slice(0, 200)}`)
+    assert.ok(!toolMsg.includes(JWT), `JWT 明文不得进 LLM 消息,实际:${toolMsg.slice(0, 200)}`)
+    assert.ok(toolMsg.includes('app starting'), '非敏感日志文本不受影响')
+  } finally {
+    gw.kill('SIGKILL'); k8s.close(); llm.close()
+    setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
+  }
+})

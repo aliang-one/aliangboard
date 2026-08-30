@@ -29,3 +29,14 @@ export function maskSecretResource(resource) {
   }
   return out
 }
+
+// CSO 2026-08-30 #4:自由文本(日志/exec stdout/文件内容)的高精度敏感模式打码。
+// 刻意只收高置信模式(JWT 两段以上结构/PEM 私钥块/AKIA),避免误伤诊断信息。
+const JWT_RE = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
+const PEM_RE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g
+const AKIA_RE = /\bAKIA[0-9A-Z]{16}\b/g
+export function maskSensitiveText(text) {
+  const s = String(text ?? '')
+  if (!s) return s
+  return s.replace(PEM_RE, '[redacted-private-key]').replace(JWT_RE, '[redacted-jwt]').replace(AKIA_RE, '[redacted-aws-key]')
+}

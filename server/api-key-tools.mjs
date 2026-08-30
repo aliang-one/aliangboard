@@ -446,3 +446,8 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
 
   return { callTool, getPodLogs: tools.get_pod_logs, listTools: () => Object.keys(tools) }
 }
+
+// CSO #4:workbench 免审读文件路径的敏感面拒绝清单(只挂在 wb_read_pod_file;
+// api-key 管理员档 read_file 的 /proc 调试语义不受影响)。
+const WB_POD_PATH_DENY = [/^\/proc(?:\/|$)/, /^\/sys(?:\/|$)/, /^\/dev(?:\/|$)/, /^\/run\/secrets(?:\/|$)/, /^\/var\/run\/secrets(?:\/|$)/]
+export function podPathDenied(p) { const s = String(p || ''); return WB_POD_PATH_DENY.some(re => re.test(s)) }

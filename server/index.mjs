@@ -15,7 +15,7 @@ import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
-import { resolveApiKey, createApiKeyTools, safePodPath } from './api-key-tools.mjs'
+import { resolveApiKey, createApiKeyTools, safePodPath, podPathDenied } from './api-key-tools.mjs'
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
@@ -60,7 +60,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
-import { maskSecretResource } from './secret-mask.mjs'
+import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -1225,7 +1225,9 @@ async function handle(req, res) {
           const logsText = typeof resp?.body === 'string' ? resp.body : (resp?.body == null ? '' : JSON.stringify(resp.body, null, 2))
           const buf = Buffer.from(logsText, 'utf8')
           const truncated = buf.length > LOG_MAX
-          return { logs: truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8'), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
+          // CSO #4:日志文本过高精度脱敏(JWT/PEM 私钥/AKIA)——免审工具输出会进 LLM 请求与 trace 落库
+          const logsOut = truncated ? buf.subarray(0, LOG_MAX).toString('utf8') : buf.toString('utf8')
+          return { logs: maskSensitiveText(logsOut), tail: tailN, previous: !!args.previous, truncated, originalBytes: buf.length }
         },
         // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
@@ -1233,10 +1235,13 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const p = safePodPath(args.path)
+          // CSO #4:免审读文件的敏感面拒绝清单(/proc /sys /dev /run/secrets)——SA token 等
+          // 密钥路径畅通会直接明文进 LLM;管理员档 read_file 的 /proc 调试语义不受影响。
+          if (podPathDenied(p)) throw new Error(msg(req, 'api.podPathDenied'))
           // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
           // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', ['cat', '--', p], false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
-          return { pod: args.pod, path: p, content: (r.stdout?.toString('utf8') || '').slice(0, 32768), timedOut: !!r.timedOut, truncated: !!r.truncated }
+          return { pod: args.pod, path: p, content: maskSensitiveText((r.stdout?.toString('utf8') || '').slice(0, 32768)), timedOut: !!r.timedOut, truncated: !!r.truncated }
         },
         describeResource: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
@@ -1406,8 +1411,9 @@ async function handle(req, res) {
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
           return {
             pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
-            stdout: (r.stdout?.toString('utf8') || '').slice(0, 32768),
-            stderr: (r.stderr || '').slice(0, 8192),
+            // CSO #4:审批通过后输出同样进 LLM/trace,stdout/stderr 一并高精度脱敏
+            stdout: maskSensitiveText((r.stdout?.toString('utf8') || '').slice(0, 32768)),
+            stderr: maskSensitiveText((r.stderr || '').slice(0, 8192)),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
             ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }

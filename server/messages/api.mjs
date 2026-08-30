@@ -13,6 +13,7 @@ export const TABLE = {
   'api.unsupportedKind': { zh: '不支持的 kind: {k}', en: 'Unsupported kind: {k}' },
   'api.missingPod': { zh: '缺 pod', en: 'Missing pod' },
   'api.missingCommand': { zh: '缺 command', en: 'Missing command' },
+  'api.podPathDenied': { zh: '路径被禁止(密钥与 proc 系统面)', en: 'Path denied (secrets/proc surfaces)' },
   'api.topNeedsNamespace': { zh: 'scope=pods 需要 namespace', en: 'scope=pods requires a namespace' },
   'api.metricsServerUnavailable': { zh: 'metrics-server 未安装或未就绪(kubectl top 同样不可用);装好后再试。原始错误: {msg}', en: 'metrics-server is not installed or not ready (kubectl top is also unavailable); install it and retry. Original error: {msg}' },
   'api.deploymentNotFound': { zh: 'Deployment {name} 不存在', en: 'Deployment {name} not found' },
