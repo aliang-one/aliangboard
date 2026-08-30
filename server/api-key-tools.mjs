@@ -75,6 +75,22 @@ function oversizedJson(body) {
   }
 }
 
+// CSO 2026-08-30 #7:路径安全校验必须在「URL 解析语义」之后。WHATWG URL 会折叠点段、
+// 把 '//host' 与 '\' 当 authority —— 在原始串上做正则=形同虚设。这里只做「拒绝」判定,
+// 不改写路径(合法编码段原样透传给传输层)。
+export function assertSafeApiPath(p) {
+  const raw = String(p || '')
+  const deny = (detail) => { throw new PermissionDeniedError('policy', { detail }) }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) deny(`path 不允许为绝对 URL: ${raw.slice(0, 80)}`)
+  if (raw.startsWith('//') || raw.includes('\\')) deny(`path 不允许 // 或反斜杠: ${raw.slice(0, 80)}`)
+  let decoded = raw
+  try { decoded = decodeURIComponent(raw) } catch { deny(`path 百分号编码非法: ${raw.slice(0, 80)}`) }
+  const hasDotSeg = (s) => s.split('/').some(seg => seg === '.' || seg === '..')
+  if (hasDotSeg(raw) || hasDotSeg(decoded)) deny(`path 不允许点段(. / ..): ${raw.slice(0, 80)}`)
+  if (decoded.startsWith('//') || decoded.includes('\\')) deny(`path 解码后仍不允许 // 或反斜杠: ${raw.slice(0, 80)}`)
+  return { raw, decoded }
+}
+
 // path-ns 作用域:解析 path 的 /namespaces/<x>/,强制 <x> ∈ allowedNs(来自 effectiveNamespaces);集群级 path 或他 ns → policy 拒。
 // delete_resource 旧实现只校验 namespace arg、不校验 path 实际 ns —— 本 helper 补 policy 层闭环。
 export function assertPathInNs(path, allowedNs) {
@@ -148,8 +164,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       if (a.path) {
         return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
           fn: async (saCtx) => {
-            assertPathInNs(a.path, effectiveNamespaces(keyRow))
-            const { body } = await requestFn(saCtx, a.path)
+            const p = assertSafeApiPath(a.path)
+            assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+            const { body } = await requestFn(saCtx, p.raw)
             const all = body?.items || []
             const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
             return { kind: '(path)', count: all.length, returned: items.length, items }
@@ -184,8 +201,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'get_resource_yaml', source, namespace: a.namespace, verb: 'get', resource: a.path || '?', summary: `get ${(a.path || '').slice(0, 80)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
-        assertPathInNs(a.path, effectiveNamespaces(keyRow))
-        const { body } = await requestFn(saCtx, a.path)
+        const p = assertSafeApiPath(a.path)
+        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        const { body } = await requestFn(saCtx, p.raw)
         if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
         const full = yamlDump(maskSecretResource(body)) // 脱敏 T3:Secret 值掩码后再 dump
         const originalBytes = Buffer.byteLength(full, 'utf8')
@@ -400,8 +418,9 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       keyRow, cluster, tool: 'delete_resource', source, namespace: a.namespace, verb: 'delete', resource: a.path || '?', summary: `delete ${(a.path || '').slice(0, 100)}`,
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
-        assertPathInNs(a.path, effectiveNamespaces(keyRow))
-        await requestFn(saCtx, a.path, { method: 'DELETE' })
+        const p = assertSafeApiPath(a.path)
+        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        await requestFn(saCtx, p.raw, { method: 'DELETE' })
         return { deleted: a.path }
       } }),
     kubectl_debug: async (keyRow, cluster, a, source) => runBoundedTool({
