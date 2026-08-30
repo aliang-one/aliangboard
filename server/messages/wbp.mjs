@@ -23,4 +23,5 @@ export const TABLE = {
   'wbp.distillFailed': { zh: '蒸馏失败', en: 'Distillation failed' },
   'wbp.applyFailed': { zh: '应用失败', en: 'Failed to apply' },
   'wbp.dismissFailed': { zh: '失败', en: 'Failed' },
+  'wbp.summaryReadFailed': { zh: '读取汇总失败', en: 'Failed to read summary' },
 }

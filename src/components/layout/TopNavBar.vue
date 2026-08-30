@@ -1,17 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import UserMenu from './UserMenu.vue'
+import WorkbenchEntryPill from './WorkbenchEntryPill.vue'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
 
 const router = useRouter()
-const route = useRoute()
-// 工作台胶囊激活态:/workbench 前缀覆盖 shell、台账、项目详情
-// (docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md)
-const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
 const store = useClusterStore()
 const { bump: bumpRefresh } = usePageRefresh()
 
@@ -264,20 +261,9 @@ function goClusters() {
       </div>
     </div>
     <div class="flex items-center gap-md">
-      <!-- 工作台入口:品牌描边胶囊(方案 C3,docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md)
+      <!-- 工作台入口:品牌胶囊 + 状态角标 + 悬停概览(2026-08-30 信息丰富化,规格 docs/superpowers/specs/2026-08-30-workbench-entry-pill-summary-design.md)
            ——导航级入口排工具按钮前;shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
-      <button
-        @click="router.push('/workbench')"
-        :aria-label="$t('nav.workbench')"
-        :title="$t('nav.workbench')"
-        class="flex items-center gap-sm rounded-full px-md py-1.5 border transition-colors text-body-sm font-semibold shrink-0"
-        :class="isWorkbenchActive
-          ? 'border-primary bg-primary-container text-on-primary-container'
-          : 'border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10'"
-      >
-        <span class="material-symbols-outlined text-lg">workspaces</span>
-        {{ $t('nav.workbench') }}
-      </button>
+      <WorkbenchEntryPill />
       <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>

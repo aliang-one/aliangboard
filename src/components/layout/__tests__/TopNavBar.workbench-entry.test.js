@@ -3,6 +3,8 @@
 // 有文字标签(非 icon-only)、右区第一位(刷新之前)、点击直达 /workbench、/workbench* 前缀激活态。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 // 可变路由状态:vi.hoisted 保证 vi.mock 工厂引用时不踩 TDZ(工厂懒执行于模块 import 期)
 const state = vi.hoisted(() => ({
@@ -38,11 +40,23 @@ vi.mock('@/composables/usePageRefresh', () => ({
 vi.mock('@/composables/useK8sQuery', () => ({
   useResourceList: () => ({ data: { value: [] } }),
 }))
-vi.mock('@/api/client', () => ({ api: {}, clearSession: vi.fn(), getSession: () => false }))
+vi.mock('@/api/client', () => ({
+  api: {},
+  clearSession: vi.fn(),
+  getSession: () => false,
+  getPlatformToken: () => null,
+  workbenchApi: { summary: vi.fn().mockResolvedValue({ projects: [], totals: { projects: 0, runningConvs: 0, pendingApprovals: 0, sshSessions: 0 } }) },
+}))
 
 import TopNavBar from '../TopNavBar.vue'
 
-const mountIt = () => mount(TopNavBar, { global: { mocks: { $t: (k) => k }, stubs: { ConfirmDialog: true } } })
+const mountIt = () => mount(TopNavBar, {
+  global: {
+    mocks: { $t: (k) => k },
+    stubs: { ConfirmDialog: true },
+    plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+  },
+})
 const findPill = (w) =>
   w.findAll('header button').find(b => b.attributes('aria-label') === 'nav.workbench')
 
