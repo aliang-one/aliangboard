@@ -868,3 +868,24 @@ test('get_resource/describe_resource/get_resource_yaml:Secret 值掩码指纹,�
   assert.ok(!y.yaml.includes('s3cr3t-hunter2') && !y.yaml.includes(b64pw), 'yaml 明文不出现')
   assert.match(y.yaml, /#[0-9a-f]{8}/)
 })
+test('apply_yaml(CSO adjacent): 集群级 kind 即使带 metadata.namespace 也拒(ns 绑定 key)', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let applied = false
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn: async () => { applied = true; return { applied: [], failed: [], total: 0 } } })
+  // apply-yaml.mjs 对集群级 kind 丢弃 namespace 段 → ns 闸门被骗过,实际创建集群级对象
+  const yaml = 'apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  name: cr1\n  namespace: ns'
+  await assert.rejects(
+    tools.callTool(k, cluster, 'apply_yaml', { yaml }),
+    (e) => e.code === 'PERMISSION_DENIED' && e.reason === 'policy' && /集群级/.test(e.detail) && /ClusterRole/.test(e.detail),
+  )
+  assert.equal(applied, false, '集群级 kind 时 applyYamlFn 不应被调')
+})
+test('apply_yaml(CSO adjacent) 对照: namespaced kind + 允许 ns → 正常放行到 applyYamlFn', async () => {
+  const db = makeDb()
+  const k = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', tier: 'admin' })
+  let called = null
+  const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn: async (ctx, y) => { called = y; return { applied: [], failed: [], total: 0 } } })
+  await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n  namespace: ns' })
+  assert.ok(called.includes('ConfigMap'), 'namespaced kind 应照常放行')
+})

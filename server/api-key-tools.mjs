@@ -11,7 +11,7 @@ import { dump as yamlDump, loadAll as yamlLoadAll } from 'js-yaml'
 import { maskSecretResource } from './secret-mask.mjs'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
-import { listApiPath, getApiPath } from './kind-paths.mjs'
+import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -411,6 +411,11 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
           const ns = o?.metadata?.namespace
           if (!ns) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `apply_yaml 要求每个资源显式指定 metadata.namespace(防跨 ns / 集群级越权);kind=${o?.kind || '?'}` })
           if (!allowedNs.has(ns)) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `命名空间 '${ns}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}])` })
+          // CSO 复核 adjacent:apply-yaml 对集群级 kind 会丢弃 namespace 段 —— 上面的 ns 检查
+          // 拦不住「ClusterRole + metadata.namespace: <允许 ns>」混过门。集群级资源对 ns 绑定 key 一律拒。
+          // 归一化复用 normalizeKind(kindAlias 单一事实源);空 kind 维持现状只走 ns 检查(不误伤)。
+          const clusterScoped = o?.kind && KIND_API[normalizeKind(o.kind)]
+          if (clusterScoped && clusterScoped.ns === false) throw new PermissionDeniedError('policy', { tool: 'apply_yaml', detail: `ns 绑定 key 不允许 apply 集群级资源: kind=${o.kind}` })
         })
         return applyYamlFn(saCtx, a.yaml)
       } }),
