@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 import { load as yamlLoad } from 'js-yaml'
 import Modal from './Modal.vue'
 import DataKeysEditor from './DataKeysEditor.vue'
+import CodeTextarea from './CodeTextarea.vue'
 import KeyValueRowsEditor from './KeyValueRowsEditor.vue'
 import { SECRET_TYPES, buildSecretData, secretFieldsComplete } from '@/utils/secretTemplates'
 import { encodeSecretData } from '@/composables/useResourceMappers'
@@ -178,9 +179,9 @@ const yamlErrorKey = computed(() => {
 })
 const yamlValid = computed(() => yamlDirty.value && !yamlErrorKey.value)
 
-// textarea 输入:进入「YAML 权威」态
-function onYamlInput(e) {
-  rawYaml.value = e.target.value
+// YAML 手改:进入「YAML 权威」态
+function onYamlInput(v) {
+  rawYaml.value = v
   yamlDirty.value = true
 }
 
@@ -323,9 +324,12 @@ function cancel() {
           <p v-if="yamlErrorKey" data-testid="ccm-yaml-error" class="text-body-sm text-error">
             {{ t(yamlErrorKey) }}
           </p>
-          <textarea :value="yamlDirty ? rawYaml : derivedYaml" @input="onYamlInput" data-testid="ccm-yaml-input" rows="14" spellcheck="false"
-            :class="maximized ? 'flex-1 min-h-0 w-full resize-none' : ''"
-            class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md text-body-sm font-mono" />
+          <CodeTextarea
+            :model-value="yamlDirty ? rawYaml : derivedYaml" lang="yaml" :rows="14"
+            data-testid="ccm-yaml-input"
+            :height-class="maximized ? 'flex-1 min-h-0' : 'h-[284px]'"
+            @update:model-value="onYamlInput"
+          />
         </div>
       </div>
     </div>
