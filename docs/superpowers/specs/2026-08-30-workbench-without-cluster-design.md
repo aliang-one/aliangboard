@@ -25,8 +25,8 @@
 
 ### 2.1 项目表
 
-- `workbench_projects.clusterId` 改**可空**:`createProject` 去掉 clusterId 必填校验(NULL = 未绑定)。
-- 存量项目全部有 clusterId,行为零变化,无数据迁移。
+- 「未绑定集群」以 **`clusterId = ''`(空串哨兵)** 表达,而非 NULL:`workbench_projects.clusterId` 是 `TEXT NOT NULL`,存量库改可空需重建表(重迁移高风险);`''` 通过 NOT NULL 约束、JS 语义 falsy,与 NULL 等价贯通全部既有「集群缺失」降级分支(`if (!cluster)`、`k8sSession = cluster ? … : null`、`clusterNameOf('') → '-'`)。
+- `createProject` 去掉 clusterId 必填校验(缺省写 `''`);存量项目行为零变化,无数据迁移。
 
 ### 2.2 repo 路径(单源 helper)
 
