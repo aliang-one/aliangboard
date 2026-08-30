@@ -61,6 +61,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
+import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -1131,8 +1132,10 @@ function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
 }
 // 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
+// CSO #14:每块过 formatRefBlock(围栏头+16KB 截断);budget 每次调用新建=每轮对话单轮全部 ref 合计 ≤48KB,超预算的 ref 跳过。
 async function fetchRefContext(references, k8sSession) {
   if (!Array.isArray(references) || !references.length || !k8sSession) return ''
+  const budget = createRefContextBudget()
   const tasks = references.map(async ref => {
     const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
     // 防御性归一:ref.kind 正常恒为前端 canonical,但库里有旧数据/手改可能 → 与工具链同源归一
@@ -1141,7 +1144,9 @@ async function fetchRefContext(references, k8sSession) {
     try {
       const res = await withTimeout(requestKubernetes(k8sSession, path), 5000, `ref ${ref.kind}/${ref.name}`)
       const body = maskSecretResource(res?.body)
-      return `${label}:\n${JSON.stringify(body, null, 2)}`
+      const block = formatRefBlock(label, JSON.stringify(body, null, 2))
+      if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
+      return block
     } catch { return `${label}: (not found / 已删除)` }
   })
   const blocks = await Promise.all(tasks)
