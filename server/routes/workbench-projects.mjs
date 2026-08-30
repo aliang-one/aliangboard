@@ -89,7 +89,9 @@ export function createWorkbenchProjectRoutes(deps) {
           projects: enriched.length,
           runningConvs: enriched.reduce((s, r) => s + r.runningConvs, 0),
           pendingApprovals: enriched.reduce((s, r) => s + r.pendingApprovals, 0),
-          sshSessions: (listSshSessions?.() || []).filter(s => s.userId === ps.userId).length,
+          // 终端注册表 userId 字段实存 username(server/index.mjs sshTerminals.ensure(sid,{userId: ps.username})),
+          // 属主比对同源;ps.userId 是 platform_users.id(UUID),不可混用。
+          sshSessions: (listSshSessions?.() || []).filter(s => s.userId === ps.username).length,
         }
         sendJson(res, 200, { projects: enriched.slice(0, 8), totals })
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.summaryReadFailed') }) }

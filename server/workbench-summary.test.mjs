@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createWorkbenchSchema } from './workbench-projects.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 
-function setup({ user = 'u1', role = 'user', ssh = [] } = {}) {
+function setup({ user = 'u1', role = 'user', username = 'alice', ssh = [] } = {}) {
   const db = new DatabaseSync(':memory:')
   createWorkbenchSchema(db)
   db.exec('CREATE TABLE IF NOT EXISTS clusters (id TEXT PRIMARY KEY, name TEXT)')
@@ -16,7 +16,8 @@ function setup({ user = 'u1', role = 'user', ssh = [] } = {}) {
     db,
     sendJson: (_res, status, body) => sent.push({ status, body }),
     readBody: async () => ({}),
-    requirePlatform: () => (user === null ? null : { userId: user, role }),
+    // 真实形状:userId=platform_users.id(UUID),username=登录名;SSH 终端注册表存 username
+    requirePlatform: () => (user === null ? null : { userId: user, username, role }),
     requireAdmin: () => null,
     writeAudit: () => {},
     WORKBENCH_DIR: '/tmp/ab-summary-test',
@@ -35,10 +36,13 @@ const addConv = (db, projectId, { status = 'running', pending = null, updatedAt 
   db.prepare('INSERT INTO workbench_conversations (id,projectId,status,pendingApproval,createdAt,updatedAt) VALUES (?,?,?,?,?,?)')
     .run(id || `conv-${projectId}-${status}-${Math.random()}`, projectId, status, pending, updatedAt, updatedAt)
 
-test('普通用户只见自己项目,SSH 只数自己的', async () => {
-  const { db, sent, call } = setup({ user: 'u1', role: 'user', ssh: [{ userId: 'u1' }, { userId: 'u1' }, { userId: 'u2' }] })
-  addProject(db, 'mine')
-  addProject(db, 'others', { ownerId: 'u2' })
+test('普通用户只见自己项目,SSH 按 username 计数(终端注册表 userId 字段实存 username)', async () => {
+  const { db, sent, call } = setup({
+    user: 'u-uuid-1', username: 'alice', role: 'user',
+    ssh: [{ userId: 'alice' }, { userId: 'alice' }, { userId: 'bob' }, { userId: 'u-uuid-1' }], // 末条=UUID 不计(身份字段错配反例)
+  })
+  addProject(db, 'mine', { ownerId: 'u-uuid-1' })
+  addProject(db, 'others', { ownerId: 'u-uuid-2' })
   await call()
   assert.equal(sent[0].status, 200)
   const { projects, totals } = sent[0].body
