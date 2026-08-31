@@ -183,7 +183,7 @@ const CK_TIME_MS = 500
       const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
-        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要]\n${projectRecap}` : '')
+        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)\n${projectRecap}` : '')
         + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
@@ -273,7 +273,7 @@ const CK_TIME_MS = 500
       const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
-        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要]\n${projectRecap}` : '')
+        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)\n${projectRecap}` : '')
         + await fetchRefContext(refs, k8sSession)
       const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,

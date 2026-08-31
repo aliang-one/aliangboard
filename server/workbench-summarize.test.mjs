@@ -282,6 +282,22 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
   assert.deepEqual(rows.map(r => r.content), ['c'])
 })
 
+// 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验
+test('maybeSummarizeProject:summarizer 指令含硬性约束(禁止瞬时能力结论入摘要)', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 6000 + i)
+  let captured = null
+  const llm = { chat: async ({ messages }) => { captured = messages; return { content: 's' } } }
+  assert.equal(await maybeSummarizeProject(db, id, llm), true)
+  assert.ok(captured, 'llm 被调用')
+  assert.equal(captured[0].role, 'system')
+  assert.ok(
+    captured[0].content.includes('硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'),
+    '硬性约束逐字入提示词',
+  )
+})
+
 test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () => {
   const db = freshDb()
   const id = p1Id(db)

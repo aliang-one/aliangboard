@@ -484,7 +484,7 @@ test('runConversation:projectRecap 拼入 refreshSystem 产物;projectMemory=fal
   const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit: () => {}, busDispose: () => {} })
   await agent.runConversation(conv.id, { chat: async () => ({}), model: 'mock-1' })
   const sys = await capturedRunOpts().refreshSystem()
-  assert.ok(sys.includes('[Project memory'), '注入标记')
+  assert.ok(sys.includes('[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)'), '注入标记(带 caveat)')
   assert.ok(sys.includes('定了用 nginx ingress'))
   // 开关关(platform_settings 直写 'false',与 admin setSetting 同存储)再跑一条新对话 → 不含标记
   db.exec('CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )')
