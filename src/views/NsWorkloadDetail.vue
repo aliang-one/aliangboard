@@ -1434,7 +1434,7 @@ function podStatusBorder(s) {
             <span class="text-xs text-on-surface-variant ml-auto">{{ revisions.length }}</span>
           </div>
           <div class="flex-1 overflow-y-auto p-sm flex flex-col gap-xs">
-            <button v-for="rev in revisions" :key="rev.rev" @click="selectRev(rev)"
+            <button v-for="rev in revisions" :key="rev.rev" data-testid="rev-card" @click="selectRev(rev)"
               class="text-left rounded-lg border transition-all px-sm py-1.5 hover:shadow-sm"
               :class="revCardClass(rev)">
               <!-- 头：Rev + 徽标 + 年龄 -->
@@ -1448,26 +1448,18 @@ function podStatusBorder(s) {
               <p class="font-mono text-[11px] truncate mt-0.5" :class="rev.current ? 'text-on-primary/80' : 'text-on-surface-variant'">
                 {{ revImgBase(rev.image) }}<span class="font-semibold" :class="rev.current ? 'text-on-primary' : 'text-primary'">:{{ imageTag(rev.image) || 'latest' }}</span>
               </p>
-              <!-- 副本统计：期望 / 当前 / 就绪 -->
-              <div class="grid grid-cols-3 gap-1 mt-1">
-                <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.desired') }}</p>
-                  <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.desiredReplicas ?? '—' }}</p>
+              <!-- 副本统计 + 操作：合并单行（指标左、操作右；去盒子背景降高度） -->
+              <div data-testid="rev-metrics-row" class="flex items-center gap-1.5 mt-1 min-w-0">
+                <div class="flex items-center gap-1.5 min-w-0" :class="rev.current ? 'text-on-primary/70' : 'text-on-surface-variant/50'">
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.desired') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.desiredReplicas ?? '—' }}</b></span>
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.current') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.replicas ?? 0 }}</b></span>
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.ready') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="revReadyClass(rev)">{{ rev.readyReplicas ?? 0 }}</b></span>
                 </div>
-                <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.current') }}</p>
-                  <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ rev.replicas ?? 0 }}</p>
+                <div class="flex items-center ml-auto shrink-0 -mr-0.5">
+                  <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-on-surface/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
+                  <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
+                  <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
                 </div>
-                <div class="rounded text-center py-0.5" :class="rev.current ? 'bg-on-primary/15' : 'bg-surface-container/80'">
-                  <p class="text-[9px] leading-none" :class="rev.current ? 'text-on-primary/60' : 'text-on-surface-variant/50'">{{ $t('workload.revision.ready') }}</p>
-                  <p class="font-mono text-[11px] font-bold leading-none mt-0.5" :class="revReadyClass(rev)">{{ rev.readyReplicas ?? 0 }}</p>
-                </div>
-              </div>
-              <!-- 操作 -->
-              <div class="flex items-center justify-end gap-0.5 mt-1 -mr-0.5">
-                <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-on-surface/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
-                <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
-                <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
             </button>
           </div>
@@ -1525,19 +1517,17 @@ function podStatusBorder(s) {
                   <span class="font-mono truncate" :title="selectedRev.rsName">{{ selectedRev.rsName || '—' }}</span>
                 </div>
               </div>
-              <!-- 副本统计：扁平 3 列（竖线分隔，无盒子） -->
-              <div class="grid grid-cols-3 px-md py-sm border-y border-outline-variant/40">
-                <div class="text-center">
-                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.desired') }}</p>
-                  <p class="font-mono text-body-sm font-bold text-on-surface mt-0.5">{{ selectedRev.desiredReplicas ?? '—' }}</p>
+              <!-- 副本统计 + 操作：合并单行（指标左、操作右；旧吸底操作条移除） -->
+              <div data-testid="rev-detail-compact-row" class="flex items-center gap-1.5 px-md py-sm border-b border-outline-variant/40 min-w-0">
+                <div class="flex items-center gap-1.5 min-w-0 text-on-surface-variant/50">
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.desired') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none text-on-surface">{{ selectedRev.desiredReplicas ?? '—' }}</b></span>
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.current') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="(selectedRev.replicas ?? 0) > 0 ? 'text-primary' : 'text-on-surface-variant/50'">{{ selectedRev.replicas ?? 0 }}</b></span>
+                  <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.ready') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="revReadyClass(selectedRev)">{{ selectedRev.readyReplicas ?? 0 }}</b></span>
                 </div>
-                <div class="text-center border-x border-outline-variant/40">
-                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.current') }}</p>
-                  <p class="font-mono text-body-sm font-bold mt-0.5" :class="(selectedRev.replicas ?? 0) > 0 ? 'text-primary' : 'text-on-surface-variant/50'">{{ selectedRev.replicas ?? 0 }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-[10px] text-on-surface-variant/50">{{ $t('workload.revision.ready') }}</p>
-                  <p class="font-mono text-body-sm font-bold mt-0.5" :class="revReadyClass(selectedRev)">{{ selectedRev.readyReplicas ?? 0 }}</p>
+                <div class="flex items-center gap-0.5 ml-auto shrink-0">
+                  <button @click="viewRevYaml(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-sm">code</span>YAML</button>
+                  <button @click="confirmRollback(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-sm">undo</span>{{ $t('workload.revision.rollback') }}</button>
+                  <button @click="confirmDeleteRev(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"><span class="material-symbols-outlined text-sm">delete</span>{{ $t('workload.revision.delete') }}</button>
                 </div>
               </div>
               <!-- 元信息 -->
@@ -1550,12 +1540,6 @@ function podStatusBorder(s) {
                   <span class="material-symbols-outlined text-on-surface-variant/60 text-sm shrink-0">change_circle</span>
                   <span class="text-on-surface-variant break-all">{{ selectedRev.reason }}</span>
                 </div>
-              </div>
-              <!-- 操作（吸底，无边框仅 hover 底色） -->
-              <div class="mt-auto px-md py-md border-t border-outline-variant/40 grid grid-cols-3 gap-1">
-                <button @click="viewRevYaml(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">YAML</span></button>
-                <button @click="confirmRollback(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-base">undo</span><span class="text-[11px]">{{ $t('workload.revision.rollback') }}</span></button>
-                <button @click="confirmDeleteRev(selectedRev)" class="flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"><span class="material-symbols-outlined text-base">delete</span><span class="text-[11px]">{{ $t('workload.revision.delete') }}</span></button>
               </div>
             </div>
           </template>
