@@ -364,7 +364,8 @@ function nsStatusColor(status) {
 
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
-        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs ns-cap">{{ $t('nav.platformAdmin') }}</p>        <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
+        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs ns-cap">{{ $t('nav.platformAdmin') }}</p>
+        <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
           class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
