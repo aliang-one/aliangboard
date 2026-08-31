@@ -3641,7 +3641,15 @@
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
       "editCancel": "取消编辑",
       "projectRecapTitle": "项目背景（之前对话的记忆）",
-      "projectRecapSummary": "AI 每轮携带的项目决策摘要"
+      "projectRecapSummary": "AI 每轮携带的项目决策摘要",
+      "recapEdit": "编辑",
+      "recapSave": "保存",
+      "recapCancel": "取消",
+      "recapClear": "清空",
+      "recapClearConfirm": "确定清空项目记忆？清空后 AI 将不再携带此背景（摘要水位归零，后续对话会重新累积）。",
+      "recapSaved": "项目记忆已更新",
+      "recapClearDone": "项目记忆已清空",
+      "recapSaveFailed": "项目记忆保存失败，请重试"
     },
     "shell": {
       "title": "工作台",

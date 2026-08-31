@@ -3641,7 +3641,15 @@
       "editBanner": "Editing this message — sending will remove {n} messages after it",
       "editCancel": "Cancel edit",
       "projectRecapTitle": "Project context (memory from earlier chats)",
-      "projectRecapSummary": "Project decision summary the AI carries each turn"
+      "projectRecapSummary": "Project decision summary the AI carries each turn",
+      "recapEdit": "Edit",
+      "recapSave": "Save",
+      "recapCancel": "Cancel",
+      "recapClear": "Clear",
+      "recapClearConfirm": "Clear the project memory? AI will no longer carry this context (summary watermark resets; it rebuilds from new chats).",
+      "recapSaved": "Project memory updated",
+      "recapClearDone": "Project memory cleared",
+      "recapSaveFailed": "Failed to save project memory, please retry"
     },
     "shell": {
       "title": "Workbench",
