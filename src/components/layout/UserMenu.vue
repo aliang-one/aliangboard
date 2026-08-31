@@ -4,6 +4,7 @@
 // 级 click 外部关闭 + ESC(与 TopNavBar 集群/ns 下拉的遮罩模式等价,这里是自包含实现)。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -11,6 +12,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const clusterStore = useClusterStore()
+const { t } = useI18n()
 
 const open = ref(false)
 const showLogoutConfirm = ref(false)
@@ -18,6 +20,12 @@ const rootEl = ref(null)
 
 const displayName = computed(() => authStore.user?.displayName || authStore.user?.username || 'User')
 const initial = computed(() => displayName.value.charAt(0).toUpperCase())
+// 角色小字(2026-08-31 设计 §3):所有用户都显示本地化角色名;role 缺失返回 '' → 模板 v-if 隐藏
+const roleLabel = computed(() => {
+  const role = authStore.user?.role
+  if (!role) return ''
+  return t(role === 'admin' ? 'admin.users.roleAdmin' : 'admin.users.roleUser')
+})
 
 function toggle() { open.value = !open.value }
 function closeMenu() { open.value = false }
@@ -51,8 +59,10 @@ onBeforeUnmount(() => {
       @click="toggle"
     >
       <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ initial }}</div>
-      <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="displayName">{{ displayName }}</span>
-      <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
+      <div class="flex flex-col items-start min-w-0 leading-tight">
+        <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="displayName">{{ displayName }}</span>
+        <span v-if="roleLabel" data-testid="user-menu-role" class="text-[10px] text-on-surface-variant max-w-[120px] truncate">{{ roleLabel }}</span>
+      </div>
       <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform" :class="open ? 'rotate-180' : ''">expand_more</span>
     </button>
 

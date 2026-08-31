@@ -14,6 +14,8 @@ import { useClusterStore } from '@/stores/cluster'
 beforeEach(() => {
   setActivePinia(createPinia())
   pushMock.mockClear()
+  localStorage.clear()
+  i18n.global.locale.value = 'zh'
   document.body.innerHTML = ''
 })
 
@@ -93,11 +95,28 @@ test('确认框点取消:不登出、窗关', async () => {
   w.unmount()
 })
 
-test('非 admin 用户不显示 ADMIN 徽章', async () => {
+test('触发钮两行化:admin 用户名下方显示「管理员」小字,横排 ADMIN 徽章消失', async () => {
+  seedUser()
+  const w = mountMenu()
+  const role = w.find('[data-testid="user-menu-role"]')
+  expect(role.exists()).toBe(true)
+  expect(role.text()).toBe('管理员')
+  expect(w.find('[data-testid="user-menu-trigger"]').text()).not.toContain('ADMIN')
+  w.unmount()
+})
+
+test('非 admin 用户:角色行显示「普通用户」', async () => {
   const auth = useAuthStore()
   auth.user = { id: 'u2', username: 'bob', role: 'user', displayName: '' }
   const w = mountMenu()
-  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
-  expect(document.body.textContent).not.toContain('ADMIN')
+  expect(w.find('[data-testid="user-menu-role"]').text()).toBe('普通用户')
+  w.unmount()
+})
+
+test('role 缺失:角色行隐藏', async () => {
+  const auth = useAuthStore()
+  auth.user = { id: 'u3', username: 'carol', displayName: '' }
+  const w = mountMenu()
+  expect(w.find('[data-testid="user-menu-role"]').exists()).toBe(false)
   w.unmount()
 })
