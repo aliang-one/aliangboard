@@ -19,7 +19,7 @@ function mountNav() {
 test('收缩链:搜索框包裹层 min-w-0,集群/ns 按钮包裹层 shrink-0', () => {
   setActivePinia(createPinia())
   const w = mountNav()
-  const searchWrap = w.find('header div.max-w-md')
+  const searchWrap = w.find('header div.max-w-xs')
   expect(searchWrap.classes()).toContain('min-w-0')
   const clusterWrap = searchWrap.element.nextElementSibling
   expect(clusterWrap.className).toContain('shrink-0')
@@ -40,5 +40,12 @@ test('集群名截断后 title 可见全名;用户名 span truncate+max-w', () =
   expect(nameSpan.attributes('title')).toBe(longName)
   const logoutBtn = w.findAll('header button').at(-1)
   const userSpan = logoutBtn.findAll('span').find(s => s.classes().includes('truncate'))
-  expect(userSpan.classes()).toContain('max-w-[120px]')
+  expect(userSpan.classes()).toContain('xl:max-w-[120px]')
+})
+
+test('紧凑档:集群/命名空间标签行 <xl 隐藏,值宽三级收缩', () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  expect(w.html()).toContain('hidden xl:block')       // CLUSTER/NAMESPACE 标签行
+  expect(w.html()).toContain('max-w-[80px] lg:max-w-[110px]')
 })

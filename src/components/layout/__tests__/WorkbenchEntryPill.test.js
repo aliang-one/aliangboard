@@ -91,8 +91,8 @@ test('迷你统计条(≥lg):三段常驻,数字状态着色;徽章 lg 隐藏防
   expect(stats.text()).toContain('待审批')
   expect(stats.find('.text-status-running').text()).toBe('1')       // 运行绿
   expect(stats.find('.text-error').text()).toBe('2')                // 待审批红
-  // ≥lg 时单枚徽章隐藏,防止与统计条信息重复
-  expect(w.find('[data-test="pill-pending"]').classes()).toContain('lg:hidden')
+  // ≥xl 时单枚徽章隐藏,防止与统计条信息重复(紧凑档 lg→xl,2026-08-31 响应式)
+  expect(w.find('[data-test="pill-pending"]').classes()).toContain('xl:hidden')
 })
 
 test('title 摘要由 summary 拼装', async () => {

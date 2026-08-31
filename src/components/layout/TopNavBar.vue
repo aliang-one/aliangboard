@@ -133,8 +133,8 @@ function goClusters() {
 
 <template>
   <header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface h-16 border-b border-outline-variant shrink-0">
-    <div class="flex items-center gap-lg flex-1 min-w-0">
-      <div class="relative max-w-md w-full min-w-0">
+    <div class="flex items-center gap-sm lg:gap-md xl:gap-lg flex-1 min-w-0">
+      <div class="relative max-w-xs xl:max-w-md w-full min-w-0">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
         <input
           v-model="searchQuery"
@@ -166,8 +166,8 @@ function goClusters() {
             : 'border-outline-variant bg-surface-container-low text-on-surface hover:border-primary/50'"
         >
           <span class="material-symbols-outlined text-lg">hub</span>
-          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[180px]">
-            <span class="text-xs text-on-surface-variant opacity-70">CLUSTER</span>
+          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[180px]">
+            <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">CLUSTER</span>
             <span class="text-body-sm font-semibold truncate" :title="currentClusterObj?.name">{{ currentClusterObj?.name || '—' }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
@@ -227,8 +227,8 @@ function goClusters() {
               : 'border-outline-variant bg-surface-container-low text-on-surface-variant hover:border-primary/50')"
         >
           <span class="material-symbols-outlined text-lg">folder_open</span>
-          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[160px]">
-            <span class="text-xs text-on-surface-variant opacity-70">NAMESPACE</span>
+          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[160px]">
+            <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">NAMESPACE</span>
             <span class="text-body-sm font-semibold truncate" :title="currentNs">{{ currentNs || $t('nav.notSelected') }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
