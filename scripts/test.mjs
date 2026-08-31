@@ -24,6 +24,7 @@ import { migrateV1toV2, reconcileColumns, STORAGE_KEY, STORAGE_KEY_V1 } from '..
 import { formatBytes, parseSizeToBytes } from '../src/utils/bytes.js'
 import { splitCommandTokens, splitArgLines, joinCommandTokens } from '../src/utils/containerTokens.js'
 import { deriveClusterCounts } from '../src/logic/clusterCounts.js'
+import { applyThemeMode } from '../src/styles/theme.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -1047,6 +1048,9 @@ test('installPaletteVars: 幂等(重复调用不重复注入)', () => {
 
 // --- 图表美化:ECharts option 纯构建器 ---
 import { hexToRgba, relTimeLabel, buildAreaLineOption, buildDonutOption, buildGaugeOption, buildStatusSegments, STATUS_COLORS, formatRelTime, buildTimeAreaLineOption } from '../src/lib/chart-options.js'
+
+// 图表取色断言锚亮色板字面量；主题默认 auto 会随运行时刻翻转，这里显式钉亮色保证昼夜运行一致
+applyThemeMode('light')
 
 test('hexToRgba: 6 位 hex → rgba;非法回落黑', () => {
   assert.equal(hexToRgba('#006c49', 0.35), 'rgba(0,108,73,0.35)')
