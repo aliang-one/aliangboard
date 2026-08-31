@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage, learningLedgerPath } from './workbench-projects.mjs'
 
 function makeDb() {
@@ -273,4 +273,144 @@ test('learningLedgerPath:绑定项目落集群 context;未绑定落 _platform �
   const dir = '/wb'
   assert.deepEqual(learningLedgerPath(dir, { clusterId: 'ck-9' }), { dir: join(dir, 'ck-9', 'cluster-context'), file: 'learnings.md' })
   assert.deepEqual(learningLedgerPath(dir, { clusterId: '' }), { dir: join(dir, '_platform'), file: 'learnings.md' })
+})
+
+// ===== Task 1(2026-08-31 项目生命周期):deleteProject + setProjectRecap =====
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, chmodSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { deleteProject, setProjectRecap } from './workbench-projects.mjs'
+
+function makeWbDir() { return mkdtempSync(join(tmpdir(), 'wb-proj-del-')) }
+// 带容器的 wbDir:逃逸目标可控落在 wbDir 之外、容器之内(不污染 /tmp 根)。
+function makeWbDirContained() {
+  const container = mkdtempSync(join(tmpdir(), 'wb-proj-del-ctl-'))
+  const wbDir = join(container, 'wb')
+  mkdirSync(wbDir)
+  return { container, wbDir }
+}
+
+function seedProject(db, wbDir, { clusterId = 'c1' } = {}) {
+  const p = createProject(db, { name: 'demo', clusterId, ownerId: 'u1' })
+  const repo = projectRepoPath(wbDir, p)
+  mkdirSync(repo, { recursive: true })
+  writeFileSync(join(repo, 'sentinel.txt'), 'keep')
+  return { p, repo }
+}
+
+test('deleteProject:404(项目不存在)', () => {
+  const db = makeDb()
+  const r = deleteProject(db, { workbenchDir: makeWbDir(), projectId: 'nope' })
+  assert.equal(r.ok, false)
+  assert.equal(r.status, 404)
+})
+
+test('deleteProject:repo 路径逃逸拒绝 400,行与文件均在', () => {
+  const db = makeDb()
+  const { container, wbDir } = makeWbDirContained()
+  try {
+    const { p } = seedProject(db, wbDir)
+    // repoRoot 非 'projects' 时路径走 legacy 分支(由 clusterId 派生)——clusterId 是落库字段,
+    // 手工改库可把它指到 wbDir 之外;repoRoot 同步改成越界值覆盖双字段都被污染的形态。
+    db.prepare("UPDATE workbench_projects SET repoRoot='../../escape', clusterId='../escape' WHERE id=?").run(p.id)
+    const outside = resolve(wbDir, '../escape')   // = container/escape,在 wbDir 外、容器内
+    mkdirSync(outside, { recursive: true })
+    writeFileSync(join(outside, 'sentinel.txt'), 'x')
+    const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+    assert.equal(r.ok, false)
+    assert.equal(r.status, 400)
+    assert.match(r.error, /escape/)
+    assert.equal(getProject(db, p.id)?.id, p.id)           // 行未删
+    assert.ok(existsSync(join(outside, 'sentinel.txt')))   // 外部文件未动
+  } finally {
+    rmSync(container, { recursive: true, force: true })
+  }
+})
+
+test('deleteProject:双形态(新方案 projects/ 与存量 legacy)级联完整,目录删除', () => {
+  for (const repoRoot of ['projects', null]) {
+    const db = makeDb()
+    const wbDir = makeWbDir()
+    const { p, repo } = seedProject(db, wbDir, { clusterId: 'ck-1' })
+    if (repoRoot === null) db.prepare('UPDATE workbench_projects SET repoRoot=NULL WHERE id=?').run(p.id)
+    const legacyRepo = projectRepoPath(wbDir, getProject(db, p.id))
+    if (repoRoot === null) { mkdirSync(legacyRepo, { recursive: true }); writeFileSync(join(legacyRepo, 'sentinel.txt'), 'x') }
+    const target = repoRoot === null ? legacyRepo : repo
+    const c1 = createConversation(db, { projectId: p.id, userMessage: 'q1' })
+    const c2 = createConversation(db, { projectId: p.id, userMessage: 'q2' })
+    appendMessage(db, { conversationId: c1.id, role: 'user', content: 'm1' })
+    appendMessage(db, { conversationId: c1.id, role: 'assistant', content: 'a1' })
+    appendHistory(db, p.id, 'user', 'h1')
+    const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+    assert.equal(r.ok, true)
+    assert.equal(r.removedConversations, 2)
+    assert.equal(r.repoRemoved, true)
+    assert.equal(getProject(db, p.id), null)
+    assert.equal(getConversation(db, c1.id), null)
+    assert.equal(getConversation(db, c2.id), null)
+    assert.equal(listMessages(db, c1.id).length, 0)
+    assert.equal(recentHistory(db, p.id).length, 0)   // history 一并清
+    assert.ok(!existsSync(target))
+  }
+})
+
+test('deleteProject:running 状态对话行也被删', () => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p } = seedProject(db, wbDir)
+  const c = createConversation(db, { projectId: p.id, userMessage: 'run' })
+  assert.equal(getConversation(db, c.id).status, 'running')
+  const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+  assert.equal(r.ok, true)
+  assert.equal(getConversation(db, c.id), null)
+})
+
+test('deleteProject:rmSync 失败置 repoError 但 ok 仍真(事务不回滚)', () => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p, repo } = seedProject(db, wbDir)
+  const c = createConversation(db, { projectId: p.id, userMessage: 'x' })
+  // 可移植失败注入:repo 内含哨兵文件 + 目录本身 chmod 0500 → 非 root 下 rmSync 抛 EACCES。
+  // (CI/Docker 走非 root;本机 root 跑测试时 chmod 不拦截,退化为 repoRemoved=true,同样断言 ok。)
+  chmodSync(repo, 0o500)
+  let r
+  try {
+    r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+  } finally {
+    try { chmodSync(repo, 0o700) } catch { /* 已被删 */ }
+    rmSync(repo, { recursive: true, force: true })
+  }
+  assert.equal(r.ok, true)                       // fs 失败不影响 ok
+  assert.equal(getProject(db, p.id), null)       // 事务已提交,不回滚
+  assert.equal(getConversation(db, c.id), null)
+  if (existsSync(repo)) {                        // rmSync 确实失败的分支(root 下跳过)
+    assert.ok(r.repoError, 'repoError 必须携带失败原因')
+    assert.equal(r.repoRemoved, false)
+  }
+})
+
+test('deleteProject:repo 目录本就不存在(已被人手删)→ force 静默,ok=true', () => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p, repo } = seedProject(db, wbDir)
+  rmSync(repo, { recursive: true, force: true })
+  const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+  assert.equal(r.ok, true)
+  assert.equal(getProject(db, p.id), null)
+})
+
+test('setProjectRecap:空串清空归零水位;非空覆写不动水位;超长 400', () => {
+  const db = makeDb()
+  const p = createProject(db, { name: 'r', clusterId: 'c1', ownerId: 'u1' })
+  db.prepare('UPDATE workbench_projects SET historyWatermark=42 WHERE id=?').run(p.id)
+  assert.equal(setProjectRecap(db, p.id, '人工摘要 v1').ok, true)
+  assert.equal(getProject(db, p.id).projectRecap, '人工摘要 v1')
+  assert.equal(getProject(db, p.id).historyWatermark, 42)   // 覆写不动水位
+  assert.equal(setProjectRecap(db, p.id, '').ok, true)
+  const after = getProject(db, p.id)
+  assert.equal(after.projectRecap, null)
+  assert.equal(after.historyWatermark, 0)                   // 清空归零
+  const too = setProjectRecap(db, p.id, 'x'.repeat(65537))
+  assert.equal(too.ok, false)
+  assert.equal(too.status, 400)
+  assert.equal(setProjectRecap(db, p.id, 'x'.repeat(65536)).ok, true)  // 边界值恰好通过
 })

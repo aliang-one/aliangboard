@@ -1,7 +1,8 @@
 // 工作台项目存储(W2):workbench_projects 表 + CRUD。
 // 纯函数、db 注入(无全局状态),便于单测传临时 db。repo 路径由 index.mjs 按 clusterId+id 派生,git 操作走 workbench-repos。
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 // 项目 = 一个目标 = 一个 git repo。创建时绑 clusterId(项目 ⊂ 集群)+ owner(userId)。
 export function createWorkbenchSchema(db) {
@@ -335,4 +336,53 @@ export function setActiveConversation(db, projectId, conversationId) {
 
 export function getActiveConversationId(db, projectId) {
   return db.prepare('SELECT activeConversationId FROM workbench_projects WHERE id=?').get(projectId)?.activeConversationId ?? null
+}
+
+// 项目删除(2026-08-31 生命周期):三表级联 + repo 目录清除,单事务。
+// agent 取消/事件总线回收是路由层职责(Task 2),数据层只管数据与目录。
+// repo 路径逃逸防线:resolve 后必须落在 workbenchDir(resolve)内——repoRoot/clusterId
+// 是落库字段,手工改库可把 rmSync 指向任意路径,删除是破坏性操作必须先验。
+export function deleteProject(db, { workbenchDir, projectId }) {
+  const project = getProject(db, projectId)
+  if (!project) return { ok: false, status: 404 }
+  const wbAbs = resolve(workbenchDir)
+  const repo = resolve(projectRepoPath(workbenchDir, project))
+  if (repo !== wbAbs && !repo.startsWith(wbAbs + '/')) {
+    return { ok: false, status: 400, error: 'repo path escape' }
+  }
+  let removedConversations = 0
+  try {
+    db.exec('BEGIN')
+    removedConversations = db.prepare('DELETE FROM workbench_messages WHERE conversationId IN (SELECT id FROM workbench_conversations WHERE projectId=?)').run(projectId).changes
+    db.prepare('DELETE FROM workbench_conversations WHERE projectId=?').run(projectId)
+    db.prepare('DELETE FROM workbench_history WHERE projectId=?').run(projectId)
+    db.prepare('DELETE FROM workbench_projects WHERE id=?').run(projectId)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+  // 目录清除在事务提交后:失败只置 repoError,不回滚数据(孤儿目录比数据复活可接受)。
+  let repoRemoved = true
+  let repoError
+  try {
+    rmSync(repo, { recursive: true, force: true })
+  } catch (e) {
+    repoRemoved = false
+    repoError = String(e?.message || e)
+  }
+  return { ok: true, removedConversations, repoRemoved, repoError }
+}
+
+// 项目 recap 人工写(2026-08-31 生命周期):非空覆写不动水位(自动摘要继续增量);
+// 空串=清空并归零 historyWatermark(下次蒸馏从头吞全量)。上限 65536(与摘要存储同量级)。
+export function setProjectRecap(db, projectId, recap) {
+  const text = String(recap ?? '')
+  if (text.length > 65536) return { ok: false, status: 400 }
+  if (text === '') {
+    db.prepare('UPDATE workbench_projects SET projectRecap=NULL, historyWatermark=0 WHERE id=?').run(projectId)
+  } else {
+    db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run(text, projectId)
+  }
+  return { ok: true }
 }
