@@ -5,6 +5,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useAuthStore } from '@/stores/auth'
 import { useNavMode, drillDirection } from '@/composables/useNavMode'
+import { useBreakpoint, MQ_BELOW_LG } from '@/composables/useBreakpoint'
 import { getSession } from '@/api/client'
 
 const route = useRoute()
@@ -22,6 +23,10 @@ const _cid = computed(() => (store.currentCluster || 'cluster'))
 const _nsEnabled = computed(() => !!getSession())
 const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000, enabled: _nsEnabled } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
+
+// <lg(iPad 竖屏)图标栏:宽度/隐藏全在 .rail:not(:hover) 样式;JS 只管 rail 类挂载
+// 与「空 ns 时 72px 放不下下拉」改跳 /namespaces
+const { matches: belowLg } = useBreakpoint(MQ_BELOW_LG)
 
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
@@ -143,7 +148,11 @@ function selectNamespace(ns) {
 
 // ns 主按钮:空态开下拉(不跳转);否则进/回 NamespaceOverview(集群态=进入,ns态=回总览)
 function onNsHomeClick() {
-  if (!currentNs.value) { showNsDropdown.value = true; return }
+  if (!currentNs.value) {
+    if (belowLg.value) { router.push('/namespaces'); return }  // rail 态弹层放不下 → 去集群 ns 列表
+    showNsDropdown.value = true
+    return
+  }
   router.push({ name: 'NamespaceOverview', params: { namespace: currentNs.value } })
 }
 
@@ -201,13 +210,13 @@ function nsStatusColor(status) {
 </script>
 
 <template>
-  <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
+  <aside data-test="sidenav-root" class="sidenav-root fixed left-0 top-0 h-full flex flex-col z-40 bg-surface-container-lowest border-r border-outline-variant overflow-hidden" :class="{ rail: belowLg }">
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
       <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full">
         <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
-        <div class="min-w-0">
+        <div class="min-w-0 cluster-header-txt">
           <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
           <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
         </div>
@@ -216,8 +225,8 @@ function nsStatusColor(status) {
         class="flex items-center gap-sm w-full min-w-0 group cursor-pointer"
         :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
         <img src="/aliang-logo.svg" alt="" class="h-5 w-auto shrink-0" width="22" height="20" />
-        <span class="text-body-md font-semibold text-on-surface truncate">{{ store.cluster.name || 'Cluster' }}</span>
-        <span class="ml-auto flex items-center text-body-sm text-on-surface-variant transition-colors group-hover:text-primary">
+        <span class="text-body-md font-semibold text-on-surface truncate cluster-anchor-txt">{{ store.cluster.name || 'Cluster' }}</span>
+        <span class="ml-auto flex items-center text-body-sm text-on-surface-variant transition-colors group-hover:text-primary cluster-anchor-chev">
           <span class="material-symbols-outlined text-base">chevron_left</span>
         </span>
       </button>
@@ -228,7 +237,7 @@ function nsStatusColor(status) {
 
     <!-- Namespace Selector:浅坞 band(方案 B,docs/superpowers/specs/2026-08-18-ns-button-dock-style-design.md) -->
     <div class="px-md pt-md pb-sm shrink-0">
-      <p class="text-label-caps text-on-surface-variant mb-xs px-sm">NAMESPACE</p>
+      <p class="text-label-caps text-on-surface-variant mb-xs px-sm ns-cap">NAMESPACE</p>
       <div class="relative">
         <div class="ns-band" :class="isClusterMode ? 'ns-band--cluster' : 'ns-band--ns'">
           <button
@@ -299,9 +308,9 @@ function nsStatusColor(status) {
         <div :key="navMode">
           <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
           <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
-            <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate">NAMESPACE: {{ currentNs }}</p>
+            <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate ns-cap">NAMESPACE: {{ currentNs }}</p>
             <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
-              <div class="flex items-center gap-xs px-md pt-sm pb-xs">
+              <div class="flex items-center gap-xs px-md pt-sm pb-xs group-head">
                 <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
                 <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.labelKey ? $t(group.labelKey) : group.label }}</p>
               </div>
@@ -309,13 +318,13 @@ function nsStatusColor(status) {
                 v-for="item in group.items"
                 :key="item.routeKey"
                 @click="goNsRoute(item.routeKey)"
-                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200 ml-sm"
+                class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200 ml-sm"
                 :class="isNsRouteActive(item.routeKey)
                   ? 'bg-primary-container text-on-primary-container font-semibold'
                   : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'"
               >
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+                <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
             </div>
           </div>
@@ -323,30 +332,30 @@ function nsStatusColor(status) {
           <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
           <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
             <button @click="clusterNavOpen = !clusterNavOpen"
-              class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full">
+              class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full nav-collapse-btn">
               <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
               <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
             </button>
             <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
               <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
-                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+                <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
-              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.clusterResources') }}</p>
+              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.clusterResources') }}</p>
               <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
-                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+                <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
-              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs">{{ $t('nav.multiCluster') }}</p>
+              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.multiCluster') }}</p>
               <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
-                class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-                <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+                <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
             </div>
           </div>
@@ -355,12 +364,12 @@ function nsStatusColor(status) {
 
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
-        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs">{{ $t('nav.platformAdmin') }}</p>
+        <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs ns-cap">{{ $t('nav.platformAdmin') }}</p>
         <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
-          class="flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+          class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-          <span class="text-body-sm">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+          <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
         </a>
       </div>
     </nav>
@@ -376,7 +385,7 @@ function nsStatusColor(status) {
             <span class="slab-chip flex items-center justify-center shrink-0">
               <img src="/aliang-logo.svg" alt="" class="h-4 w-auto" width="18" height="16" />
             </span>
-            <span class="min-w-0">
+            <span class="min-w-0 slab-txt">
               <span class="flex items-center gap-2xs">
                 <span class="text-[11px] font-bold text-on-primary truncate">{{ store.cluster.name || 'Cluster' }}</span>
                 <i class="slab-led" aria-hidden="true"></i>
@@ -434,6 +443,8 @@ function nsStatusColor(status) {
 </template>
 
 <style scoped>
+/* 侧栏宽度:消费 AppLayout 定义的 --sb-width 单一事实源(2026-08-31 响应式设计 §3) */
+.sidenav-root { width: var(--sb-width); transition: width .28s cubic-bezier(.2,.7,.3,1); }
 /* 方向感知钻入:进 ns = 新菜单自下方 24px 滑入、旧菜单向上滑出;返回集群反向 */
 .drill-down-enter-from { opacity: 0; transform: translateY(24px); }
 .drill-down-leave-to { opacity: 0; transform: translateY(-24px); }
@@ -582,5 +593,63 @@ function nsStatusColor(status) {
   .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
   .ns-band,.ns-chip,.ns-ci,.ns-t,.ns-tile,.ns-row,.ns-search{transition:none !important}
   .ns-arr,.ns-drop{animation:none !important}
+}
+
+/* ===== 图标栏 rail(2026-08-31 设计 §5):<lg 收 72px =====
+   折叠声明按指针能力分两块(选择器不同、声明列表完全相同):
+   · hover:hover(鼠标)→ .rail:not(:hover):悬停恢复与现状完全一致的完整侧栏
+     (fixed 覆盖展开,不推挤内容,width 回 260px);
+   · hover:none(触屏)→ .rail 恒为图标态+微标签(规避 tap 粘滞 hover 意外展开)。 */
+@media (max-width: 1023.98px) and (hover: hover) {
+  .rail:not(:hover) { width: 72px; }
+}
+@media (max-width: 1023.98px) and (hover: none) {
+  .rail { width: 72px; }
+}
+@media (max-width: 1023.98px) and (hover: hover) {
+  .rail:hover { width: 260px; box-shadow: 12px 0 32px rgba(0, 0, 0, .18); }
+}
+
+/* —— 折叠态内容规则(hover:hover 用 .rail:not(:hover),hover:none 用 .rail;两块声明一致) —— */
+@media (max-width: 1023.98px) and (hover: hover) {
+  .rail:not(:hover) .cluster-header-txt,
+  .rail:not(:hover) .cluster-anchor-txt,
+  .rail:not(:hover) .cluster-anchor-chev,
+  .rail:not(:hover) .ns-cap,
+  .rail:not(:hover) .nav-collapse-btn,
+  .rail:not(:hover) .group-head,
+  .rail:not(:hover) .ns-txt,
+  .rail:not(:hover) .ns-arr,
+  .rail:not(:hover) .ns-tile,
+  .rail:not(:hover) .slab-txt { display: none; }
+  .rail:not(:hover) .nav-item { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
+  .rail:not(:hover) .nav-item .material-symbols-outlined { text-align: center; }
+  .rail:not(:hover) .nav-item__label { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .rail:not(:hover) .ns-main { justify-content: center; }
+  .rail:not(:hover) .dock { flex-direction: column; align-items: stretch; }
+  .rail:not(:hover) .dock > .grid { display: flex; flex-direction: column; }
+  .rail:not(:hover) .cluster-slab { justify-content: center; }
+}
+@media (max-width: 1023.98px) and (hover: none) {
+  .rail .cluster-header-txt,
+  .rail .cluster-anchor-txt,
+  .rail .cluster-anchor-chev,
+  .rail .ns-cap,
+  .rail .nav-collapse-btn,
+  .rail .group-head,
+  .rail .ns-txt,
+  .rail .ns-arr,
+  .rail .ns-tile,
+  .rail .slab-txt { display: none; }
+  .rail .nav-item { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
+  .rail .nav-item .material-symbols-outlined { text-align: center; }
+  .rail .nav-item__label { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .rail .ns-main { justify-content: center; }
+  .rail .dock { flex-direction: column; align-items: stretch; }
+  .rail .dock > .grid { display: flex; flex-direction: column; }
+  .rail .cluster-slab { justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidenav-root { transition: none !important; }
 }
 </style>

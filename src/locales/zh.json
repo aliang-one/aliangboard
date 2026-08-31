@@ -557,7 +557,7 @@
     "langEn": "English",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeSystem": "跟随系统"
+    "themeAuto": "自动(7:00–19:00 浅色)"
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",

@@ -110,11 +110,11 @@ function relTime(ts) {
     >
       <span class="material-symbols-outlined text-lg">workspaces</span>
       {{ $t('nav.workbench') }}
-      <!-- 迷你统计条(≥lg;2026-08-30 用户反馈:内容再丰富些):三段常驻(0 也显示),
+      <!-- 迷你统计条(≥xl;2026-08-30 用户反馈:内容再丰富些):三段常驻(0 也显示),
            数字按状态着色(项目中性/运行绿/待审批红);SSH 不上条(悬停面板看)。
-           窄屏(<lg)整条隐藏,由下方单枚状态徽章接管 -->
+           窄屏(<xl)整条隐藏,由下方单枚状态徽章接管 -->
       <span data-test="pill-stats" aria-hidden="true"
-        class="hidden lg:inline-flex items-center gap-1 ml-1 text-body-xs font-normal">
+        class="hidden xl:inline-flex items-center gap-1 ml-1 text-body-xs font-normal">
         <span class="w-px h-3.5 bg-current opacity-25"></span>
         <span class="inline-flex items-center text-on-surface-variant">
           <span class="font-bold text-on-surface">{{ totals.projects ?? 0 }}</span>{{ t('workbench.pill.kProjects') }}
@@ -128,16 +128,16 @@ function relTime(ts) {
           <span class="font-bold" :class="pendingCount > 0 ? 'text-error' : ''">{{ pendingCount }}</span>{{ t('workbench.pill.kPending') }}
         </span>
       </span>
-      <!-- 状态徽章(<lg 接管统计条;≥lg 隐藏防信息重复):
+      <!-- 状态徽章(<xl 接管统计条;≥xl 隐藏防信息重复):
            待审批红数字(行动性最强)> 运行中绿数字 > 项目数中性,常驻不空 -->
       <span v-if="pendingCount > 0" data-test="pill-pending"
-        class="ml-0.5 lg:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
+        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
         :title="$t('workbench.pill.pending', { n: pendingCount })">{{ pendingCount }}</span>
       <span v-else-if="runningCount > 0" data-test="pill-running"
-        class="ml-0.5 lg:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-status-running/10 text-status-running text-body-xs font-bold leading-none"
+        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-status-running/10 text-status-running text-body-xs font-bold leading-none"
         :title="$t('workbench.pill.running', { n: runningCount })">{{ runningCount }}</span>
       <span v-else data-test="pill-projects"
-        class="ml-0.5 lg:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant text-body-xs font-bold leading-none"
+        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant text-body-xs font-bold leading-none"
         :title="$t('workbench.pill.projects', { n: totals.projects ?? 0 })">{{ totals.projects ?? 0 }}</span>
     </button>
     <Teleport to="body">

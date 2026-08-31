@@ -69,9 +69,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <template>
   <div class="flex h-screen overflow-hidden">
     <SideNavBar />
-    <div class="flex-1 flex flex-col min-w-0 ml-[260px]">
+    <div class="shell-main flex-1 flex flex-col min-w-0">
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
-      <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase }"></div>
+      <div v-if="store.connectionState === 'loading'" class="fixed top-0 right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase, left: 'var(--sb-width)' }"></div>
       <TopNavBar />
       <!-- 集群健康横幅：Critical / Disconnected -->
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
@@ -97,13 +97,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       </main>
       <!-- Footer Status Bar -->
       <footer class="px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
-        <div class="flex items-center gap-lg">
-          <div class="flex items-center gap-sm">
-            <span class="w-2 h-2 rounded-full" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
-            <span class="text-body-sm text-on-surface-variant">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
+        <div class="flex items-center gap-lg min-w-0">
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
+            <span class="text-body-sm text-on-surface-variant min-w-0 truncate">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
           </div>
         </div>
-        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
+        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden">
           <span>Last Updated: {{ lastUpdated }}</span>
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>
@@ -123,3 +123,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <ChatPresence />
   </div>
 </template>
+
+<style>
+/* 侧栏宽度单一事实源(2026-08-31 响应式设计 §3):本文件是唯一定义点,
+   SideNavBar(.sidenav-root)与 hydrate 加载条同消费;<lg(iPad 竖屏)侧栏收 72px 图标栏。
+   禁止壳层再写 260px 定位/宽度字面量(shell-width-guard.test.js 强制)。 */
+:root { --sb-width: 260px; }
+@media (max-width: 1023.98px) { :root { --sb-width: 72px; } }
+.shell-main { margin-left: var(--sb-width); }
+</style>

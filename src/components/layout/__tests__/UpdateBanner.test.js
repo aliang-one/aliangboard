@@ -34,3 +34,9 @@ test('同版本已关闭过:不渲染;更更新版本再弹', async () => {
   await w.setProps({ latest: '1.2.0' })
   expect(w.find('a').exists()).toBe(true)
 })
+
+test('横幅文本可截断不撑爆窄屏', () => {
+  const wrapper = mount(UpdateBanner, { props: { latest: '1.1.0' }, global: { plugins: [i18n] } })
+  expect(wrapper.html()).toContain('min-w-0')
+  expect(wrapper.html()).toContain('truncate')
+})

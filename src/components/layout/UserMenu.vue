@@ -75,10 +75,10 @@ onBeforeUnmount(() => {
     >
       <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ initial }}</div>
       <div class="flex flex-col items-start min-w-0 leading-tight">
-        <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="displayName">{{ displayName }}</span>
-        <span v-if="roleLabel" data-testid="user-menu-role" class="text-[10px] text-on-surface-variant max-w-[120px] truncate">{{ roleLabel }}</span>
+        <span class="text-body-sm font-semibold max-w-[90px] xl:max-w-[120px] truncate max-lg:hidden" :title="displayName">{{ displayName }}</span>
+        <span v-if="roleLabel" data-testid="user-menu-role" class="text-[10px] text-on-surface-variant max-w-[90px] xl:max-w-[120px] truncate max-lg:hidden">{{ roleLabel }}</span>
       </div>
-      <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform" :class="open ? 'rotate-180' : ''">expand_more</span>
+      <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform max-lg:hidden" :class="open ? 'rotate-180' : ''">expand_more</span>
     </button>
 
     <div

@@ -557,7 +557,7 @@
     "langEn": "English",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System"
+    "themeAuto": "Auto (light 7:00–19:00)"
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",

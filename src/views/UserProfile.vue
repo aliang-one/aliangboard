@@ -87,7 +87,7 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
 
 // === 偏好卡 ===
 const langOptions = [{ v: 'zh', key: 'userCenter.langZh' }, { v: 'en', key: 'userCenter.langEn' }]
-const themeOptions = [{ v: 'light', icon: 'light_mode', key: 'userCenter.themeLight' }, { v: 'dark', icon: 'dark_mode', key: 'userCenter.themeDark' }, { v: 'system', icon: 'contrast', key: 'userCenter.themeSystem' }]
+const themeOptions = [{ v: 'light', icon: 'light_mode', key: 'userCenter.themeLight' }, { v: 'dark', icon: 'dark_mode', key: 'userCenter.themeDark' }, { v: 'auto', icon: 'schedule', key: 'userCenter.themeAuto' }]
 </script>
 
 <template>

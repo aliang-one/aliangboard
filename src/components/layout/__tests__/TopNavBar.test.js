@@ -1,7 +1,7 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
 import { test, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
@@ -19,7 +19,7 @@ function mountNav() {
 test('收缩链:搜索框包裹层 min-w-0,集群/ns 按钮包裹层 shrink-0', () => {
   setActivePinia(createPinia())
   const w = mountNav()
-  const searchWrap = w.find('header div.max-w-md')
+  const searchWrap = w.find('header div.max-w-xs')
   expect(searchWrap.classes()).toContain('min-w-0')
   const clusterWrap = searchWrap.element.nextElementSibling
   expect(clusterWrap.className).toContain('shrink-0')
@@ -40,5 +40,42 @@ test('集群名截断后 title 可见全名;用户名 span truncate+max-w', () =
   expect(nameSpan.attributes('title')).toBe(longName)
   const logoutBtn = w.findAll('header button').at(-1)
   const userSpan = logoutBtn.findAll('span').find(s => s.classes().includes('truncate'))
-  expect(userSpan.classes()).toContain('max-w-[120px]')
+  expect(userSpan.classes()).toContain('xl:max-w-[120px]')
+})
+
+test('紧凑档:集群/命名空间标签行 <xl 隐藏,值宽三级收缩', () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  expect(w.html()).toContain('hidden xl:block')       // CLUSTER/NAMESPACE 标签行
+  expect(w.html()).toContain('max-w-[80px] lg:max-w-[110px]')
+})
+
+test('集群下拉面板 Teleport 到 body 且带 data-testid', async () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  await w.find('[data-test="cluster-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-testid="cluster-dropdown-panel"]')).toBeTruthy()
+  expect(w.find('[data-testid="cluster-dropdown-panel"]').exists()).toBe(false) // 不在组件树内
+})
+
+test('ns 下拉面板 Teleport 到 body 且带 data-testid', async () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  await w.find('[data-test="ns-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-testid="ns-dropdown-panel"]')).toBeTruthy()
+  expect(w.find('[data-testid="ns-dropdown-panel"]').exists()).toBe(false) // 不在组件树内
+})
+
+test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 enabled 查询', async () => {
+  const mqSpy = vi.spyOn(window, 'matchMedia').mockImplementation(q => ({ matches: q.includes('1023.98'), media: q, addEventListener() {}, removeEventListener() {} }))
+  setActivePinia(createPinia())
+  const w = mountNav()
+  expect(w.find('[data-test="search-trigger"]').exists()).toBe(true)
+  expect(w.find('input[type="text"]').exists()).toBe(false) // 内联输入框不渲染
+  await w.find('[data-test="search-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-test="search-modal"]')).toBeTruthy()
+  mqSpy.mockRestore()
 })

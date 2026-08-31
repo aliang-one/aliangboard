@@ -14,7 +14,7 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource-variable/material-symbols-outlined/fill.css'
 import './styles/main.css'
 import { initTheme } from './styles/theme'
-initTheme()   // 注入亮/暗双板 CSS 变量 + 恢复主题(localStorage 兜底)+ 挂系统偏好监听
+initTheme()   // 注入亮/暗双板 CSS 变量 + 恢复主题(localStorage 兜底)+ 挂定时边界 tick(7/19 点自动翻转)
 
 // 终端弹窗（新标签页）从 URL 接收 session token 并写入 sessionStorage（同源但 sessionStorage 不跨标签页）
 const popupToken = new URLSearchParams(window.location.search).get('token')
