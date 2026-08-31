@@ -98,7 +98,9 @@ export function createAuthRoutes(deps) {
 
     // PUT /api/auth/preferences — 自助偏好(language/theme;全有或全无校验,防半写)
     const PREF_LANGS = ['en', 'zh']
-    const PREF_THEMES = ['light', 'dark', 'system']
+    // 'auto'=定时自动(07:00–19:00 亮色,判定在前端 theme.js/index.html 镜像;服务端只存值不判定)。
+    // 'system' 已移除(旧存量行读取时由前端归一,服务端不再接受新写入)。
+    const PREF_THEMES = ['light', 'dark', 'auto']
     if (url.pathname === '/api/auth/preferences' && req.method === 'PUT') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const input = await readBody(req)
