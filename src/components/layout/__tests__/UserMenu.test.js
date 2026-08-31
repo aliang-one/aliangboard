@@ -6,14 +6,21 @@ import { i18n } from '@/i18n'
 
 const pushMock = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
+vi.mock('@/api/client', async (importOriginal) => {
+  const orig = await importOriginal()
+  return { ...orig, authApi: { ...orig.authApi, savePreferences: vi.fn(() => Promise.resolve()) } }
+})
 
 import UserMenu from '@/components/layout/UserMenu.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
+import { usePreferencesStore } from '@/stores/preferences'
 
 beforeEach(() => {
   setActivePinia(createPinia())
   pushMock.mockClear()
+  localStorage.clear()
+  i18n.global.locale.value = 'zh'
   document.body.innerHTML = ''
 })
 
@@ -93,11 +100,68 @@ test('确认框点取消:不登出、窗关', async () => {
   w.unmount()
 })
 
-test('非 admin 用户不显示 ADMIN 徽章', async () => {
+test('触发钮两行化:admin 用户名下方显示「管理员」小字,横排 ADMIN 徽章消失', async () => {
+  seedUser()
+  const w = mountMenu()
+  const role = w.find('[data-testid="user-menu-role"]')
+  expect(role.exists()).toBe(true)
+  expect(role.text()).toBe('管理员')
+  expect(w.find('[data-testid="user-menu-trigger"]').text()).not.toContain('ADMIN')
+  w.unmount()
+})
+
+test('非 admin 用户:角色行显示「普通用户」', async () => {
   const auth = useAuthStore()
   auth.user = { id: 'u2', username: 'bob', role: 'user', displayName: '' }
   const w = mountMenu()
+  expect(w.find('[data-testid="user-menu-role"]').text()).toBe('普通用户')
+  w.unmount()
+})
+
+test('role 缺失:角色行隐藏', async () => {
+  const auth = useAuthStore()
+  auth.user = { id: 'u3', username: 'carol', displayName: '' }
+  const w = mountMenu()
+  expect(w.find('[data-testid="user-menu-role"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('下拉含主题三态+语言两态分段;null 未设置时高亮归一为 auto/zh', async () => {
+  seedUser()
+  const w = mountMenu()
   await w.find('[data-testid="user-menu-trigger"]').trigger('click')
-  expect(document.body.textContent).not.toContain('ADMIN')
+  for (const v of ['light', 'dark', 'auto']) {
+    expect(w.find(`[data-testid="user-menu-theme-${v}"]`).exists()).toBe(true)
+  }
+  for (const v of ['zh', 'en']) {
+    expect(w.find(`[data-testid="user-menu-lang-${v}"]`).exists()).toBe(true)
+  }
+  expect(usePreferencesStore().theme).toBeNull()
+  expect(usePreferencesStore().language).toBeNull()
+  expect(w.find('[data-testid="user-menu-theme-auto"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-lang-zh"]').classes()).toContain('bg-primary')
+  w.unmount()
+})
+
+test('点主题「深色」:prefs.theme 即时变 dark 且菜单保持打开', async () => {
+  seedUser()
+  const w = mountMenu()
+  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
+  await w.find('[data-testid="user-menu-theme-dark"]').trigger('click')
+  expect(usePreferencesStore().theme).toBe('dark')
+  expect(w.find('[data-testid="user-menu-theme-dark"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-theme-light"]').classes()).not.toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-dropdown"]').exists()).toBe(true)
+  w.unmount()
+})
+
+test('点语言「English」:prefs.language=en 且 i18n locale 同步切 en', async () => {
+  seedUser()
+  const w = mountMenu()
+  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
+  await w.find('[data-testid="user-menu-lang-en"]').trigger('click')
+  expect(usePreferencesStore().language).toBe('en')
+  expect(i18n.global.locale.value).toBe('en')
+  expect(w.find('[data-testid="user-menu-role"]').text()).toBe('Admin')
   w.unmount()
 })
