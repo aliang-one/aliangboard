@@ -1529,6 +1529,7 @@ async function handle(req, res) {
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
+    wbAgent, busDispose,
     listSshSessions: () => sshTerminals.list(),
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
