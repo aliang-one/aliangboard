@@ -148,6 +148,11 @@ test('buildHistory: recap 在前 + summarizedUpTo 之后的全文消息', () => 
   const conv2 = getConversation(db, conv.id)
   const h = buildHistory(db, conv2)
   assert.equal(h[0].role, 'system'); assert.match(h[0].content, /老对话摘要/)
+  // 毒记忆事故加固(2026-08-31):recap 注入头带 caveat,以本轮实际工具/能力为准
+  assert.ok(
+    h[0].content.startsWith('Earlier in this conversation (summary; historical context only — trust current tools/capabilities over this):'),
+    '注入头带 caveat',
+  )
   assert.equal(h[1].role, 'user'); assert.equal(h[1].content, 'new-q')  // 只剩 seq3 全文
   assert.equal(h.length, 2)
 })

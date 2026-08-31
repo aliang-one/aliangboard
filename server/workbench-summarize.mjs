@@ -12,8 +12,13 @@ import {
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
 
+// 毒记忆事故加固(2026-08-31):三条摘要链路(轮次 recap/compact/项目记忆)共享同款硬性约束——
+// 瞬时能力结论(「缺少某接口」)一旦入摘要会被后续轮滚动重写无限传播,固化成持久先验。
+export const CAPABILITY_CONSTRAINT =
+  '硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'
+
 export const SUMMARIZE_PROMPT =
-  '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。'
+  '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。' + CAPABILITY_CONSTRAINT
 
 // maybeSummarize(db, convId, llmClient, { thresholdTurns=12, recentKeep=8 }) → Promise<boolean>
 // 返回 true=触发了摘要;false=未达阈值/无可摘/失败(不抛)。
@@ -77,7 +82,7 @@ export async function compactConversation(db, convId, llmClient, instruction = '
   try {
     const out = await llmClient.chat({
       messages: [
-        { role: 'system', content: `你是对话压缩器。把下面的对话历史压缩成一份忠实、信息密集的中文摘要:保留已做出的决定、关键事实/数据、尚未解决的问题。${instruct ? `用户特别要求:${instruct}` : ''}` },
+        { role: 'system', content: `你是对话压缩器。把下面的对话历史压缩成一份忠实、信息密集的中文摘要:保留已做出的决定、关键事实/数据、尚未解决的问题。${instruct ? `用户特别要求:${instruct}` : ''}${CAPABILITY_CONSTRAINT}` },
         { role: 'user', content: transcript },
       ],
     })

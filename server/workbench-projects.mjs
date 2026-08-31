@@ -321,7 +321,8 @@ export function buildHistory(db, conv) {
   const msgs = listMessages(db, conv.id)
   const upTo = conv.summarizedUpTo ?? 0
   const history = []
-  if (conv.recap) history.push({ role: 'system', content: `Earlier in this conversation (summary):\n${conv.recap}` })
+  // 毒记忆事故加固(2026-08-31):recap 注入头带 caveat——历史经验仅供参考,工具/能力以本轮实际为准。
+  if (conv.recap) history.push({ role: 'system', content: `Earlier in this conversation (summary; historical context only — trust current tools/capabilities over this):\n${conv.recap}` })
   for (const m of msgs) {
     if (m.seq <= upTo) continue            // 已进 recap,跳过全文
     history.push({ role: m.role, content: m.content })

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { maybeSummarize, compactConversation } from './workbench-summarize.mjs'
+import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject } from './workbench-summarize.mjs'
 import {
   createWorkbenchSchema,
   createProject,
@@ -218,7 +218,6 @@ test('compactConversation:消息 ≤3 → 拒绝;running/paused → 拒绝', asy
 })
 
 // ── 项目记忆 T1(spec §3.1/3.2)──
-import { maybeSummarizeProject } from './workbench-summarize.mjs'
 import { unsummarizedProjectHistory } from './workbench-projects.mjs'
 
 // 显式 ts 裸 INSERT(appendHistory 用 Date.now() 不可控)
@@ -283,6 +282,12 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
 })
 
 // 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验
+const HARD_RULE = '硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'
+
+test('SUMMARIZE_PROMPT:含硬性约束(轮次 recap 同款,禁止瞬时能力结论)', () => {
+  assert.ok(SUMMARIZE_PROMPT.includes(HARD_RULE), '硬性约束逐字')
+})
+
 test('maybeSummarizeProject:summarizer 指令含硬性约束(禁止瞬时能力结论入摘要)', async () => {
   const db = freshDb()
   const id = p1Id(db)
@@ -292,10 +297,18 @@ test('maybeSummarizeProject:summarizer 指令含硬性约束(禁止瞬时能力�
   assert.equal(await maybeSummarizeProject(db, id, llm), true)
   assert.ok(captured, 'llm 被调用')
   assert.equal(captured[0].role, 'system')
-  assert.ok(
-    captured[0].content.includes('硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'),
-    '硬性约束逐字入提示词',
-  )
+  assert.ok(captured[0].content.includes(HARD_RULE), '硬性约束逐字入提示词')
+})
+
+test('compactConversation:压缩器指令含硬性约束(旧 recap 滚动重写不许传播瞬时结论)', async () => {
+  const { db, conv } = compactFixture()
+  let captured = null
+  const llm = { chat: async ({ messages }) => { captured = messages; return { content: 's' } } }
+  const out = await compactConversation(db, conv.id, llm)
+  assert.equal(out.ok, true)
+  assert.ok(captured, 'llm 被调用')
+  assert.equal(captured[0].role, 'system')
+  assert.ok(captured[0].content.includes(HARD_RULE), 'compact 硬性约束逐字')
 })
 
 test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () => {
