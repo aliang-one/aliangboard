@@ -9,11 +9,14 @@
          与 src/styles/theme.js 的 THEME_KEY 保持一致(aliangboard.theme)。 -->
     <script>
       (function () {
+        // 首帧主题判定:与 src/styles/theme.js isScheduledDark 同逻辑镜像(此处无法 import)。
+        // 边界 7/19 改动必须两处同步(theme-firstpaint-guard.test.js 锁一致)。
         try {
-          var t = localStorage.getItem('aliangboard.theme') || 'system'
-          var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var t = localStorage.getItem('aliangboard.theme') || 'auto'
+          var h = new Date().getHours()
+          var dark = t === 'dark' || (t !== 'light' && (h < 7 || h >= 19))
           if (dark) document.documentElement.classList.add('dark')
-        } catch (e) { /* 无 storage/matchMedia 环境 */ }
+        } catch (e) { /* 无 storage 环境 */ }
       })()
     </script>
     <title>AliangBoard</title>

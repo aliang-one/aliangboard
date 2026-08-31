@@ -18,13 +18,16 @@ function readStorage(key) {
 
 export const usePreferencesStore = defineStore('preferences', () => {
   const language = ref(readStorage(LOCALE_KEY))  // 'en' | 'zh' | null(未设置 → i18n 默认)
-  const theme = ref(readStorage(THEME_KEY))      // 'light' | 'dark' | 'system' | null(未设置 → system)
+  const theme = ref(readStorage(THEME_KEY))      // 'light' | 'dark' | 'auto' | null(未设置 → auto)
 
   // 服务端为准覆盖(auth.login / authStore.fetchMe 拿到 prefs 后调用)
   function hydrateFromServer(prefs) {
     if (!prefs) return
     if (prefs.language && prefs.language !== language.value) { language.value = prefs.language; setLocale(prefs.language) }
-    if (prefs.theme && prefs.theme !== theme.value) { theme.value = prefs.theme; applyThemeMode(prefs.theme) }
+    if (prefs.theme) {
+      const t = prefs.theme === 'dark' || prefs.theme === 'light' ? prefs.theme : 'auto'
+      if (t !== theme.value) { theme.value = t; applyThemeMode(t) }
+    }
   }
 
   function setLanguage(lang) {
