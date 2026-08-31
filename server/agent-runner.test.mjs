@@ -67,3 +67,23 @@ test('read 档的 LLM 想调 scale → 底座 authorize 拒(callTool 抛 policy)
   const out = await run({})
   assert.equal(out.content, '没权限,作罢') // agent 把工具失败喂回 LLM,LLM 终答
 })
+
+// 2026-08-31 工具链审计修复⑦:wb 只读工具失败返 {error} 后,workbench 路径的
+// reserve/finalize 审计对失败记 result='error'(此前字符串失败被记成 'ok')。
+test('修复⑦:wb 只读工具失败 → 审计 finalize 记 error(链完整)', async () => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const { createAuditSchema, verifyChain } = await import('./audit.mjs')
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const llmClient = { chat: seqChat([tc('1', 'wb_list_resources', { kind: 'pods' }), fin('查询失败了')]) }
+  const workbench = { listResources: async () => { throw new Error('boom') } }
+  const { run } = createAgentRunner({ llmClient, workbench, audit: { db, owner: 'op', clusterId: 'c1' } })
+  const out = await run({ history: [{ role: 'user', content: '列 pod' }] })
+  assert.equal(out.content, '查询失败了')
+  const finals = db.prepare("SELECT result, reason, tool FROM audit_log WHERE status='finalized'").all()
+  assert.equal(finals.length, 1)
+  assert.equal(finals[0].result, 'error', `失败工具审计应记 error,收到: ${JSON.stringify(finals[0])}`)
+  assert.match(String(finals[0].reason), /boom/)
+  assert.equal(finals[0].tool, 'wb_list_resources')
+  assert.ok(verifyChain(db).valid, '审计链完整')
+})

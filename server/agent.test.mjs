@@ -395,3 +395,38 @@ test('resume 目标之后队列中的新写工具:仍走正常 checkpoint(不继
   assert.equal(out.status, 'pending_approval', '第二个写工具应再次 checkpoint')
   assert.equal(out.pending.toolCallId, '2')
 })
+
+// ── 2026-08-31 工具链审计修复⑥:畸形 JSON 参数不再静默变 {} ──
+// 此前 parseArgs catch 后返 {},工具照跑后报「缺参数」——LLM 拿不到「参数本身是坏 JSON」
+// 的信号,可能原地重试同款坏参数。修复:解析失败 → 不执行工具,回执带原文截断喂回 LLM 自纠。
+test('畸形 JSON 参数 → 不执行工具,回执说明非合法 JSON 并带原文(可自纠)', async () => {
+  const calls = []
+  const chats = []
+  const responses = [
+    { role: 'assistant', content: null, tool_calls: [{ id: '1', type: 'function', function: { name: 'list_resources', arguments: '{"kind": pods}' } }] },
+    final('参数修好了'),
+  ]
+  let i = 0
+  const chat = async (messages) => { chats.push(messages); return responses[Math.min(i++, responses.length - 1)] }
+  const steps = []
+  const run = createAgent({ chat, execTool: async (n, a) => { calls.push({ n, a }); return 'ok' } }).run
+  const out = await run({ history: [{ role: 'user', content: '列 pod' }], onStep: s => steps.push(s) })
+  assert.equal(out.content, '参数修好了')
+  assert.deepEqual(calls, [], '解析失败不应执行工具')
+  const receipt = chats[1].find(m => m.role === 'tool' && m.tool_call_id === '1')
+  assert.ok(receipt, '下一轮 chat 应收到该 tool_call 的回执(OpenAI 契约不悬空)')
+  assert.match(receipt.content, /不是合法 JSON/, '回执说明参数非合法 JSON')
+  assert.match(receipt.content, /"kind": pods/, '回执带原文截断供 LLM 自纠')
+  const toolStep = steps.find(s => s.type === 'tool' && s.name === 'list_resources')
+  assert.ok(toolStep, '应有 tool step(UI/trace 可见,不静默)')
+})
+
+test('合法但缺字段的参数仍照常执行(解析成功不拦)', async () => {
+  const calls = []
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'list_resources', { kind: 'pods' }), final('done')]),
+    execTool: async (n, a) => { calls.push(a); return 'ok' },
+  }).run
+  await run({ history: [] })
+  assert.deepEqual(calls, [{ kind: 'pods' }])
+})

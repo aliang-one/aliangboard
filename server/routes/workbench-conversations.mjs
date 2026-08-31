@@ -100,13 +100,17 @@ export function createWorkbenchConvRoutes(deps) {
         const res = await requestKubernetes(k8sSession, path)
         // requestKubernetes 返回 {status,headers,body};资源在 body(guard:可能 undefined)
         const body = res?.body
-        if (body == null) { blocks.push(`${label}: (空响应)`); continue }
+        // 2026-08-31 审计修复①:空响应/拉取失败分支同样必须 push null 占位——
+        // 终审 Important#1 只修了 @server 分支,这两个兄弟分支漏了,后续 ref 的
+        // ResourceCard 会整体错位一位(fetchedResources 与 references 下标一一对应不变式)。
+        if (body == null) { blocks.push(`${label}: (空响应)`); resources.push(null); continue }
         blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
         // 落库 refs + 前端 ResourceCard 均掩码形(脱敏 spec 2026-08-28,终审 I1):
         // 明文不出 DB;blocks 拼 ctx 保持原样(ctx 本身无消费方,system 注入走 fetchRefContext 已掩码)
         resources.push(maskSecretResource(body))
       } catch (e) {
         blocks.push(`${label}: (not found)`)
+        resources.push(null) // 修复①:失败也要占位,保下标对齐
       }
     }
     return { ctx: `${REFS_CTX_HEADER}${blocks.join('\n\n')}`, resources }
@@ -128,7 +132,8 @@ export function createWorkbenchConvRoutes(deps) {
   // 注:原 index.mjs 各分支用 `return sendJson(...)` 早退 + 终结响应;此处等价改为
   // `sendJson(...); return true`(sendJson 已 res.end,只需告知 dispatcher 已处理)。
   async function handle(req, res, url) {
-    // GET /api/workbench/ai-config — 透明面板数据源(登录即可,2026-08-25 设计):
+    // GET /api/workbench/ai-config — 透明面板数据源(2026-08-25 设计;当前经下方 requireAdmin
+    // 收严到 admin 角色——route-auth-map 的门只是 platform 地板,内层可更严)。
     // 生效提示词/工具清单/追加指令/model。刻意不回 baseURL/apiKey(连接配置仅 admin 可见)。
     if (url.pathname === '/api/workbench/ai-config' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
@@ -303,6 +308,9 @@ export function createWorkbenchConvRoutes(deps) {
         // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)
         let refsValue = Array.isArray(input.references) ? input.references : null
         if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
+        // 2026-08-31 审计修复⑧:与 create/messages 路径同款 enrich——沿用锚 refs 保留其已存的
+        // resource 载荷,新 references 补拉(buildRefsContext 单次拉取);刷新后 ResourceCard 不丢。
+        const { resources: fetchedResources } = await buildRefsContext(project, refsValue)
         setActiveConversation(db, conv.projectId, id)
         // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款)
         let mergedRefs = []
@@ -310,7 +318,10 @@ export function createWorkbenchConvRoutes(deps) {
         const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
         const seen = new Set(mergedRefs.map(key))
         for (const r of (refsValue || [])) { const k = key(r); if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) } }
-        appendMessage(db, { conversationId: id, role: 'user', content, refs: refsValue ? refsValue.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name })) : null })
+        appendMessage(db, {
+          conversationId: id, role: 'user', content,
+          refs: refsValue ? refsValue.map((r, i) => ({ kind: r.kind, namespace: r.namespace, name: r.name, resource: r.resource ?? fetchedResources[i] ?? null })) : null,
+        })
         updateConversation(db, id, {
           status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
           // 水位钳制(spec §3.1 修正):min(现值, fromSeq-1)——前缀连续 1..fromSeq-1,保留其摘要覆盖;

@@ -28,7 +28,7 @@ import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscri
 import { scrubSecrets } from './secret-scrub.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath, learningLedgerPath } from './workbench-projects.mjs'
 import { listApiPath, getApiPath } from './kind-paths.mjs'
-import { REFS_CTX_HEADER } from './refs-context.mjs'
+import { createRefContextFetcher } from './ref-fetch.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
 import { runDistill, gatherDistillMaterial, isNewMaterial } from './distill.mjs'
@@ -49,7 +49,6 @@ import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema, listSshServers } from './ssh/store.mjs'
-import { buildServerRefBlock } from './ssh/ref-block.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
@@ -65,7 +64,6 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
-import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -330,6 +328,9 @@ function requirePlatform(req, res) {
   if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return null }
   return ps
 }
+// 审计标注(2026-08-31 ④):workbench 路由族的 ownerId 归属检查(POST messages/regenerate/
+// edit/compact 等)在本守卫之后,当前恒通过(ps.role 恒 'admin')——属纵深防御,为将来放开
+// 非 admin 使用工作台预留;真要放开时须同步把这些内层守卫降为 requirePlatform。
 function requireAdmin(req, res) {
   const ps = requirePlatform(req, res)
   if (!ps) return null
@@ -1138,42 +1139,8 @@ function listForwards(sessionId) {
   return [...forwards.values()].filter(f => f.sessionId === sessionId).map(({ server, pf, sessionId, ...rest }) => rest)
 }
 
-// ====== T5: @-ref 漂移修复——提取的 helpers(getApiPath / withTimeout / fetchRefContext / buildK8sSession)======
-// 原 POST 端点内联;现抽取为模块级,run/resumeConversation 也用它每轮刷新 ref context。
-function withTimeout(p, ms, label) {
-  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时 ${ms}ms`)), ms))])
-}
-// 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 5s 超时;失败/404 → 标 not found(漂移感知)。
-// CSO #14:每块过 formatRefBlock(围栏头+16KB 截断);budget 每次调用新建=每轮对话单轮全部 ref 合计 ≤48KB,超预算的 ref 跳过。
-async function fetchRefContext(references, k8sSession) {
-  if (!Array.isArray(references) || !references.length) return ''
-  const budget = createRefContextBudget()
-  // 服务器清单与单个 ref 无关——提到 map 之外取一次,循环内复用(终审 Minor#3)
-  const sshServerRows = references.some(r => r?.kind === 'server') ? listSshServers(db, { exposedOnly: true }) : []
-  const tasks = references.map(async ref => {
-    const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
-    // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不依赖 k8sSession——无集群项目可用
-    if (ref.kind === 'server') {
-      const rows = sshServerRows
-      const block = buildServerRefBlock(label, rows, ref)
-      if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
-      return block
-    }
-    if (!k8sSession) return `${label}: (not found / 无集群)` // guard 修正:K8s ref 无集群逐条标注,不再整块吞掉
-    // 防御性归一:ref.kind 正常恒为前端 canonical,但库里有旧数据/手改可能 → 与工具链同源归一
-    const path = getApiPath(normalizeKind(ref.kind), ref.namespace || '', ref.name)
-    if (!path) return `${label}: (不支持的 kind)`
-    try {
-      const res = await withTimeout(requestKubernetes(k8sSession, path), 5000, `ref ${ref.kind}/${ref.name}`)
-      const body = maskSecretResource(res?.body)
-      const block = formatRefBlock(label, JSON.stringify(body, null, 2))
-      if (!budget.take(block.length)) return `${label}: …(引用上下文预算已满,略)`
-      return block
-    } catch { return `${label}: (not found / 已删除)` }
-  })
-  const blocks = await Promise.all(tasks)
-  return `\n\n${REFS_CTX_HEADER}${blocks.join('\n\n')}`
-}
+// ====== T5: @-ref 漂移修复——helpers 抽到 ./ref-fetch.mjs(2026-08-31 审计修复⑤:超时与
+// not found 分流;deps 注入可单测)。run/resumeConversation 也用它每轮刷新 ref context。
 // 从 clusterId 重建 k8sSession(POST 端点 + run/resumeConversation 共用,避免 6 字段重复)
 function buildK8sSession(clusterId) {
   const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
@@ -1465,6 +1432,8 @@ async function handle(req, res) {
   }
 
   // SP2: agent loop 抽到 workbench-agent.mjs(factory,可单测)。零行为变更。
+  // @-ref 拉取器(2026-08-31 审计修复⑤抽到 ./ref-fetch.mjs):db 绑定进 listSshServers。
+  const { fetchRefContext } = createRefContextFetcher({ requestKubernetes, listSshServers: opts => listSshServers(db, opts) })
   const wbAgent = createWorkbenchAgent({ db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose })
   // SP3: 7 个工作台对话 HTTP 端点 + buildRefsContext 抽到 routes/workbench-conversations.mjs(handler/dispatcher)。
   // 零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
