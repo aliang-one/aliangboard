@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
+import { usePreferencesStore } from '@/stores/preferences'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const router = useRouter()
@@ -26,6 +27,20 @@ const roleLabel = computed(() => {
   if (!role) return ''
   return t(role === 'admin' ? 'admin.users.roleAdmin' : 'admin.users.roleUser')
 })
+const prefs = usePreferencesStore()
+// 快速切换区选项(2026-08-31 设计 §4):文案/图标与用户中心页同源,零新增 i18n 键
+const themeOptions = [
+  { v: 'light', icon: 'light_mode', key: 'userCenter.themeLight' },
+  { v: 'dark', icon: 'dark_mode', key: 'userCenter.themeDark' },
+  { v: 'system', icon: 'contrast', key: 'userCenter.themeSystem' },
+]
+const langOptions = [
+  { v: 'zh', key: 'userCenter.langZh' },
+  { v: 'en', key: 'userCenter.langEn' },
+]
+// null 归一:未设置时如实高亮运行时默认(store 注释 null→system;i18n 默认 zh)
+const activeTheme = computed(() => prefs.theme || 'system')
+const activeLang = computed(() => prefs.language || 'zh')
 
 function toggle() { open.value = !open.value }
 function closeMenu() { open.value = false }
@@ -76,6 +91,24 @@ onBeforeUnmount(() => {
         <div class="min-w-0">
           <p class="text-body-md font-semibold truncate">{{ displayName }}</p>
           <p class="text-body-xs text-on-surface-variant truncate font-mono">{{ authStore.user?.username }}</p>
+        </div>
+      </div>
+      <div class="px-md py-sm border-b border-outline-variant">
+        <p class="text-body-xs text-on-surface-variant mb-xs">{{ $t('userCenter.theme') }}</p>
+        <div class="flex gap-xs">
+          <button v-for="o in themeOptions" :key="o.v" :data-testid="`user-menu-theme-${o.v}`"
+            class="flex items-center gap-xs px-sm py-xs rounded-md border text-body-xs transition-colors"
+            :class="activeTheme === o.v ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container'"
+            @click="prefs.setTheme(o.v)">
+            <span class="material-symbols-outlined text-sm">{{ o.icon }}</span>{{ $t(o.key) }}
+          </button>
+        </div>
+        <p class="text-body-xs text-on-surface-variant mb-xs mt-sm">{{ $t('userCenter.language') }}</p>
+        <div class="flex gap-xs">
+          <button v-for="o in langOptions" :key="o.v" :data-testid="`user-menu-lang-${o.v}`"
+            class="px-sm py-xs rounded-md border text-body-xs transition-colors"
+            :class="activeLang === o.v ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container'"
+            @click="prefs.setLanguage(o.v)">{{ $t(o.key) }}</button>
         </div>
       </div>
       <button

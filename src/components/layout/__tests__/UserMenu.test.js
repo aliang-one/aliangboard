@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
 import UserMenu from '@/components/layout/UserMenu.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
+import { usePreferencesStore } from '@/stores/preferences'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -118,5 +119,43 @@ test('role 缺失:角色行隐藏', async () => {
   auth.user = { id: 'u3', username: 'carol', displayName: '' }
   const w = mountMenu()
   expect(w.find('[data-testid="user-menu-role"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('下拉含主题三态+语言两态分段;null 未设置时高亮归一为 system/zh', async () => {
+  seedUser()
+  const w = mountMenu()
+  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
+  for (const v of ['light', 'dark', 'system']) {
+    expect(w.find(`[data-testid="user-menu-theme-${v}"]`).exists()).toBe(true)
+  }
+  for (const v of ['zh', 'en']) {
+    expect(w.find(`[data-testid="user-menu-lang-${v}"]`).exists()).toBe(true)
+  }
+  expect(usePreferencesStore().theme).toBeNull()
+  expect(usePreferencesStore().language).toBeNull()
+  expect(w.find('[data-testid="user-menu-theme-system"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-lang-zh"]').classes()).toContain('bg-primary')
+  w.unmount()
+})
+
+test('点主题「深色」:prefs.theme 即时变 dark 且菜单保持打开', async () => {
+  seedUser()
+  const w = mountMenu()
+  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
+  await w.find('[data-testid="user-menu-theme-dark"]').trigger('click')
+  expect(usePreferencesStore().theme).toBe('dark')
+  expect(w.find('[data-testid="user-menu-theme-dark"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-dropdown"]').exists()).toBe(true)
+  w.unmount()
+})
+
+test('点语言「English」:prefs.language=en 且 i18n locale 同步切 en', async () => {
+  seedUser()
+  const w = mountMenu()
+  await w.find('[data-testid="user-menu-trigger"]').trigger('click')
+  await w.find('[data-testid="user-menu-lang-en"]').trigger('click')
+  expect(usePreferencesStore().language).toBe('en')
+  expect(i18n.global.locale.value).toBe('en')
   w.unmount()
 })
