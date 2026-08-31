@@ -3381,7 +3381,9 @@
       "confirmDeleteProjectTitle": "删除项目",
       "confirmDeleteProjectHint": "此操作不可恢复,将删除该项目的全部仓库内容。输入下方项目名以确认:",
       "confirmDeleteProjectPlaceholder": "输入项目名以确认",
-      "projectDeleted": "项目已删除", "projectDeleteFailed": "删除项目失败",
+      "projectDeleted": "项目已删除",
+      "projectDeletedWithWarning": "项目已删除，但仓库目录清除失败：{warning}",
+      "projectDeleteFailed": "删除项目失败",
       "projectRenamed": "项目已重命名为 {name}", "projectRenameFailed": "重命名失败"
     },
     "ledger": {

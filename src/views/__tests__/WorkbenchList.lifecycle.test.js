@@ -141,3 +141,31 @@ test('删除:请求失败时列表保留 + error notify', async () => {
   expect(w.findAll('.test-row')).toHaveLength(1)
   expect(notifyMock).toHaveBeenCalledWith('error', 'boom')
 })
+
+// 终审 I2:repo 目录清除失败时后端仍 200,但响应带 warning(数据已删、目录成孤儿)。
+// 只报成功会让孤儿目录无人跟进——必须 error 级提示且内容含 warning 原文。
+test('删除:响应带 warning(repo 目录清除失败)→ error 级提示含 warning,行仍移除', async () => {
+  deleteProjectMock.mockResolvedValueOnce({ ok: true, removedConversations: 2, repoRemoved: false, warning: 'EBUSY: resource busy' })
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('alpha')
+  await w.find('[data-testid="delete-confirm-btn"]').trigger('click')
+  await flushPromises()
+  // 数据确实已删(后端事务已提交):行移除,不误报「删除失败」
+  expect(w.findAll('.test-row')).toHaveLength(0)
+  expect(notifyMock).toHaveBeenCalledTimes(1)
+  expect(notifyMock).toHaveBeenCalledWith('error', expect.stringContaining('EBUSY: resource busy'))
+})
+
+test('删除:无 warning → 恒 success 提示(不误报警)', async () => {
+  deleteProjectMock.mockResolvedValueOnce({ ok: true, removedConversations: 0, repoRemoved: true })
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('alpha')
+  await w.find('[data-testid="delete-confirm-btn"]').trigger('click')
+  await flushPromises()
+  expect(notifyMock).toHaveBeenCalledWith('success', expect.any(String))
+  expect(notifyMock).not.toHaveBeenCalledWith('error', expect.anything())
+})

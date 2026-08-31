@@ -283,7 +283,7 @@ test('learningLedgerPath:绑定项目落集群 context;未绑定落 _platform �
 // ===== Task 1(2026-08-31 项目生命周期):deleteProject + setProjectRecap =====
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { deleteProject, setProjectRecap } from './workbench-projects.mjs'
+import { deleteProject, setProjectRecap, setLastReconcile, getLastReconcile } from './workbench-projects.mjs'
 
 function makeWbDir() { return mkdtempSync(join(tmpdir(), 'wb-proj-del-')) }
 // 带容器的 wbDir:逃逸目标可控落在 wbDir 之外、容器之内(不污染 /tmp 根)。
@@ -421,4 +421,53 @@ test('setProjectRecap:空串清空归零水位;非空覆写不动水位;超长 4
   assert.equal(too.ok, false)
   assert.equal(too.status, 400)
   assert.equal(setProjectRecap(db, p.id, 'x'.repeat(65536)).ok, true)  // 边界值恰好通过
+})
+
+// 终审 I1:last_reconcile 以 projectId 为键,不级联 → 删除后成永久孤儿行
+test('deleteProject:级联含 last_reconcile——项目行删除后无孤儿,他项目行不动', () => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p } = seedProject(db, wbDir)
+  const other = createProject(db, { name: 'keep-me', clusterId: 'c1', ownerId: 'u1' })
+  setLastReconcile(db, p.id, { ok: true, applied: 3 })
+  setLastReconcile(db, other.id, { ok: false })
+  assert.equal(getLastReconcile(db, p.id).result.applied, 3, '播种成功')
+
+  const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+  assert.equal(r.ok, true)
+  assert.equal(getLastReconcile(db, p.id), null, '被删项目的 last_reconcile 一并清')
+  assert.ok(getLastReconcile(db, other.id), '他项目的 last_reconcile 不受影响')
+})
+
+// 终审 I2:rmSync 失败必须落 stderr(ops 文档承诺「日志有记录」),不许全静默。
+// removeDir 注入 = 可移植失败注入(chmod 方案在 root 下退化为不失败,断言不到日志)。
+test('deleteProject:repo 目录删除失败 → console.error 落日志 + repoError 仍透传 + ok 真', (t) => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p } = seedProject(db, wbDir)
+  const logs = []
+  const errMock = t.mock.method(console, 'error', (...a) => logs.push(a.map(String).join(' ')))
+
+  const r = deleteProject(db, {
+    workbenchDir: wbDir, projectId: p.id,
+    removeDir: () => { throw new Error('EBUSY: resource busy') },
+  })
+
+  assert.equal(r.ok, true)                                  // fs 失败不影响 ok(数据已提交)
+  assert.match(r.repoError, /EBUSY/)
+  assert.equal(r.repoRemoved, false)
+  assert.equal(errMock.mock.callCount(), 1, '恰好一条 error 日志')
+  assert.match(logs[0], /\[workbench\] 项目 repo 目录删除失败/, '带定位前缀')
+  assert.match(logs[0], /EBUSY/, '日志含失败原因(运维可据此跟进孤儿目录)')
+})
+
+// removeDir 注入默认值=rmSync(生产路径零变化):不注入时目录确实被删
+test('deleteProject:默认 removeDir 走 rmSync,目录被清除', () => {
+  const db = makeDb()
+  const wbDir = makeWbDir()
+  const { p, repo } = seedProject(db, wbDir)
+  const r = deleteProject(db, { workbenchDir: wbDir, projectId: p.id })
+  assert.equal(r.ok, true)
+  assert.equal(r.repoRemoved, true)
+  assert.ok(!existsSync(repo))
 })

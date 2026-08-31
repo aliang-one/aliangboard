@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject } from './workbench-summarize.mjs'
+import { readFile } from 'node:fs/promises'
+import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject, CAPABILITY_CONSTRAINT } from './workbench-summarize.mjs'
 import {
   createWorkbenchSchema,
   createProject,
@@ -281,8 +282,17 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
   assert.deepEqual(rows.map(r => r.content), ['c'])
 })
 
-// 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验
-const HARD_RULE = '硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'
+// 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验。
+// 终审 I3:断言用 import 的常量,不再自抄第三份字面(否则措辞收紧时测试仍绿、实现已脱钩)。
+const HARD_RULE = CAPABILITY_CONSTRAINT
+
+// I3 防线:约束字面在 summarize 源码里只允许出现一次(export 声明处),
+// 三条链路(recap/compact/项目记忆)必须 ${CAPABILITY_CONSTRAINT} 内插。
+test('CAPABILITY_CONSTRAINT 单一事实源:源码不再手抄约束字面(I3)', async () => {
+  const src = await readFile(new URL('./workbench-summarize.mjs', import.meta.url), 'utf8')
+  const occurrences = src.split(CAPABILITY_CONSTRAINT).length - 1
+  assert.equal(occurrences, 1, `约束字面应只在 export 声明处出现 1 次,实际 ${occurrences} 次`)
+})
 
 test('SUMMARIZE_PROMPT:含硬性约束(轮次 recap 同款,禁止瞬时能力结论)', () => {
   assert.ok(SUMMARIZE_PROMPT.includes(HARD_RULE), '硬性约束逐字')

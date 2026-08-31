@@ -67,10 +67,13 @@ function startDelete(row) {
 async function doDelete() {
   if (!deleteTarget.value || deleteConfirmText.value !== deleteTarget.value.name) return
   try {
-    await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value)
+    const res = await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value)
     projects.value = projects.value.filter(x => x.id !== deleteTarget.value.id)
     deleteTarget.value = null
-    notify('success', t('workbench.list.projectDeleted'))
+    // repo 目录清除失败时后端仍 200,但带 warning(数据已级联删、目录成孤儿):
+    // 必须 error 级示警(终审 I2)——只报成功会让孤儿目录永远无人跟进。
+    if (res?.warning) notify('error', t('workbench.list.projectDeletedWithWarning', { warning: res.warning }))
+    else notify('success', t('workbench.list.projectDeleted'))
   } catch (e) { notify('error', e.message || t('workbench.list.projectDeleteFailed')) }
 }
 

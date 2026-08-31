@@ -339,11 +339,14 @@ export function getActiveConversationId(db, projectId) {
   return db.prepare('SELECT activeConversationId FROM workbench_projects WHERE id=?').get(projectId)?.activeConversationId ?? null
 }
 
-// 项目删除(2026-08-31 生命周期):三表级联 + repo 目录清除,单事务。
+// 项目删除(2026-08-31 生命周期):四表级联(conversations/messages/history/last_reconcile)+ 项目行
+// + repo 目录清除,单事务。last_reconcile 以 projectId 为键(:36),不级联就成了删除后查不到、
+// 也永不覆写的永久孤儿行(终审 I1)。
 // agent 取消/事件总线回收是路由层职责(Task 2),数据层只管数据与目录。
 // repo 路径逃逸防线:resolve 后必须落在 workbenchDir(resolve)内——repoRoot/clusterId
 // 是落库字段,手工改库可把 rmSync 指向任意路径,删除是破坏性操作必须先验。
-export function deleteProject(db, { workbenchDir, projectId }) {
+// removeDir 仅测试注入(rmSync 失败注入不可移植:root 下 chmod 不拦截),生产恒为 rmSync。
+export function deleteProject(db, { workbenchDir, projectId, removeDir = rmSync }) {
   const project = getProject(db, projectId)
   if (!project) return { ok: false, status: 404 }
   const wbAbs = resolve(workbenchDir)
@@ -358,6 +361,7 @@ export function deleteProject(db, { workbenchDir, projectId }) {
     removedMessages = db.prepare('DELETE FROM workbench_messages WHERE conversationId IN (SELECT id FROM workbench_conversations WHERE projectId=?)').run(projectId).changes
     removedConversations = db.prepare('DELETE FROM workbench_conversations WHERE projectId=?').run(projectId).changes
     db.prepare('DELETE FROM workbench_history WHERE projectId=?').run(projectId)
+    db.prepare('DELETE FROM last_reconcile WHERE projectId=?').run(projectId)   // 终审 I1:孤儿 reconcile 结果一并清
     db.prepare('DELETE FROM workbench_projects WHERE id=?').run(projectId)
     db.exec('COMMIT')
   } catch (e) {
@@ -365,13 +369,15 @@ export function deleteProject(db, { workbenchDir, projectId }) {
     throw e
   }
   // 目录清除在事务提交后:失败只置 repoError,不回滚数据(孤儿目录比数据复活可接受)。
+  // 失败必须落 stderr(终审 I2):ops 文档承诺「日志有记录」,静默则孤儿目录永远无人跟进。
   let repoRemoved = true
   let repoError
   try {
-    rmSync(repo, { recursive: true, force: true })
+    removeDir(repo, { recursive: true, force: true })
   } catch (e) {
     repoRemoved = false
     repoError = String(e?.message || e)
+    console.error('[workbench] 项目 repo 目录删除失败:', repoError)
   }
   return { ok: true, removedConversations, removedMessages, repoRemoved, repoError }
 }
