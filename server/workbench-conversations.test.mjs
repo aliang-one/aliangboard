@@ -368,7 +368,10 @@ test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => 
   assert.equal(msgs[0].content, 'q1')
   assert.equal(msgs[1].content, 'a1')
   assert.equal(msgs[2].content, '改过的问题')
-  assert.deepEqual(JSON.parse(msgs[2].refs), anchorRefs, 'refs 缺省沿用锚消息原值')
+  // 修复⑧:沿用锚 refs 且同款补拉 enrich(锚原为裸三件套 → 补 resource;stub body={} → {})
+  const reused = JSON.parse(msgs[2].refs)
+  assert.deepEqual({ kind: reused[0].kind, namespace: reused[0].namespace, name: reused[0].name }, anchorRefs[0], 'refs 沿用锚消息原值')
+  assert.ok('resource' in reused[0], '沿用锚 refs 补拉 enrich(resource 在场)')
   const after = getConversation(h.db, conv.id)
   assert.equal(after.status, 'running')
   // 水位钳制(spec §3.1 修正版):min(现值, fromSeq-1)——前缀 1..2 连续,盖住锚(3)钳到 2
@@ -407,7 +410,11 @@ test('POST edit:references 替换(非沿用)', async () => {
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
   assert.equal(h.sent[h.sent.length - 1].status, 200)
   const msgs = listMessages(h.db, conv.id)
-  assert.deepEqual(JSON.parse(msgs[2].refs), [{ kind: 'services', namespace: 'ns', name: 'svc1' }])
+  // 2026-08-31 修复⑧:edit 路径与 create/messages 同款 enrich——refs 携带 resource 载荷
+  // (此处 stub body={} → resource={} 在场即证);替换语义不变。
+  const refs = JSON.parse(msgs[2].refs)
+  assert.deepEqual({ kind: refs[0].kind, namespace: refs[0].namespace, name: refs[0].name }, { kind: 'services', namespace: 'ns', name: 'svc1' }, '替换语义:新 references 生效')
+  assert.ok('resource' in refs[0], 'edit 路径 resource 载荷在场(enrich 对齐)')
 })
 
 test('POST edit:running → 400;锚非 user/不存在/跨对话 → 400;空内容 → 400', async () => {

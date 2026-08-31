@@ -264,3 +264,14 @@ test('sweepServerIds:run 成功登记 serverId;复位钩子清空;sweepServer �
   const badPool = { acquire: async () => { throw new Error('conn refused') } }
   await createSshJobBridge({ db: fakeDb(), pool: badPool, projectId: '__sweep__', getPolicy: () => ({ ttlMin: 120, maxPerServer: 4 }) }).sweepServer('srv1')
 })
+
+// 2026-08-31 工具链审计修复②:异步任务输出(chunk)同样接 maskSensitiveText——
+// 构建日志里泄漏的 JWT/PEM/AKIA 不再原样进 LLM 上下文+trace 落库。
+test('修复②:jobOut chunk 脱敏(PEM 不明文回传)', async () => {
+  const PEM = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQ\nabc=\n-----END PRIVATE KEY-----\n'
+  const pool = fakePool([{ stdout: `build ok\n${PEM}`, stderr: 'AB_SIZE=100 AB_RUNNING=1 AB_EXIT=\n' }])
+  const r = await bridge(pool).jobOut({ server: 'dev-1', jobId: JID, offset: 0 })
+  assert.ok(r.chunk.includes('[redacted-private-key]'), `chunk 应脱敏,收到: ${JSON.stringify(r.chunk)}`)
+  assert.equal(r.chunk.includes('PRIVATE KEY'), false)
+  assert.equal(r.size, 100, '边带元数据不受脱敏影响')
+})

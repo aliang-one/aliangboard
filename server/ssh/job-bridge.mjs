@@ -6,6 +6,7 @@ import { listSshServers } from './store.mjs'
 import { resolveServerRef } from './agent-bridge.mjs'
 import { classifyReadonly } from './readonly-classifier.mjs'
 import { resolveJobPolicy } from './job-policy.mjs'
+import { maskSensitiveText } from '../secret-mask.mjs'
 import {
   validateJobId, launchScript, stdinWriteScript, readScript, parseSideband,
   listScript, parseListOutput, killScript, sweepScript,
@@ -147,7 +148,9 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
       return { error: '任务不存在或输出已被清理(TTL),请用 wb_ssh_job_list 确认' }
     }
     return {
-      server: r.row.name, jobId, chunk: s.stdout.toString('utf8'),
+      // 修复②(2026-08-31 审计):chunk 脱敏——构建/备份日志里的 JWT/PEM/AKIA 不再原样进
+      // LLM 上下文+trace 落库。offset 推进按远端 size(边带)计算,与 chunk 内容无关。
+      server: r.row.name, jobId, chunk: maskSensitiveText(s.stdout.toString('utf8')),
       size: sb.size, offset: Math.min(sb.size, offset + maxBytes),
       running: sb.running, exitCode: sb.exitCode, durationMs: Date.now() - started,
     }

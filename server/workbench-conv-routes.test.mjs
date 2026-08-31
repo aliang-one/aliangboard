@@ -311,3 +311,34 @@ test('快照按轮切割(2026-08-25 闪变续修):trace 只含上一条消息之
   assert.ok(asst.some(e => e.content === '当前轮中间文本' && !e.message), 'assistant 须瘦身(content 平铺)')
   assert.ok(!asst.some(e => e.content === '旧轮文本' || e.message?.content === '旧轮文本'), '历史轮文本不得混入')
 })
+
+// 2026-08-31 工具链审计修复⑧:edit 重发此前把 refs map 成裸 {kind,namespace,name} 三件套——
+// 沿用锚 refs 时把已 enrich 的 resource 载荷剥掉、显式传新 references 时也不补拉,
+// 刷新后该轮 ResourceCard 无数据(create/messages 路径都 enrich,仅 edit 掉队)。
+test('修复⑧:edit 重发保留/补齐 resource 载荷(沿用锚 refs 不剥;新 references 补拉)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  // 锚消息:refs 带完整 resource(模拟 create/messages 路径的 enrich 落库)
+  const anchor = appendMessage(h.db, {
+    conversationId: conv.id, role: 'user', content: '原问题',
+    refs: [{ kind: 'pods', namespace: 'default', name: 'nginx', resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }],
+  })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '答', trace: '[]' })
+  // 场景 a:沿用锚 refs(不传 references)→ 锚的 resource 载荷必须保留
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  let last = listMessages(h.db, conv.id).pop()
+  assert.equal(last.role, 'user')
+  assert.equal(last.content, '改后的问题')
+  let refs = JSON.parse(last.refs || '[]')
+  assert.equal(refs[0]?.resource?.kind, 'Pod', `沿用锚 refs 时 resource 载荷不得被剥掉,收到: ${last.refs}`)
+  // 场景 b:显式传新 references → 走 buildRefsContext 补拉 enrich(与 create/messages 路径一致)
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id) // edit 置 running → 复位
+  const anchor2 = last
+  h.setBody({ messageId: anchor2.id, content: '再改一版', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  last = listMessages(h.db, conv.id).pop()
+  refs = JSON.parse(last.refs || '[]')
+  assert.equal(refs[0]?.resource?.kind, 'Pod', `新 references 应补拉 enrich,收到: ${last.refs}`)
+})

@@ -96,7 +96,9 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   const runTag = Math.random().toString(36).slice(2, 8)
   // OpenAI 兼容 tool_call 都带 id;缺失时盖章一个稳定 id(写回 tc,保证 checkpoint→resume 一致)
   function callId(tc) { if (!tc.id) tc.id = `gen_${runTag}_${idSeq++}`; return tc.id }
-  function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return {} } }
+  // 参数解析(2026-08-31 工具链审计修复⑥):合法 JSON → 对象;非法 → undefined——调用方不再
+  // 拿 {} 照跑工具,而是把「参数非合法 JSON + 原文截断」作为工具回执喂回 LLM(可自纠)。
+  function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return undefined } }
 
   async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
@@ -139,6 +141,16 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
           denied.push({ name, args })
           messages.push({ role: 'tool', tool_call_id: id, content: `用户拒绝了该操作(${name})` })
           onStep?.({ type: 'denied', name, args, ts: Date.now() })
+          continue
+        }
+
+        // 修复⑥:畸形 JSON 参数 → 不执行、不审批弹窗后白跑,回执说明 + 原文截断喂回 LLM 自纠。
+        // (置于 denied 分支之后:resume 拒绝语义不受影响;execTool/审计不被垃圾参数触发。)
+        if (args === undefined) {
+          const raw = String(tc.function?.arguments ?? '')
+          const feedback = `工具 ${name} 的参数不是合法 JSON,未执行。原始参数(截断): ${raw.slice(0, 200)}。请用合法 JSON 重新调用。`
+          messages.push({ role: 'tool', tool_call_id: id, content: feedback })
+          onStep?.({ type: 'tool', name, args: {}, result: feedback, ts: Date.now() })
           continue
         }
 

@@ -141,3 +141,70 @@ test.after(() => {
   try { gw.kill('SIGKILL') } catch { /* noop */ }
   try { rmSync(DIR, { recursive: true, force: true }) } catch { /* noop */ }
 })
+
+// 2026-08-31 工具链审计修复①:buildRefsContext 的「空响应」(body==null)与「拉取失败」(catch)
+// 分支此前只 push blocks 不 push resources 占位,违反本函数不变式(fetchedResources 与
+// references 下标一一对应)——后续 K8s ref 的 ResourceCard 全部张冠李戴错一位。
+// 终审 Important#1 只修了 @server 分支;本测锁空响应+catch 两分支。
+test('buildRefsContext 空响应/拉取失败分支:resources 补 null 占位不串位', { timeout: 60000 }, async () => {
+  const K8S_PORT = 41000 + Math.floor(Math.random() * 2000)
+  const GW3 = 44000 + Math.floor(Math.random() * 2000)
+  const DIR3 = mkdtempSync(join(tmpdir(), 'wb-server-ref3-'))
+  const LLM_PORT = K8S_PORT + 1
+  // mock K8s:empty-pod 回 200 空 body;ghost-pod 回 404;ok-pod 回正常 Pod
+  const k8s = createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname
+    if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31","gitVersion":"v1.31.4"}') }
+    if (p.endsWith('/pods/ok-pod')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ kind: 'Pod', metadata: { name: 'ok-pod', namespace: 'default' }, spec: { containers: [] } })) }
+    if (p.endsWith('/pods/empty-pod')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('') }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"kind":"Status","message":"nf"}')
+  })
+  const llm = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }))
+  })
+  await new Promise(r => k8s.listen(K8S_PORT, '127.0.0.1', r))
+  await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
+  const gw3 = spawn(process.execPath, ['server/index.mjs'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(GW3), ALIANG_DB: join(DIR3, 'wb.db'),
+      ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR3, ALIANG_WORKBENCH_DIR: join(DIR3, 'wb') },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+  const BASE3 = `http://127.0.0.1:${GW3}`
+  try {
+    for (let i = 0; i < 60; i++) { try { await fetch(`${BASE3}/api/health`); break } catch { await new Promise(r => setTimeout(r, 300)) } }
+    const login = await (await fetch(`${BASE3}/api/auth/login`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+    const H3 = { 'content-type': 'application/json', 'x-platform-token': login.token }
+    await fetch(`${BASE3}/api/admin/llm-config`, { method: 'PUT', headers: H3, body: JSON.stringify({ baseURL: `http://127.0.0.1:${LLM_PORT}`, model: 'mock-1' }) })
+    const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user:\n    token: d\n`
+    const cr = await (await fetch(`${BASE3}/api/admin/clusters`, { method: 'POST', headers: H3, body: JSON.stringify({ name: 'mock-k8s-3', kubeconfig }) })).json()
+    const pr = await (await fetch(`${BASE3}/api/workbench/projects`, { method: 'POST', headers: H3, body: JSON.stringify({ name: 'gap-ref', clusterId: cr.cluster?.id || cr.id }) })).json()
+    const references = [
+      { kind: 'pod', namespace: 'default', name: 'empty-pod' },
+      { kind: 'pod', namespace: 'default', name: 'ghost-pod' },
+      { kind: 'pod', namespace: 'default', name: 'ok-pod' },
+    ]
+    const cv = await (await fetch(`${BASE3}/api/workbench/conversations`, { method: 'POST', headers: H3,
+      body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: '看下', references }) })).json()
+    // 三槽位一一对应:空响应→null,404→null,正常→真实 body(ok-pod 不得被挤到下标 0)
+    assert.equal(cv.references.length, 3, `references 长度须与入参一致,收到 ${cv.references.length}`)
+    assert.equal(cv.references[0], null, '空响应 ref 的 resources 槽位必须是 null 占位')
+    assert.equal(cv.references[1], null, '拉取失败 ref 的 resources 槽位必须是 null 占位')
+    assert.equal(cv.references[2]?.metadata?.name, 'ok-pod', 'ok-pod 的 ResourceCard 不得被前面失败项挤掉')
+    // 落库回读:messages 内 user 行 refs 下标同对齐
+    const conv = await (await fetch(`${BASE3}/api/workbench/conversations/${cv.id}`, { headers: H3 })).json()
+    const userMsg = (conv.messages || []).find(m => m.role === 'user')
+    const refs = JSON.parse(userMsg.refs || '[]')
+    assert.equal(refs.length, 3)
+    assert.equal(refs[0].resource, null)
+    assert.equal(refs[1].resource, null)
+    assert.equal(refs[2].resource?.metadata?.name, 'ok-pod', '落库 resource 不串位')
+  } finally {
+    try { gw3.kill('SIGKILL') } catch { /* noop */ }
+    try { k8s.close() } catch { /* noop */ }
+    try { llm.close() } catch { /* noop */ }
+    try { rmSync(DIR3, { recursive: true, force: true }) } catch { /* noop */ }
+  }
+})

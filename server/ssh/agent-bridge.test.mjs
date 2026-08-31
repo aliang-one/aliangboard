@@ -229,3 +229,44 @@ test('keyMode readonly + sudo 真值 → 拒绝(提权不经 key 通道)', async
   const r = await bridge.exec({ server: 'n1', command: 'cat /etc/os-release', sudo: '1' })
   assert.ok((r.error || '').includes('sudo'), '应拒 sudo')
 })
+
+// ── 2026-08-31 工具链审计修复②:SSH 工具输出接 maskSensitiveText ──
+// CSO #4 只给 K8s 面(wb_read_pod_file/wb_exec/wb_get_pod_logs)加了脱敏;SSH 面(免审/
+// 策略免审,如 readonly 下 wb_ssh_read_file)原样进 LLM 上下文+trace 落库。补齐同一标准,
+// 且遵循同款「先脱敏后截断」终审 R1 原则(截断点不得切中 JWT/PEM 留半截明文)。
+const SMALL_PEM = `-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQ\nabc=\n-----END PRIVATE KEY-----\n`
+function streamPool(payload) {
+  return { acquire: async () => ({ client: { exec: (cmd, cb) => { const s = new EventEmitter(); s.stderr = new EventEmitter(); s.write = () => {}; cb(null, s); setImmediate(() => { s.emit('data', payload); s.emit('exit', 0); s.emit('close') }) }, end: () => {} }, release: () => {} }) }
+}
+
+test('修复②:exec stdout 含 PEM/JWT → 脱敏,不回传明文', async () => {
+  const bridge = createSshAgentBridge({ db: fakeDb(), key: KEY, pool: streamPool(Buffer.from(`ok\n${SMALL_PEM}token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2Q\n`)), projectId: 'p1' })
+  const r = await bridge.exec({ server: 'dev-1', command: 'cat ~/.ssh/id_rsa' })
+  assert.equal(r.exitCode, 0)
+  assert.ok(r.stdout.includes('[redacted-private-key]'), `PEM 应脱敏,收到: ${JSON.stringify(r.stdout)}`)
+  assert.ok(r.stdout.includes('[redacted-jwt]'), 'JWT 应脱敏')
+  assert.equal(r.stdout.includes('PRIVATE KEY'), false, '不得残留 PEM 明文')
+})
+
+test('修复②:先脱敏后截断——PEM 跨 32KB 采集边界也不留半截明文', async () => {
+  // 30000B 噪音 + ~4.9KB PEM:截断点(32768)落在 PEM 中间。旧实现按 32KB 字节截断后再无
+  // 脱敏,半截 PEM(含 BEGIN 头)原样进上下文;修复后采集上限放宽到 256KB,整段先掩再切。
+  const BIG_PEM = `-----BEGIN PRIVATE KEY-----\n${'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n'.repeat(90)}-----END PRIVATE KEY-----\n`
+  const payload = Buffer.concat([Buffer.alloc(30000, 0x61), Buffer.from(BIG_PEM)])
+  assert.ok(payload.length > 32768, '前置:总长须超过回传上限')
+  const bridge = createSshAgentBridge({ db: fakeDb(), key: KEY, pool: streamPool(payload), projectId: 'p1' })
+  const r = await bridge.exec({ server: 'dev-1', command: 'cat big.log' })
+  assert.ok(r.stdout.includes('[redacted-private-key]'), '跨边界 PEM 应被完整脱敏')
+  assert.equal(r.stdout.includes('BEGIN PRIVATE KEY'), false, '不得残留半截 PEM 头')
+  assert.ok(Buffer.byteLength(r.stdout) <= 32768, '回传上限语义不变')
+  // 注意:脱敏把 34.8KB 缩到 ~30KB(PEM→22 字符标记),内容未丢弃 → truncated:false 才正确
+  // (标志语义 = 「实际丢弃过内容」;纯截断场景的标志由上方既有 >32KB 测试锁)。
+})
+
+test('修复②:readFile content 脱敏(readonly 免审面,cat 私钥不再明文落库)', async () => {
+  const mkSftp = () => ({ createReadStream: () => { const rs = new EventEmitter(); setImmediate(() => { rs.emit('data', Buffer.from(SMALL_PEM)); rs.emit('close') }); rs.destroy = () => {}; return rs } })
+  const bridge = createSshAgentBridge({ db: fakeDb(), key: KEY, pool: { acquire: async () => ({ client: { sftp: cb => cb(null, mkSftp()) }, release: () => {} }) }, projectId: 'p1' })
+  const r = await bridge.readFile({ server: 'dev-1', path: '/home/u/.ssh/id_rsa' })
+  assert.ok(r.content.includes('[redacted-private-key]'), `content 应脱敏,收到: ${JSON.stringify(r.content)}`)
+  assert.equal(r.content.includes('PRIVATE KEY'), false)
+})

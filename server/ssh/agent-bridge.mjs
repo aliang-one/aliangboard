@@ -6,10 +6,22 @@ import { listSshServers, materializeCreds, updateSshServer } from './store.mjs'
 import { renderServerLedger } from './ledger.mjs'
 import { classifyReadonly, buildSudoCommand } from './readonly-classifier.mjs'
 import { withSftp, sftpReadFile } from './sftp.mjs'
+import { maskSensitiveText } from '../secret-mask.mjs'
 
 const TIMEOUT_DEFAULT_MS = 30000, TIMEOUT_MIN_MS = 1000, TIMEOUT_MAX_MS = 120000
 const STDOUT_MAX = 32768, STDERR_MAX = 8192
+// 采集上限(2026-08-31 审计修复②,对齐 wb_exec 的终审 R1「先脱敏后截断」):流内按采集上限
+// 缓冲,结算时先 maskSensitiveText 再切到回传上限——防截断点切中 JWT/PEM 留半截明文。
+const STDOUT_COLLECT_MAX = 262144, STDERR_COLLECT_MAX = 65536
 const READFILE_MAX_DEFAULT = 65536, READFILE_MAX = 1048576
+
+// 结算面:脱敏整段采集 → 字节上限截断(与旧 Buffer 切片同语义);truncated = 采集期丢过字节
+// || 脱敏后仍超回传上限(截断标志 = 「实际丢弃过内容」,恰好满上限不误报)。
+function finalizeOutput(buf, collectMax, outMax, collectTruncated) {
+  const masked = maskSensitiveText(buf.toString('utf8'))
+  const over = Buffer.byteLength(masked, 'utf8') > outMax
+  return { text: over ? Buffer.from(masked, 'utf8').subarray(0, outMax).toString('utf8') : masked, truncated: collectTruncated || over }
+}
 
 // 纯函数:rows 为全量原始行(exposeToAi 0/1)。id 优先;name 只在暴露行中解析(歧义候选仅含暴露行);
 // 有同名但未暴露 → not-exposed;完全无名 → not-found。
@@ -95,6 +107,12 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
         let done = false, stream = null, timer = null
         let out = Buffer.alloc(0), errBuf = Buffer.alloc(0), outTruncated = false, errTruncated = false
         const settle = r => { if (done) return; done = true; if (timer) clearTimeout(timer); resolveP(r) }
+        // 结算出口统一走 finalizeOutput(修复②):先脱敏后截断,stdout/stderr 同款。
+        const finalizeBoth = () => {
+          const o = finalizeOutput(out, STDOUT_COLLECT_MAX, STDOUT_MAX, outTruncated)
+          const e2f = finalizeOutput(errBuf, STDERR_COLLECT_MAX, STDERR_MAX, errTruncated)
+          return { stdout: o.text, stderr: e2f.text, stdoutTruncated: o.truncated, stderrTruncated: e2f.truncated }
+        }
         // 总定时器挂在 exec 调用外层:覆盖「cb 永不回调」的死连接场景(2026-08-28 审查),而非仅流内。
         timer = setTimeout(() => {
           try { stream?.close?.() } catch {}
@@ -102,25 +120,25 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
           // stream 已拿到 = 只是这条命令慢,close 流即可——池按 server 复用,client.end 会
           // 杀掉该服务器上所有用户共享的连接(2026-08-28 跨会话杀伤修复)。
           if (stream == null) { try { conn.client.end?.() } catch {} }
-          settle({ exitCode: null, timedOut: true, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'), durationMs: Date.now() - started })
+          settle({ exitCode: null, timedOut: true, ...finalizeBoth(), durationMs: Date.now() - started })
         }, timeoutMs)
         conn.client.exec(cmd, (err, s) => {
           if (err) return settle({ error: String(err.message || err) })
           stream = s
           if (stdinPassword != null) stream.write(stdinPassword + '\n')
           let exitCode = null
-          const finish = () => settle({ exitCode, stdout: out.toString('utf8'), stderr: errBuf.toString('utf8'),
-            stdoutTruncated: outTruncated, stderrTruncated: errTruncated, durationMs: Date.now() - started })
-          // 截断标志 = 「实际丢弃过字节」:恰好满上限不误报(2026-08-28 审查)。
+          const finish = () => settle({ exitCode, ...finalizeBoth(), durationMs: Date.now() - started })
+          // 采集期按采集上限缓冲(截断标志 = 实际丢弃过字节;恰好满上限不误报,2026-08-28 审查);
+          // 脱敏与回传截断延后到 finalizeOutput。
           stream.on('data', d => {
-            if (out.length + d.length <= STDOUT_MAX) { out = Buffer.concat([out, d]); return }
+            if (out.length + d.length <= STDOUT_COLLECT_MAX) { out = Buffer.concat([out, d]); return }
             outTruncated = true
-            out = Buffer.concat([out, d]).subarray(0, STDOUT_MAX)
+            out = Buffer.concat([out, d]).subarray(0, STDOUT_COLLECT_MAX)
           })
           stream.stderr?.on?.('data', d => {
-            if (errBuf.length + d.length <= STDERR_MAX) { errBuf = Buffer.concat([errBuf, d]); return }
+            if (errBuf.length + d.length <= STDERR_COLLECT_MAX) { errBuf = Buffer.concat([errBuf, d]); return }
             errTruncated = true
-            errBuf = Buffer.concat([errBuf, d]).subarray(0, STDERR_MAX)
+            errBuf = Buffer.concat([errBuf, d]).subarray(0, STDERR_COLLECT_MAX)
           })
           stream.on('exit', code => { exitCode = code })
           stream.on('close', finish)
@@ -142,7 +160,8 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     catch (e) { return { error: `SSH 连接失败(${e.errorKind || 'unknown'})` } }
     try {
       const data = await withSftp(conn.client, s => sftpReadFile(s, path, maxBytes))
-      return { server: row.name, path, content: data.content, truncated: data.truncated, size: data.size, durationMs: Date.now() - started }
+      // 修复②:内容脱敏(SFTP 读取本身已按 maxBytes 截断,此处整段掩 JWT/PEM/AKIA)
+      return { server: row.name, path, content: maskSensitiveText(data.content), truncated: data.truncated, size: data.size, durationMs: Date.now() - started }
     } catch (e) {
       const m = String(e?.message || e)
       return { error: /No such file/i.test(m) ? `文件不存在: ${path}` : /permission/i.test(m) ? `无权限读取: ${path}` : `读取失败: ${m.slice(0, 120)}` }
