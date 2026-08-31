@@ -3376,7 +3376,15 @@
       "cancel": "取消",
       "create": "创建",
       "projectCreated": "项目已创建",
-      "createFailed": "创建失败"
+      "createFailed": "创建失败",
+      "openProject": "打开项目", "renameProject": "重命名", "deleteProject": "删除",
+      "confirmDeleteProjectTitle": "删除项目",
+      "confirmDeleteProjectHint": "此操作不可恢复,将删除该项目的全部仓库内容。输入下方项目名以确认:",
+      "confirmDeleteProjectPlaceholder": "输入项目名以确认",
+      "projectDeleted": "项目已删除",
+      "projectDeletedWithWarning": "项目已删除，但仓库目录清除失败：{warning}",
+      "projectDeleteFailed": "删除项目失败",
+      "projectRenamed": "项目已重命名为 {name}", "projectRenameFailed": "重命名失败"
     },
     "ledger": {
       "title": "集群台账",
@@ -3635,7 +3643,15 @@
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
       "editCancel": "取消编辑",
       "projectRecapTitle": "项目背景（之前对话的记忆）",
-      "projectRecapSummary": "AI 每轮携带的项目决策摘要"
+      "projectRecapSummary": "AI 每轮携带的项目决策摘要",
+      "recapEdit": "编辑",
+      "recapSave": "保存",
+      "recapCancel": "取消",
+      "recapClear": "清空",
+      "recapClearConfirm": "确定清空项目记忆？清空后 AI 将不再携带此背景（摘要水位归零，后续对话会重新累积）。",
+      "recapSaved": "项目记忆已更新",
+      "recapClearDone": "项目记忆已清空",
+      "recapSaveFailed": "项目记忆保存失败，请重试"
     },
     "shell": {
       "title": "工作台",

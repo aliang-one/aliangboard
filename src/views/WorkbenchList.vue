@@ -1,6 +1,6 @@
 <script setup>
 // 工作台项目列表(W2):任意平台用户,项目按 userId 归属。新建项目(绑集群)→ repo 初始化。
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
@@ -31,6 +31,58 @@ async function load() {
   finally { loading.value = false }
 }
 onMounted(load)
+
+// 行内重命名(参照 WorkbenchDetail 对话重命名交互)。renamingId 双重防线:enter 后 blur 再入直接拒;
+// renameBusy 挡 await 在途期间的第二次 confirmRename(否则 blur 时 row.name 仍旧值,早退失效 → 重复 PATCH)。
+const renamingId = ref(null)
+const renameText = ref('')
+const renameBusy = ref(false)
+function startRename(row) {
+  renamingId.value = row.id
+  renameText.value = row.name || ''
+  nextTick(() => { const el = document.querySelector('input[data-testid="rename-input"]'); if (el) el.focus() })
+}
+async function confirmRename(row) {
+  if (renamingId.value !== row.id || renameBusy.value) return
+  const name = renameText.value.trim()
+  if (!name || name === row.name) { renamingId.value = null; return }
+  renameBusy.value = true
+  try {
+    await workbenchApi.updateProject(row.id, { name })
+    const p = projects.value.find(x => x.id === row.id)
+    if (p) p.name = name
+    notify('success', t('workbench.list.projectRenamed', { name }))
+    renamingId.value = null
+  } catch (e) { notify('error', e.message || t('workbench.list.projectRenameFailed')) }
+  finally { renameBusy.value = false }
+}
+
+// 删除:确认名与项目名(trim 后)一致才启用确定。M1:两侧都 trim——项目名可含首尾空白,
+// 只比原文会让这类项目永远删不掉。deleteBusy(M2):删除在途拦第二次提交,否则双击的
+// 第二发落在已删项目上 → 404 → 用户看到假「删除失败」。
+const deleteTarget = ref(null)
+const deleteConfirmText = ref('')
+const deleteBusy = ref(false)
+const deleteConfirmed = computed(() =>
+  !!deleteTarget.value && deleteConfirmText.value.trim() === deleteTarget.value.name.trim())
+function startDelete(row) {
+  deleteTarget.value = row
+  deleteConfirmText.value = ''
+}
+async function doDelete() {
+  if (!deleteTarget.value || deleteBusy.value || !deleteConfirmed.value) return
+  deleteBusy.value = true
+  try {
+    const res = await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value.trim())
+    projects.value = projects.value.filter(x => x.id !== deleteTarget.value.id)
+    deleteTarget.value = null
+    // repo 目录清除失败时后端仍 200,但带 warning(数据已级联删、目录成孤儿):
+    // 必须 error 级示警(终审 I2)——只报成功会让孤儿目录永远无人跟进。
+    if (res?.warning) notify('error', t('workbench.list.projectDeletedWithWarning', { warning: res.warning }))
+    else notify('success', t('workbench.list.projectDeleted'))
+  } catch (e) { notify('error', e.message || t('workbench.list.projectDeleteFailed')) }
+  finally { deleteBusy.value = false }
+}
 
 async function doCreate() {
   try {
@@ -65,11 +117,16 @@ async function doCreate() {
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
     <DataTable v-else :headers="headers" :rows="projects" column-key="workbenchList">
-      <template #name="{ row }"><span class="text-body-sm font-semibold text-primary">{{ row.name }}</span></template>
+      <template #name="{ row }">
+        <input v-if="renamingId === row.id" v-model="renameText" data-testid="rename-input" @keyup.enter="confirmRename(row)" @keyup.esc="renamingId = null" @blur="confirmRename(row)" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-1 text-body-sm font-mono w-40" />
+        <span v-else class="text-body-sm font-semibold text-primary">{{ row.name }}</span>
+      </template>
       <template #cluster="{ row }"><span class="text-body-sm">{{ row.clusterName || (row.clusterId ? row.clusterId.slice(0, 8) : '-') }}</span></template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
-        <button @click.stop="router.push({ name: 'WorkbenchProject', params: { id: row.id } })" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" title="Open"><span class="material-symbols-outlined text-base">folder_open</span></button>
+        <button @click.stop="router.push({ name: 'WorkbenchProject', params: { id: row.id } })" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="t('workbench.list.openProject')"><span class="material-symbols-outlined text-base">folder_open</span></button>
+        <button v-if="renamingId !== row.id" @click.stop="startRename(row)" data-testid="row-rename" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="t('workbench.list.renameProject')"><span class="material-symbols-outlined text-base">edit</span></button>
+        <button @click.stop="startDelete(row)" data-testid="row-delete" class="p-1 rounded hover:bg-surface-container text-on-surface-variant hover:text-error" :title="t('workbench.list.deleteProject')"><span class="material-symbols-outlined text-base">delete</span></button>
       </template>
     </DataTable>
 
@@ -89,6 +146,19 @@ async function doCreate() {
       <template #actions>
         <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('workbench.list.cancel') }}</button>
         <button @click="doCreate" :disabled="!form.name.trim() || !form.clusterId" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.list.create') }}</button>
+      </template>
+    </Modal>
+
+    <Modal :model-value="!!deleteTarget" @update:model-value="v => { if (!v) deleteTarget = null }" :title="t('workbench.list.confirmDeleteProjectTitle')" width="max-w-md">
+      <div v-if="deleteTarget" class="flex flex-col gap-md">
+        <!-- 项目名是用户输入,不走 v-html:文案与 <code> 文本节点拆开渲染 -->
+        <p class="text-body-sm text-on-surface-variant">{{ t('workbench.list.confirmDeleteProjectHint') }}</p>
+        <p><code class="px-sm py-0.5 bg-surface-container rounded text-on-surface font-mono text-body-sm">{{ deleteTarget.name }}</code></p>
+        <input v-model="deleteConfirmText" data-testid="delete-confirm-input" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="t('workbench.list.confirmDeleteProjectPlaceholder')" />
+      </div>
+      <template #actions>
+        <button @click="deleteTarget = null" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('workbench.list.cancel') }}</button>
+        <button @click="doDelete" :disabled="!deleteConfirmed || deleteBusy" data-testid="delete-confirm-btn" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.list.deleteProject') }}</button>
       </template>
     </Modal>
   </section>

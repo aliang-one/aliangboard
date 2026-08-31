@@ -249,6 +249,9 @@ export const workbenchApi = {
   // 无集群项目(2026-08-30):换绑/解绑——clusterId '' = 解绑 → { ok, project }
   updateProjectCluster: (id, clusterId) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/cluster`, { method: 'PUT', body: JSON.stringify({ clusterId }) }),
   getProject: id => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`),
+  // 项目生命周期(T4):重命名/改 recap → { ok, project };删除须确认名逐字一致,不符 400
+  updateProject: (id, patch) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteProject: (id, confirmName) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
   readFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`),
   writeFile: (id, path, content) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   deleteFile: (id, path) => platformHttp.request(`/api/workbench/projects/${encodeURIComponent(id)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' }),

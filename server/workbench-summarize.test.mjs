@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { maybeSummarize, compactConversation } from './workbench-summarize.mjs'
+import { readFile } from 'node:fs/promises'
+import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject, CAPABILITY_CONSTRAINT } from './workbench-summarize.mjs'
 import {
   createWorkbenchSchema,
   createProject,
@@ -218,7 +219,6 @@ test('compactConversation:消息 ≤3 → 拒绝;running/paused → 拒绝', asy
 })
 
 // ── 项目记忆 T1(spec §3.1/3.2)──
-import { maybeSummarizeProject } from './workbench-summarize.mjs'
 import { unsummarizedProjectHistory } from './workbench-projects.mjs'
 
 // 显式 ts 裸 INSERT(appendHistory 用 Date.now() 不可控)
@@ -280,6 +280,45 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
   const rows = unsummarizedProjectHistory(db, id)
   assert.equal(rows.length, 1)
   assert.deepEqual(rows.map(r => r.content), ['c'])
+})
+
+// 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验。
+// 终审 I3:断言用 import 的常量,不再自抄第三份字面(否则措辞收紧时测试仍绿、实现已脱钩)。
+const HARD_RULE = CAPABILITY_CONSTRAINT
+
+// I3 防线:约束字面在 summarize 源码里只允许出现一次(export 声明处),
+// 三条链路(recap/compact/项目记忆)必须 ${CAPABILITY_CONSTRAINT} 内插。
+test('CAPABILITY_CONSTRAINT 单一事实源:源码不再手抄约束字面(I3)', async () => {
+  const src = await readFile(new URL('./workbench-summarize.mjs', import.meta.url), 'utf8')
+  const occurrences = src.split(CAPABILITY_CONSTRAINT).length - 1
+  assert.equal(occurrences, 1, `约束字面应只在 export 声明处出现 1 次,实际 ${occurrences} 次`)
+})
+
+test('SUMMARIZE_PROMPT:含硬性约束(轮次 recap 同款,禁止瞬时能力结论)', () => {
+  assert.ok(SUMMARIZE_PROMPT.includes(HARD_RULE), '硬性约束逐字')
+})
+
+test('maybeSummarizeProject:summarizer 指令含硬性约束(禁止瞬时能力结论入摘要)', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 6000 + i)
+  let captured = null
+  const llm = { chat: async ({ messages }) => { captured = messages; return { content: 's' } } }
+  assert.equal(await maybeSummarizeProject(db, id, llm), true)
+  assert.ok(captured, 'llm 被调用')
+  assert.equal(captured[0].role, 'system')
+  assert.ok(captured[0].content.includes(HARD_RULE), '硬性约束逐字入提示词')
+})
+
+test('compactConversation:压缩器指令含硬性约束(旧 recap 滚动重写不许传播瞬时结论)', async () => {
+  const { db, conv } = compactFixture()
+  let captured = null
+  const llm = { chat: async ({ messages }) => { captured = messages; return { content: 's' } } }
+  const out = await compactConversation(db, conv.id, llm)
+  assert.equal(out.ok, true)
+  assert.ok(captured, 'llm 被调用')
+  assert.equal(captured[0].role, 'system')
+  assert.ok(captured[0].content.includes(HARD_RULE), 'compact 硬性约束逐字')
 })
 
 test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () => {
