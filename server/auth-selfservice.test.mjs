@@ -110,6 +110,9 @@ test('PUT preferences:非法值 400 拒绝且不落库(部分合法字段也不�
   routes._body = { theme: 'purple' }
   await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/preferences' }, {}, new URL('/api/auth/preferences', 'http://x'))
   assert.equal(sent[1].status, 400)
+  routes._body = { theme: 'system' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/preferences' }, {}, new URL('/api/auth/preferences', 'http://x'))
+  assert.equal(sent[2].status, 400)
   assert.equal(db.prepare('SELECT prefs FROM platform_users WHERE id=?').get('u1').prefs, null)
 })
 

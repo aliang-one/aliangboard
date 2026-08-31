@@ -51,9 +51,9 @@ onBeforeUnmount(() => {
       @click="toggle"
     >
       <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ initial }}</div>
-      <span class="text-body-sm font-semibold max-w-[120px] truncate" :title="displayName">{{ displayName }}</span>
+      <span class="text-body-sm font-semibold max-w-[90px] xl:max-w-[120px] truncate max-lg:hidden" :title="displayName">{{ displayName }}</span>
       <span v-if="authStore.isAdmin" class="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">ADMIN</span>
-      <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform" :class="open ? 'rotate-180' : ''">expand_more</span>
+      <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform max-lg:hidden" :class="open ? 'rotate-180' : ''">expand_more</span>
     </button>
 
     <div

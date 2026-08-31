@@ -2,6 +2,8 @@
 // 不在 happy-dom 里真渲染(真实渲染由 build + 手工 QA 覆盖)。
 import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { applyThemeMode } from '@/styles/theme'
+applyThemeMode('light') // 取色断言锚亮色板字面量;主题默认 auto 随运行时刻翻转,钉亮色保证昼夜一致
 
 const { setOptionMock, resizeMock, disposeMock } = vi.hoisted(() => ({
   setOptionMock: vi.fn(), resizeMock: vi.fn(), disposeMock: vi.fn(),

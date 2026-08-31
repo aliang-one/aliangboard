@@ -1,6 +1,8 @@
 import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
+import { applyThemeMode } from '@/styles/theme'
+applyThemeMode('light') // 取色断言锚亮色板字面量;主题默认 auto 随运行时刻翻转,钉亮色保证昼夜一致
 
 const { setOptionMock } = vi.hoisted(() => ({ setOptionMock: vi.fn() }))
 vi.mock('@/lib/echarts', () => ({

@@ -1,6 +1,8 @@
 import { test, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ProgressBar from '../common/ProgressBar.vue'
+import { applyThemeMode } from '@/styles/theme'
+applyThemeMode('light') // 取色断言锚亮色板字面量;主题默认 auto 随运行时刻翻转,钉亮色保证昼夜一致
 
 function fillStyle(props) {
   const w = mount(ProgressBar, { props })
