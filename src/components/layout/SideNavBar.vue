@@ -201,7 +201,7 @@ function nsStatusColor(status) {
 </script>
 
 <template>
-  <aside class="fixed left-0 top-0 h-full flex flex-col z-40 w-[260px] bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
+  <aside class="sidenav-root fixed left-0 top-0 h-full flex flex-col z-40 bg-surface-container-lowest border-r border-outline-variant overflow-hidden">
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
@@ -434,6 +434,8 @@ function nsStatusColor(status) {
 </template>
 
 <style scoped>
+/* 侧栏宽度:消费 AppLayout 定义的 --sb-width 单一事实源(2026-08-31 响应式设计 §3) */
+.sidenav-root { width: var(--sb-width); transition: width .28s cubic-bezier(.2,.7,.3,1); }
 /* 方向感知钻入:进 ns = 新菜单自下方 24px 滑入、旧菜单向上滑出;返回集群反向 */
 .drill-down-enter-from { opacity: 0; transform: translateY(24px); }
 .drill-down-leave-to { opacity: 0; transform: translateY(-24px); }

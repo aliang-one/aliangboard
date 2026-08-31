@@ -69,9 +69,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <template>
   <div class="flex h-screen overflow-hidden">
     <SideNavBar />
-    <div class="flex-1 flex flex-col min-w-0 ml-[260px]">
+    <div class="shell-main flex-1 flex flex-col min-w-0">
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
-      <div v-if="store.connectionState === 'loading'" class="fixed top-0 left-[260px] right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase }"></div>
+      <div v-if="store.connectionState === 'loading'" class="fixed top-0 right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase, left: 'var(--sb-width)' }"></div>
       <TopNavBar />
       <!-- 集群健康横幅：Critical / Disconnected -->
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
@@ -123,3 +123,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <ChatPresence />
   </div>
 </template>
+
+<style>
+/* 侧栏宽度单一事实源(2026-08-31 响应式设计 §3):本文件是唯一定义点,
+   SideNavBar(.sidenav-root)与 hydrate 加载条同消费;<lg(iPad 竖屏)侧栏收 72px 图标栏。
+   禁止壳层再写 260px 定位/宽度字面量(shell-width-guard.test.js 强制)。 */
+:root { --sb-width: 260px; }
+@media (max-width: 1023.98px) { :root { --sb-width: 72px; } }
+.shell-main { margin-left: var(--sb-width); }
+</style>
