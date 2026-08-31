@@ -1,7 +1,7 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
 import { test, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
@@ -48,4 +48,16 @@ test('紧凑档:集群/命名空间标签行 <xl 隐藏,值宽三级收缩', () 
   const w = mountNav()
   expect(w.html()).toContain('hidden xl:block')       // CLUSTER/NAMESPACE 标签行
   expect(w.html()).toContain('max-w-[80px] lg:max-w-[110px]')
+})
+
+test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 enabled 查询', async () => {
+  const mqSpy = vi.spyOn(window, 'matchMedia').mockImplementation(q => ({ matches: q.includes('1023.98'), media: q, addEventListener() {}, removeEventListener() {} }))
+  setActivePinia(createPinia())
+  const w = mountNav()
+  expect(w.find('[data-test="search-trigger"]').exists()).toBe(true)
+  expect(w.find('input[type="text"]').exists()).toBe(false) // 内联输入框不渲染
+  await w.find('[data-test="search-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-test="search-modal"]')).toBeTruthy()
+  mqSpy.mockRestore()
 })

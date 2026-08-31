@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import UserMenu from './UserMenu.vue'
@@ -7,6 +7,8 @@ import WorkbenchEntryPill from './WorkbenchEntryPill.vue'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
+import { useBreakpoint, MQ_BELOW_LG } from '@/composables/useBreakpoint'
+import { Z } from '@/styles/zScale'
 
 const router = useRouter()
 const store = useClusterStore()
@@ -17,7 +19,16 @@ const { bump: bumpRefresh } = usePageRefresh()
 // nodes/namespaces 已由 hydrateCriticalResources 预载入 store，直接读 store。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const searchOpen = ref(false)
-const searchEnabled = computed(() => searchOpen.value)
+// <lg(iPad 竖屏):搜索收成图标钮,点击弹 Teleport 弹层(2026-08-31 设计 §4)
+const { matches: belowLg } = useBreakpoint(MQ_BELOW_LG)
+const searchModalOpen = ref(false)
+const searchModalInput = ref(null)
+const searchEnabled = computed(() => searchOpen.value || searchModalOpen.value) // 弹层打开也启用惰性查询(与内联 focus 同语义)
+function openSearchModal() {
+  searchModalOpen.value = true
+  nextTick(() => searchModalInput.value?.focus())
+}
+function closeSearchModal() { searchModalOpen.value = false; searchQuery.value = '' }
 const podsQ = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: false, enabled: searchEnabled } })
 const workloadsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: false, enabled: searchEnabled } })
 const servicesQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: false, enabled: searchEnabled } })
@@ -91,6 +102,7 @@ const searchResults = computed(() => {
 })
 function goResult(it) {
   if (!it) return
+  closeSearchModal()
   searchQuery.value = ''
   if (it.kind === 'Pod') router.push({ name: 'NsPodDetail', params: { namespace: it.namespace, name: it.name } })
   else if (WL_KINDS.includes(it.kind)) router.push({ name: 'NsWorkloadDetail', params: { namespace: it.namespace, type: it.kind.toLowerCase(), name: it.name } })
@@ -104,7 +116,7 @@ function goResult(it) {
 }
 function onSearchKeydown(e) {
   if (e.key === 'Enter' && searchResults.value.length) { e.preventDefault(); goResult(searchResults.value[0]) }
-  else if (e.key === 'Escape') searchQuery.value = ''
+  else if (e.key === 'Escape') { searchQuery.value = ''; if (searchModalOpen.value) closeSearchModal() }
 }
 
 // 集群健康 → 圆点颜色（来自 store.clusterHealth，控制面优先分级）
@@ -134,6 +146,7 @@ function goClusters() {
 <template>
   <header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface h-16 border-b border-outline-variant shrink-0">
     <div class="flex items-center gap-sm lg:gap-md xl:gap-lg flex-1 min-w-0">
+      <template v-if="!belowLg">
       <div class="relative max-w-xs xl:max-w-md w-full min-w-0">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
         <input
@@ -154,6 +167,15 @@ function goClusters() {
             <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
           </button>
         </div>
+      </div>
+      </template>
+
+      <div v-if="belowLg" class="shrink-0">
+        <button data-test="search-trigger" @click="openSearchModal"
+          class="p-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors"
+          :aria-label="$t('common.search')">
+          <span class="material-symbols-outlined">search</span>
+        </button>
       </div>
 
       <!-- 集群切换 -->
@@ -267,10 +289,37 @@ function goClusters() {
       <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
-      <div class="h-8 w-px bg-outline-variant mx-2"></div>
+      <div class="h-8 w-px bg-outline-variant mx-2 max-lg:hidden"></div>
       <UserMenu />
     </div>
   </header>
+  <!-- <lg 搜索弹层:Teleport body + fixed 顶部居中,复用内联搜索的索引与结果渲染 -->
+  <Teleport to="body">
+    <div v-if="searchModalOpen" data-test="search-modal" class="fixed inset-0" :style="{ zIndex: Z.popover }">
+      <div class="absolute inset-0 bg-black/30" @click="closeSearchModal"></div>
+      <div class="absolute left-1/2 -translate-x-1/2 top-16 w-[min(92vw,480px)]">
+        <div class="relative">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
+          <input
+            ref="searchModalInput"
+            v-model="searchQuery"
+            @keydown="onSearchKeydown"
+            class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2.5 pl-10 pr-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-dropdown"
+            :placeholder="$t('nav.searchPlaceholder')"
+            :aria-label="$t('common.search')"
+            type="text"
+          />
+          <div v-if="searchResults.length" class="absolute top-full left-0 mt-1 w-full bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-y-auto max-h-96">
+            <button v-for="(it, i) in searchResults" :key="i" @click="goResult(it)" class="flex items-center gap-sm w-full px-md py-sm hover:bg-surface-container-low text-left transition-colors border-b border-outline-variant/30 last:border-0">
+              <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ ICON_FOR[it.kind] || 'circle' }}</span>
+              <span class="font-mono text-code-sm text-on-surface truncate">{{ it.name }}</span>
+              <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
   <!-- 点击外部关闭下拉（集群 / 命名空间） -->
   <div v-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
 </template>
