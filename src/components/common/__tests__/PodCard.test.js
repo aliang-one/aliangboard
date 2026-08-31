@@ -54,3 +54,33 @@ test('批量模式:selectable 渲染 checkbox 视觉,selected 切换图标,点�
   const w3 = mountCard({ selectable: false })
   expect(w3.find('[data-test="batch-checkbox"]').exists()).toBe(false)
 })
+
+test('行3 指标:数值在进度条下方同块内,truncate+min-w-0 防溢出结构', () => {
+  const w = mountCard({ pod: { ...POD, cpu: '124m/500m', memory: '182Mi/512Mi' } })
+  const row = w.find('[data-testid="pod-metrics"]')
+  expect(row.exists()).toBe(true)
+  expect(row.classes()).toContain('max-w-sm')          // 整行封顶,宽页进度条不拉满屏
+  const cpuBlock = w.find('[data-testid="pod-cpu-block"]')
+  expect(cpuBlock.exists()).toBe(true)
+  expect(cpuBlock.classes()).toContain('min-w-0')      // flex 子项可收缩,溢出根因链
+  expect(cpuBlock.find('[data-testid="pod-cpu-bar"]').exists()).toBe(true)
+  const cpuValue = cpuBlock.find('[data-testid="pod-cpu-value"]')
+  expect(cpuValue.text()).toBe('124m/500m')
+  expect(cpuValue.classes()).toContain('truncate')
+  const memValue = w.find('[data-testid="pod-mem-value"]')
+  expect(memValue.text()).toBe('182Mi/512Mi')
+  expect(memValue.classes()).toContain('truncate')
+})
+
+test('行3 超长数值:truncate 兜底不产生横向溢出结构', () => {
+  const w = mountCard({ pod: { ...POD, cpu: '11234m/500m', memory: '1182Mi/512Mi' } })
+  const v = w.find('[data-testid="pod-cpu-value"]')
+  expect(v.text()).toBe('11234m/500m')
+  expect(v.classes()).toContain('truncate')
+  expect(w.find('[data-testid="pod-cpu-block"]').classes()).toContain('min-w-0')
+})
+
+test('行3 无 metrics 不渲染(现状回归)', () => {
+  const w = mountCard()
+  expect(w.find('[data-testid="pod-metrics"]').exists()).toBe(false)
+})

@@ -113,17 +113,21 @@ function openLogs() {
       <span v-if="reason.message" class="text-on-surface-variant/55 truncate min-w-0" :title="reason.message">{{ reason.message }}</span>
     </div>
 
-    <!-- 行3：CPU / MEM 进度条 -->
-    <div v-if="hasMetrics" class="flex items-center gap-md text-[11px] mt-1">
-      <div v-if="pod.cpu" class="flex items-center gap-1">
-        <span class="text-on-surface-variant/50 w-6">CPU</span>
-        <div class="w-14 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="cpuPct > 80 ? 'bg-error' : cpuPct > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPct + '%' }"></div></div>
-        <span class="font-mono text-on-surface-variant/70">{{ pod.cpu }}</span>
+    <!-- 行3：CPU / MEM 指标（条在上、数值在下；块 min-w-0+数值 truncate 根除窄列溢出；整行 max-w-sm 防宽页拉满） -->
+    <div v-if="hasMetrics" data-testid="pod-metrics" class="flex gap-md mt-1 max-w-sm">
+      <div v-if="pod.cpu" data-testid="pod-cpu-block" class="flex-1 min-w-0">
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] text-on-surface-variant/50 w-6 shrink-0">CPU</span>
+          <div data-testid="pod-cpu-bar" class="flex-1 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="cpuPct > 80 ? 'bg-error' : cpuPct > 60 ? 'bg-tertiary-container' : 'bg-primary'" :style="{ width: cpuPct + '%' }"></div></div>
+        </div>
+        <p data-testid="pod-cpu-value" class="font-mono text-[10px] text-on-surface-variant/70 leading-none mt-1 pl-7 truncate" :title="pod.cpu">{{ pod.cpu }}</p>
       </div>
-      <div v-if="pod.memory" class="flex items-center gap-1">
-        <span class="text-on-surface-variant/50 w-6">MEM</span>
-        <div class="w-14 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="memPct > 80 ? 'bg-error' : memPct > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPct + '%' }"></div></div>
-        <span class="font-mono text-on-surface-variant/70">{{ pod.memory }}</span>
+      <div v-if="pod.memory" data-testid="pod-mem-block" class="flex-1 min-w-0">
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] text-on-surface-variant/50 w-6 shrink-0">MEM</span>
+          <div data-testid="pod-mem-bar" class="flex-1 h-1 bg-outline-variant/25 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="memPct > 80 ? 'bg-error' : memPct > 60 ? 'bg-tertiary-container' : 'bg-secondary'" :style="{ width: memPct + '%' }"></div></div>
+        </div>
+        <p data-testid="pod-mem-value" class="font-mono text-[10px] text-on-surface-variant/70 leading-none mt-1 pl-7 truncate" :title="pod.memory">{{ pod.memory }}</p>
       </div>
     </div>
 
