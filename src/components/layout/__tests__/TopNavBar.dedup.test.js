@@ -22,6 +22,14 @@ vi.mock('@/stores/cluster', () => ({
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ user: { username: 'tester' }, isAdmin: false, logout: vi.fn() }),
 }))
+vi.mock('@/stores/preferences', () => ({
+  usePreferencesStore: () => ({
+    theme: null,
+    language: null,
+    setTheme: vi.fn(),
+    setLanguage: vi.fn(),
+  }),
+}))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/cluster', params: {}, name: '' }),
   useRouter: () => ({ push: vi.fn() }),
