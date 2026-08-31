@@ -64,10 +64,14 @@ const projectRecap = ref(null)
 const recapEditing = ref(false)
 const recapDraft = ref('')
 const recapSaving = ref(false)
+// 卡片本体(终审 I4):编辑器在 <details> 折叠 body 里,点编辑必须同步展开,
+// 否则编辑态藏在折叠区,按钮又随编辑态消失——用户观感即「点了没反应」。
+const projectRecapCard = ref(null)
 
 function startRecapEdit() {
   recapDraft.value = projectRecap.value || ''
   recapEditing.value = true
+  if (projectRecapCard.value) projectRecapCard.value.open = true
 }
 function cancelRecapEdit() { recapEditing.value = false; recapDraft.value = '' }
 
@@ -1031,7 +1035,7 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </details>
 
         <!-- 项目背景(2026-08-29 项目记忆):AI 每轮携带的项目决策摘要,透明可查 -->
-        <details v-if="projectRecap" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
+        <details v-if="projectRecap" ref="projectRecapCard" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
             <span class="material-symbols-outlined text-base text-primary/60">folder_special</span>
             <span class="flex-1">{{ t('workbench.chat.projectRecapTitle') }}</span>

@@ -95,3 +95,18 @@ test('保存失败:error 提示且保留编辑态', async () => {
   expect(card.find('textarea').exists()).toBe(true)
   expect(card.find('textarea').element.value).toBe('改而未存')
 })
+
+// 终审 I4:编辑器在 <details> 折叠 body 里,卡片默认收起;点编辑若不同步展开,
+// 按钮随编辑态消失而编辑器不可见——用户看到「点了没反应」。
+test('编辑态强制展开卡:<details> 点编辑后处于 open(折叠时不藏编辑器)', async () => {
+  const w = await mountWithProjectRecap('旧记忆')
+  const card = w.find('[data-testid="project-recap-card"]')
+  expect(card.element.open).toBe(false)               // 默认折叠
+  await card.find('[data-testid="recap-edit-btn"]').trigger('click')
+  expect(card.element.open).toBe(true, 'startRecapEdit 必须编程式展开卡片')
+  expect(card.find('textarea').exists()).toBe(true)
+  // 取消编辑:卡片保持展开(用户刚在读它),不再藏内容
+  await card.find('[data-testid="recap-cancel-btn"]').trigger('click')
+  expect(card.element.open).toBe(true)
+  expect(card.element.textContent).toContain('旧记忆')
+})

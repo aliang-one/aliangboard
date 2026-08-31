@@ -43,6 +43,10 @@ const CK_TIME_MS = 500
   // traceJson(2026-08-25):本轮工具事件序列(已 JSON 串)。此前落 out.trace——runner 返回里
   // 根本没有该字段,恒为 "[]" → 前端重建历史时 ToolTrace 全不渲染(「聊天结束后看不到工具调用」)。
   function handleAgentResult(convId, project, out, tracker, traceJson) {
+    // EXISTENCE 守卫(终审 I5):对话行已被删(DELETE 项目/对话)时,run 的 cancelled 守卫
+    // (getConversation(id)?.status === 'cancelled')读到 undefined 而放行,这里若不拦会把
+    // 终态/消息/项目历史写进孤儿行——被删的数据「复活」一半,且 project.id 可能已不存在。
+    if (!getConversation(db, convId)) return
     if (out.status === 'pending_approval') {
       const patch = {
         status: 'paused',
@@ -120,6 +124,10 @@ const CK_TIME_MS = 500
     }
   }
   function salvagePartial(convId, err, tracker) {
+    // EXISTENCE 守卫(终审 I5,同 handleAgentResult):对话已被删时不再补录任何行,
+    // 否则 catch 路径会把部分内容写成孤儿 assistant 消息。静默返回(catch 块后续的
+    // busEmit failed+end 仍照发,前端不会被无限 thinking 卡住)。
+    if (!getConversation(db, convId)) return
     const partial = tracker ? tracker.partial() : ''
     const reasoning = tracker ? tracker.reasoning() : ''
     if (partial || reasoning) {
