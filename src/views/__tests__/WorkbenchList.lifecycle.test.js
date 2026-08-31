@@ -7,9 +7,14 @@ const updateProjectMock = vi.fn()
 const deleteProjectMock = vi.fn()
 const pushMock = vi.fn()
 
+// 列表数据可注入:trim 对称性测试需要带首尾空白的项目名
+const state = vi.hoisted(() => ({
+  projects: [{ id: 'p1', name: 'alpha', clusterId: 'c1', createdAt: 1 }],
+}))
+
 vi.mock('@/api/client', () => ({
   workbenchApi: {
-    listProjects: () => Promise.resolve({ projects: [{ id: 'p1', name: 'alpha', clusterId: 'c1', createdAt: 1 }] }),
+    listProjects: () => Promise.resolve({ projects: state.projects }),
     createProject: vi.fn(),
     updateProject: (...a) => updateProjectMock(...a),
     deleteProject: (...a) => deleteProjectMock(...a),
@@ -40,7 +45,10 @@ function mountView() {
   })
 }
 
-beforeEach(() => { notifyMock.mockClear(); updateProjectMock.mockClear(); deleteProjectMock.mockClear(); pushMock.mockClear() })
+beforeEach(() => {
+  notifyMock.mockClear(); updateProjectMock.mockClear(); deleteProjectMock.mockClear(); pushMock.mockClear()
+  state.projects = [{ id: 'p1', name: 'alpha', clusterId: 'c1', createdAt: 1 }]
+})
 
 test('重命名:行内输入新名 → updateProject(id, {name}) 调用 + 本地列表刷新', async () => {
   const w = mountView()
@@ -168,4 +176,61 @@ test('删除:无 warning → 恒 success 提示(不误报警)', async () => {
   await flushPromises()
   expect(notifyMock).toHaveBeenCalledWith('success', expect.any(String))
   expect(notifyMock).not.toHaveBeenCalledWith('error', expect.anything())
+})
+
+// ═══ 终审 M1:确认名 trim 对称——项目名可含首尾空白,只比原文会让它永远删不掉 ═══
+test('删除确认名 trim 对称:项目名带首尾空白,输入 trim 后即可删', async () => {
+  state.projects = [{ id: 'p-pad', name: 'pad me ', clusterId: '', createdAt: 2 }]
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('pad me')
+  const btn = w.find('[data-testid="delete-confirm-btn"]')
+  expect(btn.attributes('disabled')).toBeUndefined()
+  await btn.trigger('click')
+  await flushPromises()
+  expect(deleteProjectMock).toHaveBeenCalledWith('p-pad', 'pad me')
+  expect(w.findAll('.test-row')).toHaveLength(0)
+})
+
+test('删除确认名仍逐字敏感:trim 后不等则禁用(M1 不是放弃校验)', async () => {
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('alph')
+  expect(w.find('[data-testid="delete-confirm-btn"]').attributes('disabled')).toBeDefined()
+  expect(deleteProjectMock).not.toHaveBeenCalled()
+})
+
+// ═══ 终审 M2:删除在途防重入——双击的第二发落在已删项目上会 404 → 假「删除失败」 ═══
+test('删除:在途期间再点确定不发第二发请求', async () => {
+  let release
+  deleteProjectMock.mockImplementationOnce(() => new Promise(r => { release = r }))
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('alpha')
+  const btn = w.find('[data-testid="delete-confirm-btn"]')
+  await btn.trigger('click')       // 第一发(在途,不 resolve)
+  await btn.trigger('click')       // 双击/ impatient 第二发
+  await btn.trigger('click')
+  expect(deleteProjectMock).toHaveBeenCalledTimes(1)
+  release({ ok: true })
+  await flushPromises()
+  expect(deleteProjectMock).toHaveBeenCalledTimes(1)
+  expect(w.findAll('.test-row')).toHaveLength(0)
+})
+
+test('删除:在途时确定按钮禁用', async () => {
+  let release
+  deleteProjectMock.mockImplementationOnce(() => new Promise(r => { release = r }))
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="row-delete"]').trigger('click')
+  await w.find('[data-testid="delete-confirm-input"]').setValue('alpha')
+  const btn = w.find('[data-testid="delete-confirm-btn"]')
+  await btn.trigger('click')
+  expect(btn.attributes('disabled')).toBeDefined()
+  release({ ok: true })
+  await flushPromises()
 })

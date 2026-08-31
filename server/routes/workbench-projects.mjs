@@ -151,7 +151,9 @@ export function createWorkbenchProjectRoutes(deps) {
       if (req.method === 'DELETE' && seg.length === 1) {
         try {
           const input = await readBody(req)
-          if (String(input.confirmName ?? '').trim() !== p.name) {
+          // 确认名两侧都 trim(M1):项目名本身可含首尾空白(创建端不强制 trim),只 trim 输入侧
+          // 会让这类项目永远删不掉(逐字比对恒不等)。
+          if (String(input.confirmName ?? '').trim() !== p.name.trim()) {
             sendJson(res, 400, { message: msg(req, 'wbp.confirmNameMismatch') }); return true
           }
           const convs = db.prepare("SELECT id, status FROM workbench_conversations WHERE projectId=?").all(id)
@@ -174,22 +176,30 @@ export function createWorkbenchProjectRoutes(deps) {
 
       // PATCH 项目(2026-08-31 生命周期 spec §5):改名(name ≤80)+ 人工 recap
       // (空串=清空并归零水位)。两字段全缺 → 400。
+      // M4:①recap: null 视为未提供(前端「没改记忆」不得静默清空既有记忆)
+      //     ②name+recap 单事务——recap 写一半失败不许只落半截(改名成功/记忆丢失的撕裂态)。
       if (req.method === 'PATCH' && seg.length === 1) {
         try {
           const input = await readBody(req)
           const hasName = input.name !== undefined
-          const hasRecap = input.recap !== undefined
+          const hasRecap = input.recap !== undefined && input.recap !== null
           if (!hasName && !hasRecap) { sendJson(res, 400, { message: msg(req, 'wbp.patchFieldRequired') }); return true }
           let name
           if (hasName) {
             name = String(input.name).trim()
             if (!name || name.length > 80) { sendJson(res, 400, { message: msg(req, 'wbp.nameInvalid') }); return true }
           }
-          if (hasRecap) {
-            const r = setProjectRecap(db, id, input.recap)
-            if (!r.ok) { sendJson(res, r.status || 400, { message: msg(req, 'wbp.recapTooLong') }); return true }
-          }
-          if (hasName) db.prepare('UPDATE workbench_projects SET name=? WHERE id=?').run(name, id)
+          let recapRejected = false
+          db.exec('BEGIN')
+          try {
+            if (hasRecap) {
+              const r = setProjectRecap(db, id, input.recap)
+              if (!r.ok) recapRejected = true   // 400 在 COMMIT 后回话(事务内不能提前 return)
+            }
+            if (!recapRejected && hasName) db.prepare('UPDATE workbench_projects SET name=? WHERE id=?').run(name, id)
+            db.exec('COMMIT')
+          } catch (e) { db.exec('ROLLBACK'); throw e }
+          if (recapRejected) { sendJson(res, 400, { message: msg(req, 'wbp.recapTooLong') }); return true }
           writeAudit?.(db, {
             owner: ps.username, verb: 'write', tool: 'project_update', result: 'ok',
             requestSummary: `project=${id}${hasName ? ` name=${name}` : ''}${hasRecap ? ' recap' : ''}`, source: 'platform',

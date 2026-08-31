@@ -125,6 +125,19 @@ test('项目 PATCH:name 改名 / recap 写入与空串清空 / 校验 400', { ti
   const detail2 = await (await fetch(C_BASE, { headers: j(u2) })).json()
   assert.equal(detail2.project.projectRecap, null)
 
+  // M4:recap: null 视为未提供——单发 400(无有效字段),且不静默清空既有记忆
+  await fetch(C_BASE, { method: 'PATCH', headers: j(u2), body: JSON.stringify({ recap: 'keep-me' }) })
+  const rNull = await fetch(C_BASE, { method: 'PATCH', headers: j(u2), body: JSON.stringify({ recap: null }) })
+  assert.equal(rNull.status, 400)
+  const detailNull = await (await fetch(C_BASE, { headers: j(u2) })).json()
+  assert.equal(detailNull.project.projectRecap, 'keep-me', 'null 不清记忆')
+  // M4:recap: null 与 name 同发 → 只改名,记忆保留
+  const rMix = await (await fetch(C_BASE, { method: 'PATCH', headers: j(u2),
+    body: JSON.stringify({ name: 'renamed2', recap: null }) })).json()
+  assert.equal(rMix.ok, true)
+  assert.equal(rMix.project.projectRecap, 'keep-me')
+  assert.equal(rMix.project.name, 'renamed2')
+
   // 校验:全缺 400 / 空名 400 / 超长名(81)400 / 超长 recap 透传 400
   for (const bad of [{}, { name: '  ' }, { name: 'a'.repeat(81) }, { recap: 'r'.repeat(65537) }]) {
     const r = await fetch(C_BASE, { method: 'PATCH', headers: j(u2), body: JSON.stringify(bad) })
@@ -138,7 +151,7 @@ test('项目 PATCH:name 改名 / recap 写入与空串清空 / 校验 400', { ti
   const adb = new DatabaseSync(DB_PATH, { readOnly: true })
   const upd = adb.prepare("SELECT tool, verb FROM audit_log WHERE tool='project_update'").all()
   adb.close()
-  assert.equal(upd.length, 4) // 改名 + recap 写 + recap 清空 + admin 改名
+  assert.equal(upd.length, 6) // 改名 + recap 写 + recap 清空 + keep-me 写 + renamed2 改名 + admin 改名(400 的 null 不记审计)
 })
 
 test('cleanup', async () => {

@@ -57,17 +57,23 @@ async function confirmRename(row) {
   finally { renameBusy.value = false }
 }
 
-// 删除:确认名逐字一致才启用确定
+// 删除:确认名与项目名(trim 后)一致才启用确定。M1:两侧都 trim——项目名可含首尾空白,
+// 只比原文会让这类项目永远删不掉。deleteBusy(M2):删除在途拦第二次提交,否则双击的
+// 第二发落在已删项目上 → 404 → 用户看到假「删除失败」。
 const deleteTarget = ref(null)
 const deleteConfirmText = ref('')
+const deleteBusy = ref(false)
+const deleteConfirmed = computed(() =>
+  !!deleteTarget.value && deleteConfirmText.value.trim() === deleteTarget.value.name.trim())
 function startDelete(row) {
   deleteTarget.value = row
   deleteConfirmText.value = ''
 }
 async function doDelete() {
-  if (!deleteTarget.value || deleteConfirmText.value !== deleteTarget.value.name) return
+  if (!deleteTarget.value || deleteBusy.value || !deleteConfirmed.value) return
+  deleteBusy.value = true
   try {
-    const res = await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value)
+    const res = await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value.trim())
     projects.value = projects.value.filter(x => x.id !== deleteTarget.value.id)
     deleteTarget.value = null
     // repo 目录清除失败时后端仍 200,但带 warning(数据已级联删、目录成孤儿):
@@ -75,6 +81,7 @@ async function doDelete() {
     if (res?.warning) notify('error', t('workbench.list.projectDeletedWithWarning', { warning: res.warning }))
     else notify('success', t('workbench.list.projectDeleted'))
   } catch (e) { notify('error', e.message || t('workbench.list.projectDeleteFailed')) }
+  finally { deleteBusy.value = false }
 }
 
 async function doCreate() {
@@ -151,7 +158,7 @@ async function doCreate() {
       </div>
       <template #actions>
         <button @click="deleteTarget = null" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('workbench.list.cancel') }}</button>
-        <button @click="doDelete" :disabled="deleteConfirmText !== (deleteTarget && deleteTarget.name)" data-testid="delete-confirm-btn" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.list.deleteProject') }}</button>
+        <button @click="doDelete" :disabled="!deleteConfirmed || deleteBusy" data-testid="delete-confirm-btn" class="px-md py-sm bg-error text-on-error rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.list.deleteProject') }}</button>
       </template>
     </Modal>
   </section>

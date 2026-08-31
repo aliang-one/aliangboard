@@ -77,14 +77,20 @@ function cancelRecapEdit() { recapEditing.value = false; recapDraft.value = '' }
 
 async function saveRecapEdit() {
   if (recapSaving.value) return
+  // 清空 textarea 再保存 = 清空项目记忆(终审 M3):与「清空」按钮同款二次确认,
+  // 不许一条无心操作就无确认地抹掉记忆;trim 后为空统一按「清空」提交(与确认语义一致)。
+  const clearing = recapDraft.value.trim() === ''
+  if (clearing && !window.confirm(t('workbench.chat.recapClearConfirm'))) return
+  const next = clearing ? '' : recapDraft.value
   recapSaving.value = true
   try {
-    await workbenchApi.updateProject(props.projectId, { recap: recapDraft.value })
-    projectRecap.value = recapDraft.value
+    await workbenchApi.updateProject(props.projectId, { recap: next })
+    projectRecap.value = clearing ? null : next   // 清空 → null 收起卡片(与「无记忆」态一致)
     recapEditing.value = false
-    notify('success', t('workbench.chat.recapSaved'))
-  } catch {
-    notify('error', t('workbench.chat.recapSaveFailed'))
+    notify('success', clearing ? t('workbench.chat.recapClearDone') : t('workbench.chat.recapSaved'))
+  } catch (e) {
+    // 与 WorkbenchList 同款:透传服务端消息(如 recap 超长),比固定「保存失败」更可定位
+    notify('error', e?.message || t('workbench.chat.recapSaveFailed'))
   } finally { recapSaving.value = false }
 }
 
@@ -97,8 +103,8 @@ async function clearRecap() {
     projectRecap.value = null   // v-if 收起卡片(与「无记忆」态一致)
     recapEditing.value = false
     notify('success', t('workbench.chat.recapClearDone'))
-  } catch {
-    notify('error', t('workbench.chat.recapSaveFailed'))
+  } catch (e) {
+    notify('error', e?.message || t('workbench.chat.recapSaveFailed'))
   } finally { recapSaving.value = false }
 }
 

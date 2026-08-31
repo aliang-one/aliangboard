@@ -87,3 +87,112 @@ test('I6 反例守卫:确认名不符 400 时不触发任何取消/删除', asyn
     assert.equal(s.convCount(), 3, '对话行全保留')
   } finally { s.cleanup() }
 })
+
+// ═══ 终审 M4:PATCH 原子性 + recap: null 视为未提供 ═══
+function setupPatch({ triggerFailName = false } = {}) {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  // 响应体带 clusterName(查 clusters 表)——测试库补一张,免得 500 掩盖被测行为
+  db.exec('CREATE TABLE IF NOT EXISTS clusters (id TEXT PRIMARY KEY, name TEXT)')
+  const p = createProject(db, { name: 'demo', clusterId: 'c1', ownerId: 'u-me' })
+  db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=7 WHERE id=?').run('既有记忆', p.id)
+  if (triggerFailName) {
+    // 原子性失败注入:name UPDATE 走到就 ABORT(recap 已写)→ 整个 PATCH 必须回滚
+    db.exec(`CREATE TRIGGER fail_name BEFORE UPDATE OF name ON workbench_projects
+             WHEN NEW.name = 'boom' BEGIN SELECT RAISE(ABORT, 'injected name failure'); END`)
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'wb-proj-patch-'))
+  const sent = []
+  let body = {}
+  const routes = createWorkbenchProjectRoutes({
+    db,
+    sendJson: (_res, status, b) => sent.push({ status, body: b }),
+    readBody: async () => body,
+    requirePlatform: () => ({ userId: 'u-me', username: 'me', role: 'user' }),
+    requireAdmin: () => null,
+    writeAudit: () => {},
+    WORKBENCH_DIR: dir,
+    dbPath: ':memory:',
+    listSshSessions: () => [],
+  })
+  const call = (nextBody, method = 'PATCH') => {
+    body = nextBody
+    return routes.handle({ headers: {}, method }, {}, new URL(`http://x/api/workbench/projects/${p.id}`))
+  }
+  const row = () => db.prepare('SELECT name, projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(p.id)
+  return { p, sent, call, row, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('M4:PATCH {recap: null} 视为未提供——400(无有效字段)且既有记忆/水位不动', async () => {
+  const s = setupPatch()
+  try {
+    await s.call({ recap: null })
+    assert.equal(s.sent[0].status, 400, 'null 不算提供,与全缺同判')
+    assert.equal(s.row().projectRecap, '既有记忆', '记忆不被静默清空')
+    assert.equal(s.row().historyWatermark, 7, '水位不被归零')
+  } finally { s.cleanup() }
+})
+
+test('M4:PATCH {name, recap: null} → 只改名,记忆保留', async () => {
+  const s = setupPatch()
+  try {
+    await s.call({ name: 'renamed', recap: null })
+    assert.equal(s.sent[0].status, 200, JSON.stringify(s.sent[0]))
+    assert.equal(s.row().name, 'renamed')
+    assert.equal(s.row().projectRecap, '既有记忆')
+    assert.equal(s.row().historyWatermark, 7)
+  } finally { s.cleanup() }
+})
+
+test('M4:PATCH recap 空串仍=清空+水位归零(null 与 空串 语义分开)', async () => {
+  const s = setupPatch()
+  try {
+    await s.call({ recap: '' })
+    assert.equal(s.sent[0].status, 200)
+    assert.equal(s.row().projectRecap, null)
+    assert.equal(s.row().historyWatermark, 0)
+  } finally { s.cleanup() }
+})
+
+test('M4:PATCH name+recap 单事务——name 写入失败时 recap 一并回滚(不留半截)', async () => {
+  const s = setupPatch({ triggerFailName: true })
+  try {
+    await s.call({ name: 'boom', recap: '危险的新记忆' })
+    assert.equal(s.sent[0].status, 500, JSON.stringify(s.sent[0]))
+    assert.equal(s.row().name, 'demo', '改名回滚')
+    assert.equal(s.row().projectRecap, '既有记忆', 'recap 不许先落半截')
+    assert.equal(s.row().historyWatermark, 7, '水位不受半途失败影响')
+  } finally { s.cleanup() }
+})
+
+// ═══ 终审 M1(服务端):确认名两侧 trim——带首尾空白的项目名也删得掉 ═══
+test('M1:项目名带首尾空白,confirmName trim 后即可删;不等仍 400', async () => {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  const p = createProject(db, { name: 'pad me ', clusterId: 'c1', ownerId: 'u-me' })
+  const dir = mkdtempSync(join(tmpdir(), 'wb-proj-trim-'))
+  mkdirSync(projectRepoPath(dir, p), { recursive: true })
+  const sent = []
+  let body = {}
+  const routes = createWorkbenchProjectRoutes({
+    db,
+    sendJson: (_res, status, b) => sent.push({ status, body: b }),
+    readBody: async () => body,
+    requirePlatform: () => ({ userId: 'u-me', username: 'me', role: 'user' }),
+    requireAdmin: () => null,
+    writeAudit: () => {},
+    WORKBENCH_DIR: dir,
+    dbPath: ':memory:',
+    listSshSessions: () => [],
+    wbAgent: { cancelConversation: () => ({ ok: true }) },
+  })
+  const call = b => { body = b; return routes.handle({ headers: {}, method: 'DELETE' }, {}, new URL(`http://x/api/workbench/projects/${p.id}`)) }
+  try {
+    await call({ confirmName: 'nope' })          // 真·不等(trim 后)→ 400,数据零动作
+    assert.equal(sent[0].status, 400)
+    assert.equal(db.prepare('SELECT count(*) c FROM workbench_projects').get().c, 1)
+    await call({ confirmName: 'pad me' })        // trim 后相等 → 200(M1 修复:旧行为恒 400 删不掉)
+    assert.equal(sent[1].status, 200, JSON.stringify(sent[1]))
+    assert.equal(db.prepare('SELECT count(*) c FROM workbench_projects').get().c, 0)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
