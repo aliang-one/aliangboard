@@ -63,3 +63,20 @@ test('左列版本卡:期望/当前/就绪 与操作按钮在同一行容器(合
   expect(rows[0].findAll('button').length).toBe(1)  // 活跃卡仅 查看 YAML
   w.unmount()
 })
+
+test('中列历史版本详情:指标与 YAML/回滚/删除 合并为一行', async () => {
+  const w = mountDetail()
+  await flushPromises()
+  await w.findAll('[data-testid="rev-card"]')[1].trigger('click')   // 选中 rev2(历史)
+  await flushPromises()
+  const row = w.find('[data-testid="rev-detail-compact-row"]')
+  expect(row.exists()).toBe(true)
+  expect(row.text()).toContain('期望')
+  expect(row.text()).toContain('当前')
+  expect(row.text()).toContain('就绪')
+  const ops = row.findAll('button').map(b => b.text()).join()
+  expect(ops).toContain('YAML')
+  expect(ops).toContain('回滚')
+  expect(ops).toContain('删除')
+  w.unmount()
+})
