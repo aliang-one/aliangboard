@@ -351,10 +351,11 @@ export function deleteProject(db, { workbenchDir, projectId }) {
     return { ok: false, status: 400, error: 'repo path escape' }
   }
   let removedConversations = 0
+  let removedMessages = 0
   try {
     db.exec('BEGIN')
-    removedConversations = db.prepare('DELETE FROM workbench_messages WHERE conversationId IN (SELECT id FROM workbench_conversations WHERE projectId=?)').run(projectId).changes
-    db.prepare('DELETE FROM workbench_conversations WHERE projectId=?').run(projectId)
+    removedMessages = db.prepare('DELETE FROM workbench_messages WHERE conversationId IN (SELECT id FROM workbench_conversations WHERE projectId=?)').run(projectId).changes
+    removedConversations = db.prepare('DELETE FROM workbench_conversations WHERE projectId=?').run(projectId).changes
     db.prepare('DELETE FROM workbench_history WHERE projectId=?').run(projectId)
     db.prepare('DELETE FROM workbench_projects WHERE id=?').run(projectId)
     db.exec('COMMIT')
@@ -371,7 +372,7 @@ export function deleteProject(db, { workbenchDir, projectId }) {
     repoRemoved = false
     repoError = String(e?.message || e)
   }
-  return { ok: true, removedConversations, repoRemoved, repoError }
+  return { ok: true, removedConversations, removedMessages, repoRemoved, repoError }
 }
 
 // 项目 recap 人工写(2026-08-31 生命周期):非空覆写不动水位(自动摘要继续增量);
