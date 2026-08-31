@@ -6,6 +6,10 @@ import { i18n } from '@/i18n'
 
 const pushMock = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
+vi.mock('@/api/client', async (importOriginal) => {
+  const orig = await importOriginal()
+  return { ...orig, authApi: { ...orig.authApi, savePreferences: vi.fn(() => Promise.resolve()) } }
+})
 
 import UserMenu from '@/components/layout/UserMenu.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -146,6 +150,7 @@ test('点主题「深色」:prefs.theme 即时变 dark 且菜单保持打开', a
   await w.find('[data-testid="user-menu-theme-dark"]').trigger('click')
   expect(usePreferencesStore().theme).toBe('dark')
   expect(w.find('[data-testid="user-menu-theme-dark"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-theme-light"]').classes()).not.toContain('bg-primary')
   expect(w.find('[data-testid="user-menu-dropdown"]').exists()).toBe(true)
   w.unmount()
 })
@@ -157,5 +162,6 @@ test('点语言「English」:prefs.language=en 且 i18n locale 同步切 en', as
   await w.find('[data-testid="user-menu-lang-en"]').trigger('click')
   expect(usePreferencesStore().language).toBe('en')
   expect(i18n.global.locale.value).toBe('en')
+  expect(w.find('[data-testid="user-menu-role"]').text()).toBe('Admin')
   w.unmount()
 })
