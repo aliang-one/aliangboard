@@ -3,6 +3,7 @@
 import { join } from 'node:path'
 import {
   listProjects, createProject, getProject, projectRepoPath,
+  deleteProject, setProjectRecap,
   getLastReconcile, getPendingDistill, clearPendingDistill, setLastDistill,
   getActiveConversationId,
 } from '../workbench-projects.mjs'
@@ -27,6 +28,7 @@ export function createWorkbenchProjectRoutes(deps) {
     WORKBENCH_DIR, dbPath, getLlmConfig, createLlmClient,
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster, listSshSessions,
+    wbAgent, busDispose,
   } = deps
 
   // 匹配工作台非对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -141,6 +143,69 @@ export function createWorkbenchProjectRoutes(deps) {
         let files = [], commits = []
         try { files = await wbListFiles(repo); commits = await wbRecentCommits(repo, 20) } catch { /* repo 未初始化 */ }
         sendJson(res, 200, { project: { ...p, clusterName: clusterNameOf(p.clusterId) }, files, commits, lastReconcile: getLastReconcile(db, id), activeConversationId: getActiveConversationId(db, id) })
+        return true
+      }
+
+      // 删除项目(2026-08-31 生命周期 spec §5):确认名护栏 + running/paused 对话先取消
+      // (P0(F):不等 LLM 轮结束)再级联删。repo 清除失败不阻断(响应带 warning 仍 200)。
+      if (req.method === 'DELETE' && seg.length === 1) {
+        try {
+          const input = await readBody(req)
+          // 确认名两侧都 trim(M1):项目名本身可含首尾空白(创建端不强制 trim),只 trim 输入侧
+          // 会让这类项目永远删不掉(逐字比对恒不等)。
+          if (String(input.confirmName ?? '').trim() !== p.name.trim()) {
+            sendJson(res, 400, { message: msg(req, 'wbp.confirmNameMismatch') }); return true
+          }
+          const convs = db.prepare("SELECT id, status FROM workbench_conversations WHERE projectId=?").all(id)
+          const active = convs.filter(c => c.status === 'running' || c.status === 'paused')
+          for (const c of active) {
+            try { wbAgent?.cancelConversation(c.id) } catch { /* agent 不在内存=无需取消 */ }
+            try { busDispose?.(c.id) } catch { /* 总线订阅已清 */ }
+          }
+          const r = deleteProject(db, { workbenchDir: WORKBENCH_DIR, projectId: id })
+          if (!r.ok) { sendJson(res, r.status || 500, { message: r.error || msg(req, 'wbp.deleteFailed') }); return true }
+          writeAudit?.(db, {
+            owner: ps.username, verb: 'write', tool: 'project_delete', result: 'ok',
+            requestSummary: `name=${p.name} conversations=${convs.length}`, source: 'platform',
+          })
+          sendJson(res, 200, { ok: true, removedConversations: r.removedConversations, repoRemoved: r.repoRemoved,
+            ...(r.repoError ? { warning: r.repoError } : {}) })
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.deleteFailed') }) }
+        return true
+      }
+
+      // PATCH 项目(2026-08-31 生命周期 spec §5):改名(name ≤80)+ 人工 recap
+      // (空串=清空并归零水位)。两字段全缺 → 400。
+      // M4:①recap: null 视为未提供(前端「没改记忆」不得静默清空既有记忆)
+      //     ②name+recap 单事务——recap 写一半失败不许只落半截(改名成功/记忆丢失的撕裂态)。
+      if (req.method === 'PATCH' && seg.length === 1) {
+        try {
+          const input = await readBody(req)
+          const hasName = input.name !== undefined
+          const hasRecap = input.recap !== undefined && input.recap !== null
+          if (!hasName && !hasRecap) { sendJson(res, 400, { message: msg(req, 'wbp.patchFieldRequired') }); return true }
+          let name
+          if (hasName) {
+            name = String(input.name).trim()
+            if (!name || name.length > 80) { sendJson(res, 400, { message: msg(req, 'wbp.nameInvalid') }); return true }
+          }
+          let recapRejected = false
+          db.exec('BEGIN')
+          try {
+            if (hasRecap) {
+              const r = setProjectRecap(db, id, input.recap)
+              if (!r.ok) recapRejected = true   // 400 在 COMMIT 后回话(事务内不能提前 return)
+            }
+            if (!recapRejected && hasName) db.prepare('UPDATE workbench_projects SET name=? WHERE id=?').run(name, id)
+            db.exec('COMMIT')
+          } catch (e) { db.exec('ROLLBACK'); throw e }
+          if (recapRejected) { sendJson(res, 400, { message: msg(req, 'wbp.recapTooLong') }); return true }
+          writeAudit?.(db, {
+            owner: ps.username, verb: 'write', tool: 'project_update', result: 'ok',
+            requestSummary: `project=${id}${hasName ? ` name=${name}` : ''}${hasRecap ? ' recap' : ''}`, source: 'platform',
+          })
+          sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(p.clusterId) } })
+        } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbp.updateFailed') }) }
         return true
       }
 

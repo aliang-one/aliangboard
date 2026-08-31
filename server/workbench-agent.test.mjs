@@ -484,7 +484,7 @@ test('runConversation:projectRecap 拼入 refreshSystem 产物;projectMemory=fal
   const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit: () => {}, busDispose: () => {} })
   await agent.runConversation(conv.id, { chat: async () => ({}), model: 'mock-1' })
   const sys = await capturedRunOpts().refreshSystem()
-  assert.ok(sys.includes('[Project memory'), '注入标记')
+  assert.ok(sys.includes('[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)'), '注入标记(带 caveat)')
   assert.ok(sys.includes('定了用 nginx ingress'))
   // 开关关(platform_settings 直写 'false',与 admin setSetting 同存储)再跑一条新对话 → 不含标记
   db.exec('CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )')
@@ -547,4 +547,54 @@ test('A2:run done 后 fire 项目摘要——7 条预置 + done 追加 2 = 9 ≥
   assert.equal(recap, '项目摘要X', 'done 后项目摘要异步落库')
   // done 本身不受 fire 阻塞/失败影响(状态与消息先行落定)
   assert.equal(getConversation(db, conv.id).status, 'done')
+})
+
+// ═══ 终审 I5:P0(F) 不变式对流式运行无效——DELETE 项目后 in-flight run 的结果不许写孤儿行 ═══
+// 路由在 DELETE 时已 cancelConversation(置 cancelled)并删行,但 in-flight run 的取消守卫读
+// getConversation(id)?.status === 'cancelled' → 行已不在 → undefined → 放行落 handleAgentResult/
+// salvagePartial,把终态/assistant 消息/项目历史写进已删的孤儿行。存在性守卫在一处同时关掉
+// 「删对话」与「删项目」两条路由。
+const deletedRowCounts = (db, convId) => ({
+  conv: db.prepare('SELECT count(*) c FROM workbench_conversations WHERE id=?').get(convId).c,
+  msgs: db.prepare('SELECT count(*) c FROM workbench_messages WHERE conversationId=?').get(convId).c,
+  history: db.prepare('SELECT count(*) c FROM workbench_history').get().c,
+})
+
+test('I5:对话被删后 run done → handleAgentResult 零写入(无孤儿终态/消息/历史)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  let baseline = null
+  const { createAgentRunner } = makeRunner(async () => {
+    baseline = deletedRowCounts(db, conv.id)                                    // 删除前基线(含首条 user 消息)
+    db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(conv.id)  // 模拟 DELETE 项目/对话提交
+    return { status: 'done', content: '迟到的终答', trace: [], steps: 3, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const c = deletedRowCounts(db, conv.id)
+  assert.equal(c.conv, 0, '行保持已删,不被复活')
+  assert.equal(c.msgs, baseline.msgs, '消息零增长:不追加孤儿 assistant 消息')
+  assert.equal(c.history, baseline.history, '项目历史零增长')
+})
+
+test('I5:对话被删后 run 失败 → salvagePartial 零写入(无孤儿 partial 抢救)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  let baseline = null
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('已流出的部分')      // tracker 有 partial → 无守卫时会落 assistant 消息
+    baseline = deletedRowCounts(db, conv.id)
+    db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(conv.id)
+    throw new Error('LLM HTTP 502: boom')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const c = deletedRowCounts(db, conv.id)
+  assert.equal(c.conv, 0)
+  assert.equal(c.msgs, baseline.msgs, '部分内容不写孤儿行')
+  // catch 块后续的 failed+end 事件照发(salvage 静默返回不打断事件链)
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'failed 事件照发')
+  assert.ok(events.some(e => e.type === 'end'), 'end 事件照发')
 })

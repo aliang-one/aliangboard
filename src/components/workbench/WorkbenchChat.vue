@@ -60,6 +60,53 @@ const ctxInfo = ref(null)
 const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
 // 项目背景(2026-08-29 项目记忆 T4):AI 每轮携带的项目决策摘要,null=无记忆不渲染
 const projectRecap = ref(null)
+// recap 人工纠偏(T5 2026-08-31):编辑态草稿/保存中;清空走 confirm 二次确认
+const recapEditing = ref(false)
+const recapDraft = ref('')
+const recapSaving = ref(false)
+// 卡片本体(终审 I4):编辑器在 <details> 折叠 body 里,点编辑必须同步展开,
+// 否则编辑态藏在折叠区,按钮又随编辑态消失——用户观感即「点了没反应」。
+const projectRecapCard = ref(null)
+
+function startRecapEdit() {
+  recapDraft.value = projectRecap.value || ''
+  recapEditing.value = true
+  if (projectRecapCard.value) projectRecapCard.value.open = true
+}
+function cancelRecapEdit() { recapEditing.value = false; recapDraft.value = '' }
+
+async function saveRecapEdit() {
+  if (recapSaving.value) return
+  // 清空 textarea 再保存 = 清空项目记忆(终审 M3):与「清空」按钮同款二次确认,
+  // 不许一条无心操作就无确认地抹掉记忆;trim 后为空统一按「清空」提交(与确认语义一致)。
+  const clearing = recapDraft.value.trim() === ''
+  if (clearing && !window.confirm(t('workbench.chat.recapClearConfirm'))) return
+  const next = clearing ? '' : recapDraft.value
+  recapSaving.value = true
+  try {
+    await workbenchApi.updateProject(props.projectId, { recap: next })
+    projectRecap.value = clearing ? null : next   // 清空 → null 收起卡片(与「无记忆」态一致)
+    recapEditing.value = false
+    notify('success', clearing ? t('workbench.chat.recapClearDone') : t('workbench.chat.recapSaved'))
+  } catch (e) {
+    // 与 WorkbenchList 同款:透传服务端消息(如 recap 超长),比固定「保存失败」更可定位
+    notify('error', e?.message || t('workbench.chat.recapSaveFailed'))
+  } finally { recapSaving.value = false }
+}
+
+async function clearRecap() {
+  if (!window.confirm(t('workbench.chat.recapClearConfirm'))) return
+  if (recapSaving.value) return
+  recapSaving.value = true
+  try {
+    await workbenchApi.updateProject(props.projectId, { recap: '' })
+    projectRecap.value = null   // v-if 收起卡片(与「无记忆」态一致)
+    recapEditing.value = false
+    notify('success', t('workbench.chat.recapClearDone'))
+  } catch (e) {
+    notify('error', e?.message || t('workbench.chat.recapSaveFailed'))
+  } finally { recapSaving.value = false }
+}
 
 // --- SSE streaming 状态(T8:优先用 EventSource,断线降级 pollOnce) ---
 let es = null
@@ -994,12 +1041,34 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </details>
 
         <!-- 项目背景(2026-08-29 项目记忆):AI 每轮携带的项目决策摘要,透明可查 -->
-        <details v-if="projectRecap" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
+        <details v-if="projectRecap" ref="projectRecapCard" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
             <span class="material-symbols-outlined text-base text-primary/60">folder_special</span>
-            {{ t('workbench.chat.projectRecapTitle') }}
+            <span class="flex-1">{{ t('workbench.chat.projectRecapTitle') }}</span>
+            <!-- 人工纠偏(T5):编辑/清空;点击不折叠卡片 -->
+            <span v-if="!recapEditing" class="flex items-center gap-xs" @click.stop>
+              <button data-testid="recap-edit-btn" type="button" @click="startRecapEdit"
+                class="text-body-xs text-on-surface-variant hover:text-primary flex items-center gap-xs px-xs rounded transition-colors">
+                <span class="material-symbols-outlined text-sm">edit</span>{{ t('workbench.chat.recapEdit') }}
+              </button>
+              <button data-testid="recap-clear-btn" type="button" @click="clearRecap"
+                class="text-body-xs text-on-surface-variant hover:text-error flex items-center gap-xs px-xs rounded transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>{{ t('workbench.chat.recapClear') }}
+              </button>
+            </span>
           </summary>
-          <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ projectRecap }}</div>
+          <!-- 编辑态:textarea + 保存/取消 -->
+          <div v-if="recapEditing" class="px-md pb-md flex flex-col gap-xs">
+            <textarea v-model="recapDraft" rows="5"
+              class="w-full text-body-sm text-on-surface bg-surface-container border border-outline-variant rounded-lg px-sm py-sm focus:outline-none focus:border-primary resize-y"></textarea>
+            <div class="flex items-center gap-sm">
+              <button data-testid="recap-save-btn" type="button" :disabled="recapSaving" @click="saveRecapEdit"
+                class="px-md py-xs text-body-sm rounded-md bg-primary text-on-primary hover:opacity-90 disabled:opacity-50 transition-opacity">{{ t('workbench.chat.recapSave') }}</button>
+              <button data-testid="recap-cancel-btn" type="button" :disabled="recapSaving" @click="cancelRecapEdit"
+                class="px-md py-xs text-body-sm rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors">{{ t('workbench.chat.recapCancel') }}</button>
+            </div>
+          </div>
+          <div v-else class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ projectRecap }}</div>
         </details>
 
         <!-- Conversation -->

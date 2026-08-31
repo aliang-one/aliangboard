@@ -24,4 +24,10 @@ export const TABLE = {
   'wbp.applyFailed': { zh: '应用失败', en: 'Failed to apply' },
   'wbp.dismissFailed': { zh: '失败', en: 'Failed' },
   'wbp.summaryReadFailed': { zh: '读取汇总失败', en: 'Failed to read summary' },
+  'wbp.confirmNameMismatch': { zh: '确认名与项目名不一致', en: 'confirmName does not match the project name' },
+  'wbp.deleteFailed': { zh: '删除项目失败', en: 'Failed to delete project' },
+  'wbp.updateFailed': { zh: '更新项目失败', en: 'Failed to update project' },
+  'wbp.patchFieldRequired': { zh: '至少提供 name 或 recap 之一', en: 'Provide at least one of name / recap' },
+  'wbp.nameInvalid': { zh: '项目名须非空且 ≤80 字符', en: 'Project name must be non-empty and ≤80 chars' },
+  'wbp.recapTooLong': { zh: 'recap 超长(上限 65536)', en: 'recap too long (limit 65536)' },
 }
