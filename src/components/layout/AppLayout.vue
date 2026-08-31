@@ -97,13 +97,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       </main>
       <!-- Footer Status Bar -->
       <footer class="px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
-        <div class="flex items-center gap-lg">
-          <div class="flex items-center gap-sm">
-            <span class="w-2 h-2 rounded-full" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
-            <span class="text-body-sm text-on-surface-variant">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
+        <div class="flex items-center gap-lg min-w-0">
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
+            <span class="text-body-sm text-on-surface-variant min-w-0 truncate">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
           </div>
         </div>
-        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm">
+        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden">
           <span>Last Updated: {{ lastUpdated }}</span>
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>

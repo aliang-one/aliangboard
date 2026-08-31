@@ -21,9 +21,9 @@ function dismiss() {
 
 <template>
   <div v-if="visible"
-    class="px-lg py-sm flex items-center gap-sm text-on-primary bg-primary/10 border-b border-primary/30 text-body-sm">
-    <span class="material-symbols-outlined text-base">system_update_alt</span>
-    <span>{{ t('layout.updateBanner.found') }} <span class="font-mono font-semibold">v{{ latest }}</span></span>
+    class="min-w-0 px-lg py-sm flex items-center gap-sm text-on-primary bg-primary/10 border-b border-primary/30 text-body-sm">
+    <span class="material-symbols-outlined text-base shrink-0">system_update_alt</span>
+    <span class="min-w-0 truncate">{{ t('layout.updateBanner.found') }} <span class="font-mono font-semibold">v{{ latest }}</span></span>
     <a href="https://github.com/aliang-one/aliangboard/tags" target="_blank" rel="noopener"
       class="underline underline-offset-2 hover:opacity-80">{{ t('layout.updateBanner.view') }}</a>
     <button :aria-label="t('layout.updateBanner.dismiss')" @click="dismiss"
