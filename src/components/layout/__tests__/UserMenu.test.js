@@ -126,11 +126,11 @@ test('role 缺失:角色行隐藏', async () => {
   w.unmount()
 })
 
-test('下拉含主题三态+语言两态分段;null 未设置时高亮归一为 system/zh', async () => {
+test('下拉含主题三态+语言两态分段;null 未设置时高亮归一为 auto/zh', async () => {
   seedUser()
   const w = mountMenu()
   await w.find('[data-testid="user-menu-trigger"]').trigger('click')
-  for (const v of ['light', 'dark', 'system']) {
+  for (const v of ['light', 'dark', 'auto']) {
     expect(w.find(`[data-testid="user-menu-theme-${v}"]`).exists()).toBe(true)
   }
   for (const v of ['zh', 'en']) {
@@ -138,7 +138,7 @@ test('下拉含主题三态+语言两态分段;null 未设置时高亮归一为 
   }
   expect(usePreferencesStore().theme).toBeNull()
   expect(usePreferencesStore().language).toBeNull()
-  expect(w.find('[data-testid="user-menu-theme-system"]').classes()).toContain('bg-primary')
+  expect(w.find('[data-testid="user-menu-theme-auto"]').classes()).toContain('bg-primary')
   expect(w.find('[data-testid="user-menu-lang-zh"]').classes()).toContain('bg-primary')
   w.unmount()
 })

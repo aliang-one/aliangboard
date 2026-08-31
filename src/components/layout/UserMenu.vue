@@ -32,14 +32,14 @@ const prefs = usePreferencesStore()
 const themeOptions = [
   { v: 'light', icon: 'light_mode', key: 'userCenter.themeLight' },
   { v: 'dark', icon: 'dark_mode', key: 'userCenter.themeDark' },
-  { v: 'system', icon: 'contrast', key: 'userCenter.themeSystem' },
+  { v: 'auto', icon: 'schedule', key: 'userCenter.themeAuto' },
 ]
 const langOptions = [
   { v: 'zh', key: 'userCenter.langZh' },
   { v: 'en', key: 'userCenter.langEn' },
 ]
-// null 归一:未设置时如实高亮运行时默认(store 注释 null→system;i18n 默认 zh)
-const activeTheme = computed(() => prefs.theme || 'system')
+// null 归一:未设置时如实高亮运行时默认(store 注释 null→auto;i18n 默认 zh)
+const activeTheme = computed(() => prefs.theme || 'auto')
 const activeLang = computed(() => prefs.language || 'zh')
 
 function toggle() { open.value = !open.value }
