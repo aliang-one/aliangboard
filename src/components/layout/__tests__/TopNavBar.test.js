@@ -50,6 +50,24 @@ test('紧凑档:集群/命名空间标签行 <xl 隐藏,值宽三级收缩', () 
   expect(w.html()).toContain('max-w-[80px] lg:max-w-[110px]')
 })
 
+test('集群下拉面板 Teleport 到 body 且带 data-testid', async () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  await w.find('[data-test="cluster-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-testid="cluster-dropdown-panel"]')).toBeTruthy()
+  expect(w.find('[data-testid="cluster-dropdown-panel"]').exists()).toBe(false) // 不在组件树内
+})
+
+test('ns 下拉面板 Teleport 到 body 且带 data-testid', async () => {
+  setActivePinia(createPinia())
+  const w = mountNav()
+  await w.find('[data-test="ns-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-testid="ns-dropdown-panel"]')).toBeTruthy()
+  expect(w.find('[data-testid="ns-dropdown-panel"]').exists()).toBe(false) // 不在组件树内
+})
+
 test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 enabled 查询', async () => {
   const mqSpy = vi.spyOn(window, 'matchMedia').mockImplementation(q => ({ matches: q.includes('1023.98'), media: q, addEventListener() {}, removeEventListener() {} }))
   setActivePinia(createPinia())

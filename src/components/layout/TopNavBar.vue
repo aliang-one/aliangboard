@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import UserMenu from './UserMenu.vue'
@@ -141,6 +141,41 @@ function goClusters() {
   router.push('/clusters')
 }
 
+// 下拉传送定位(issue #4 PortSelect 同款):面板 Teleport body + fixed 锚触发钮 rect,
+// 脱离 sticky header 的 overflow 裁切;scroll capture 跟随,resize 关闭。
+const clusterBtnRef = ref(null), clusterPanelRef = ref(null)
+const nsBtnRef = ref(null), nsPanelRef = ref(null)
+const clusterPanelStyle = ref(hiddenStyle()), nsPanelStyle = ref(hiddenStyle())
+function hiddenStyle() { return { position: 'fixed', top: '0px', left: '0px', visibility: 'hidden', zIndex: Z.popover } }
+function placeDropdown(btn, panel, width) {
+  if (!btn || !panel) return
+  const r = btn.getBoundingClientRect()
+  const ph = panel.offsetHeight
+  let top = r.bottom + 4
+  if (top + ph > window.innerHeight - 8 && r.top - ph - 4 >= 8) top = r.top - ph - 4
+  let left = r.left
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+  return { position: 'fixed', top: `${top}px`, left: `${left}px`, visibility: 'visible', zIndex: Z.popover, width: `${width}px` }
+}
+async function placeAll() {
+  await nextTick()
+  if (showClusterDropdown.value && clusterPanelRef.value) clusterPanelStyle.value = placeDropdown(clusterBtnRef.value, clusterPanelRef.value, 320)
+  if (showNsDropdown.value && nsPanelRef.value) nsPanelStyle.value = placeDropdown(nsBtnRef.value, nsPanelRef.value, 288)
+}
+function onDocScroll() { placeAll() } // sticky 顶栏场景跟随即可,不必关闭
+function bindDropFollow() {
+  window.addEventListener('scroll', onDocScroll, { capture: true, passive: true })
+  window.addEventListener('resize', onDocScroll, { passive: true })
+}
+function unbindDropFollow() {
+  window.removeEventListener('scroll', onDocScroll, { capture: true })
+  window.removeEventListener('resize', onDocScroll)
+}
+watch([showClusterDropdown, showNsDropdown], v => {
+  if (v.some(Boolean)) { placeAll(); bindDropFollow() } else { unbindDropFollow() }
+})
+onBeforeUnmount(unbindDropFollow)
+
 </script>
 
 <template>
@@ -181,6 +216,8 @@ function goClusters() {
       <!-- 集群切换 -->
       <div class="relative shrink-0">
         <button
+          ref="clusterBtnRef"
+          data-test="cluster-trigger"
           @click="showClusterDropdown = !showClusterDropdown"
           class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
           :class="showClusterDropdown
@@ -195,51 +232,14 @@ function goClusters() {
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
 
-        <!-- 下拉列表 -->
-        <div
-          v-if="showClusterDropdown"
-          class="absolute top-full left-0 mt-1 w-80 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-hidden"
-        >
-          <!-- 头部 -->
-          <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">
-            <p class="text-label-caps text-on-surface-variant">{{ $t('nav.switchCluster') }}</p>
-            <button
-              @click.stop="goClusters"
-              class="flex items-center gap-1 text-body-sm text-primary hover:opacity-80 transition-opacity"
-            >
-              <span class="material-symbols-outlined text-base">view_module</span>
-              {{ $t('nav.manageAll') }}
-            </button>
-          </div>
-
-          <!-- 集群列表 -->
-          <div class="max-h-80 overflow-y-auto p-sm">
-            <div
-              v-for="c in store.clusterList"
-              :key="c.name"
-              @click="selectCluster(c.apiServer)"
-              class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
-              :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
-            >
-              <div class="flex items-center gap-sm min-w-0">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.map(r => $t(r)).join('；') || $t('clusterHealth.healthy')) : c.status"></span>
-                <div class="min-w-0">
-                  <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
-                  <p class="text-xs text-on-surface-variant truncate">{{ c.version }} · {{ c.distribution }}</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-xs shrink-0">
-                <span v-if="c.name === store.currentCluster" class="text-xs font-bold text-primary px-sm py-0.5 rounded-full bg-primary-container/30">CURRENT</span>
-                <span class="material-symbols-outlined text-base text-on-surface-variant opacity-40">chevron_right</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
       </div>
 
       <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
       <div class="relative shrink-0">
         <button
+          ref="nsBtnRef"
+          data-test="ns-trigger"
           @click="showNsDropdown = !showNsDropdown"
           class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
           :class="showNsDropdown
@@ -256,11 +256,60 @@ function goClusters() {
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
 
-        <div
-          v-if="showNsDropdown"
-          class="absolute top-full left-0 mt-1 w-72 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-hidden"
+        <!-- ns 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
+      </div>
+    </div>
+    <div class="flex items-center gap-md">
+      <!-- 工作台入口:品牌胶囊 + 状态角标 + 悬停概览(2026-08-30 信息丰富化,规格 docs/superpowers/specs/2026-08-30-workbench-entry-pill-summary-design.md)
+           ——导航级入口排工具按钮前;shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
+      <WorkbenchEntryPill />
+      <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
+        <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
+      </button>
+      <div class="h-8 w-px bg-outline-variant mx-2 max-lg:hidden"></div>
+      <UserMenu />
+    </div>
+  </header>
+  <!-- 集群/ns 下拉:Teleport body + fixed 锚定触发钮 rect(脱离 sticky header 裁切,issue#4 同款) -->
+  <Teleport to="body">
+    <div v-if="showClusterDropdown" ref="clusterPanelRef" data-testid="cluster-dropdown-panel" class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-hidden" :style="clusterPanelStyle">
+      <!-- 头部 -->
+      <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">
+        <p class="text-label-caps text-on-surface-variant">{{ $t('nav.switchCluster') }}</p>
+        <button
+          @click.stop="goClusters"
+          class="flex items-center gap-1 text-body-sm text-primary hover:opacity-80 transition-opacity"
         >
-          <div class="p-sm border-b border-outline-variant">
+          <span class="material-symbols-outlined text-base">view_module</span>
+          {{ $t('nav.manageAll') }}
+        </button>
+      </div>
+
+      <!-- 集群列表 -->
+      <div class="max-h-80 overflow-y-auto p-sm">
+        <div
+          v-for="c in store.clusterList"
+          :key="c.name"
+          @click="selectCluster(c.apiServer)"
+          class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
+          :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
+        >
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.map(r => $t(r)).join('；') || $t('clusterHealth.healthy')) : c.status"></span>
+            <div class="min-w-0">
+              <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
+              <p class="text-xs text-on-surface-variant truncate">{{ c.version }} · {{ c.distribution }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-xs shrink-0">
+            <span v-if="c.name === store.currentCluster" class="text-xs font-bold text-primary px-sm py-0.5 rounded-full bg-primary-container/30">CURRENT</span>
+            <span class="material-symbols-outlined text-base text-on-surface-variant opacity-40">chevron_right</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-if="showNsDropdown" ref="nsPanelRef" data-testid="ns-dropdown-panel" class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-hidden" :style="nsPanelStyle">
+      <div class="p-sm border-b border-outline-variant">
             <div class="relative">
               <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
               <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" :placeholder="$t('nav.filterNamespaces')" />
@@ -279,20 +328,8 @@ function goClusters() {
             </div>
             <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ $t('nav.noMatchingNamespaces') }}</p>
           </div>
-        </div>
-      </div>
     </div>
-    <div class="flex items-center gap-md">
-      <!-- 工作台入口:品牌胶囊 + 状态角标 + 悬停概览(2026-08-30 信息丰富化,规格 docs/superpowers/specs/2026-08-30-workbench-entry-pill-summary-design.md)
-           ——导航级入口排工具按钮前;shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
-      <WorkbenchEntryPill />
-      <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
-        <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
-      </button>
-      <div class="h-8 w-px bg-outline-variant mx-2 max-lg:hidden"></div>
-      <UserMenu />
-    </div>
-  </header>
+  </Teleport>
   <!-- <lg 搜索弹层:Teleport body + fixed 顶部居中,复用内联搜索的索引与结果渲染 -->
   <Teleport to="body">
     <div v-if="searchModalOpen" data-test="search-modal" class="fixed inset-0" :style="{ zIndex: Z.popover }">
