@@ -32,24 +32,29 @@ async function load() {
 }
 onMounted(load)
 
-// 行内重命名(参照 WorkbenchDetail 对话重命名交互)
+// 行内重命名(参照 WorkbenchDetail 对话重命名交互)。renamingId 双重防线:enter 后 blur 再入直接拒;
+// renameBusy 挡 await 在途期间的第二次 confirmRename(否则 blur 时 row.name 仍旧值,早退失效 → 重复 PATCH)。
 const renamingId = ref(null)
 const renameText = ref('')
+const renameBusy = ref(false)
 function startRename(row) {
   renamingId.value = row.id
   renameText.value = row.name || ''
   nextTick(() => { const el = document.querySelector('input[data-testid="rename-input"]'); if (el) el.focus() })
 }
 async function confirmRename(row) {
+  if (renamingId.value !== row.id || renameBusy.value) return
   const name = renameText.value.trim()
-  renamingId.value = null
-  if (!name || name === row.name) return
+  if (!name || name === row.name) { renamingId.value = null; return }
+  renameBusy.value = true
   try {
     await workbenchApi.updateProject(row.id, { name })
     const p = projects.value.find(x => x.id === row.id)
     if (p) p.name = name
     notify('success', t('workbench.list.projectRenamed', { name }))
+    renamingId.value = null
   } catch (e) { notify('error', e.message || t('workbench.list.projectRenameFailed')) }
+  finally { renameBusy.value = false }
 }
 
 // 删除:确认名逐字一致才启用确定
@@ -136,7 +141,9 @@ async function doCreate() {
 
     <Modal :model-value="!!deleteTarget" @update:model-value="v => { if (!v) deleteTarget = null }" :title="t('workbench.list.confirmDeleteProjectTitle')" width="max-w-md">
       <div v-if="deleteTarget" class="flex flex-col gap-md">
-        <p class="text-body-sm text-on-surface-variant" v-html="t('workbench.list.confirmDeleteProjectHint', { name: deleteTarget.name })"></p>
+        <!-- 项目名是用户输入,不走 v-html:文案与 <code> 文本节点拆开渲染 -->
+        <p class="text-body-sm text-on-surface-variant">{{ t('workbench.list.confirmDeleteProjectHint') }}</p>
+        <p><code class="px-sm py-0.5 bg-surface-container rounded text-on-surface font-mono text-body-sm">{{ deleteTarget.name }}</code></p>
         <input v-model="deleteConfirmText" data-testid="delete-confirm-input" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="t('workbench.list.confirmDeleteProjectPlaceholder')" />
       </div>
       <template #actions>

@@ -3379,7 +3379,7 @@
       "createFailed": "Failed to create",
       "openProject": "Open project", "renameProject": "Rename", "deleteProject": "Delete",
       "confirmDeleteProjectTitle": "Delete project",
-      "confirmDeleteProjectHint": "This is irreversible and removes all repository content of project <code>{name}</code>. Type the project name <code>{name}</code> to confirm:",
+      "confirmDeleteProjectHint": "This is irreversible and removes all repository content of the project. Type the project name shown below to confirm:",
       "confirmDeleteProjectPlaceholder": "Type project name to confirm",
       "projectDeleted": "Project deleted", "projectDeleteFailed": "Failed to delete project",
       "projectRenamed": "Project renamed to {name}", "projectRenameFailed": "Failed to rename"

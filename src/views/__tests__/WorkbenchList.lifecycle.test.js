@@ -95,6 +95,41 @@ test('删除:确认名逐字一致 → deleteProject(id, name) + 列表移除 + 
   expect(notifyMock).toHaveBeenCalledWith('success', expect.any(String))
 })
 
+test('重命名:enter 后紧接 blur 只发一次 PATCH(竞态守卫)', async () => {
+  const w = mountView()
+  await flushPromises()
+  const row = w.find('.test-row')
+  await row.find('[data-testid="row-rename"]').trigger('click')
+  const input = row.find('input[data-testid="rename-input"]')
+  await input.setValue('gamma')
+  input.trigger('keyup.enter') // 不等 PATCH 落定,立刻 blur
+  await input.trigger('blur')
+  await flushPromises()
+  expect(updateProjectMock).toHaveBeenCalledTimes(1)
+  expect(w.vm.projects[0].name).toBe('gamma')
+  expect(w.find('input[data-testid="rename-input"]').exists()).toBe(false)
+})
+
+test('重命名:PATCH 失败保留输入态可重试', async () => {
+  updateProjectMock.mockRejectedValueOnce(new Error('nope'))
+  const w = mountView()
+  await flushPromises()
+  const row = w.find('.test-row')
+  await row.find('[data-testid="row-rename"]').trigger('click')
+  const input = row.find('input[data-testid="rename-input"]')
+  await input.setValue('delta')
+  await input.trigger('keyup.enter')
+  await flushPromises()
+  expect(notifyMock).toHaveBeenCalledWith('error', 'nope')
+  expect(w.find('input[data-testid="rename-input"]').exists()).toBe(true)
+  expect(w.find('input[data-testid="rename-input"]').element.value).toBe('delta')
+  updateProjectMock.mockResolvedValueOnce({ ok: true })
+  await input.trigger('keyup.enter')
+  await flushPromises()
+  expect(updateProjectMock).toHaveBeenCalledTimes(2)
+  expect(w.vm.projects[0].name).toBe('delta')
+})
+
 test('删除:请求失败时列表保留 + error notify', async () => {
   deleteProjectMock.mockRejectedValueOnce(new Error('boom'))
   const w = mountView()
