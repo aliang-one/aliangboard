@@ -238,6 +238,130 @@ test('删除:在途期间再点确定不发第二发请求', async () => {
   expect(w.text()).not.toContain('alpha')
 })
 
+// ═══ 项目记忆直编(spec 2026-09-01b):⋮ 菜单第三项,弹窗编辑 projectRecap ═══
+// confirm 手法与 WorkbenchChat.recap.test.js 同源:vi.stubGlobal;确认语义=保存空文本
+// (原记忆非空)或清空钮必须二次确认。
+
+const memorySeed = () => [{ id: 'p1', name: 'alpha', clusterId: 'c1', namespace: 'default',
+  manifestCount: 0, lastReconcile: null, projectRecap: '旧记忆' }]
+
+async function openMemoryModal(w) {
+  await openCardMenu(w).trigger('click')
+  await w.findAll('button').find(b => b.text().includes('项目记忆')).trigger('click')
+}
+
+test('菜单含「项目记忆」:点击开弹窗且 textarea 预填列表携带的 recap', async () => {
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  const ta = w.find('[data-testid="memory-textarea"]')
+  expect(ta.exists()).toBe(true)
+  expect(ta.element.value).toBe('旧记忆')
+})
+
+test('无记忆项目:弹窗 textarea 为空', async () => {
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  expect(w.find('[data-testid="memory-textarea"]').element.value).toBe('')
+})
+
+test('保存非空:updateProject(id,{recap}) + 本地就地更新 + success + 关窗(无 confirm)', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => { throw new Error('非空保存不应弹 confirm') }))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-textarea"]').setValue('新记忆')
+  await w.find('[data-testid="memory-save-btn"]').trigger('click')
+  await flushPromises()
+  expect(updateProjectMock).toHaveBeenCalledWith('p1', { recap: '新记忆' })
+  expect(state.projects[0].projectRecap).toBe('新记忆')
+  expect(notifyMock).toHaveBeenCalledWith('success', expect.stringContaining('更新'))
+  expect(w.find('[data-testid="memory-textarea"]').exists()).toBe(false, '关窗')
+  vi.unstubAllGlobals()
+})
+
+test('清空钮 confirm 同意:updateProject(id,{recap:\'\'}) + 本地置 null + 关窗', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-clear-btn"]').trigger('click')
+  await flushPromises()
+  expect(confirm).toHaveBeenCalledTimes(1)
+  expect(updateProjectMock).toHaveBeenCalledWith('p1', { recap: '' })
+  expect(state.projects[0].projectRecap).toBeNull()
+  expect(notifyMock).toHaveBeenCalledWith('success', expect.any(String))
+  expect(w.find('[data-testid="memory-textarea"]').exists()).toBe(false)
+  vi.unstubAllGlobals()
+})
+
+test('清空钮 confirm 拒绝:不发请求、弹窗保留', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => false))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-clear-btn"]').trigger('click')
+  await flushPromises()
+  expect(updateProjectMock).not.toHaveBeenCalled()
+  expect(w.find('[data-testid="memory-textarea"]').exists()).toBe(true)
+  vi.unstubAllGlobals()
+})
+
+test('空文本保存(原记忆非空):confirm 同意按 \'\' 提交;拒绝不发请求', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => false))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-textarea"]').setValue('   ')
+  await w.find('[data-testid="memory-save-btn"]').trigger('click')
+  await flushPromises()
+  expect(confirm).toHaveBeenCalledTimes(1)
+  expect(updateProjectMock).not.toHaveBeenCalled()
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  await w.find('[data-testid="memory-save-btn"]').trigger('click')
+  await flushPromises()
+  expect(updateProjectMock).toHaveBeenCalledWith('p1', { recap: '' })
+  vi.unstubAllGlobals()
+})
+
+test('busy 防双发:在途仅 1 发且按钮禁用,成功后关窗', async () => {
+  let release
+  updateProjectMock.mockImplementationOnce(() => new Promise(r => { release = r }))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-textarea"]').setValue('新记忆')
+  const btn = w.find('[data-testid="memory-save-btn"]')
+  await btn.trigger('click')          // 第一发(在途)
+  await btn.trigger('click')          // 双击第二发
+  expect(updateProjectMock).toHaveBeenCalledTimes(1)
+  expect(btn.attributes('disabled')).toBeDefined()
+  release({ ok: true })
+  await flushPromises()
+  expect(w.find('[data-testid="memory-save-btn"]').exists()).toBe(false, '成功关窗')
+})
+
+test('保存失败:error 透传 + 弹窗与输入保留可重试', async () => {
+  updateProjectMock.mockRejectedValueOnce(new Error('recap 太长'))
+  state.projects = memorySeed()
+  const w = mountView()
+  await flushPromises()
+  await openMemoryModal(w)
+  await w.find('[data-testid="memory-textarea"]').setValue('新记忆')
+  await w.find('[data-testid="memory-save-btn"]').trigger('click')
+  await flushPromises()
+  expect(notifyMock).toHaveBeenCalledWith('error', 'recap 太长')
+  expect(w.find('[data-testid="memory-textarea"]').exists()).toBe(true, '失败保留弹窗')
+  expect(w.find('[data-testid="memory-textarea"]').element.value).toBe('新记忆')
+})
+
 test('删除:在途时确定按钮禁用', async () => {
   let release
   deleteProjectMock.mockImplementationOnce(() => new Promise(r => { release = r }))
