@@ -1,5 +1,5 @@
 // Teleport 弹层断言必须查 document.body(既往教训:查 wrapper 恒空)。
-import { test, expect } from 'vitest'
+import { test, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -11,6 +11,18 @@ function mountDialog(props = {}) {
     attachTo: document.body,
   })
 }
+
+// mockBelowSm 模式同 SideNavBar.drawer.test.js
+let matchMediaSpy
+const mqListeners = new Map()
+function mockBelowSm(below) {
+  matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+    matches: q === '(max-width: 639.98px)' ? below : false,
+    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
+    removeEventListener: () => { mqListeners.delete(q) },
+  }))
+}
+afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = '' })
 
 test('打开:标题/文案渲染于 document.body,含默认确认/取消钮', () => {
   const w = mountDialog()
@@ -49,4 +61,15 @@ test('loading 态:确认钮 disabled', () => {
   const w = mountDialog({ loading: true })
   expect(document.body.querySelector('[data-testid="confirm-ok"]').disabled).toBe(true)
   w.unmount()
+})
+
+test('手机档:ConfirmDialog 随 Modal 自动全屏(width prop 被忽略)', async () => {
+  mockBelowSm(true)
+  const w = mountDialog({ title: '确认', message: '删?' })
+  await w.vm.$nextTick()
+  const dialog = document.querySelector('body .relative.w-full')
+  expect(dialog).toBeTruthy()
+  expect(dialog.className).toContain('max-w-none')
+  expect(dialog.className).not.toContain('max-w-md')
+  w.unmount(); document.body.innerHTML = ''
 })
