@@ -9,6 +9,7 @@ import { Z } from '@/styles/zScale'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useDeployFastPoll, FAST_MS, SLOW_MS } from '@/composables/useDeployFastPoll'
 import { workloadCounts, isWorkloadTransitioning } from '@/logic/workloadTransition'
+import { podTemplateLabels } from '@/logic/workloadMeta'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import { classifyResource, LAYER_TAXONOMY } from '@/composables/useLayering'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -87,7 +88,9 @@ function toggleLayer(section) {
 
 function associations(dep) {
   const ns = route.params.namespace
-  const labels = dep?.raw?.spec?.template?.metadata?.labels || dep?.labels || {}
+  // Pod 模板标签单源(CronJob 走 jobTemplate);模板缺 labels 时保留原回退链(负载自身 labels)
+  const tpl = podTemplateLabels(dep?.raw)
+  const labels = Object.keys(tpl).length ? tpl : (dep?.labels || {})
   const services = nsServices.value.filter(s =>
     s.namespace === ns && s.selector && Object.keys(s.selector).length &&
     Object.entries(s.selector).every(([k, v]) => labels[k] === v))
