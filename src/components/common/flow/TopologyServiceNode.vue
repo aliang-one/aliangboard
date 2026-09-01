@@ -22,7 +22,8 @@ function leave() { hovered.value = '' }
       drift() ? (data.drift === 'broken' ? 'border-error/50 bg-error/5' : 'border-tertiary-container/40 bg-tertiary-container/5') : 'border-outline-variant/60 bg-surface-container-lowest hover:border-primary hover:bg-primary/5 cursor-pointer',
       hovered === data.name ? `ring-2 ${ringCls()}` : '',
     ]"
-    @click="!drift() && actions.gotoService?.(data)"
+    @click="!drift() && actions.gotoService?.(data)" @keydown.enter="!drift() && actions.gotoService?.(data)"
+    :tabindex="drift() ? undefined : 0"
     @mouseenter="enter" @mouseleave="leave">
     <!-- 实现:常显形态(hover:scale 放大提示)——group-hover 依赖宿主外层 group 类,常显保 happy-dom 可点测 -->
     <button v-if="actions.canMutate" class="topo-svc-add absolute -right-2 -top-2 z-10 w-5 h-5 rounded-full bg-primary text-on-primary shadow ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 transition-transform"
@@ -44,8 +45,11 @@ function leave() { hovered.value = '' }
       <div class="flex items-center gap-xs">
         <span class="material-symbols-outlined text-sm shrink-0" :class="data.drift === 'broken' ? 'text-error' : 'text-tertiary-container'">warning</span>
         <p class="font-mono text-xs font-semibold truncate flex-1" :class="data.drift === 'broken' ? 'text-error' : 'text-tertiary-container'">{{ data.name }}</p>
-        <button class="topo-repair-btn text-[11px] px-1.5 py-0.5 rounded-md font-medium disabled:opacity-40" :class="data.drift === 'broken' ? 'bg-error text-on-error' : 'bg-tertiary-container text-on-tertiary-container'"
-          :disabled="!actions.canMutate || !!actions.repairingSvc?.value" @click.stop="actions.repairServiceSelector(data.name)">
+        <!-- 修复钮三段语义自旧卡逐字迁移:identity 缺失/无写权限/启发式说明;reactive 解包后 repairingSvc/identitySel 直接读值 -->
+        <button class="topo-repair-btn text-[11px] px-1.5 py-0.5 rounded-md font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0" :class="data.drift === 'broken' ? 'bg-error text-on-error' : 'bg-tertiary-container text-on-tertiary-container'"
+          :disabled="!actions.canMutate || !!actions.repairingSvc || !Object.keys(actions.identitySel || {}).length"
+          :title="[!Object.keys(actions.identitySel || {}).length ? t('workload.expose.identityRequired') : '', !actions.canMutate ? t('workload.noUpdatePerm') : '', t('workload.topology.driftHeuristic')].filter(Boolean).join(' · ')"
+          @click.stop="actions.repairServiceSelector(data.name)">
           {{ t('workload.topology.repairSelector') }}
         </button>
       </div>
