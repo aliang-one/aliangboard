@@ -38,7 +38,7 @@ function resetFilters() {
     </div>
     <div class="ml-auto flex items-center gap-sm self-end pb-1">
       <button v-if="isPhone" data-test="filter-toggle" @click="filterOpen = !filterOpen"
-        class="p-xs text-on-surface-variant hover:text-primary rounded-md transition-colors"
+        class="p-xs text-on-surface-variant hover:text-primary rounded-md transition-colors max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center"
         :aria-label="$t('component.filterBar.toggle')">
         <span class="material-symbols-outlined text-lg">{{ filterOpen ? 'filter_alt_off' : 'filter_alt' }}</span>
       </button>

@@ -63,7 +63,7 @@ test('loading 态:确认钮 disabled', () => {
   w.unmount()
 })
 
-test('手机档:ConfirmDialog 随 Modal 自动全屏(width prop 被忽略)', async () => {
+test('手机档:ConfirmDialog 随 Modal 自动全屏(内部 max-w-md 被手机全屏覆盖)', async () => {
   mockBelowSm(true)
   const w = mountDialog({ title: '确认', message: '删?' })
   await w.vm.$nextTick()

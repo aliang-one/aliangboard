@@ -86,3 +86,15 @@ test('手机档:分页 slot 与空状态照常;桌面档无任何卡片 DOM', as
   expect(d.find('.pager').exists()).toBe(true)
   d.unmount()
 })
+
+test('手机档:checkbox 有 40px 命中区(w-5 h-5 + p-2 包裹);点 hit 区不触发 row-click', async () => {
+  mockViewport(true)
+  const w = await mountTable({ selectable: true, rowKey: 'name' })
+  const hit = w.find('[data-card-select-hit]')
+  expect(hit.classes()).toContain('p-2')
+  const box = hit.find('input[data-card-select]')
+  expect(box.classes()).toEqual(expect.arrayContaining(['w-5', 'h-5']))
+  await hit.trigger('click')
+  expect(w.emitted('row-click')).toBeUndefined()
+  w.unmount()
+})
