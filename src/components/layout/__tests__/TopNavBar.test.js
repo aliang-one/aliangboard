@@ -1,6 +1,9 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, afterEach } from 'vitest'
+
+// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
+afterEach(() => { vi.restoreAllMocks() })
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'

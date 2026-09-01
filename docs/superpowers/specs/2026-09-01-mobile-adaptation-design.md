@@ -123,3 +123,4 @@ hover→常显);应急修复闭环(找负载→看日志→止血动作→AI 审
 3. 内容满宽无左侧空条(--sb-width:0);footer 不被 iPhone 底条遮住(安全区)
 4. 任意 Modal(如 创建资源/Scale)手机档全屏、动作条贴底带安全区;桌面档宽度不变
 5. iPad 宽度(768/1000)侧栏仍为 72px 图标栏(hover 展开);桌面(≥1280)完整侧栏——零回归
+6. 无 #actions 槽的全屏 Modal（ChatModal/ToolCallModal 等）手机档内容滚到贴底缘无安全区——Wave 2 处理,先确认可用性

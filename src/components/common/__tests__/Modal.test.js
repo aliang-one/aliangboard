@@ -1,4 +1,7 @@
-import { test, expect, afterEach, vi } from 'vitest'
+import { test, expect, afterEach, vi, afterEach } from 'vitest'
+
+// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
+afterEach(() => { vi.restoreAllMocks() })
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import Modal from '@/components/common/Modal.vue'

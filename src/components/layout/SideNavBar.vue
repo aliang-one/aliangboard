@@ -35,6 +35,15 @@ const { matches: belowLg } = useBreakpoint(MQ_BELOW_LG)
 const { matches: belowSm } = useBreakpoint(MQ_BELOW_SM)
 const shell = useShellStore()
 watch(() => route.fullPath, () => { if (belowSm.value) shell.closeDrawer() })
+// 跨大断点自动收抽屉:手机竖屏开抽屉后转横屏/拖窄跨过 640,drawerOpen 必须清零,
+// 否则 AppLayout 遮罩/侧栏平移状态残留(即便遮罩已 belowSm 门控,状态也须归位)
+watch(belowSm, (v) => { if (!v) shell.closeDrawer() })
+// 手机档点导航项即收抽屉:点当前已激活项时 router.push 同路由 fullPath 不变,
+// route watcher 不触发,手机无键盘唯一出路只剩遮罩——点击处兜底收起
+function navTo(target) {
+  router.push(target)
+  if (belowSm.value) shell.closeDrawer()
+}
 useEscClose(computed(() => belowSm.value && shell.drawerOpen), () => shell.closeDrawer())
 
 const showNsDropdown = ref(false)
@@ -168,7 +177,7 @@ function onNsHomeClick() {
 function goNsRoute(routeKey) {
   if (!currentNs.value) return
   const name = nsRouteMap[routeKey]
-  if (name) router.push({ name, params: { namespace: currentNs.value } })
+  if (name) navTo({ name, params: { namespace: currentNs.value } })
 }
 
 function isGlobalActive(path) {
@@ -347,21 +356,21 @@ function nsStatusColor(status) {
               <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
             </button>
             <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
-              <a v-for="item in clusterPrimaryNav" :key="item.route" @click="router.push(item.route)"
+              <a v-for="item in clusterPrimaryNav" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
                 <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
               <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.clusterResources') }}</p>
-              <a v-for="item in clusterResourcesNav" :key="item.route" @click="router.push(item.route)"
+              <a v-for="item in clusterResourcesNav" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
                 <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
               <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.multiCluster') }}</p>
-              <a v-for="item in clusterOtherNav" :key="item.route" @click="router.push(item.route)"
+              <a v-for="item in clusterOtherNav" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
@@ -375,7 +384,7 @@ function nsStatusColor(status) {
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
         <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs ns-cap">{{ $t('nav.platformAdmin') }}</p>
-        <a v-for="item in platformAdminNav" :key="item.route" @click="router.push(item.route)"
+        <a v-for="item in platformAdminNav" :key="item.route" @click="navTo(item.route)"
           class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>

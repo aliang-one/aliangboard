@@ -38,16 +38,23 @@ import SideNavBar from '@/components/layout/SideNavBar.vue'
 import { useShellStore } from '@/stores/shell'
 
 let matchMediaSpy
+// 捕获各 query 的 change 监听器:测试可经事件路径翻转 useBreakpoint(与真实浏览器一致)
+const mqListeners = new Map()
+function fireChange(query, matches) {
+  const cb = mqListeners.get(query)
+  if (cb) cb({ matches })
+}
 function mockViewport(belowSm, belowLg) {
   matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
     matches: q === '(max-width: 639.98px)' ? belowSm : q === '(max-width: 1023.98px)' ? belowLg : false,
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
+    removeEventListener: () => { mqListeners.delete(q) },
   }))
 }
 
 beforeEach(() => { setActivePinia(createPinia()) })
 afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = '' })
+afterEach(() => { vi.restoreAllMocks() })
 
 function mountNav() {
   return mount(SideNavBar, { global: { plugins: [i18n] } })
@@ -89,5 +96,38 @@ test('桌面档(≥1024):不挂 drawer-mode 不挂 rail', async () => {
   const root = wrapper.find('[data-test="sidenav-root"]')
   expect(root.classes()).not.toContain('drawer-mode')
   expect(root.classes()).not.toContain('rail')
+  wrapper.unmount()
+})
+
+test('跨断点:手机开抽屉→切到非手机(belowSm 变 false)自动 closeDrawer', async () => {
+  mockViewport(true, true)
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  shell.toggleDrawer()
+  await Promise.resolve()
+  expect(shell.drawerOpen).toBe(true)
+  // 经 matchMedia change 事件路径翻转 belowSm(与真实浏览器跨断点一致)
+  fireChange('(max-width: 639.98px)', false)
+  fireChange('(max-width: 1023.98px)', false)
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(shell.drawerOpen).toBe(false)
+  wrapper.unmount()
+})
+
+test('手机档:点击导航项(含已激活同路由)抽屉即收起', async () => {
+  mockViewport(true, true)
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  shell.toggleDrawer()
+  await Promise.resolve()
+  expect(shell.drawerOpen).toBe(true)
+  // mock route 停在 /cluster(首项 dashboard 已激活):点击同路由项也必须收抽屉
+  const first = wrapper.findAll('.nav-item')[0]
+  expect(first).toBeTruthy()
+  await first.trigger('click')
+  await Promise.resolve()
+  expect(pushMock).toHaveBeenCalled()
+  expect(shell.drawerOpen).toBe(false)
   wrapper.unmount()
 })

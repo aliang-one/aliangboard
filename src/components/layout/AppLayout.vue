@@ -13,6 +13,11 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import { getSession } from '@/api/client'
 import { Z } from '@/styles/zScale'
 import { useShellStore } from '@/stores/shell'
+import { useBreakpoint, MQ_BELOW_SM } from '@/composables/useBreakpoint'
+
+// 遮罩只在手机档渲染:跨断点(手机开抽屉→转横屏/iPad)时 SideNavBar 的 belowSm watch
+// 会自动收抽屉,但这里再以 belowSm 门控兜底,杜绝 drawerOpen 残留压暗 iPad/桌面界面
+const { matches: belowSm } = useBreakpoint(MQ_BELOW_SM)
 
 // 终端窗口懒加载：xterm + addons（~400KB）仅在 allTerminals 非空（用户开了终端）时才加载，
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
@@ -71,7 +76,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <template>
   <div class="flex h-screen overflow-hidden">
     <!-- 手机抽屉遮罩(<640 仅为真抽屉;iPad/桌面 drawerOpen 恒 false,自然不渲染) -->
-    <div v-if="shell.drawerOpen" data-test="drawer-backdrop" class="fixed inset-0 bg-on-surface/40"
+    <div v-if="belowSm && shell.drawerOpen" data-test="drawer-backdrop" class="fixed inset-0 bg-on-surface/40"
       :style="{ zIndex: Z.drawer - 1 }" @click="shell.closeDrawer()"></div>
     <SideNavBar />
     <div class="shell-main flex-1 flex flex-col min-w-0">
@@ -132,7 +137,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <style>
 /* 侧栏宽度单一事实源(2026-08-31 响应式设计 §3):本文件是唯一定义点,
    SideNavBar(.sidenav-root)与 hydrate 加载条同消费;<lg(iPad 竖屏)侧栏收 72px 图标栏。
-   禁止壳层再写 260px 定位/宽度字面量(shell-width-guard.test.js 强制)。 */
+   禁止壳层再写 260px 定位/宽度字面量(shell-width-guard.test.js 强制)。
+   （例外:SideNavBar 手机抽屉 .drawer-mode 固定 260px,2026-09-01 手机适配） */
 :root { --sb-width: 260px; }
 @media (max-width: 1023.98px) { :root { --sb-width: 72px; } }
 /* 手机档:内容满宽,抽屉 overlay 不推挤(2026-09-01 手机适配 Wave 1a) */
