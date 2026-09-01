@@ -65,8 +65,8 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
   const labelConsumers = computed(() => {
     const subset = sel => Object.entries(sel || {}).every(([k, v]) => k in tplLabels.value && String(tplLabels.value[k]) === String(v))
     return [
-      ...pdbList.value.filter(p => subset(p.selector)).map(p => ({ kind: 'PDB', name: p.name, disruptive: p.raw?.status?.disruptionsAllowed === 0 })),
-      ...netpolList.value.filter(n => subset(n.podSelector)).map(n => ({ kind: 'NetworkPolicy', name: n.name })),
+      ...pdbList.value.filter(p => subset(p.selector)).map(p => ({ kind: 'PDB', name: p.name, disruptive: p.raw?.status?.disruptionsAllowed === 0, selector: p.selector })),
+      ...netpolList.value.filter(n => subset(n.podSelector)).map(n => ({ kind: 'NetworkPolicy', name: n.name, selector: n.podSelector })),
     ]
   })
 
