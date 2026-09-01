@@ -1180,8 +1180,7 @@ async function handle(req, res) {
     // kind→路径统一从 kind-paths.mjs 派生(listApiPath/getApiPath)——本函数曾持两份私有路径表,已删。
     const enc = encodeURIComponent
     const LOG_TAIL = 200, LOG_MAX = 16384
-    return {
-      ctx: {
+    const ctx = {
         readLedger: async () => {
           if (!project.clusterId) return '(项目未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后此处为集群能力台账)'
           let out = ''
@@ -1421,14 +1420,15 @@ async function handle(req, res) {
             ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }
         },
-      },
-      // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 工具经 agent-runner ctx.ssh 到达;
-      // 池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbench-agent 会 excludeTools 隐藏两工具。
-      ssh: createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id, getSetting, setSetting }),
-      // SSH 异步任务桥(规格 2026-08-30):wb_ssh_run/out/write/list/kill 经 ctx.sshJobs 到达
-      sshJobs: createSshJobBridge({ db, pool: sshPool, projectId: project.id, getPolicy: getSshJobPolicy }),
-      k8sSession,
     }
+    // SSH 桥(Task 11,2026-08-28):wb_ssh_exec/read_file 经 ctx.ssh 到达;异步任务(wb_ssh_run/job_*)经
+    // ctx.sshJobs。池身份 wb:<projectId>;凭据只在 pool 闭包内。零暴露时 workbenchExcludeTools 隐藏 SSH 组。
+    // ⚠ 必须赋值进 ctx(2026-09-01 事故):曾写成返回值顶层兄弟键 `ssh:`,两个消费方(workbench-agent /
+    // agent-runner)都只读 ctx.ssh → exposedCount 恒 0 → 9 个 SSH 工具被无条件剔除,而提示词仍烘焙
+    // 服务器清单(AI 自相矛盾拒答)。形状守卫:workbench-ctx-wiring.test.mjs。
+    ctx.ssh = createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id, getSetting, setSetting })
+    ctx.sshJobs = createSshJobBridge({ db, pool: sshPool, projectId: project.id, getPolicy: getSshJobPolicy })
+    return { ctx, k8sSession }
   }
 
   // SP2: agent loop 抽到 workbench-agent.mjs(factory,可单测)。零行为变更。

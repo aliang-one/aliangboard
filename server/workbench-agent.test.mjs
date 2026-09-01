@@ -33,15 +33,20 @@ function setup({ withPriorTurn = false } = {}) {
   const busEmit = (id, evt) => events.push({ id, ...evt })
   const busDispose = (id) => events.push({ id, type: 'disposed' })
 
-  // 捕获 run() 收到的 opts(含 history),测试可断言多轮上下文
+  // 捕获 run() 收到的 opts(含 history),测试可断言多轮上下文;顺带捕获 createAgentRunner
+  // 的装配参数(excludeTools/dynamicApproval 等)供 offering 契约测试断言
   let capturedRunOpts = null
+  let capturedRunnerArgs = null
   const makeRunner = (runImpl) => ({
-    createAgentRunner: () => ({
-      run: async (opts) => { capturedRunOpts = opts; return runImpl(opts) },
-    }),
+    createAgentRunner: (args) => {
+      capturedRunnerArgs = args
+      return {
+        run: async (opts) => { capturedRunOpts = opts; return runImpl(opts) },
+      }
+    },
   })
 
-  return { db, project, conv, events, busEmit, busDispose, capturedRunOpts: () => capturedRunOpts, makeRunner }
+  return { db, project, conv, events, busEmit, busDispose, capturedRunOpts: () => capturedRunOpts, capturedRunnerArgs: () => capturedRunnerArgs, makeRunner }
 }
 
 // 公共 deps(buildWbCtx/buildK8sSession/fetchRefContext 都是 stub——agent loop 不测它们的内部)
@@ -597,4 +602,54 @@ test('I5:对话被删后 run 失败 → salvagePartial 零写入(无孤儿 parti
   // catch 块后续的 failed+end 事件照发(salvage 静默返回不打断事件链)
   assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'failed 事件照发')
   assert.ok(events.some(e => e.type === 'end'), 'end 事件照发')
+})
+
+// ===== SSH offering 契约(2026-09-01 接线事故回归钉)=====
+// 生产者形状:index.mjs buildWbCtx 必须把 ssh/sshJobs 挂进 ctx(形状由
+// workbench-ctx-wiring.test.mjs 静态守卫锁死);本组测试锁定消费方契约——
+// exposedCount 只随 ctx.ssh.listExposed() 变化,有暴露服务器时 SSH 工具不得被剔除。
+const DONE = { status: 'done', content: 'ok', trace: [], steps: 1, messages: [], queue: [], denied: [] }
+const producerShapedDeps = (sshBridge, sshJobs = null) => ({
+  buildWbCtx: () => ({ ctx: { ...(sshBridge ? { ssh: sshBridge } : {}), ...(sshJobs ? { sshJobs } : {}) } }),
+  buildK8sSession: () => ({}),
+  fetchRefContext: async () => '',
+})
+const fakeBridge = (exposed) => ({ listExposed: () => exposed, needsApproval: async () => false })
+
+test('SSH offering:有暴露服务器 → excludeTools 为 null(SSH 工具不被剔除)+ 动态审批路由在场', async () => {
+  const { db, conv, busEmit, busDispose, capturedRunnerArgs, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => DONE)
+  const agent = createWorkbenchAgent({ db, ...producerShapedDeps(fakeBridge([{ id: 's1', name: 'srv1' }])), createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const args = capturedRunnerArgs()
+  assert.equal(args.excludeTools, null, 'exposedCount≥1 → 不得剔除任何 SSH 工具')
+  assert.ok(typeof args.dynamicApproval === 'function', 'sshBridge 在场 → routeDynamicApproval 必须接线')
+})
+
+test('SSH offering:零暴露 → excludeTools 恰含 SSH_HIDDEN_TOOLS 全集', async () => {
+  const { SSH_HIDDEN_TOOLS } = await import('./tool-registry.mjs')
+  const { db, conv, busEmit, busDispose, capturedRunnerArgs, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => DONE)
+  const agent = createWorkbenchAgent({ db, ...producerShapedDeps(fakeBridge([])), createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const got = capturedRunnerArgs().excludeTools
+  assert.ok(got instanceof Set, '零暴露必须返回剔除集合')
+  for (const n of SSH_HIDDEN_TOOLS) assert.ok(got.has(n), `零暴露必须剔除 ${n}`)
+})
+
+test('SSH offering:无 ctx.ssh(未接线)→ fail-closed 剔除全集,而非放行', async () => {
+  const { SSH_HIDDEN_TOOLS } = await import('./tool-registry.mjs')
+  const { db, conv, busEmit, busDispose, capturedRunnerArgs, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => DONE)
+  const agent = createWorkbenchAgent({ db, ...producerShapedDeps(null), createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+
+  const got = capturedRunnerArgs().excludeTools
+  assert.ok(got instanceof Set, 'sshBridge 缺席(接线断裂)必须 fail-closed')
+  for (const n of SSH_HIDDEN_TOOLS) assert.ok(got.has(n), `接线断裂必须剔除 ${n}`)
 })
