@@ -4,7 +4,7 @@ import { recordListRv } from '@/composables/watchRegistry'
 import { i18n } from '@/i18n'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import {
-  mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV,
+  mapNode, mapPod, mapWorkload, mapReplicaSet, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV,
   mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass,
   mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange,
   mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf
@@ -67,6 +67,12 @@ export async function fetchWorkloads() {
     ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
     ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
   ]
+}
+
+// ns 级 ReplicaSet(拓扑 RS 层):watch 不覆盖 RS,新鲜度靠查询 pollInterval 兜底(B2 单轨)。
+export async function fetchReplicaSets(ns) {
+  const d = await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/replicasets?limit=500`)
+  return (d?.items || []).map(mapReplicaSet)
 }
 
 export async function fetchNodes() {

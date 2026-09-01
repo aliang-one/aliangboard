@@ -118,6 +118,17 @@ export function mapWorkload(item, type) {
   }
 }
 
+// ReplicaSet(拓扑 RS 层,2026-09-01):ownerReferences 判定与「新/旧」排序走 raw。
+export const mapReplicaSet = item => ({
+  name: item.metadata?.name,
+  namespace: item.metadata?.namespace,
+  desired: item.spec?.replicas ?? 0,
+  ready: item.status?.readyReplicas || 0,
+  hash: item.metadata?.labels?.['pod-template-hash'] || '',
+  age: ageOf(item.metadata?.creationTimestamp),
+  raw: item,
+})
+
 // === 远端资源映射（K8s API 对象 → 前端扁平结构，字段与 mock 保持一致）===
 // 视图按 mock 形状渲染，这里把真实集群返回的对象映射成相同结构，
 // 这样所有列表/详情页在远端模式下都能正确展示。
