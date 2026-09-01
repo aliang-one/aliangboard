@@ -7,6 +7,7 @@ import { nextTick } from 'vue'
 import Modal from '@/components/common/Modal.vue'
 import { Z } from '@/styles/zScale'
 import { i18n } from '@/i18n'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 // Modal teleport 到 body;断言失败提前抛出会跳过 wrapper.unmount,统一在此清场
 afterEach(() => { document.body.innerHTML = '' })
@@ -171,14 +172,10 @@ test('Modal: 无 beforeClose 行为不变(回归)', async () => {
 
 // 2026-09-01 手机适配 Wave 1a:<640 一切 Modal 自动全屏(复用 max-layout 三段式),
 // width prop 手机档被忽略;动作条含 iOS 安全区 padding。桌面/平板行为零变化。
-const mockBelowSm = (below) => vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-  matches: below && q === '(max-width: 639.98px)',
-  addEventListener: () => {},
-  removeEventListener: () => {},
-}))
+// (终审修复:本地 mockBelowSm 残留收编到共享 helper mobileViewport)
 
 test('Modal: 手机档(<640)自动全屏,width prop 被忽略,动作条带安全区', async () => {
-  const spy = mockBelowSm(true)
+  const spy = mockViewport(true)
   const wrapper = mount(Modal, {
     props: { modelValue: true, title: '标题', width: 'max-w-lg' },
     slots: { actions: '<button data-testid="act">ok</button>' },
@@ -200,8 +197,23 @@ test('Modal: 手机档(<640)自动全屏,width prop 被忽略,动作条带安全
   document.body.innerHTML = ''
 })
 
+// 2026-09-01 手机适配 Wave 2 Task 6:无 actions 槽的全屏 Modal(ToolCallModal/ChatModal 等)
+// 内容底缘不再贴死——max-layout 内容区手机档带底部安全区 padding。
+// env() 值 happy-dom 测不了,按 1a 先例断言 max-sm: 前缀类名在场。
+test('Modal: 手机档全屏 Modal 无 actions 时内容区带底部安全区 padding', async () => {
+  const spy = mockViewport(true)
+  const wrapper = mount(Modal, { props: { modelValue: true, title: 't' }, global: { plugins: [i18n] } })
+  await nextTick()
+  const content = document.querySelector('body .flex-1')
+  expect(content).toBeTruthy()
+  expect(content.className).toContain('max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+16px)]')
+  spy.mockRestore()
+  wrapper.unmount()
+  document.body.innerHTML = ''
+})
+
 test('Modal: 桌面档(≥640)保持 width prop,无安全区 style', async () => {
-  const spy = mockBelowSm(false)
+  const spy = mockViewport(false)
   const wrapper = mount(Modal, {
     props: { modelValue: true, title: '标题', width: 'max-w-lg' },
     slots: { actions: '<button data-testid="act">ok</button>' },

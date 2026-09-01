@@ -1277,8 +1277,10 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <pre v-else-if="pendingApproval.args?.content" class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
       </div>
       <template #actions>
-        <button @click="decideApproval(false)" :disabled="sending" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ t('workbench.chat.reject') }}</button>
-        <button @click="decideApproval(true)" :disabled="sending" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40">{{ t('workbench.chat.approve') }}</button>
+        <button data-testid="approval-deny" @click="decideApproval(false)" :disabled="sending"
+          class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.reject') }}</button>
+        <button data-testid="approval-approve" @click="decideApproval(true)" :disabled="sending"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40 max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.approve') }}</button>
       </template>
     </Modal>
 

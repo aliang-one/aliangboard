@@ -1,3 +1,8 @@
+<script>
+// 手机虚拟按键字节表(VT100/xterm 标准):无物理键盘时的 exec 刚需(spec §5)
+export const KEY_BYTES = { 'Esc': '\x1b', 'Tab': '\t', '↑': '\x1b[A', '↓': '\x1b[B', '←': '\x1b[D', '→': '\x1b[C', 'Ctrl+C': '\x03' }
+</script>
+
 <script setup>
 // Pod exec 终端：浏览器 xterm.js ↔ Gateway WebSocket ↔ K8s（client-node exec）。
 // 鲁棒性：默认走 PATH 解析的 sh；用户可选 bash/ash/绝对路径/自定义命令；
@@ -11,8 +16,10 @@ import '@xterm/xterm/css/xterm.css'
 import { useClusterStore } from '@/stores/cluster'
 import { execStream } from '@/api/client'
 import { codeTheme } from '@/styles/code-theme'
+import { useIsPhone } from '@/composables/useBreakpoint'
 
 const { t } = useI18n()
+const { isPhone } = useIsPhone()
 
 const props = defineProps({
   podName: { type: String, default: '' },
@@ -47,6 +54,9 @@ let gotOutput = false     // 本次连接是否收到过输出（判断 shell �
 let gen = 0               // 连接代际：降级重连时自增，旧流的回调按代际作废，避免重复降级
 
 function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
+
+// 手机虚拟按键条输入:复用 term.onData 同款数据通路(WS 协议语义不变)
+function sendInput(d) { stream?.send(d); term?.focus() }
 
 function ensureTerm() {
   if (term) return
@@ -194,6 +204,13 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
         </div>
       </div>
       <div ref="root" class="flex-1 min-h-0 p-sm"></div>
+      <!-- 手机档虚拟按键条:无物理键盘时的 exec 刚需(Esc/Tab/方向键/Ctrl+C) -->
+      <div v-if="isPhone" data-test="term-keybar" class="flex items-center gap-1 px-sm py-1 border-t border-outline-variant bg-surface-container-low overflow-x-auto shrink-0">
+        <button v-for="(bytes, key) in KEY_BYTES" :key="key" @pointerdown.prevent @click="sendInput(bytes)"
+          class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono active:bg-primary-container/20 transition-colors">
+          {{ key }}
+        </button>
+      </div>
       <p v-if="statusMsg" class="px-md py-xs text-xs text-error bg-error-container/10">{{ statusMsg }}</p>
       <!-- 自动检测全失败：手动选/填 shell -->
       <div v-if="manualNeeded" class="px-md py-sm bg-surface-container-low border-t border-outline-variant shrink-0">

@@ -21,6 +21,8 @@ import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
 import { podCpuPct, podMemPct } from '@/composables/usePod'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 	const route = useRoute()
@@ -208,10 +210,13 @@ function goToRelated(event) {
 
 // === 文件浏览器：内嵌到 Files 标签（复用 FileBrowserBody，不走弹窗） ===
 const fbContainer = computed(() => selectedContainer.value || containers.value?.[0] || '')
+
+// 手机档(2026-09-01 手机适配 Wave 2):底部止血条显示开关
+const { isPhone } = useIsPhone()
 </script>
 
 <template>
-  <div class="animate-fade-in" v-if="pod">
+  <div class="animate-fade-in max-sm:pb-20" v-if="pod">
     <!-- Header -->
     <div class="mb-lg flex items-center justify-between">
       <div class="flex flex-col">
@@ -226,21 +231,21 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           <StatusChip :status="pod.status" />
         </div>
       </div>
-      <div class="flex gap-2">
-        <button v-if="owningWorkload" @click="goToWorkload" :title="$t('podDetail.jumpToWorkload', { kind: owningWorkload.kind, name: owningWorkload.name })" class="flex items-center gap-2 px-md py-2 border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors">
+      <div class="flex gap-2 max-sm:flex-wrap max-sm:gap-sm">
+        <button v-if="owningWorkload" @click="goToWorkload" :title="$t('podDetail.jumpToWorkload', { kind: owningWorkload.kind, name: owningWorkload.name })" class="flex items-center gap-2 px-md py-2 border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">workspaces</span>
           <span class="font-medium text-body-md">{{ owningWorkload.kind }}</span>
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </button>
-        <button @click="exportPod" :title="$t('podDetail.exportRealYaml')" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button @click="exportPod" :title="$t('podDetail.exportRealYaml')" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">download</span>
           <span class="font-medium text-body-md">{{ $t('common.export') }}</span>
         </button>
-        <button @click="askDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button @click="askDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-error">delete</span>
           <span class="font-medium text-body-md">{{ $t('common.delete') }}</span>
         </button>
-        <button @click="askRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <button @click="askRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">refresh</span>
           <span class="font-medium text-body-md">{{ $t('common.restart') }}</span>
         </button>
@@ -367,6 +372,18 @@ const fbContainer = computed(() => selectedContainer.value || containers.value?.
           </div>
         </div>
       </aside>
+    </div>
+
+    <!-- 手机底部止血条(spec §5):重启/删除一键可达;复用既有处理器,二次确认不放松 -->
+    <div v-if="isPhone" data-testid="pod-action-bar"
+      class="sticky bottom-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
+      :style="{ zIndex: Z.drawer - 1, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }">
+      <button @click="askRestart" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm bg-primary text-on-primary rounded-lg font-semibold active:scale-95 transition-all">
+        <span class="material-symbols-outlined text-base">restart_alt</span>{{ $t('common.restart') }}
+      </button>
+      <button @click="askDelete" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm border border-error/50 text-error rounded-lg active:scale-95 transition-all">
+        <span class="material-symbols-outlined text-base">delete</span>{{ $t('common.delete') }}
+      </button>
     </div>
 
     <!-- Delete / Restart 确认 -->
