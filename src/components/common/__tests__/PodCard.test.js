@@ -84,3 +84,28 @@ test('行3 无 metrics 不渲染(现状回归)', () => {
   const w = mountCard()
   expect(w.find('[data-testid="pod-metrics"]').exists()).toBe(false)
 })
+
+test('行3 用量条分母=limit:req512Mi/lim2048Mi/used1024Mi → 50% 不标红(2026-09-01 溢出标红事故回归)', () => {
+  // mapPod 产物形状:数值字段 + 展示串(分母已切 limit)
+  const pod = {
+    ...POD, status: 'Running',
+    usedCpu: 124, reqCpu: 100, limCpu: 500,
+    usedMem: 1024 * 1024, reqMem: 512 * 1024, limMem: 2048 * 1024,
+    cpu: '124m/500m', memory: '1024Mi/2048Mi',
+  }
+  const w = mountCard({ pod })
+  const bar = w.find('[data-testid="pod-mem-bar"] div')
+  expect(bar.attributes('style')).toContain('width: 50%')
+  expect(bar.classes()).not.toContain('bg-error')
+  expect(w.find('[data-testid="pod-mem-value"]').text()).toBe('1024Mi/2048Mi')
+})
+
+test('行3 用量贴近 limit 仍标红:>80% 语义保留(分母换成 limit 不放松告警)', () => {
+  const pod = {
+    ...POD, status: 'Running',
+    usedMem: 1800 * 1024, reqMem: 512 * 1024, limMem: 2048 * 1024,
+    memory: '1800Mi/2048Mi',
+  }
+  const w = mountCard({ pod })
+  expect(w.find('[data-testid="pod-mem-bar"] div').classes()).toContain('bg-error')
+})

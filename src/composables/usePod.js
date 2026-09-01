@@ -16,7 +16,7 @@ export function imgTag(image) {
   return i > noDigest.lastIndexOf('/') ? noDigest.slice(i + 1) : ''
 }
 
-// 资源占用百分比：优先用数值字段（usedCpu/reqCpu 等），缺失时回退解析 "used/total"
+// 资源占用百分比：优先用数值字段（usedCpu/limCpu 等），缺失时回退解析 "used/total"
 export function pctRatio(str) {
   if (!str || str === '0/0') return 0
   const parts = String(str).split('/')
@@ -24,12 +24,21 @@ export function pctRatio(str) {
   const used = parseFloat(parts[0]), total = parseFloat(parts[1])
   return total ? Math.min(100, Math.round((used / total) * 100)) : 0
 }
+// 分母 = 上限：limit 优先（超限 throttle/OOMKill，用量条的自然满格），未设回退 request 承诺量。
+// 与 mapPod 的 cpu/memory 展示串同分母（2026-09-01 修复：此前恒用 request，
+// req 512Mi / limit 2048Mi 用到 1024Mi 会 200% 封顶满格标红）。
 export function podCpuPct(pod) {
-  if (pod?.usedCpu != null && pod?.reqCpu) return Math.min(100, Math.round(pod.usedCpu / pod.reqCpu * 100))
+  if (pod?.usedCpu != null) {
+    const total = pod.limCpu || pod.reqCpu
+    if (total) return Math.min(100, Math.round(pod.usedCpu / total * 100))
+  }
   return pctRatio(pod?.cpu)
 }
 export function podMemPct(pod) {
-  if (pod?.usedMem != null && pod?.reqMem) return Math.min(100, Math.round(pod.usedMem / pod.reqMem * 100))
+  if (pod?.usedMem != null) {
+    const total = pod.limMem || pod.reqMem
+    if (total) return Math.min(100, Math.round(pod.usedMem / total * 100))
+  }
   return pctRatio(pod?.memory)
 }
 
