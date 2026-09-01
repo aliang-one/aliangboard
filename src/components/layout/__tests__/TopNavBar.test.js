@@ -1,9 +1,6 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
 import { test, expect, vi, afterEach } from 'vitest'
-
-// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
-afterEach(() => { vi.restoreAllMocks() })
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
@@ -14,6 +11,9 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/cluster' }), useRouter
 import TopNavBar from '@/components/layout/TopNavBar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useShellStore } from '@/stores/shell'
+
+// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
+afterEach(() => { vi.restoreAllMocks() })
 
 function mountNav() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })

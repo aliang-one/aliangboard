@@ -1,9 +1,9 @@
 // src/composables/__tests__/useBreakpoint.test.js
 import { test, expect, vi, afterEach } from 'vitest'
+import { useBreakpoint, MQ_BELOW_LG } from '../useBreakpoint'
 
 // 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
 afterEach(() => { vi.restoreAllMocks() })
-import { useBreakpoint, MQ_BELOW_LG } from '../useBreakpoint'
 
 test('MQ_BELOW_LG 查询串与 Tailwind lg=1024 对齐', () => {
   expect(MQ_BELOW_LG).toBe('(max-width: 1023.98px)')
