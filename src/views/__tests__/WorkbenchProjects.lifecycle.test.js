@@ -256,7 +256,8 @@ const memorySeed = () => [{ id: 'p1', name: 'alpha', clusterId: 'c1', namespace:
 
 async function openMemoryModal(w) {
   await openCardMenu(w).trigger('click')
-  await w.findAll('button').find(b => b.text().includes('项目记忆')).trigger('click')
+  // 菜单已 Teleport body(2026-09-01 遮挡根治),沿用本文件 clickMenuItem(body 查询)
+  await clickMenuItem('项目记忆')
 }
 
 test('菜单含「项目记忆」:点击开弹窗且 textarea 预填列表携带的 recap', async () => {
