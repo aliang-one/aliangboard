@@ -6,7 +6,7 @@
 // → status==='paused' → 弹审批 modal;approve/deny → POST → 继续轮询
 // → status==='done' → 显示终答 + 停轮询;status==='failed' → 显示错误 + 停轮询。
 // 审批 modal 展 path+content。
-import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
@@ -58,8 +58,12 @@ const convStatus = ref(null)
 // 服务端下发的上下文余量(Task 3 口径:{ estTokens, windowTokens, budgetTokens, recapUpTo, willTrim })
 const ctxInfo = ref(null)
 const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
-// 项目背景(2026-08-29 项目记忆 T4):AI 每轮携带的项目决策摘要,null=无记忆不渲染
+// 项目背景(2026-08-29 项目记忆 T4):AI 每轮携带的项目决策摘要;null=渲染空态卡(可一键生成)
 const projectRecap = ref(null)
+// recapLoaded 闸(终审 I2):首挂/切对话时对话数据未到,projectRecap 还是 null——
+// 若无此闸,空态预展开会把「有记忆」卡也撑开且载入后无人收回。仅 pollOnce 载入后为 true;
+// 切对话时复位,清空记忆(clearRecap/saveRecapEdit 清空分支)保持 true(转空态卡须展开)。
+const recapLoaded = ref(false)
 // recap 人工纠偏(T5 2026-08-31):编辑态草稿/保存中;清空走 confirm 二次确认
 const recapEditing = ref(false)
 const recapDraft = ref('')
@@ -71,12 +75,11 @@ const projectRecapCard = ref(null)
 // 空态卡默认展开(spec §3):入口必须一眼可见。不用 :open 声明式绑定——30s 自适应轮询
 // 重渲染会与用户手动展开/收起互搏,改编程式一次性展开;有记忆态维持默认收起(现状)。
 function expandRecapIfEmpty() {
-  if (props.projectId && !projectRecap.value && !recapEditing.value && projectRecapCard.value) {
+  if (props.projectId && recapLoaded.value && !projectRecap.value && !recapEditing.value && projectRecapCard.value) {
     projectRecapCard.value.open = true
   }
 }
-watch(projectRecap, expandRecapIfEmpty)          // 清空/从未有记忆时转空态 → 展开
-onMounted(() => nextTick(expandRecapIfEmpty))    // 首挂(模板 ref 此时尚未绑定,须 nextTick)
+watch(projectRecap, expandRecapIfEmpty)          // 清空/载入为无记忆 → 转空态卡 → 展开(须过 recapLoaded 闸)
 
 function startRecapEdit() {
   recapDraft.value = projectRecap.value || ''
@@ -95,7 +98,7 @@ async function saveRecapEdit() {
   recapSaving.value = true
   try {
     await workbenchApi.updateProject(props.projectId, { recap: next })
-    projectRecap.value = clearing ? null : next   // 清空 → null 收起卡片(与「无记忆」态一致)
+    projectRecap.value = clearing ? null : next   // 清空 → null 转空态卡(watch 展开入口,recapLoaded 保持 true)
     recapEditing.value = false
     notify('success', clearing ? t('workbench.chat.recapClearDone') : t('workbench.chat.recapSaved'))
   } catch (e) {
@@ -110,7 +113,7 @@ async function clearRecap() {
   recapSaving.value = true
   try {
     await workbenchApi.updateProject(props.projectId, { recap: '' })
-    projectRecap.value = null   // v-if 收起卡片(与「无记忆」态一致)
+    projectRecap.value = null   // 转空态卡(watch 展开入口;recapLoaded 保持 true)
     recapEditing.value = false
     notify('success', t('workbench.chat.recapClearDone'))
   } catch (e) {
@@ -456,6 +459,7 @@ watch(() => props.conversationId, async (convId) => {
   ctxInfo.value = null
   recap.value = ''
   projectRecap.value = null
+  recapLoaded.value = false   // 切对话:新对话的 projectRecap 未见载入前不许空态预展开(终审 I2)
   pendingApproval.value = null
   errorBanner.value = ''
   editing.value = null   // 切对话:编辑态(锚+暂存草稿)不跨对话
@@ -470,6 +474,9 @@ watch(() => props.conversationId, async (convId) => {
     await loadConversation(convId)
   } else {
     input.value = getDraft('new')
+    // 无对话:不会有 pollOnce 载入 projectRecap——闸置 true 让空态卡照常默认展开(终审 I2)
+    recapLoaded.value = true
+    nextTick(expandRecapIfEmpty)
   }
 }, { immediate: true })
 
@@ -514,6 +521,9 @@ async function pollOnce(id) {
     if (conv.context) ctxInfo.value = conv.context
     recap.value = conv.recap || ''
     if (conv.projectRecap !== undefined) projectRecap.value = conv.projectRecap
+    recapLoaded.value = true   // 本会话记忆已见载入:此后 null 才可信为「无记忆」→ 空态展开(终审 I2)
+    // null→null 赋值不触发 watch,此处显式补一刀:载入为无记忆 → 空态展开(有记忆则 no-op)
+    expandRecapIfEmpty()
     // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
     let rebuiltFromMessages = false
     if (!turns.value.length) {

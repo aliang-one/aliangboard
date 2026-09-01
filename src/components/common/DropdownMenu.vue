@@ -64,6 +64,8 @@ onBeforeUnmount(close)
     </div>
 
     <!-- 点击外部关闭的遮罩 -->
-    <div v-if="open" class="fixed inset-0 z-30" @click="close"></div>
+    <!-- .stop:遮罩虽 fixed 但 DOM 上是宿主元素的子孙——不加 stop,「点外部关菜单」
+         会冒泡到宿主的 @click(如项目卡点击即导航)变成误导航(终审 I1) -->
+    <div v-if="open" class="fixed inset-0 z-30" @click.stop="close"></div>
   </div>
 </template>

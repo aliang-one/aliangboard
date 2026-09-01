@@ -162,6 +162,14 @@ test('保存失败:error 提示透传服务端 message(M3,与 WorkbenchList 一�
 
 // ═══ 空态可写(2026-09-01 可见性修复,spec §3):v-if 恒真后,无记忆也有写入入口 ═══
 
+test('有记忆态:载入后默认收起(recapLoaded 闸——终审 I2,不预展开)', async () => {
+  const w = await mountWithProjectRecap('旧记忆')
+  const card = w.find('[data-testid="project-recap-card"]')
+  expect(card.exists()).toBe(true)
+  expect(card.element.open).toBe(false, '有记忆载入后默认收起——不被空态预载撑开')
+  expect(card.find('[data-testid="recap-empty"]').exists()).toBe(false)
+})
+
 test('空态:无记忆时卡片渲染、默认展开、写入记忆钮进编辑态', async () => {
   const w = await mountWithProjectRecap(null)
   const card = w.find('[data-testid="project-recap-card"]')

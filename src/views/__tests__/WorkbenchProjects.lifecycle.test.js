@@ -64,6 +64,17 @@ test('菜单:点 ⋮ 展开菜单且不触发整卡导航(stopPropagation)', asy
   expect(pushMock).not.toHaveBeenCalled()
 })
 
+test('菜单:点遮罩(点外部)关闭菜单且不冒泡整卡导航(终审 I1)', async () => {
+  const w = mountView()
+  await flushPromises()
+  await openCardMenu(w).trigger('click')
+  const overlay = w.find('.fixed.inset-0')
+  expect(overlay.exists()).toBe(true, '菜单展开时遮罩存在')
+  await overlay.trigger('click')
+  expect(w.find('.fixed.inset-0').exists()).toBe(false, '遮罩点击后菜单关闭')
+  expect(pushMock).not.toHaveBeenCalled()
+})
+
 // 注意:happy-dom 里 Material Symbols 图标 span 渲染为图标名文字,菜单钮 text() 是 'edit重命名'
 // 形态——必须 includes 匹配,不能等值。
 test('重命名:弹窗输入新名 → updateProject(id,{name}) + 本地刷新 + success', async () => {
