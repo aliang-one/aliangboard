@@ -165,3 +165,53 @@ test('Modal: 无 beforeClose 行为不变(回归)', async () => {
   expect(w.emitted('update:modelValue')[0]).toEqual([false])
   w.unmount()
 })
+
+// 2026-09-01 手机适配 Wave 1a:<640 一切 Modal 自动全屏(复用 max-layout 三段式),
+// width prop 手机档被忽略;动作条含 iOS 安全区 padding。桌面/平板行为零变化。
+const mockBelowSm = (below) => vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+  matches: below && q === '(max-width: 639.98px)',
+  addEventListener: () => {},
+  removeEventListener: () => {},
+}))
+
+test('Modal: 手机档(<640)自动全屏,width prop 被忽略,动作条带安全区', async () => {
+  const spy = mockBelowSm(true)
+  const wrapper = mount(Modal, {
+    props: { modelValue: true, title: '标题', width: 'max-w-lg' },
+    slots: { actions: '<button data-testid="act">ok</button>' },
+    global: { plugins: [i18n] },
+  })
+  await nextTick()
+  const dialog = document.querySelector('body .relative.w-full')
+  expect(dialog).toBeTruthy()
+  expect(dialog.className).toContain('max-w-none')
+  expect(dialog.className).toContain('rounded-none')
+  expect(dialog.className).not.toContain('max-w-lg')
+  const actions = dialog.querySelector('.border-t')
+  expect(actions).toBeTruthy()
+  // happy-dom 的 CSSStyleDeclaration 不解析 env()(style prop/attr 均被静默丢弃),
+  // 改验手机全屏态专属 data-safe-area 标记;内联 style 值见 Modal.vue 动作条绑定。
+  expect(actions.hasAttribute('data-safe-area')).toBe(true)
+  spy.mockRestore()
+  wrapper.unmount()
+  document.body.innerHTML = ''
+})
+
+test('Modal: 桌面档(≥640)保持 width prop,无安全区 style', async () => {
+  const spy = mockBelowSm(false)
+  const wrapper = mount(Modal, {
+    props: { modelValue: true, title: '标题', width: 'max-w-lg' },
+    slots: { actions: '<button data-testid="act">ok</button>' },
+    global: { plugins: [i18n] },
+  })
+  await nextTick()
+  const dialog = document.querySelector('body .relative.w-full')
+  expect(dialog.className).toContain('max-w-lg')
+  expect(dialog.className).not.toContain('max-w-none')
+  const actions = dialog.querySelector('.border-t')
+  expect(actions.style.paddingBottom).toBe('')
+  expect(actions.hasAttribute('data-safe-area')).toBe(false)
+  spy.mockRestore()
+  wrapper.unmount()
+  document.body.innerHTML = ''
+})

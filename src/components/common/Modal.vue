@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useEscClose } from '@/composables/useEscClose'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
@@ -33,8 +34,11 @@ function close() {
 const maximized = ref(false)
 watch(() => props.modelValue, v => { if (!v) maximized.value = false })
 
-// 全屏形态共用既有 fullscreen 三段式布局
-const isMaxLayout = computed(() => props.fullscreen || maximized.value)
+const { isPhone } = useIsPhone()
+
+// 全屏形态共用既有 fullscreen 三段式布局;手机档(<640)一律全屏(2026-09-01 手机适配:
+// 46 个消费方零改动自动生效,width prop 手机档忽略——maxLayout 分支不含 width 类)
+const isMaxLayout = computed(() => props.fullscreen || maximized.value || isPhone.value)
 
 // ESC 关闭:行为同 Cancel/X/点遮罩;层叠时只关栈顶(见 useEscClose)。
 // 最大化时 ESC 先还原,再次 ESC 才关闭(防误触丢表单)。
@@ -74,7 +78,9 @@ function confirm() {
             </div>
           </div>
           <div :class="isMaxLayout ? 'flex-1 overflow-y-auto p-lg' : ''"><slot :maximized="maximized" /></div>
-          <div v-if="$slots.actions" class="flex justify-end gap-md" :class="isMaxLayout ? 'shrink-0 px-lg py-md border-t border-outline-variant' : 'mt-lg pt-md border-t border-outline-variant'">
+          <div v-if="$slots.actions" class="flex justify-end gap-md" :class="isMaxLayout ? 'shrink-0 px-lg py-md border-t border-outline-variant' : 'mt-lg pt-md border-t border-outline-variant'"
+            :style="isMaxLayout && isPhone ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' } : null"
+            :data-safe-area="isMaxLayout && isPhone ? '' : null">
             <slot name="actions">
               <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('component.modal.cancel') }}</button>
               <button @click="confirm" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold">{{ t('component.modal.confirm') }}</button>
