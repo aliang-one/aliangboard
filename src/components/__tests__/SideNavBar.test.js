@@ -2,6 +2,7 @@ import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
+import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
 // vi.hoisted 回调在 imports 解析前运行（此时 reactive 未定义，TDZ），故 reactive() 在外层应用
 const { _routeObj, pushMock } = vi.hoisted(() => ({
@@ -36,7 +37,7 @@ vi.mock('@/composables/useK8sQuery', () => ({
 import SideNavBar from '../layout/SideNavBar.vue'
 
 function mountSideNavBar() {
-  return mount(SideNavBar, { global: { plugins: [i18n] } })
+  return mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
 }
 
 test('ns mode: 集群导航组隐藏、ns 资源组显示', () => {

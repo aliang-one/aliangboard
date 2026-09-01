@@ -5,6 +5,7 @@
 // TopNavBar sticky z-50)不在本阶梯管辖——它们处于局部 stacking context 内。
 export const Z = {
   nav: 50,         // 顶栏 sticky 层(内容级最高,参照值)
+  drawer: 55,      // 手机侧栏抽屉(2026-09-01 手机适配 Wave 1a):高于顶栏 nav=50,低于窗口带
   windowBase: 60,  // 浮动窗口带下限(终端/文件浏览器浮窗、全局 loading bar)
   windowMax: 99,   // 浮动窗口带上限:恒低于 modal
   modal: 100,      // 模态弹窗层(Modal/CreateResourceDialog/ScaleDialog/NodeActions/hover 富卡片)
