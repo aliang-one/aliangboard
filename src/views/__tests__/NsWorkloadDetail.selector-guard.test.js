@@ -35,6 +35,7 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   fetchPVCs: vi.fn(async () => []), fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
   fetchServices: vi.fn(async () => state.services), fetchIngresses: vi.fn(async () => []), fetchEvents: vi.fn(async () => []),
   fetchPDBs: vi.fn(async () => state.pdbs), fetchNetworkPolicies: vi.fn(async () => state.netpols),
+  fetchReplicaSets: vi.fn(async () => []), fetchEndpoints: vi.fn(async () => []), fetchHPAs: vi.fn(async () => []),
   updateWorkload: vi.fn(async () => {}), applyWorkloadTemplate: vi.fn(async () => {}),
   updateWorkloadMeta: vi.fn((n, ns, payload) => { captured.metaSaves.push(payload) }),
   addService: vi.fn(item => { captured.svcAdds.push(item); return { ok: true } }),
@@ -52,7 +53,9 @@ const demoWorkload = {
     metadata: { name: 'demo-deploy', namespace: 'default', labels: { app: 'demo-deploy' }, annotations: {} },
     spec: {
       replicas: 1, selector: { matchLabels: { app: 'demo-deploy' } },
-      template: { metadata: { labels: { app: 'demo-deploy', 'aliangboard.io/version': 'v1', team: 'red' } }, spec: { containers: [{ name: 'main', image: 'nginx' }] } },
+      // 容器声明 8080 端口:D1 后 openExpose 无声明端口时不再猜 80→8080(空行须用户填),
+      // saveExpose 会因无有效端口而拒——fixture 给端口使「身份 selector」断言路径可达(断言本身不变)
+      template: { metadata: { labels: { app: 'demo-deploy', 'aliangboard.io/version': 'v1', team: 'red' } }, spec: { containers: [{ name: 'main', image: 'nginx', ports: [{ containerPort: 8080, protocol: 'TCP' }] }] } },
     },
   },
 }
