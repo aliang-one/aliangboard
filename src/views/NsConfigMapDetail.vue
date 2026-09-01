@@ -268,7 +268,7 @@ function saveEditLabel() {
             <span class="material-symbols-outlined text-base shrink-0" :class="selectedKey === key ? 'text-primary' : 'text-on-surface-variant'">{{ detectLang(key).icon }}</span>
             <span class="text-body-sm font-mono truncate flex-1">{{ key }}</span>
             <span class="text-[10px] text-on-surface-variant shrink-0">{{ lineCount(val) }}</span>
-            <span @click.stop="deleteKey(key); selectedKey = dataEntries.find(([k]) => k !== key)?.[0] || ''" class="opacity-0 group-hover:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0 cursor-pointer" :title="$t('ns.cmDetail.delete')">
+            <span @click.stop="deleteKey(key); selectedKey = dataEntries.find(([k]) => k !== key)?.[0] || ''" class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0 cursor-pointer" :title="$t('ns.cmDetail.delete')">
               <span class="material-symbols-outlined text-sm">close</span>
             </span>
           </button>

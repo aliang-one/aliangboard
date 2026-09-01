@@ -150,7 +150,7 @@ function setFieldValue(fKey, val) {
           </div>
           <span class="text-[10px] text-on-surface-variant shrink-0">{{ lineCount(e.value) }}</span>
           <button :data-testid="`dk-del-${i}`" type="button" @click.stop="removeKey(i)"
-            class="opacity-0 group-hover:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0" :title="t('common.delete')">
+            class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0" :title="t('common.delete')">
             <span class="material-symbols-outlined text-sm">close</span>
           </button>
         </div>
