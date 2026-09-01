@@ -10,14 +10,16 @@ import { usePodBatchDelete } from '@/composables/usePodBatchDelete'
 import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
-import { sameHostIngresses, appendPathToIngress } from '@/composables/useIngressRules'
+import { useWorkloadTopology } from '@/composables/useWorkloadTopology'
+import WorkloadTopologyTab from '@/components/common/WorkloadTopologyTab.vue'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch, consumersBrokenBy } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels } from '@/logic/workloadMeta'
+import { podsByPrefixFallback, volumesAndPullSecretsFromPodSpec } from '@/logic/topology'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
@@ -50,40 +52,15 @@ const fbStore = useFileBrowserStore()
 const { applyYaml } = useResourceApply()
 store.setNamespace(route.params.namespace)
 
-// 关联资源走 Vue Query（services/ingresses/events 集群级单 key + ns select），
-// 与 Network/NsEvents 列表同源缓存——远端不再依赖 hydrate 填充的 store.serviceList/ingressList/nsEvents。
+// 关联资源走 Vue Query。Events 留本页(不在拓扑域);services/ingresses/pdbs/netpols
+// 及 endpoints/hpas/replicasets 七查询已迁入 useWorkloadTopology(拓扑域组合式,2026-09-01 整修)。
 const cid = computed(() => (store.currentCluster || 'cluster'))
-const servicesQuery = useResourceList({
-  key: ['cluster', cid, 'services'],
-  fetcher: () => store.fetchServices(),
-  select: list => list.filter(s => s.namespace === route.params.namespace),
-})
-const serviceList = computed(() => servicesQuery.data.value || [])
-const ingressesQuery = useResourceList({
-  key: ['cluster', cid, 'ingresses'],
-  fetcher: () => store.fetchIngresses(),
-  select: list => list.filter(i => i.namespace === route.params.namespace),
-})
-const ingressList = computed(() => ingressesQuery.data.value || [])
 const eventsQuery = useResourceList({
   key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])
-// PDB / NetworkPolicy 与 Service 同族:都经 selector 消费本负载 Pod 模板 labels(防线④消费者清单)。
-const pdbsQuery = useResourceList({
-  key: ['cluster', cid, 'poddisruptionbudgets'],
-  fetcher: () => store.fetchPDBs(),
-  select: list => list.filter(p => p.namespace === route.params.namespace),
-})
-const pdbList = computed(() => pdbsQuery.data.value || [])
-const netpolsQuery = useResourceList({
-  key: ['cluster', cid, 'networkpolicies'],
-  fetcher: () => store.fetchNetworkPolicies(),
-  select: list => list.filter(n => n.namespace === route.params.namespace),
-})
-const netpolList = computed(() => netpolsQuery.data.value || [])
 
 // 服务端状态归 Vue Query：workloads/pods 两查询，与列表页/WorkloadDetail 同源缓存。
 // Plan 3 移除 hydrateCoreResources 后 store.workloadList/podList 在远端为空，
@@ -128,8 +105,21 @@ const managedPods = computed(() => {
   if (tplApp) return inNs.filter(p => p.labels?.app === tplApp)
   const appLabel = wl.labels?.app
   if (appLabel) return inNs.filter(p => p.labels?.app === appLabel)
-  return inNs.filter(p => p.name.startsWith(wl.name))
+  // A4:前缀兜底收紧——连字符边界 + 最长前缀让渡(不再吞 webcache-*/web-canary-* 的 Pod)
+  return podsByPrefixFallback(inNs, wl.name, workloadsQuery.data.value || [])
 })
+
+// 拓扑域:services/ingresses/pdbs/netpols/endpoints/hpas/replicasets 七查询 + 判定 + 动作(2026-09-01 整修)。
+// 拓扑 Tab 模板整体迁入 WorkloadTopologyTab(整包以 topo prop 传入,页面只解构 Network tab/弹窗仍消费的成员)。
+const topo = useWorkloadTopology({ workload, namespace: route.params.namespace, pollInterval, managedPods })
+const {
+  relatedServices, relatedIngresses, containerPorts,
+  openExpose, saveExpose, openIngressMap, saveIngressMap, showExposeModal, exposeForm,
+  showIngressMapModal, ingressMapForm, sameHost, mapConflict, mapSvcOptions, mapPortsFor,
+  labelConsumers,
+} = topo
+// B1:Pods 查询 pending(拓扑 Tab Pods 列骨架用)
+const podsPending = computed(() => !!podsQuery.isPending.value)
 
 // Pods Tab：状态过滤 + 计数
 const podFilter = ref('All')
@@ -199,6 +189,8 @@ const configRefs = computed(() => {
       if (env.valueFrom?.secretKeyRef?.name) add('Secret', env.valueFrom.secretKeyRef.name)
     }
   }
+  // C2:PVC 卷 + imagePullSecrets(既有缺口:refTypeMeta 声明了 IPS 却从未提取)
+  for (const ref of volumesAndPullSecretsFromPodSpec(podSpec)) add(ref.kind, ref.name)
   return refs
 })
 const meta = computed(() => readMeta(workload.value))
@@ -264,9 +256,9 @@ const refTypeMeta = {
   volume: { label: 'Volume', icon: 'folder' },
   imagePullSecrets: { label: 'Image Pull', icon: 'key' },
 }
+const REF_ROUTE_NAMES = { ConfigMap: 'NsConfigMapDetail', Secret: 'NsSecretDetail', PVC: 'NsPVCDetail', imagePullSecrets: 'NsSecretDetail' }
 function refRoute(ref) {
-  if (ref.kind === 'ConfigMap') return { name: 'NsConfigMapDetail', query: {} }
-  return { name: 'NsSecretDetail', query: {} }
+  return { name: REF_ROUTE_NAMES[ref.kind] || 'NsSecretDetail', query: {} }
 }
 
 const activeTab = ref('overview')
@@ -746,160 +738,12 @@ const pfSuggestedPorts = computed(() => {
 })
 function openPortForward() { if (selectedPod.value) showPortForward.value = true }
 
-// === 网络暴露 ===
-const containerPorts = computed(() => {
-  const out = []
-  for (const c of (containers.value || [])) for (const p of (c.ports || [])) out.push({ container: c.name, port: p.containerPort, name: p.name, protocol: p.protocol || 'TCP' })
-  return out
-})
-const podLabels = computed(() => workload.value?.raw?.spec?.template?.metadata?.labels || workload.value?.labels || {})
-const relatedServices = computed(() => {
-  const sel = podLabels.value
-  return (serviceList.value || []).filter(s => s.selector && Object.keys(s.selector).length && Object.entries(s.selector).every(([k, v]) => sel[k] === v))
-})
-const relatedServiceNames = computed(() => new Set(relatedServices.value.map(s => s.name)))
-const relatedIngresses = computed(() => {
-  return (ingressList.value || []).filter(ing => (ing.rules || []).some(r => (r.http?.paths || []).some(p => { const be = p.backend?.service || p.backend; return relatedServiceNames.value.has(be?.name) })))
-})
-// 拓扑用：把关联 Ingress 的规则拍平成 {ingress, host, path, serviceName, port}
-const topoIngressRules = computed(() => {
-  const out = []
-  for (const ing of relatedIngresses.value) {
-    for (const r of (ing.rules || [])) {
-      for (const p of (r.http?.paths || [])) {
-        const be = p.backend?.service || p.backend
-        out.push({ ingress: ing.name, host: r.host || '*', path: p.path || '/', serviceName: be?.name, port: be?.port?.number || be?.port?.name || be?.servicePort || '' })
-      }
-    }
-  }
-  return out
-})
-// Service 失配检测(2026-09-01 Ingress 503):selector ⊄ 当前模板 labels 的 Service = Endpoints 已空
-// (存量病灶:saveExpose 曾快照全量 labels 进 selector,后续标签漂移即失配,且因 relatedServices
-// 按 ⊆ 过滤而「坏得看不见」)。归属判据:selector 值中含本负载名(身份键 app:<负载名> 创建后恒
-// 不变,快照式 selector 必含)——否则 ns 内 selector 指向别处的不相关 Service 会误报,
-// 其「修复」按钮甚至会把别人的 Service 指到本负载。列警示 + 一键修复(selector 收敛为身份子集,
-// 修复后自动回到 relatedServices)。
-const driftedServices = computed(() => {
-  const broken = new Set(servicesBrokenBy(podLabels.value, serviceList.value))
-  if (!broken.size) return []
-  const name = workload.value?.name
-  if (!name) return []
-  return (serviceList.value || []).filter(s => broken.has(s.name)
-    && Object.values(s.selector || {}).map(String).includes(name))
-})
-// 防线④消费者清单(Service + PDB + NetworkPolicy 三类 selector 消费方,统一形状给 consumersBrokenBy;
-// mapper 字段名:PDB=selector、NetPol=podSelector)。拓扑一键修复仍 Service-only(安全对象不自动改)。
-const labelConsumers = computed(() => [
-  ...serviceList.value.map(s => ({ kind: 'Service', name: s.name, selector: s.selector })),
-  ...pdbList.value.map(p => ({ kind: 'PDB', name: p.name, selector: p.selector })),
-  ...netpolList.value.map(n => ({ kind: 'NetworkPolicy', name: n.name, selector: n.podSelector })),
+// 防线④守卫消费者清单:Service 取 relatedServices(当前 ⊆ 匹配,与 consumersBrokenBy 精度语义一致),
+// PDB/NetworkPolicy 取组合式 labelConsumers(已带 selector);saveMeta/saveTemplate 共用。
+const guardConsumers = computed(() => [
+  ...relatedServices.value.map(s => ({ kind: 'Service', name: s.name, selector: s.selector })),
+  ...labelConsumers.value.map(c => ({ kind: c.kind, name: c.name, selector: c.selector })),
 ])
-// 身份 selector 单源:saveExpose 下发与拓扑一键修复共用同一份(与创建向导 DeployApp 的 app:<name> 范式一致)
-const identitySel = computed(() => identitySelector(workload.value?.raw, podLabels.value, workload.value?.name))
-const repairingSvc = ref('')
-async function repairServiceSelector(name) {
-  const sel = identitySel.value
-  if (!Object.keys(sel).length) return
-  const svc = (serviceList.value || []).find(s => s.name === name)
-  if (!svc) return
-  repairingSvc.value = name
-  try {
-    // {ok} 契约:makeCrud.update 从缓存取当前对象合并后 generateYAML 无损回写,只覆写 selector
-    const r = await store.updateService(name, route.params.namespace, { selector: sel })
-    if (!(r && r.ok === false)) notify('success', t('workload.topology.selectorRepaired', { name }))
-  } catch (e) { notify('error', e.message || t('workload.notify.saveFailed')) }
-  repairingSvc.value = ''
-}
-const showExposeModal = ref(false)
-const exposeForm = ref({ name: '', type: 'ClusterIP', ports: [] })
-function openExpose() {
-  const base = workload.value?.name || 'app'
-  // 默认名避重：支持连续多次「+」创建多个 Service（一个 workload 多 service）
-  const existing = new Set(relatedServices.value.map(s => s.name))
-  let name = `${base}-svc`, n = 2
-  while (existing.has(name)) name = `${base}-svc-${n++}`
-  exposeForm.value = { name, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol })) : [{ port: 80, targetPort: 8080, protocol: 'TCP' }] }
-  showExposeModal.value = true
-}
-async function saveExpose() {
-  try {
-    // selector 身份化(2026-09-01 Ingress 503 事故):只取不可变身份标签(Deployment selector + app 系),
-    // 不再快照全部模板 labels——业务/自定义标签会被元数据编辑器镜像改写,快照进 selector 迟早失配
-    //(Endpoints 清空 → Ingress 503,全程静默)。空 = 无身份标签可锚,宁可不建也不埋雷。
-    const sel = identitySel.value
-    if (!Object.keys(sel).length) { notify('error', t('workload.expose.identityRequired')); return }
-    const r = await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: sel })
-    if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
-    notify('success', t('workload.notify.createdService', { name: exposeForm.value.name })); showExposeModal.value = false
-  } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
-}
-const showIngressMapModal = ref(false)
-const ingressMapForm = ref({ name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '', target: '' })
-// 同 host 候选（精确匹配、trim 后空 host → []）——追加优先，根治同 host Ingress 碎片化
-const sameHost = computed(() => sameHostIngresses(ingressList.value || [], ingressMapForm.value.host))
-// target 与候选同步：候选出现/变化时默认选首项（追加优先——原生 select v-model='' 只会显示空白并落入新建分支）；
-// 现 target 已不在候选（host 改过）则改选新候选首项，杜绝向不同 host 的 Ingress 静默追加；用户显式选 'new' 不覆盖。
-watch(sameHost, list => {
-  const cur = ingressMapForm.value.target
-  if (cur === 'new') return
-  if (cur && list.some(i => i.name === cur)) return
-  ingressMapForm.value.target = list.length ? list[0].name : ''
-})
-// Service 候选：关联置顶（label 缀「关联」徽标）+ ns 全量；PortSelect 平铺 options 须 {label,value}
-const mapSvcOptions = computed(() => {
-  const related = new Set(relatedServices.value.map(s => s.name))
-  const badge = t('workload.ingressMap.relatedBadge')
-  return (serviceList.value || [])
-    .map(s => ({ related: related.has(s.name), label: related.has(s.name) ? `${s.name}${badge}` : s.name, value: s.name }))
-    .sort((a, b) => Number(b.related) - Number(a.related))
-    .map(({ label, value }) => ({ label, value }))
-})
-// 端口联动：候选 = 选中 Service 的 portList（数字数组，PortSelect 平铺裸值）
-const mapPortsFor = computed(() => {
-  const svc = (serviceList.value || []).find(s => s.name === ingressMapForm.value.serviceName)
-  return (svc?.portList || []).map(p => p.port)
-})
-function openIngressMap() {
-  const svc = relatedServices.value[0]
-  // 默认名避重：支持连续多次「+」创建多个 Ingress（与 openExpose 同策略；按命名空间内全量 Ingress 去重，避免与同名清单冲突）
-  const base = workload.value?.name || 'app'
-  const existing = new Set(ingressList.value.map(i => i.name))
-  let name = `${base}-ingress`, n = 2
-  while (existing.has(name)) name = `${base}-ingress-${n++}`
-  // target 默认 ''：同 host 候选出现时由上方 watch 自动改选首项（追加优先语义）；顺带清掉上次的冲突提示
-  mapConflict.value = ''
-  ingressMapForm.value = { name, host: '', path: '/', pathType: 'Prefix', serviceName: svc?.name || '', servicePort: (svc?.portList || [])[0]?.port || '', target: '' }
-  showIngressMapModal.value = true
-}
-const mapConflict = ref('')
-async function saveIngressMap() {
-  const f = ingressMapForm.value
-  if (!f.serviceName) { notify('error', t('workload.notify.selectService')); return }
-  const rule = { host: (f.host || '').trim(), path: f.path || '/', pathType: f.pathType, serviceName: f.serviceName, servicePort: f.servicePort }
-  const targetIng = f.target && f.target !== 'new' ? (ingressList.value || []).find(i => i.name === f.target) : null
-  if (targetIng) {
-    // 追加模式：拍平现有规则 + 新 path → 冲突拦截 → updateIngressRules
-    const { flatRules, conflict } = appendPathToIngress(targetIng, rule)
-    if (conflict) { mapConflict.value = t('workload.ingressMap.conflict', { path: rule.path }); return }
-    mapConflict.value = ''
-    // defaultBackend 陷阱：updateIngressRules 传 null=merge-patch 删除该字段——必须回传现有值，仅在确实无 defaultBackend 时传 null
-    const db = targetIng.defaultBackend?.serviceName
-      ? { enabled: true, serviceName: targetIng.defaultBackend.serviceName, servicePort: targetIng.defaultBackend.servicePort }
-      : null
-    try {
-      await store.updateIngressRules(targetIng.name, route.params.namespace, flatRules, db)
-    } catch (e) { notify('error', e.message || t('workload.notify.createIngressFailed')); return }
-    notify('success', t('workload.notify.createdIngress', { host: rule.host || '*', path: rule.path, service: rule.serviceName, port: rule.servicePort }))
-    showIngressMapModal.value = false
-    return
-  }
-  // 新建模式（'new' 或无同 host 候选）：走存量 addIngress
-  // addIngress 失败返回 {ok:false}（store 已 toast 错误，不抛异常）：据 r.ok 决定后续，失败时保留弹窗、不误报成功
-  const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: route.params.namespace, className: '', tls: false, tlsSecret: '', rules: [{ host: rule.host, http: { paths: [{ path: rule.path, pathType: rule.pathType, backend: { serviceName: rule.serviceName, servicePort: Number(rule.servicePort) || 80 } }] } }] })
-  if (r && r.ok === false) return
-  notify('success', t('workload.notify.createdIngress', { host: rule.host || '*', path: rule.path, service: rule.serviceName, port: rule.servicePort })); showIngressMapModal.value = false
-}
 
 // === Edit（结构化深编辑：与创建 DeployApp 字段对齐）===
 // 主容器探针 → 表单
@@ -1271,7 +1115,8 @@ async function saveMeta() {
   const removedLabels = Object.keys(curLabels).filter(k => !META_SYS_LABELS.includes(k) && !(k in labels))
   const removedAnnotations = Object.keys(curAnn).filter(k => !META_SYS_ANN.includes(k) && !(k in annotations))
   // Pod 模板镜像：保留模板上非托管键（app 等）+ 业务/自定义（与创建落点一致）；仅在变化时下发，避免无谓滚动
-  const rawTplLabels = wl.raw?.spec?.template?.metadata?.labels || {}
+  // A2:经 podTemplateLabels 单源读取(CronJob 走 jobTemplate,不再静默错面)
+  const rawTplLabels = podTemplateLabels(wl.raw)
   const managedTpl = new Set([META_CANON.owner, META_CANON.version, META_CANON.tags, 'aliangboard.io/layer', 'layer.aliangboard.io', ...Object.keys(customLabels)])
   const desiredTplLabels = {}
   Object.entries(rawTplLabels).forEach(([k, v]) => { if (!managedTpl.has(k)) desiredTplLabels[k] = v })
@@ -1288,7 +1133,7 @@ async function saveMeta() {
   // Endpoints 静默清空(503)、PDB 静默孤儿化、NetPol 覆盖面静默漂移。只拦「当前正匹配本负载且这次
   // 编辑会拆掉」的消费者(consumersBrokenBy,无关对象不误拦),列名后不许保存。
   if (templateLabels) {
-    const broken = consumersBrokenBy(rawTplLabels, applyLabelPatch(rawTplLabels, templateLabels), labelConsumers.value)
+    const broken = consumersBrokenBy(rawTplLabels, applyLabelPatch(rawTplLabels, templateLabels), guardConsumers.value)
     if (broken.length) {
       notify('error', t('workload.meta.labelConsumersLocked', { names: broken.map(c => `${c.kind}/${c.name}`).join('、') }))
       return
@@ -1333,10 +1178,12 @@ async function saveTemplate(yamlStr) {
     }
     // Service/PDB/NetPol 失配防线(同 saveMeta 防线④,精度版):merge-patch 键级合并不删未提及键,
     // 故按「求补后 labels」判定会拆掉哪些消费者;有则拦下列名,不拦就是静默 503/孤儿 PDB/策略漂移。
+    // A2:基准 labels 经 podTemplateLabels 单源读取(CronJob 走 jobTemplate)。
+    const rawTplLabels = podTemplateLabels(workload.value?.raw)
     const brokenConsumers = consumersBrokenBy(
-      workload.value?.raw?.spec?.template?.metadata?.labels || {},
-      applyLabelPatch(workload.value?.raw?.spec?.template?.metadata?.labels || {}, parsed?.metadata?.labels || {}),
-      labelConsumers.value,
+      rawTplLabels,
+      applyLabelPatch(rawTplLabels, parsed?.metadata?.labels || {}),
+      guardConsumers.value,
     )
     if (brokenConsumers.length) {
       notify('error', t('workload.meta.labelConsumersLocked', { names: brokenConsumers.map(c => `${c.kind}/${c.name}`).join('、') }))
@@ -1780,121 +1627,8 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== Topology Tab（Ingress → Service → Deployment → Pod）====== -->
-    <div v-if="activeTab === 'topology'" class="flex flex-col gap-md">
-      <div class="flex items-stretch gap-sm overflow-x-auto pb-sm">
-        <!-- 应用路由 / Ingress -->
-        <div class="flex-1 min-w-[200px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
-          <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-base">alt_route</span>
-            <span class="text-body-sm font-semibold">{{ $t('workload.topology.ingress') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ topoIngressRules.length }}</span>
-          </div>
-          <div class="p-sm flex flex-col gap-xs flex-1">
-            <div v-for="(r, i) in topoIngressRules" :key="i" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: r.ingress } })" class="cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 transition-colors">
-              <p class="font-mono text-xs text-primary font-semibold truncate">{{ r.host }}<span class="text-on-surface-variant font-normal">{{ r.path }}</span></p>
-              <p class="text-[11px] text-on-surface-variant truncate">→ {{ r.serviceName }}<span v-if="r.port">:{{ r.port }}</span></p>
-            </div>
-            <div v-if="!topoIngressRules.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noIngress') }}
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Service -->
-        <div class="flex-1 min-w-[200px] relative">
-          <button @click="openIngressMap" :disabled="!canMutate || !relatedServices.length" :title="!relatedServices.length ? $t('workload.topology.noService') : !canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
-            <span class="material-symbols-outlined text-base">add</span>
-          </button>
-          <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col h-full">
-            <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-base">hub</span>
-              <span class="text-body-sm font-semibold">{{ $t('workload.topology.service') }}</span>
-              <span class="text-xs text-on-surface-variant ml-auto">{{ relatedServices.length }}</span>
-            </div>
-            <div class="p-sm flex flex-col gap-xs flex-1">
-              <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 transition-colors">
-                <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ s.name }}</p>
-                <p class="text-[11px] text-on-surface-variant truncate"><span class="px-1 rounded bg-surface-container">{{ s.type }}</span> {{ s.ports }}</p>
-              </div>
-              <!-- 失配 Service:selector ⊄ 当前 Pod labels(Endpoints 空,经 Ingress 访问 503)——此前这类 Service 因 relatedServices ⊆ 过滤而「坏得看不见」,现显性化 + 一键修复 -->
-              <div v-for="s in driftedServices" :key="'drift-' + s.name" class="rounded-lg border border-error/50 bg-error/5 px-sm py-1.5">
-                <div class="flex items-center gap-xs">
-                  <span class="material-symbols-outlined text-error text-sm shrink-0">warning</span>
-                  <p class="font-mono text-xs text-error font-semibold truncate flex-1">{{ s.name }}</p>
-                  <button @click.stop="repairServiceSelector(s.name)" :disabled="!canMutate || !!repairingSvc || !Object.keys(identitySel).length" :title="!Object.keys(identitySel).length ? $t('workload.expose.identityRequired') : !canMutate ? $t('workload.noUpdatePerm') : $t('workload.topology.repairSelector')" class="text-[11px] px-1.5 py-0.5 rounded-md bg-error text-on-error font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0">{{ $t('workload.topology.repairSelector') }}</button>
-                </div>
-                <p class="text-[11px] text-error/80 mt-0.5">{{ $t('workload.topology.selectorDrift') }}</p>
-              </div>
-              <div v-if="!relatedServices.length && !driftedServices.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-                <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Deployment (self) -->
-        <div class="flex-1 min-w-[200px] relative">
-          <button @click="openExpose" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
-            <span class="material-symbols-outlined text-base">add</span>
-          </button>
-          <div class="rounded-xl bg-primary/5 border-2 border-primary/40 overflow-hidden flex flex-col h-full">
-            <div class="px-md py-2 border-b border-primary/30 bg-primary/10 flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-base">workspaces</span>
-              <span class="text-body-sm font-semibold text-primary">{{ workload.type }}</span>
-            </div>
-            <div class="p-sm flex flex-col gap-xs">
-              <div class="rounded-lg border border-primary/30 bg-surface-container-lowest px-sm py-1.5">
-                <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ workload.name }}</p>
-                <p class="text-[11px] text-on-surface-variant">{{ $t('workload.topology.replicasCount', { replicas: workload.replicas, age: workload.age }) }}</p>
-                <p class="font-mono text-[11px] text-on-surface-variant truncate mt-0.5">{{ imgBase(workload.image) }}<span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
-              </div>
-              <div v-if="configRefs.length" class="mt-1">
-                <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-0.5">{{ $t('workload.bottomBar.mountConfig') }}</p>
-                <div class="flex flex-wrap gap-0.5">
-                  <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="cursor-pointer inline-flex items-center gap-0.5 px-1 py-0.5 bg-surface-container-low rounded text-[11px] hover:bg-surface-container">
-                    <span class="material-symbols-outlined" style="font-size:11px">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>{{ ref.name }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Pods -->
-        <div class="flex-1 min-w-[220px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
-          <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
-            <span class="text-body-sm font-semibold">{{ $t('workload.topology.pods') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ managedPods.length }}</span>
-          </div>
-          <div class="p-sm flex flex-col gap-xs flex-1 max-h-[340px] overflow-y-auto">
-            <div v-for="p in managedPods" :key="p.name" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })" class="cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 transition-colors">
-              <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="podHealth(p).dot"></span>
-              <span class="font-mono text-[11px] text-on-surface truncate flex-1">{{ p.name }}</span>
-              <span class="text-[11px] shrink-0" :class="podHealth(p).text">{{ podHealth(p).label }}</span>
-            </div>
-            <div v-if="!managedPods.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>{{ $t('workload.topology.noPods') }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 流量说明 -->
-      <div class="rounded-xl bg-surface-container-low border border-outline-variant/60 p-md flex items-start gap-sm">
-        <span class="material-symbols-outlined text-on-surface-variant text-base mt-0.5">info</span>
-        <p class="text-xs text-on-surface-variant">
-          {{ $t('workload.topology.flowPath') }}{{ $t('workload.topology.flowPathDesc', { type: workload.type }) }}
-          <span v-if="!relatedServices.length" class="text-tertiary-container">{{ $t('workload.topology.noServiceHint') }}</span>
-          <span v-else class="text-on-surface-variant/70">{{ $t('workload.topology.addHint') }}</span>
-        </p>
-      </div>
+    <div v-if="activeTab === 'topology'">
+      <WorkloadTopologyTab :topo="topo" :workload="workload" :can-mutate="canMutate" :managed-pods="managedPods" :pods-pending="podsPending" :config-refs="configRefs" @goto="t => (activeTab = t)" />
     </div>
 
     <!-- ====== Network Tab ====== -->

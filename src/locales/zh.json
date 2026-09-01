@@ -2264,16 +2264,30 @@
       "noIngress": "未配置 Ingress",
       "service": "Service",
       "noService": "无关联 Service",
-      "selectorDrift": "selector 与当前 Pod 标签失配，Endpoints 为空（访问 503）",
       "repairSelector": "修复 selector",
       "selectorRepaired": "已修复 {name} 的 selector，Endpoints 将随控制器同步恢复",
       "replicasCount": "{replicas} 副本 · {age}",
       "pods": "Pods",
       "noPods": "无运行实例",
+      "rsUngrouped": "未分组 Pod",
+      "labelConsumers": "标签消费者",
       "flowPath": "流量路径：",
       "flowPathDesc": "外部请求 → Ingress（域名/路径）→ Service（经 selector）→ {type} 副本 Pod。",
       "noServiceHint": "当前无关联 Service，外部无法访问——点 Deployment 卡片左侧 + 在已暴露端口上创建。",
-      "addHint": "点 卡片左侧 + 可在任一层继续新增：Deployment→Service、Service→Ingress。"
+      "addHint": "点 卡片左侧 + 可在任一层继续新增：Deployment→Service、Service→Ingress。",
+      "countRoutes": "{n} 条路由",
+      "countServices": "{n} Service",
+      "countPods": "{n} Pod",
+      "otherRoutes": "+{count} 条其他应用路由",
+      "endpoints": "端点 {ready}/{total}",
+      "driftBroken": "已断：selector 失配，Endpoints 为空（访问 503）",
+      "driftPending": "滚动后将断:现有 Pod 仍匹配,新 Pod 将失配",
+      "driftHeuristic": "判据:selector 值包含本负载名",
+      "governing": "主",
+      "noSelectorHint": "无 selector 的 Service（ExternalName/自管 Endpoints）不在此列",
+      "schedule": "计划",
+      "suspended": "已暂停",
+      "completions": "完成 {succeeded}/{total}"
     },
     "network": {
       "containerPorts": "容器端口",
@@ -2355,7 +2369,8 @@
       "port": "+ 端口",
       "identityRequired": "无法确定稳定身份标签（建议 Pod 模板 labels 含 app）；为避免后续标签变更导致 Service 失配（经 Ingress 访问将 503），已阻止创建",
       "cancel": "取消",
-      "create": "创建"
+      "create": "创建",
+      "portRequired": "至少填写一个端口"
     },
     "ingressMap": {
       "host": "Host",
@@ -2370,7 +2385,8 @@
       "createNew": "新建 Ingress",
       "conflict": "该 Ingress 已存在路径 {path}",
       "selectSvcForPorts": "先选择 Service 再选端口",
-      "relatedBadge": "(关联)"
+      "relatedBadge": "(关联)",
+      "portRequired": "请先选择 Service 端口"
     },
     "imageTag": {
       "repoReadonly": "镜像仓库（不可改）",
