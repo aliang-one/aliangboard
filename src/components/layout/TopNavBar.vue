@@ -227,7 +227,8 @@ onBeforeUnmount(unbindDropFollow)
           <span class="material-symbols-outlined text-lg">hub</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[180px]">
             <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">CLUSTER</span>
-            <span class="text-body-sm font-semibold truncate" :title="currentClusterObj?.name">{{ currentClusterObj?.name || '—' }}</span>
+            <!-- w-full:items-start 列向子项按 fit-content 定宽,nowrap 长名(URL 形集群名)会穿透 UI;宽度钉到父内容宽椭圆才生效(overflow-guard V1) -->
+            <span class="w-full text-body-sm font-semibold truncate" :title="currentClusterObj?.name">{{ currentClusterObj?.name || '—' }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
@@ -251,7 +252,7 @@ onBeforeUnmount(unbindDropFollow)
           <span class="material-symbols-outlined text-lg">folder_open</span>
           <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[160px]">
             <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">NAMESPACE</span>
-            <span class="text-body-sm font-semibold truncate" :title="currentNs">{{ currentNs || $t('nav.notSelected') }}</span>
+            <span class="w-full text-body-sm font-semibold truncate" :title="currentNs">{{ currentNs || $t('nav.notSelected') }}</span>
           </div>
           <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
         </button>
