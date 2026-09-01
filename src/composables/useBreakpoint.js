@@ -5,6 +5,9 @@ import { ref, onScopeDispose } from 'vue'
 
 export const MQ_BELOW_LG = '(max-width: 1023.98px)'
 
+// 手机档(<640,tailwind sm 断点):结构性切换(抽屉/卡片/全屏 Modal)的 JS 单源。
+export const MQ_BELOW_SM = '(max-width: 639.98px)'
+
 export function useBreakpoint(query) {
   const mq = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia(query)
@@ -16,4 +19,9 @@ export function useBreakpoint(query) {
     onScopeDispose(() => mq.removeEventListener?.('change', onChange))
   }
   return { matches }
+}
+
+export function useIsPhone() {
+  const { matches } = useBreakpoint(MQ_BELOW_SM)
+  return { isPhone: matches }
 }
