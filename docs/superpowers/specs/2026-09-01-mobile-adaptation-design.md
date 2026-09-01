@@ -21,10 +21,10 @@ hover→常显);应急修复闭环(找负载→看日志→止血动作→AI 审
 - 采用 tailwind 3.4 默认断点:`sm=640 / md=768 / lg=1024`。
   - 手机主战场:`<640`(tailwind `max-sm:` / JS `isPhone`)
   - 既有 1023.98px 侧栏收缩档保留(=lg),行为不变
-- **`useViewport()` composable**(新增,`src/composables/useViewport.js`):
-  - `matchMedia('(max-width: 639.98px)')` 监听,导出 `isPhone`(未来可扩 `isTablet`);
-  - 模块级单例(同一 window 多组件共享一个 listener);happy-dom 缺 matchMedia 时安全默认 false;
-  - **职责边界**:结构性切换(表格↔卡片、下拉↔bottom sheet、图标栏↔抽屉、Modal 全屏)用 `v-if="isPhone"`
+- **扩展现有 `useBreakpoint`**(`src/composables/useBreakpoint.js`,收编既有调用方,不另起 composable):
+  - 新增常量 `MQ_BELOW_SM = '(max-width: 639.98px)'`(与 tailwind sm=640 对齐,1023.98 同款避整数像素边界抖动);
+  - 新增 `useIsPhone()`:`useBreakpoint(MQ_BELOW_SM).matches` 的语义化薄封装;
+  - 职责边界:结构性切换(表格↔卡片、下拉↔bottom sheet、图标栏↔抽屉、Modal 全屏)用 `v-if="isPhone"`
     ——同一份列 slot 不得双渲染;纯视觉收缩(按钮 padding、字号、隐藏次要项)用 tailwind `max-sm:` 类。
 - CSS 变量沿用 `--sb-width` 模式,AppLayout 媒体查询追加手机档。
 - 浮层层级一律从 `src/styles/zScale.js` 取值(新浮层禁止裸 z-index,issue#4 既定裁决)。
@@ -36,7 +36,9 @@ hover→常显);应急修复闭环(找负载→看日志→止血动作→AI 审
   - `<640`:抽屉 overlay——顶栏汉堡按钮开合;内容=导航项+ns 切换坞;遮罩点击/路由跳转后关闭;
     层级走 zScale(popover 档);焦点管理:开抽屉聚焦首项、Esc 关闭(可达性顺手,不做完整焦点陷阱)。
 - **顶栏**:保留既有三级收缩,追加手机档:
-  - 集群/ns chip 精简为可点徽标(点击打开抽屉内选择器,不再内联展开);
+  - 集群/ns chip **保留为可点徽标**(已按 overflow-guard V1 治理截断,手机档不隐藏——集群切换
+    在手机上必须直达;其下拉面板的手机优化归 1b bottom sheet 波次);新增汉堡按钮(仅手机档)
+    开合侧栏抽屉;
   - 搜索入口、用户菜单保留,触控目标 ≥40px;
   - 遵循 `063845c` 溢出治理配方(CLAUDE.md「组件文本溢出治理」节)。
 - **安全区**:`padding: env(safe-area-inset-*)` 应用于壳层底部与全屏 Modal 底部动作条;
