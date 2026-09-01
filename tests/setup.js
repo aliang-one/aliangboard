@@ -21,3 +21,14 @@ Object.defineProperty(globalThis, 'sessionStorage', {
   configurable: true,
   writable: true,
 })
+
+// vue-flow(拓扑连线画布)依赖 ResizeObserver 做节点尺寸测量;happy-dom 无此 API。
+// 提供 no-op stub:回调挂 __cb 供用例手动触发(如需模拟尺寸变化)。
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class {
+    constructor(cb) { this.__cb = cb }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
