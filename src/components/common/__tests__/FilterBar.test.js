@@ -3,26 +3,12 @@ import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
-
-// 照 SideNavBar.drawer.test.js 模式 mock matchMedia
-let matchMediaSpy
-const mqListeners = new Map()
-function fireChange(query, matches) {
-  const cb = mqListeners.get(query)
-  if (cb) cb({ matches })
-}
-function mockBelowSm(below) {
-  matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-    matches: q === '(max-width: 639.98px)' ? below : false,
-    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
-    removeEventListener: () => { mqListeners.delete(q) },
-  }))
-}
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 import FilterBar from '@/components/common/FilterBar.vue'
 
 beforeEach(() => { vi.clearAllMocks() })
-afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = '' })
+afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 
 async function mountFilterBar(props = {}) {
   const defaultFilters = [
@@ -35,7 +21,7 @@ async function mountFilterBar(props = {}) {
 }
 
 test('手机档:筛选条件默认收起,点筛选钮展开;结果计数恒可见', async () => {
-  mockBelowSm(true)
+  mockViewport(true)
   const w = await mountFilterBar()
   const filterFields = w.find('[data-filter-fields]')
   expect(filterFields.exists()).toBe(true)
@@ -47,7 +33,7 @@ test('手机档:筛选条件默认收起,点筛选钮展开;结果计数恒可�
 })
 
 test('桌面档:筛选条件恒展开,无筛选钮', async () => {
-  mockBelowSm(false)
+  mockViewport(false)
   const w = await mountFilterBar()
   const filterFields = w.find('[data-filter-fields]')
   expect(filterFields.exists()).toBe(true)

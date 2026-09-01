@@ -3,15 +3,9 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { i18n } from '@/i18n'
 import DataTable from '@/components/common/DataTable.vue'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 afterEach(() => { vi.restoreAllMocks() })
-function mockViewport(belowSm) {
-  return vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-    matches: q === '(max-width: 639.98px)' ? belowSm : false,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  }))
-}
 const headers = [
   { key: 'name', label: '名称' },
   { key: 'status', label: '状态' },
@@ -91,7 +85,7 @@ test('手机档:checkbox 有 40px 命中区(w-5 h-5 + p-2 包裹);点 hit 区不
   mockViewport(true)
   const w = await mountTable({ selectable: true, rowKey: 'name' })
   const hit = w.find('[data-card-select-hit]')
-  expect(hit.classes()).toContain('p-2')
+  expect(hit.classes()).toContain('p-2.5')
   const box = hit.find('input[data-card-select]')
   expect(box.classes()).toEqual(expect.arrayContaining(['w-5', 'h-5']))
   await hit.trigger('click')

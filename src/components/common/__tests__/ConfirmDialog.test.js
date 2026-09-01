@@ -3,6 +3,7 @@ import { test, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 function mountDialog(props = {}) {
   return mount(ConfirmDialog, {
@@ -12,17 +13,7 @@ function mountDialog(props = {}) {
   })
 }
 
-// mockBelowSm 模式同 SideNavBar.drawer.test.js
-let matchMediaSpy
-const mqListeners = new Map()
-function mockBelowSm(below) {
-  matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-    matches: q === '(max-width: 639.98px)' ? below : false,
-    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
-    removeEventListener: () => { mqListeners.delete(q) },
-  }))
-}
-afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = '' })
+afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 
 test('打开:标题/文案渲染于 document.body,含默认确认/取消钮', () => {
   const w = mountDialog()
@@ -64,7 +55,7 @@ test('loading 态:确认钮 disabled', () => {
 })
 
 test('手机档:ConfirmDialog 随 Modal 自动全屏(内部 max-w-md 被手机全屏覆盖)', async () => {
-  mockBelowSm(true)
+  mockViewport(true)
   const w = mountDialog({ title: '确认', message: '删?' })
   await w.vm.$nextTick()
   const dialog = document.querySelector('body .relative.w-full')
