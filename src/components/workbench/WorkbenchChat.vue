@@ -834,7 +834,9 @@ async function send() {
       const resp = await workbenchApi.conversations.edit(props.activeConversationId, payload)
       if (unmounted) return
       turns.value.splice(userIdx)                       // 锚及之后全删
-      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: ed.messageId, refs: refsSnapshot.length ? [...refsSnapshot] : undefined })
+      // 2026-09-01 锚 id 回填:服务端已删旧锚行+append 新行,必须改持响应里的新行 id——
+      // 沿用旧 id 会让同视图内第二次编辑报「编辑目标无效」。旧服务端无此字段时兜底旧值(仅首个编辑可用)。
+      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: resp?.anchorMessageId || ed.messageId, refs: refsSnapshot.length ? [...refsSnapshot] : undefined })
       turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
       editing.value = null
       resetInput()

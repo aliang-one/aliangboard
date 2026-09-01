@@ -894,6 +894,40 @@ test('编辑发送:调 edit 端点+本地截断+新 user turn+thinking', async (
   w.unmount()
 })
 
+// 2026-09-01 锚 id 回填:编辑重发后服务端已删旧锚行+append 新行,响应带 anchorMessageId。
+// 乐观 turn 必须改持新 id——否则同视图内第二次编辑仍发被删旧 id,服务端查无此行报
+// 「编辑目标无效:须为本对话的 user 消息」(线上 610a4211 实证)。
+test('编辑发送:响应 anchorMessageId 回填新 user turn,同视图二次编辑用新 id', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1 },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  api.conversations.edit
+    .mockResolvedValueOnce({ status: 'running', anchorMessageId: 'm-new', context: null })
+    .mockResolvedValueOnce({ status: 'running', anchorMessageId: 'm-new2', context: null })
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  api.conversations.get.mockRejectedValue(new Error('offline')) // 降级轮询失败静默,保住本地乐观态
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  await w.find('textarea').setValue('第一次改')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(w.vm.turns.find(t => t.role === 'user').messageId).toBe('m-new', '乐观 turn 改持新行 id')
+  // 同视图内第二轮编辑:sending 复位后按钮重现,发送必须用新 id(修复前发已删的 m1 → 400)
+  w.vm.sending = false
+  await flushPromises()
+  const editBtn = w.find('[data-testid="edit-msg-btn"]')
+  expect(editBtn.exists()).toBe(true, '新 user turn 的编辑按钮可见')
+  await editBtn.trigger('click')
+  await w.find('textarea').setValue('第二次改')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(api.conversations.edit).toHaveBeenLastCalledWith('c-e', expect.objectContaining({ messageId: 'm-new' }))
+  expect(w.vm.turns.find(t => t.role === 'user').messageId).toBe('m-new2')
+  w.unmount()
+})
+
 // 终审修复:删光全部 @-chips 再发送 → references 必须以空数组显式下发(缺省键服务端会沿用锚 refs,「删」路静默失效)
 test('编辑发送:删光全部 chips 后 references 传空数组(非缺省)', async () => {
   api.conversations.get.mockReset()

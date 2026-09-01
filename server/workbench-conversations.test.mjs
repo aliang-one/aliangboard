@@ -379,6 +379,23 @@ test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => 
   assert.ok(JSON.parse(after.references).some(r => r.kind === 'pods' && r.name === 'p1'), '对话级 references 含原 ref')
 })
 
+// 2026-09-01 锚 id 失联修复:编辑重发会删锚行+append 新行(新 UUID),而响应此前只回
+// {status,context}——前端拿不到新 id,乐观 turn 继续持已删旧 id;同视图内第二次编辑
+// 必然「编辑目标无效」(线上 610a4211 实证:02:37 编辑成功后,再点编辑即报错)。
+// 契约:响应必须带 anchorMessageId=新 user 行 id,前端据此回填乐观 turn。
+test('POST edit:响应带 anchorMessageId=新 user 行 id(前端回填乐观 turn 依据)', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  h.body.v = { messageId: anchorId, content: '二次编辑也要能行' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`), '路由命中')
+  const ok = h.sent[h.sent.length - 1]
+  assert.equal(ok.status, 200)
+  assert.ok(ok.json.anchorMessageId, '响应带 anchorMessageId')
+  assert.notEqual(ok.json.anchorMessageId, anchorId, '是新行 id,不是被删的旧锚 id')
+  const last = h.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? ORDER BY seq DESC LIMIT 1").get(conv.id)
+  assert.equal(ok.json.anchorMessageId, last.id, 'anchorMessageId=截断后新 append 的 user 行 id')
+})
+
 // 水位边界锁定(spec §3.1 修正:边界=fromSeq-1,非 keptMinSeq-1——后者 seq 从 1 起恒为 1,
 // 每次编辑都把水位归零、前缀摘要覆盖白做。正确语义:前缀连续 1..fromSeq-1,其最大 seq 即 fromSeq-1)
 test('POST edit:水位边界=fromSeq-1——编辑末条保留前缀摘要覆盖,编辑首条归 0', async () => {
