@@ -238,7 +238,8 @@
       "retry": "Retry"
     },
     "filterBar": {
-      "resetFilters": "Reset filters"
+      "resetFilters": "Reset filters",
+      "toggle": "Filters"
     },
     "nodeActions": {
       "cordonDesc": "Mark the node as unschedulable. New pods will not be scheduled to this node. Existing pods are not affected.",

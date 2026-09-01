@@ -238,7 +238,8 @@
       "retry": "重试"
     },
     "filterBar": {
-      "resetFilters": "重置过滤"
+      "resetFilters": "重置过滤",
+      "toggle": "筛选"
     },
     "nodeActions": {
       "cordonDesc": "标记节点为不可调度，新的 Pod 将不会被调度到此节点。现有 Pod 不受影响。",
