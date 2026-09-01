@@ -11,6 +11,7 @@ import { cronJobApi, api, execStream, podFileApi, registryApi } from '@/api/clie
 import { notify } from '@/composables/useToast'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { useWorkloadTopology } from '@/composables/useWorkloadTopology'
+import WorkloadTopologyTab from '@/components/common/WorkloadTopologyTab.vue'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
 import { readMeta, imageTag } from '@/composables/useBusinessMeta'
@@ -108,14 +109,17 @@ const managedPods = computed(() => {
   return podsByPrefixFallback(inNs, wl.name, workloadsQuery.data.value || [])
 })
 
-// 拓扑域:services/ingresses/pdbs/netpols/endpoints/hpas/replicasets 七查询 + 判定 + 动作(2026-09-01 整修)
+// 拓扑域:services/ingresses/pdbs/netpols/endpoints/hpas/replicasets 七查询 + 判定 + 动作(2026-09-01 整修)。
+// 拓扑 Tab 模板整体迁入 WorkloadTopologyTab(整包以 topo prop 传入,页面只解构 Network tab/弹窗仍消费的成员)。
 const topo = useWorkloadTopology({ workload, namespace: route.params.namespace, pollInterval, managedPods })
 const {
-  relatedServices, relatedIngresses, containerPorts, ingressBreakdown, driftedServices,
+  relatedServices, relatedIngresses, containerPorts,
   openExpose, saveExpose, openIngressMap, saveIngressMap, showExposeModal, exposeForm,
   showIngressMapModal, ingressMapForm, sameHost, mapConflict, mapSvcOptions, mapPortsFor,
-  repairingSvc, repairServiceSelector, tplLabels, identitySel, labelConsumers,
+  labelConsumers,
 } = topo
+// B1:Pods 查询 pending(拓扑 Tab Pods 列骨架用)
+const podsPending = computed(() => !!podsQuery.isPending.value)
 
 // Pods Tab：状态过滤 + 计数
 const podFilter = ref('All')
@@ -1623,121 +1627,8 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== Topology Tab（Ingress → Service → Deployment → Pod）====== -->
-    <div v-if="activeTab === 'topology'" class="flex flex-col gap-md">
-      <div class="flex items-stretch gap-sm overflow-x-auto pb-sm">
-        <!-- 应用路由 / Ingress -->
-        <div class="flex-1 min-w-[200px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
-          <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-base">alt_route</span>
-            <span class="text-body-sm font-semibold">{{ $t('workload.topology.ingress') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ ingressBreakdown.ownRules.length }}</span>
-          </div>
-          <div class="p-sm flex flex-col gap-xs flex-1">
-            <div v-for="(r, i) in ingressBreakdown.ownRules" :key="i" @click="router.push({ name: 'NsIngressDetail', params: { namespace: route.params.namespace, name: r.ingress } })" class="cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 transition-colors">
-              <p class="font-mono text-xs text-primary font-semibold truncate">{{ r.host }}<span class="text-on-surface-variant font-normal">{{ r.path }}</span></p>
-              <p class="text-[11px] text-on-surface-variant truncate">→ {{ r.serviceName }}<span v-if="r.port">:{{ r.port }}</span></p>
-            </div>
-            <div v-if="!ingressBreakdown.ownRules.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noIngress') }}
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Service -->
-        <div class="flex-1 min-w-[200px] relative">
-          <button @click="openIngressMap" :disabled="!canMutate || !relatedServices.length" :title="!relatedServices.length ? $t('workload.topology.noService') : !canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
-            <span class="material-symbols-outlined text-base">add</span>
-          </button>
-          <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col h-full">
-            <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-base">hub</span>
-              <span class="text-body-sm font-semibold">{{ $t('workload.topology.service') }}</span>
-              <span class="text-xs text-on-surface-variant ml-auto">{{ relatedServices.length }}</span>
-            </div>
-            <div class="p-sm flex flex-col gap-xs flex-1">
-              <div v-for="s in relatedServices" :key="s.name" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: s.name } })" class="cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 transition-colors">
-                <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ s.name }}</p>
-                <p class="text-[11px] text-on-surface-variant truncate"><span class="px-1 rounded bg-surface-container">{{ s.type }}</span> {{ s.ports }}</p>
-              </div>
-              <!-- 失配 Service:selector ⊄ 当前 Pod labels(Endpoints 空,经 Ingress 访问 503)——此前这类 Service 因 relatedServices ⊆ 过滤而「坏得看不见」,现显性化 + 一键修复 -->
-              <div v-for="s in driftedServices" :key="'drift-' + s.name" class="rounded-lg border border-error/50 bg-error/5 px-sm py-1.5">
-                <div class="flex items-center gap-xs">
-                  <span class="material-symbols-outlined text-error text-sm shrink-0">warning</span>
-                  <p class="font-mono text-xs text-error font-semibold truncate flex-1">{{ s.name }}</p>
-                  <button @click.stop="repairServiceSelector(s.name)" :disabled="!canMutate || !!repairingSvc || !Object.keys(identitySel).length" :title="!Object.keys(identitySel).length ? $t('workload.expose.identityRequired') : !canMutate ? $t('workload.noUpdatePerm') : $t('workload.topology.repairSelector')" class="text-[11px] px-1.5 py-0.5 rounded-md bg-error text-on-error font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0">{{ $t('workload.topology.repairSelector') }}</button>
-                </div>
-                <p class="text-[11px] text-error/80 mt-0.5">{{ $t('workload.topology.selectorDrift') }}</p>
-              </div>
-              <div v-if="!relatedServices.length && !driftedServices.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-                <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Deployment (self) -->
-        <div class="flex-1 min-w-[200px] relative">
-          <button @click="openExpose" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-surface-container-lowest flex items-center justify-center hover:scale-110 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
-            <span class="material-symbols-outlined text-base">add</span>
-          </button>
-          <div class="rounded-xl bg-primary/5 border-2 border-primary/40 overflow-hidden flex flex-col h-full">
-            <div class="px-md py-2 border-b border-primary/30 bg-primary/10 flex items-center gap-sm">
-              <span class="material-symbols-outlined text-primary text-base">workspaces</span>
-              <span class="text-body-sm font-semibold text-primary">{{ workload.type }}</span>
-            </div>
-            <div class="p-sm flex flex-col gap-xs">
-              <div class="rounded-lg border border-primary/30 bg-surface-container-lowest px-sm py-1.5">
-                <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ workload.name }}</p>
-                <p class="text-[11px] text-on-surface-variant">{{ $t('workload.topology.replicasCount', { replicas: workload.replicas, age: workload.age }) }}</p>
-                <p class="font-mono text-[11px] text-on-surface-variant truncate mt-0.5">{{ imgBase(workload.image) }}<span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
-              </div>
-              <div v-if="configRefs.length" class="mt-1">
-                <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-0.5">{{ $t('workload.bottomBar.mountConfig') }}</p>
-                <div class="flex flex-wrap gap-0.5">
-                  <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="cursor-pointer inline-flex items-center gap-0.5 px-1 py-0.5 bg-surface-container-low rounded text-[11px] hover:bg-surface-container">
-                    <span class="material-symbols-outlined" style="font-size:11px">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span>{{ ref.name }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center text-on-surface-variant/30 shrink-0"><span class="material-symbols-outlined">arrow_forward</span></div>
-
-        <!-- Pods -->
-        <div class="flex-1 min-w-[220px] rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden flex flex-col">
-          <div class="px-md py-2 border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
-            <span class="text-body-sm font-semibold">{{ $t('workload.topology.pods') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ managedPods.length }}</span>
-          </div>
-          <div class="p-sm flex flex-col gap-xs flex-1 max-h-[340px] overflow-y-auto">
-            <div v-for="p in managedPods" :key="p.name" @click="router.push({ name: 'NsPodDetail', params: { namespace: route.params.namespace, name: p.name } })" class="cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 transition-colors">
-              <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="podHealth(p).dot"></span>
-              <span class="font-mono text-[11px] text-on-surface truncate flex-1">{{ p.name }}</span>
-              <span class="text-[11px] shrink-0" :class="podHealth(p).text">{{ podHealth(p).label }}</span>
-            </div>
-            <div v-if="!managedPods.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
-              <span class="material-symbols-outlined text-2xl text-surface-container-high">deployed_code</span>{{ $t('workload.topology.noPods') }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 流量说明 -->
-      <div class="rounded-xl bg-surface-container-low border border-outline-variant/60 p-md flex items-start gap-sm">
-        <span class="material-symbols-outlined text-on-surface-variant text-base mt-0.5">info</span>
-        <p class="text-xs text-on-surface-variant">
-          {{ $t('workload.topology.flowPath') }}{{ $t('workload.topology.flowPathDesc', { type: workload.type }) }}
-          <span v-if="!relatedServices.length" class="text-tertiary-container">{{ $t('workload.topology.noServiceHint') }}</span>
-          <span v-else class="text-on-surface-variant/70">{{ $t('workload.topology.addHint') }}</span>
-        </p>
-      </div>
+    <div v-if="activeTab === 'topology'">
+      <WorkloadTopologyTab :topo="topo" :workload="workload" :can-mutate="canMutate" :managed-pods="managedPods" :pods-pending="podsPending" :config-refs="configRefs" @goto="t => (activeTab = t)" />
     </div>
 
     <!-- ====== Network Tab ====== -->

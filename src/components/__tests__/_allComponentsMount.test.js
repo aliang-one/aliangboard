@@ -3,6 +3,7 @@
 // 自动按 defineProps 的类型给 required prop 塞兜底值（[]/{} /false/0/'x'），避免「缺 prop」这种
 // 非真 bug 的噪音；optional/有 default 的 prop 不塞（走默认值）。
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
@@ -43,8 +44,25 @@ function stubProps(comp) {
 
 // 少数组件的 required prop 是有限枚举（如 NodeActions.action ∈ cordon/uncordon/drain），
 // 兜底 '' 不是合法键 → 需显式给一个合法值。仅这些特例在此登记。
+// WorkloadTopologyTab 的 topo 是「普通对象包 refs/函数」的组合式返回包，
+// 兜底 {} 会让 .value 读取抛错 → 给最小可用 fixture(空数据即可,验证首渲不崩)。
 const PROP_OVERRIDE = {
   'components/common/NodeActions.vue': { nodeName: 'node-1', action: 'drain' },
+  'components/common/WorkloadTopologyTab.vue': {
+    topo: {
+      states: ref({ servicesPending: false, ingressesPending: false }),
+      ingressBreakdown: ref({ ownRules: [], others: [] }),
+      relatedServices: ref([]),
+      driftedServices: ref([]),
+      governingSvcName: ref(''),
+      identitySel: ref({}),
+      repairingSvc: ref(''),
+      epFor: () => null,
+      openExpose: () => {}, openIngressMap: () => {},
+      saveExpose: () => {}, saveIngressMap: () => {}, repairServiceSelector: () => {},
+    },
+    workload: { name: 'demo', type: 'Deployment', namespace: 'default' },
+  },
 }
 
 // inject 驱动的组件：挂载时依赖外部 provide 上下文（如 'fileExplorer'），
