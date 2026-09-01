@@ -17,7 +17,7 @@ import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch, consumersBrokenBy } from '@/logic/workloadMeta'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
@@ -71,6 +71,19 @@ const eventsQuery = useResourceList({
   select: list => list.filter(e => e.namespace === route.params.namespace),
 })
 const nsEvents = computed(() => eventsQuery.data.value || [])
+// PDB / NetworkPolicy 与 Service 同族:都经 selector 消费本负载 Pod 模板 labels(防线④消费者清单)。
+const pdbsQuery = useResourceList({
+  key: ['cluster', cid, 'poddisruptionbudgets'],
+  fetcher: () => store.fetchPDBs(),
+  select: list => list.filter(p => p.namespace === route.params.namespace),
+})
+const pdbList = computed(() => pdbsQuery.data.value || [])
+const netpolsQuery = useResourceList({
+  key: ['cluster', cid, 'networkpolicies'],
+  fetcher: () => store.fetchNetworkPolicies(),
+  select: list => list.filter(n => n.namespace === route.params.namespace),
+})
+const netpolList = computed(() => netpolsQuery.data.value || [])
 
 // 服务端状态归 Vue Query：workloads/pods 两查询，与列表页/WorkloadDetail 同源缓存。
 // Plan 3 移除 hydrateCoreResources 后 store.workloadList/podList 在远端为空，
@@ -763,14 +776,25 @@ const topoIngressRules = computed(() => {
 })
 // Service 失配检测(2026-09-01 Ingress 503):selector ⊄ 当前模板 labels 的 Service = Endpoints 已空
 // (存量病灶:saveExpose 曾快照全量 labels 进 selector,后续标签漂移即失配,且因 relatedServices
-// 按 ⊆ 过滤而「坏得看不见」)。键与模板有交集 = 曾锚定本 workload 的,列警示 + 一键修复
-// (selector 收敛为身份子集 identitySelector,修复后自动回到 relatedServices)。
+// 按 ⊆ 过滤而「坏得看不见」)。归属判据:selector 值中含本负载名(身份键 app:<负载名> 创建后恒
+// 不变,快照式 selector 必含)——否则 ns 内 selector 指向别处的不相关 Service 会误报,
+// 其「修复」按钮甚至会把别人的 Service 指到本负载。列警示 + 一键修复(selector 收敛为身份子集,
+// 修复后自动回到 relatedServices)。
 const driftedServices = computed(() => {
   const broken = new Set(servicesBrokenBy(podLabels.value, serviceList.value))
   if (!broken.size) return []
-  const tplKeys = new Set(Object.keys(podLabels.value || {}))
-  return (serviceList.value || []).filter(s => broken.has(s.name) && Object.keys(s.selector || {}).some(k => tplKeys.has(k)))
+  const name = workload.value?.name
+  if (!name) return []
+  return (serviceList.value || []).filter(s => broken.has(s.name)
+    && Object.values(s.selector || {}).map(String).includes(name))
 })
+// 防线④消费者清单(Service + PDB + NetworkPolicy 三类 selector 消费方,统一形状给 consumersBrokenBy;
+// mapper 字段名:PDB=selector、NetPol=podSelector)。拓扑一键修复仍 Service-only(安全对象不自动改)。
+const labelConsumers = computed(() => [
+  ...serviceList.value.map(s => ({ kind: 'Service', name: s.name, selector: s.selector })),
+  ...pdbList.value.map(p => ({ kind: 'PDB', name: p.name, selector: p.selector })),
+  ...netpolList.value.map(n => ({ kind: 'NetworkPolicy', name: n.name, selector: n.podSelector })),
+])
 // 身份 selector 单源:saveExpose 下发与拓扑一键修复共用同一份(与创建向导 DeployApp 的 app:<name> 范式一致)
 const identitySel = computed(() => identitySelector(workload.value?.raw, podLabels.value, workload.value?.name))
 const repairingSvc = ref('')
@@ -1259,13 +1283,14 @@ async function saveMeta() {
   const templateLabels = templateChanged
     ? { ...guardedTplLabels, ...Object.keys(rawTplLabels).filter(k => managedTpl.has(k) && !(k in desiredTplLabels)).reduce((o, k) => { o[k] = null; return o }, {}) }
     : null
-  // 防线④(2026-09-01 Ingress 503 事故):上面防线只保 Deployment 自己的 selector(K8s 只校验它),
-  // Service selector 无 K8s 校验——模板 labels 一变,失配 Service 的 Endpoints 静默清空 → Ingress 503。
-  // 求补后模板 labels 会失配任何 ns 内 Service → 拦下列名,改 Service selector 前不许保存。
+  // 防线④(2026-09-01 Ingress 503 事故,精度版):上面防线只保 Deployment 自己的 selector(K8s 只
+  // 校验它);Service/PDB/NetworkPolicy 的 selector 均无 K8s 校验——模板 labels 一变,失配 Service 的
+  // Endpoints 静默清空(503)、PDB 静默孤儿化、NetPol 覆盖面静默漂移。只拦「当前正匹配本负载且这次
+  // 编辑会拆掉」的消费者(consumersBrokenBy,无关对象不误拦),列名后不许保存。
   if (templateLabels) {
-    const broken = servicesBrokenBy(applyLabelPatch(rawTplLabels, templateLabels), serviceList.value)
+    const broken = consumersBrokenBy(rawTplLabels, applyLabelPatch(rawTplLabels, templateLabels), labelConsumers.value)
     if (broken.length) {
-      notify('error', t('workload.meta.svcSelectorLocked', { names: broken.join('、') }))
+      notify('error', t('workload.meta.labelConsumersLocked', { names: broken.map(c => `${c.kind}/${c.name}`).join('、') }))
       return
     }
   }
@@ -1306,14 +1331,15 @@ async function saveTemplate(yamlStr) {
       notify('error', t('workload.meta.tplSelectorLocked', { keys: breaks.join('、') }))
       return
     }
-    // Service 失配防线(同 saveMeta 防线④):merge-patch 键级合并不删未提及键,故按「求补后
-    // labels」判定会失配哪些 Service;有则拦下列名,不拦就是静默 503(K8s 不校验 Service selector)。
-    const brokenSvcs = servicesBrokenBy(
+    // Service/PDB/NetPol 失配防线(同 saveMeta 防线④,精度版):merge-patch 键级合并不删未提及键,
+    // 故按「求补后 labels」判定会拆掉哪些消费者;有则拦下列名,不拦就是静默 503/孤儿 PDB/策略漂移。
+    const brokenConsumers = consumersBrokenBy(
+      workload.value?.raw?.spec?.template?.metadata?.labels || {},
       applyLabelPatch(workload.value?.raw?.spec?.template?.metadata?.labels || {}, parsed?.metadata?.labels || {}),
-      serviceList.value,
+      labelConsumers.value,
     )
-    if (brokenSvcs.length) {
-      notify('error', t('workload.meta.svcSelectorLocked', { names: brokenSvcs.join('、') }))
+    if (brokenConsumers.length) {
+      notify('error', t('workload.meta.labelConsumersLocked', { names: brokenConsumers.map(c => `${c.kind}/${c.name}`).join('、') }))
       return
     }
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)

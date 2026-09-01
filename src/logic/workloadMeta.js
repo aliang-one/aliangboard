@@ -87,7 +87,11 @@ export function identitySelector(raw, tplLabels, fallbackName) {
 }
 
 // 会因模板 labels 变为 tplLabels 而失配的 Service 名单:selector 非空 且 ⊄ tplLabels
+// 会因模板 labels 变为 tplLabels 而失配的 Service 名单:selector 非空 且 ⊄ tplLabels
 // (值按字符串比较)。空 selector(含 ExternalName)天然匹配一切,跳过。
+// 分工:本函数服务【拓扑修复可见性】——那个场景要抓「曾锚定现已失配」的存量病灶,故意不看
+// 「是否曾匹配」;编辑面守卫(saveMeta/saveTemplate 防线④)必须用 consumersBrokenBy(精度版,
+// 只拦「当前正匹配且这次编辑会拆掉」的,否则 ns 内 selector 指向别处的不相关 Service 会被误拦)。
 export function servicesBrokenBy(tplLabels, services) {
   const tpl = tplLabels && typeof tplLabels === 'object' ? tplLabels : {}
   return (services || [])
@@ -97,4 +101,21 @@ export function servicesBrokenBy(tplLabels, services) {
       return !Object.entries(sel).every(([k, v]) => k in tpl && String(tpl[k]) === String(v))
     })
     .map(s => s.name)
+}
+
+// 编辑面守卫④(精度版):labels 从 old 变为 new 会【拆掉】的消费者。
+// 只拦「当前正匹配本负载(selector ⊆ old)且改后将不匹配(⊄ new)」的——从未匹配本负载的
+// 无关对象(如 selector app: other)不是这次编辑拆的,排除。consumer 形状 {kind, name, selector}。
+// 返回 [{kind, name}];空 selector 跳过;值按字符串比较。
+export function consumersBrokenBy(oldTplLabels, newTplLabels, consumers) {
+  const oldTpl = oldTplLabels && typeof oldTplLabels === 'object' ? oldTplLabels : {}
+  const newTpl = newTplLabels && typeof newTplLabels === 'object' ? newTplLabels : {}
+  const subsetOf = (sel, tpl) => Object.entries(sel || {}).every(([k, v]) => k in tpl && String(tpl[k]) === String(v))
+  return (consumers || [])
+    .filter(c => {
+      const sel = c?.selector
+      if (!sel || typeof sel !== 'object' || !Object.keys(sel).length) return false
+      return subsetOf(sel, oldTpl) && !subsetOf(sel, newTpl)
+    })
+    .map(c => ({ kind: c.kind, name: c.name }))
 }

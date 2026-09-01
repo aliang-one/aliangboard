@@ -398,7 +398,10 @@ const previewYAML = computed(() => {
   const f = form.value
   const labels = {}
   f.labels.forEach(l => { if (l.key) labels[l.key] = l.value || f.name })
-  labels.app = labels.app || f.name
+  // 身份标签单方面由负载名定义(2026-09-01 系统排查):本向导 selector 恒为 app:<负载名>,
+  // 模板 app 必须一致——复制流会带来源的 app:源名、用户也可能手改 app 行,曾致创建即
+  // K8s 422「selector does not match template labels」。此处强制覆盖,杜绝该类失败。
+  labels.app = f.name
   labels['aliangboard.io/layer'] = f.tier
   labels['aliangboard.io/managed-by'] = 'aliangboard'
   if (f.metaOwner) labels['aliangboard.io/owner'] = f.metaOwner
@@ -988,6 +991,7 @@ async function handleDeploy() {
 
         <!-- Labels -->
         <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.labels') }}</h4>
+        <p class="text-xs text-on-surface-variant/70 mb-xs">{{ $t('deploy.labelsAppHint') }}</p>
         <div class="flex flex-col gap-sm">
           <div v-for="(lbl, idx) in form.labels" :key="idx" class="flex gap-sm items-center">
             <input v-model="lbl.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
