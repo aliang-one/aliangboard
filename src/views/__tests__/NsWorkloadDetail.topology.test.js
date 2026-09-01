@@ -197,3 +197,76 @@ test('A5: saveIngressMap 未选 Service 端口 → error 提示且不触 Ingress
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('请先选择 Service 端口'))
   expect(captured.ingAdds).toHaveLength(0)
 })
+
+// === expose 弹窗 nodePort(2026-09-01):第三条创建路径补 nodePort 输入 + 集群级空闲推荐 ===
+const setInput = (el, v) => { el.value = v; el.dispatchEvent(new Event('input')) }
+async function openExposeModal() {
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const plus = w.findAll('button').filter(b => b.classes().includes('-left-3')).at(-1)   // Workload 卡「暴露」+
+  await plus.trigger('click'); await flushPromises()
+  return w
+}
+// 弹窗 teleport 在 body 末尾:type 切换 select 取 body 内最后一个(仓库既有约定)
+async function switchExposeType(type) {
+  const sel = [...document.body.querySelectorAll('select')].at(-1)
+  sel.value = type; sel.dispatchEvent(new Event('change')); await flushPromises()
+}
+// 带 Material Symbols 图标的按钮:连字文本混入 textContent(仓库既有教训),须包含匹配不能精确匹配
+async function clickModalBtnContaining(text) {
+  const els = [...document.body.querySelectorAll('button')].filter(b => b.textContent.includes(text))
+  expect(els.length, `body 内应有含「${text}」的按钮`).toBeGreaterThan(0)
+  els.at(-1).click(); await flushPromises()
+}
+const npInputs = () => [...document.body.querySelectorAll('input[placeholder="nodePort"]')]
+
+test('expose nodePort: 仅 NodePort/LoadBalancer 显示 nodePort 输入,ClusterIP 不显示', async () => {
+  await openExposeModal()
+  expect(npInputs().length).toBe(0)          // 默认 ClusterIP
+  await switchExposeType('NodePort')
+  expect(npInputs().length).toBeGreaterThan(0)
+  await switchExposeType('ClusterIP')
+  expect(npInputs().length).toBe(0)
+})
+
+test('expose nodePort: 推荐——跳过集群已占用(NodePort/LB 全 ns),只填空行不覆盖手填', async () => {
+  state.services = [
+    JSON.parse(JSON.stringify(svcMatching)),
+    { name: 'np-svc', namespace: 'kube-system', type: 'NodePort', ports: '443:8443/TCP', selector: { app: 'ingress' }, portList: [{ nodePort: 30000 }, { nodePort: 30001 }] },
+    { name: 'lb-svc', namespace: 'other', type: 'LoadBalancer', ports: '80:80/TCP', selector: {}, portList: [{ nodePort: 30005 }] },
+  ]
+  await openExposeModal()
+  await switchExposeType('NodePort')
+  // 第二行留空,第一行手填 30999(推荐不得覆盖)
+  const addBtn = [...document.body.querySelectorAll('button')].filter(b => b.textContent.trim().startsWith('+')).at(-1)
+  addBtn.click(); await flushPromises()
+  setInput(npInputs()[0], 30999)
+  await clickModalBtnContaining('自动推荐端口')
+  expect(Number(npInputs()[0].value)).toBe(30999)          // 手填不覆盖
+  expect(Number(npInputs()[1].value)).toBe(30002)          // 空行:跳过集群已占用 30000/30001/30005
+})
+
+test('expose nodePort: saveExpose 走结构化 portList,手填 nodePort 落盘', async () => {
+  await openExposeModal()
+  await switchExposeType('NodePort')
+  setInput(npInputs()[0], 30010)
+  await clickModalBtn('创建')
+  expect(captured.svcAdds).toHaveLength(1)
+  expect(captured.svcAdds[0].portList).toEqual([{ name: '', port: 8080, targetPort: 8080, protocol: 'TCP', nodePort: 30010, appProtocol: '' }])
+})
+
+test('expose nodePort: ClusterIP 下 portList.nodePort 恒 null(创建成功弹窗即关)', async () => {
+  await openExposeModal()
+  await clickModalBtn('创建')
+  expect(captured.svcAdds).toHaveLength(1)
+  expect(captured.svcAdds[0].portList).toEqual([{ name: '', port: 8080, targetPort: 8080, protocol: 'TCP', nodePort: null, appProtocol: '' }])
+})
+
+test('expose nodePort: 非法值(>65535)拦截——error 不落库,弹窗保留', async () => {
+  await openExposeModal()
+  await switchExposeType('NodePort')
+  setInput(npInputs()[0], 70000)
+  await clickModalBtn('创建')
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('1-65535'))
+  expect(captured.svcAdds).toHaveLength(0)
+  expect([...document.body.querySelectorAll('button')].some(b => b.textContent.trim() === '创建')).toBe(true)
+})

@@ -2372,7 +2372,11 @@
       "identityRequired": "无法确定稳定身份标签（建议 Pod 模板 labels 含 app）；为避免后续标签变更导致 Service 失配（经 Ingress 访问将 503），已阻止创建",
       "cancel": "取消",
       "create": "创建",
-      "portRequired": "至少填写一个端口"
+      "portRequired": "至少填写一个端口",
+      "nodePort": "nodePort",
+      "recommendNodePort": "自动推荐端口",
+      "nodePortAutoHint": "nodePort 留空则由集群自动分配",
+      "nodePortInvalid": "nodePort 须为 1-65535 的数字"
     },
     "ingressMap": {
       "host": "Host",
@@ -3374,11 +3378,20 @@
       "running": "{n} 运行中",
       "pending": "{n} 待审批",
       "ssh": "{n} SSH",
-      "relNow": "刚刚", "relMin": "{n} 分钟前", "relHour": "{n} 小时前", "relDay": "{n} 天前",
-      "newProject": "新建项目", "openLedger": "集群台账", "openRecords": "记录",
-      "noProjects": "还没有项目", "pendingChip": "{n} 待审",
-      "kProjects": "项目", "kRunning": "运行中", "kPending": "待审批",
-      "stale": "更新失败,显示 {t}的数据", "loadFailed": "加载失败"
+      "relNow": "刚刚",
+      "relMin": "{n} 分钟前",
+      "relHour": "{n} 小时前",
+      "relDay": "{n} 天前",
+      "newProject": "新建项目",
+      "openLedger": "集群台账",
+      "openRecords": "记录",
+      "noProjects": "还没有项目",
+      "pendingChip": "{n} 待审",
+      "kProjects": "项目",
+      "kRunning": "运行中",
+      "kPending": "待审批",
+      "stale": "更新失败,显示 {t}的数据",
+      "loadFailed": "加载失败"
     },
     "unboundBadge": "未绑定集群",
     "unboundBanner": "当前未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后可调查资源与 apply,已写好的草稿直接生效",
