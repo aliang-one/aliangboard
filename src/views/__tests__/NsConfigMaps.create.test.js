@@ -1,7 +1,10 @@
-import { test, expect, vi, beforeEach } from 'vitest'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { i18n } from '@/i18n'
+
+// 终审修复(W2):Modal Teleport 到 body,跨用例清场防 DOM 残留串扰
+afterEach(() => { document.body.innerHTML = '' })
 
 const invalidateQueries = vi.fn()
 

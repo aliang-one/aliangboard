@@ -29,9 +29,13 @@ test('手机档按键条模板:isPhone 分支 + 7 键位 + 40px 触控目标', (
   expect(src).toContain('sendInput(bytes)')
 })
 
-test('sendInput 复用既有 term.onData 同款数据通路(stream?.send)', () => {
+test('sendInput 复用既有 term.onData 同款数据通路(stream?.send)+ 终审修复(B):发送后回焦 xterm 收软键盘', () => {
   expect(src).toContain('function sendInput(d)')
-  expect(src).toContain('sendInput(d) { stream?.send(d) }')
+  expect(src).toContain('stream?.send(d); term?.focus()')
+})
+
+test('终审修复(B):按键钮 @pointerdown.prevent 阻止焦点转移(软键盘不收起)', () => {
+  expect(src).toContain('@pointerdown.prevent @click="sendInput(bytes)"')
 })
 
 const taskbar = readFileSync(resolve('src/components/terminal/TerminalTaskbar.vue'), 'utf8')

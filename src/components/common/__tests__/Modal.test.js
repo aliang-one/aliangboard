@@ -172,14 +172,10 @@ test('Modal: 无 beforeClose 行为不变(回归)', async () => {
 
 // 2026-09-01 手机适配 Wave 1a:<640 一切 Modal 自动全屏(复用 max-layout 三段式),
 // width prop 手机档被忽略;动作条含 iOS 安全区 padding。桌面/平板行为零变化。
-const mockBelowSm = (below) => vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-  matches: below && q === '(max-width: 639.98px)',
-  addEventListener: () => {},
-  removeEventListener: () => {},
-}))
+// (终审修复:本地 mockBelowSm 残留收编到共享 helper mobileViewport)
 
 test('Modal: 手机档(<640)自动全屏,width prop 被忽略,动作条带安全区', async () => {
-  const spy = mockBelowSm(true)
+  const spy = mockViewport(true)
   const wrapper = mount(Modal, {
     props: { modelValue: true, title: '标题', width: 'max-w-lg' },
     slots: { actions: '<button data-testid="act">ok</button>' },
@@ -217,7 +213,7 @@ test('Modal: 手机档全屏 Modal 无 actions 时内容区带底部安全区 pa
 })
 
 test('Modal: 桌面档(≥640)保持 width prop,无安全区 style', async () => {
-  const spy = mockBelowSm(false)
+  const spy = mockViewport(false)
   const wrapper = mount(Modal, {
     props: { modelValue: true, title: '标题', width: 'max-w-lg' },
     slots: { actions: '<button data-testid="act">ok</button>' },

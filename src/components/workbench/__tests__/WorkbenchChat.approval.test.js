@@ -2,7 +2,7 @@
 // approvalTarget 无 a.server 分支、命令 <pre> 只在 name==='wb_exec' 渲染、
 // sudo 不可见,人只看到「集群变更审批」+ 批准按钮 = 盲批远程 root 命令。
 // 修复:凡 args.command 存在的工具一律渲染 目标+命令+sudo;ssh 工具走独立标题。
-import { test, expect, vi, beforeEach } from 'vitest'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import zh from '@/locales/zh.json'
@@ -35,6 +35,9 @@ import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 import WorkbenchChat from '../WorkbenchChat.vue'
 
 const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh, en } })
+
+// 终审修复(W2-I):防 mockViewport 等 spyOn 跨用例泄漏
+afterEach(() => { vi.restoreAllMocks() })
 
 async function mountPausedApproval(pa) {
   api.conversations.get.mockReset()
