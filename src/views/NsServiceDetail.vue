@@ -9,6 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { extractContainerPorts, extractContainerPortsGrouped } from '@/composables/usePorts'
+import { podTemplateLabels } from '@/logic/workloadMeta'
 import { useResourceApply } from '@/composables/useResourceApply'
 import { dumpResourceYaml } from '@/composables/useYaml'
 import { api, exportYaml } from '@/api/client'
@@ -114,7 +115,8 @@ const boundWorkloads = computed(() => {
   const sel = svc.value?.selector
   if (!sel || !Object.keys(sel).length) return []
   return nsWorkloads.value.filter(w => {
-    const tpl = w.raw?.spec?.template?.metadata?.labels || {}
+    // Pod 模板标签单源(CronJob 走 jobTemplate——直读 spec.template 对 CronJob 恒空,绑定面会静默漏配)
+    const tpl = podTemplateLabels(w.raw)
     return Object.entries(sel).every(([k, v]) => tpl[k] === v)
   })
 })
@@ -126,7 +128,7 @@ const boundWorkload = computed(() => boundWorkloads.value[0]?.name || '')
 // === 添加后端工作负载：把指定 workload 并入 selector ===
 // K8s selector 是 label 的 AND 查询，无法「A 或 B」。要让 A、B 同时被选中，selector 必须是
 // 它们共有的 label（同 key 同 value 的交集）。故新 selector = (当前绑定 ∪ 所选) 的 template label 交集。
-const tplLabels = w => w?.raw?.spec?.template?.metadata?.labels || {}
+const tplLabels = w => podTemplateLabels(w?.raw)
 const showAddBackendModal = ref(false)
 const pickedBackend = ref('')
 const unmatchedWorkloads = computed(() =>
