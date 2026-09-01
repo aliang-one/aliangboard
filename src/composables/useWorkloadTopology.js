@@ -2,7 +2,7 @@
 // 迁入,新增 replicasets/endpoints/hpas 三查询;七条统一 pollInterval 门控(B2:watch 降级时与
 // workloads/pods 同 30s 兜底,新鲜度单轨)。workloads/pods 查询留在页面(多 Tab 共用),
 // pollInterval/managedPods 经参数只读注入。判定纯函数在 logic/topology 与 logic/workloadMeta。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -115,6 +115,14 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
   const showIngressMapModal = ref(false)
   const ingressMapForm = ref({ name: '', host: '', path: '/', pathType: 'Prefix', serviceName: '', servicePort: '', target: '' })
   const sameHost = computed(() => sameHostIngresses(ingressList.value || [], ingressMapForm.value.host))
+  // target 与候选同步：候选出现/变化时默认选首项（追加优先——原生 select v-model='' 只会显示空白并落入新建分支）；
+  // 现 target 已不在候选（host 改过）则改选新候选首项，杜绝向不同 host 的 Ingress 静默追加；用户显式选 'new' 不覆盖。
+  watch(sameHost, list => {
+    const cur = ingressMapForm.value.target
+    if (cur === 'new') return
+    if (cur && list.some(i => i.name === cur)) return
+    ingressMapForm.value.target = list.length ? list[0].name : ''
+  })
   const mapConflict = ref('')
   const mapSvcOptions = computed(() => {
     const related = new Set(relatedServices.value.map(s => s.name))
