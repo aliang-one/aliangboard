@@ -110,10 +110,43 @@ async function doDelete() {
   finally { deleteBusy.value = false }
 }
 
-// 菜单项工厂(Task 2 在此追加删除项)
+// ═══ 项目记忆直编(spec 2026-09-01b):⋮ 菜单第三项,弹窗编辑 projectRecap ═══
+// 数据单源=projects[].projectRecap(列表接口 SELECT * 已携带,预填零请求);
+// 语义与聊天页背景卡同构:保存空文本(原记忆非空)与清空钮均需 confirm 二次确认。
+const showMemory = ref(false)
+const memoryTarget = ref(null)
+const memoryText = ref('')
+const memoryBusy = ref(false)
+function startMemory(p) {
+  memoryTarget.value = p
+  memoryText.value = p.projectRecap || ''
+  showMemory.value = true
+}
+async function commitRecap(next, { requireConfirm = false } = {}) {
+  if (!showMemory.value || memoryBusy.value) return
+  const clearing = next === ''
+  if ((requireConfirm || (clearing && !!memoryTarget.value.projectRecap)) &&
+      !window.confirm(t('workbench.card.memoryClearConfirm'))) return
+  memoryBusy.value = true
+  try {
+    await workbenchApi.updateProject(memoryTarget.value.id, { recap: next })
+    const p = projects.value.find(x => x.id === memoryTarget.value.id)
+    if (p) p.projectRecap = clearing ? null : next
+    notify('success', clearing ? t('workbench.card.memoryCleared') : t('workbench.card.memorySaved'))
+    showMemory.value = false
+  } catch (e) {
+    // 失败保留弹窗与输入可重试;透传服务端消息(如 65536 超长 400)
+    notify('error', e?.message || t('workbench.card.memorySaveFailed'))
+  } finally { memoryBusy.value = false }
+}
+function saveMemory() { commitRecap(memoryText.value.trim()) }
+function clearMemory() { commitRecap('', { requireConfirm: true }) }
+
+// 菜单项工厂(项目记忆插在重命名与删除之间)
 function cardActions(p) {
   return [
     { label: t('workbench.card.renameProject'), icon: 'edit', action: () => startRename(p) },
+    { label: t('workbench.card.projectMemory'), icon: 'folder_special', action: () => startMemory(p) },
     { label: t('workbench.card.deleteProject'), icon: 'delete', danger: true, action: () => startDelete(p) },
   ]
 }
@@ -229,6 +262,23 @@ function cardActions(p) {
         <button @click="deleteTarget = null" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
         <button @click="doDelete" :disabled="!deleteConfirmed || deleteBusy" data-testid="delete-confirm-btn"
           class="px-md py-sm bg-error text-on-error rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.card.deleteProject') }}</button>
+      </template>
+    </Modal>
+
+    <!-- Memory Modal(spec 2026-09-01b):⋮ 菜单直编项目记忆;语义与聊天页背景卡同构 -->
+    <Modal v-model="showMemory" :title="t('workbench.card.memoryModalTitle', { name: memoryTarget?.name })" width="max-w-lg">
+      <div class="flex flex-col gap-sm">
+        <textarea v-model="memoryText" data-testid="memory-textarea" rows="8"
+          class="w-full text-body-sm text-on-surface bg-surface-container border border-outline-variant rounded-lg px-sm py-sm focus:outline-none focus:border-primary resize-y"></textarea>
+        <p class="text-body-xs text-on-surface-variant">{{ t('workbench.card.memoryModalHint') }}</p>
+      </div>
+      <template #actions>
+        <button @click="clearMemory" :disabled="memoryBusy" data-testid="memory-clear-btn"
+          class="px-md py-sm text-body-sm rounded-md text-error border border-error/40 hover:bg-error/5 disabled:opacity-40">{{ t('workbench.chat.recapClear') }}</button>
+        <div class="flex-1"></div>
+        <button @click="showMemory = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+        <button @click="saveMemory" :disabled="memoryBusy" data-testid="memory-save-btn"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.chat.recapSave') }}</button>
       </template>
     </Modal>
   </div>
