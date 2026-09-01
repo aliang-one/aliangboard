@@ -21,7 +21,7 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 
 ## 提交规范
 
-- 提交作者恒为 `aliangone <aliangone@gmail.com>`;**禁止**在提交信息中加 `Co-Authored-By: Claude` 尾注(用户 2026-08-26 明确要求,GitHub 会把尾注渲染成共同作者)。
+- 提交作者恒为 `aliang-one <aliangdone@gmail.com>`(用户 2026-09-01 裁决,取代 2026-08-26 的 `aliangone <aliangone@gmail.com>`;仓库 git config 已同步;**已推历史不改写,未推区间可按用户指令改写**);**禁止**在提交信息中加 `Co-Authored-By: Claude` 尾注(GitHub 会把尾注渲染成共同作者)。
 - **禁止改写已推送的历史**、禁止 force push(多会话并行开发,改写历史会使并行会话推送被拒);任何清理/修整只允许作用于**未推送的本地提交**。
 
 ## 架构约束
