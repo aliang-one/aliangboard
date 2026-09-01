@@ -1414,7 +1414,7 @@ function podStatusBorder(s) {
                 @click="selectPod(p)" @delete="confirmDeletePod($event)"
               >
                 <template #actions>
-                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
+                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 max-sm:p-2 max-sm:-m-2" :title="$t('workload.podList.openTerminal')">
                     <span class="material-symbols-outlined text-sm">terminal</span>
                   </button>
                 </template>
@@ -1719,7 +1719,7 @@ function podStatusBorder(s) {
           :selectable="batchMode" :selected="batchMode && selectedNames.has(p.name)"
           @click="onCardClick" @delete="confirmDeletePod($event)">
           <template #actions>
-            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
+            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 max-sm:p-2 max-sm:-m-2" :title="$t('workload.podList.openTerminal')">
               <span class="material-symbols-outlined text-sm">terminal</span>
             </button>
           </template>
@@ -1961,7 +1961,7 @@ function podStatusBorder(s) {
           <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs">
             <input v-model.number="p.containerPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" />
             <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="TCP" />
-            <button @click="editForm.ports.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="editForm.ports.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
         </section>
 
@@ -1973,7 +1973,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
               <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="KEY" />
               <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="val" />
-              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="flex flex-col gap-xs">
@@ -1981,7 +1981,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
               <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="flex flex-col gap-xs">
@@ -1989,7 +1989,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
               <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="grid grid-cols-2 gap-xs">
@@ -2062,14 +2062,14 @@ function podStatusBorder(s) {
           <div v-for="(n, i) in editForm.nodeSelectors" :key="'ns'+i" class="flex items-center gap-xs">
             <input v-model="n.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="disktype" />
             <input v-model="n.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ssd" />
-            <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.tolerations') }}</span><button @click="editForm.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.add') }}</button></div>
           <div v-for="(t, i) in editForm.tolerations" :key="'tol'+i" class="grid grid-cols-4 gap-xs">
             <input v-model="t.key" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="key" />
             <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>Equal</option><option>Exists</option></select>
             <input v-model="t.value" :disabled="t.operator === 'Exists'" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="value" />
-            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
         </section>
 

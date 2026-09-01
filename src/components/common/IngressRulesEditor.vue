@@ -119,10 +119,10 @@ function fieldError(hi, pi, field) { return errors.value.find(e => e.loc === `ho
         <input v-model="h.host" class="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant rounded px-sm py-1 text-sm font-mono" :placeholder="t('ns.ingressDetail.hostPlaceholder')" />
         <span class="text-[10px] text-on-surface-variant shrink-0">{{ t('ns.ingressDetail.pathCount', { n: h.paths.length }) }}</span>
         <div class="flex items-center gap-0.5 shrink-0">
-          <button @click="moveHost(hi, -1)" :disabled="hi === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="t('ns.ingressDetail.moveUpHost')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
-          <button @click="moveHost(hi, 1)" :disabled="hi === modelValue.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="t('ns.ingressDetail.moveDownHost')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
-          <button @click="duplicateHost(hi)" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="t('ns.ingressDetail.dupHost')"><span class="material-symbols-outlined text-base">content_copy</span></button>
-          <button @click="removeHost(hi)" class="p-0.5 text-on-surface-variant hover:text-error rounded" :title="t('ns.ingressDetail.removeHost')"><span class="material-symbols-outlined text-base">delete</span></button>
+          <button @click="moveHost(hi, -1)" :disabled="hi === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.moveUpHost')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
+          <button @click="moveHost(hi, 1)" :disabled="hi === modelValue.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.moveDownHost')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
+          <button @click="duplicateHost(hi)" class="p-0.5 text-on-surface-variant hover:text-primary rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.dupHost')"><span class="material-symbols-outlined text-base">content_copy</span></button>
+          <button @click="removeHost(hi)" class="p-0.5 text-on-surface-variant hover:text-error rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.removeHost')"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
       </div>
       <div class="p-sm flex flex-col gap-xs">
@@ -134,10 +134,10 @@ function fieldError(hi, pi, field) { return errors.value.find(e => e.loc === `ho
           <PortSelect v-model="p.serviceName" :options="svcOptions" placeholder="my-svc" :empty-hint="t('ns.ingressDetail.noService')" :input-class="['w-32 bg-surface-container-low border rounded px-sm py-1 text-sm font-mono', fieldError(hi, i, 'serviceName') ? 'border-error' : 'border-outline-variant'].join(' ')" />
           <PortSelect v-model="p.servicePort" :options="portsFor(p.serviceName)" placeholder="80" :empty-hint="t('ns.ingressDetail.selectServiceForPort')" :input-class="['w-20 bg-surface-container-low border rounded px-sm py-1 text-sm font-mono', fieldError(hi, i, 'servicePort') ? 'border-error' : 'border-outline-variant'].join(' ')" />
           <div class="flex items-center gap-0.5 shrink-0">
-            <button @click="movePath(hi, i, -1)" :disabled="i === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="t('ns.ingressDetail.moveUpPath')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
-            <button @click="movePath(hi, i, 1)" :disabled="i === h.paths.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded" :title="t('ns.ingressDetail.moveDownPath')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
-            <button @click="duplicatePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="t('ns.ingressDetail.dupPath')"><span class="material-symbols-outlined text-base">content_copy</span></button>
-            <button @click="removePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-error rounded" :title="t('ns.ingressDetail.removePath')"><span class="material-symbols-outlined text-base">delete</span></button>
+            <button @click="movePath(hi, i, -1)" :disabled="i === 0" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.moveUpPath')"><span class="material-symbols-outlined text-base">arrow_upward</span></button>
+            <button @click="movePath(hi, i, 1)" :disabled="i === h.paths.length - 1" class="p-0.5 text-on-surface-variant hover:text-primary disabled:opacity-30 rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.moveDownPath')"><span class="material-symbols-outlined text-base">arrow_downward</span></button>
+            <button @click="duplicatePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-primary rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.dupPath')"><span class="material-symbols-outlined text-base">content_copy</span></button>
+            <button @click="removePath(hi, i)" class="p-0.5 text-on-surface-variant hover:text-error rounded max-sm:p-1.5 max-sm:-m-1.5" :title="t('ns.ingressDetail.removePath')"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
         </div>
         <button @click="addPath(hi)" class="self-start flex items-center gap-xs px-sm py-xs text-sm text-primary hover:bg-primary-container/10 rounded">

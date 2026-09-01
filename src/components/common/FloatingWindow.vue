@@ -62,13 +62,13 @@ const winStyle = computed(() => isMax.value
         </span>
       </slot>
       <slot name="title-actions" />
-      <button data-test="btn-maximize" @click="isMax = !isMax" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary" :title="maximizeTitle">
+      <button data-test="btn-maximize" @click="isMax = !isMax" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary max-sm:p-1.5 max-sm:-m-1.5" :title="maximizeTitle">
         <span class="material-symbols-outlined text-base">{{ isMax ? 'fullscreen_exit' : 'fullscreen' }}</span>
       </button>
-      <button data-test="btn-minimize" @click="emit('minimize')" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface" :title="minimizeTitle">
+      <button data-test="btn-minimize" @click="emit('minimize')" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface max-sm:p-1.5 max-sm:-m-1.5" :title="minimizeTitle">
         <span class="material-symbols-outlined text-base">remove</span>
       </button>
-      <button data-test="btn-close" @click="emit('close')" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error" :title="closeTitle">
+      <button data-test="btn-close" @click="emit('close')" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error max-sm:p-1.5 max-sm:-m-1.5" :title="closeTitle">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>
