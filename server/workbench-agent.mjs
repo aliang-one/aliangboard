@@ -10,6 +10,7 @@ import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
+import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
 //   db                —— node:sqlite DatabaseSync(index.mjs 顶层构造)
@@ -187,11 +188,12 @@ const CK_TIME_MS = 500
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
       // 项目记忆(T2,2026-08-29):每次 run 现读开关(权限回收语义同 disabledTools);
-      // 开启时把 T1 维护的 projectRecap 拼入 system——注入格式属全局约束,勿改动字面。
+      // 开启时把 T1 维护的 projectRecap 拼入 system——注入格式(头注 caveat+尾部护栏)
+      // 单源在 workbench-prompt.buildProjectMemoryInjection,勿在此内联字面(有静态守卫)。
       const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
-        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)\n${projectRecap}` : '')
+        + buildProjectMemoryInjection(projectRecap)
         + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
@@ -277,11 +279,11 @@ const CK_TIME_MS = 500
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-      // 项目记忆(T2):与 run 路径同款注入
+      // 项目记忆(T2):与 run 路径同款注入(单源 buildProjectMemoryInjection)
       const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
-        + (projectRecap ? `\n\n[Project memory — 之前对话的决策摘要](历史经验供参考;工具与能力以本轮实际提供的为准)\n${projectRecap}` : '')
+        + buildProjectMemoryInjection(projectRecap)
         + await fetchRefContext(refs, k8sSession)
       const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
