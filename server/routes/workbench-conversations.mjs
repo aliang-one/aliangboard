@@ -318,7 +318,7 @@ export function createWorkbenchConvRoutes(deps) {
         const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
         const seen = new Set(mergedRefs.map(key))
         for (const r of (refsValue || [])) { const k = key(r); if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) } }
-        appendMessage(db, {
+        const appendedAnchor = appendMessage(db, {
           conversationId: id, role: 'user', content,
           refs: refsValue ? refsValue.map((r, i) => ({ kind: r.kind, namespace: r.namespace, name: r.name, resource: r.resource ?? fetchedResources[i] ?? null })) : null,
         })
@@ -330,7 +330,9 @@ export function createWorkbenchConvRoutes(deps) {
         })
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
-        sendJson(res, 200, { status: 'running', context: contextInfo(getConversation(db, id)) })
+        // 2026-09-01 锚 id 失联修复:截断已删旧锚行,响应必须回带新 user 行 id——
+        // 前端乐观 turn 据此回填,否则同视图内第二次编辑仍发被删旧 id → 「编辑目标无效」。
+        sendJson(res, 200, { status: 'running', anchorMessageId: appendedAnchor?.id || null, context: contextInfo(getConversation(db, id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.editFailed') }); return true }
     }
