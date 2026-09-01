@@ -106,11 +106,11 @@ const isRetired = rs2 => isRetiredRs(rs2, props.topo.latestRs.value)
               <div v-for="i in 2" :key="i" class="h-9 rounded-lg bg-surface-container-low animate-pulse"></div>
             </template>
             <template v-else>
-              <!-- C3:hover 高亮:focus 用 ring(无 -2 后缀,避免与 hover ring-2 类名歧义) -->
+              <!-- C3:hover 高亮 -->
               <button v-for="s in topo.relatedServices.value" :key="s.name" type="button"
                 @click="router.push({ name: 'NsServiceDetail', params: { namespace: workload.namespace, name: s.name } })"
                 @mouseenter="hoveredSvc = s.name" @mouseleave="hoveredSvc = ''"
-                :class="['text-left cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:ring focus-visible:ring-primary transition-colors',
+                :class="['text-left cursor-pointer rounded-lg border border-outline-variant/60 px-sm py-1.5 hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-colors',
                   hoveredSvc === s.name ? 'ring-2 ring-primary' : '']">
                 <p class="font-mono text-xs text-on-surface font-semibold truncate">
                   <span v-if="s.name === topo.governingSvcName.value" class="px-1 rounded bg-primary/15 text-primary text-[10px]">{{ $t('workload.topology.governing') }}</span>

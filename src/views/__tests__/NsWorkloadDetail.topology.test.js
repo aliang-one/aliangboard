@@ -154,9 +154,10 @@ test('C3: 规则卡 hover → 匹配 Service 卡高亮(ring)', async () => {
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
   const ruleCard = w.findAll('button').find(b => b.text().includes('a.com'))
   const svcCardBefore = w.findAll('button').find(b => b.text().includes('demo-svc') && b.text().includes('ClusterIP'))
-  expect(svcCardBefore.classes().join(' ')).not.toContain('ring-2')
+  // token 级匹配(classes() 返回数组,toContain 逐 token 严格比对)——focus-visible:ring-2 不会误中
+  expect(svcCardBefore.classes()).not.toContain('ring-2')
   await ruleCard.trigger('mouseenter')
-  expect(svcCardBefore.classes().join(' ')).toContain('ring-2')
+  expect(svcCardBefore.classes()).toContain('ring-2')
   await ruleCard.trigger('mouseleave')
-  expect(svcCardBefore.classes().join(' ')).not.toContain('ring-2')
+  expect(svcCardBefore.classes()).not.toContain('ring-2')
 })
