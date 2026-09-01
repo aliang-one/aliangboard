@@ -232,7 +232,7 @@ const isRetired = rs2 => isRetiredRs(rs2, props.topo.latestRs.value)
                 <span v-if="isRetired({ name: g.rsName, desired: g.desired, ready: g.ready })" class="w-full border-t border-outline-variant/20"></span>
               </p>
               <div v-for="p in g.pods" :key="p.name"
-                :class="['cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 transition-colors text-left',
+                :class="['cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-colors text-left',
                   isRetired({ name: g.rsName, desired: g.desired, ready: g.ready }) ? 'opacity-60' : '']"
                 role="button" tabindex="0"
                 @click="router.push({ name: 'NsPodDetail', params: { namespace: workload.namespace, name: p.name } })"
@@ -245,7 +245,7 @@ const isRetired = rs2 => isRetiredRs(rs2, props.topo.latestRs.value)
             <template v-if="topo.podsGrouped.value.ungrouped.length">
               <p class="text-[10px] text-on-surface-variant/60 px-0.5">{{ $t('workload.topology.rsUngrouped') }}</p>
               <div v-for="p in topo.podsGrouped.value.ungrouped" :key="p.name"
-                class="cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                class="cursor-pointer flex items-center gap-xs rounded-lg border border-outline-variant/60 px-sm py-1 hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-colors text-left"
                 role="button" tabindex="0"
                 @click="router.push({ name: 'NsPodDetail', params: { namespace: workload.namespace, name: p.name } })"
                 @keydown.enter="router.push({ name: 'NsPodDetail', params: { namespace: workload.namespace, name: p.name } })">
