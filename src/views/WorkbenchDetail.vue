@@ -397,7 +397,7 @@ const treeRows = computed(() => {
               </p>
               <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || t('workbench.detail.emptyConv') }}</p>
             </div>
-            <div class="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="shrink-0 flex items-center opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
               <button @click.stop="startRename(c)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="t('workbench.detail.renameConv')">
                 <span class="material-symbols-outlined text-sm">edit</span>
               </button>
@@ -460,7 +460,7 @@ const treeRows = computed(() => {
                 <span v-if="row.path === currentPath && dirty" class="w-1.5 h-1.5 rounded-full bg-status-warning shrink-0 ml-auto" :title="t('workbench.detail.unsaved')"></span>
               </button>
               <button @click="deleteProjectFile(row.path)" type="button"
-                class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10"
+                class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10"
                 :title="t('workbench.detail.deleteFile')">
                 <span class="material-symbols-outlined text-sm">delete</span>
               </button>

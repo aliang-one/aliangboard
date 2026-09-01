@@ -124,3 +124,12 @@ hover→常显);应急修复闭环(找负载→看日志→止血动作→AI 审
 4. 任意 Modal(如 创建资源/Scale)手机档全屏、动作条贴底带安全区;桌面档宽度不变
 5. iPad 宽度(768/1000)侧栏仍为 72px 图标栏(hover 展开);桌面(≥1280)完整侧栏——零回归
 6. 无 #actions 槽的全屏 Modal（ChatModal/ToolCallModal 等）手机档内容滚到贴底缘无安全区——Wave 2 处理,先确认可用性
+
+## 10. Wave 1b 真机手测清单
+
+1. 任一 DataTable 列表页(NsServices/NsWorkloads/NsConfigMaps 等):卡片呈现——首列标题加粗、键值行对齐、状态 chip 正常;点卡片进详情
+2. 卡片 checkbox 勾选不误触进详情;批量删除按钮可达
+3. 表格行 DropdownMenu:底部弹出面板、菜单项 ≥40px、点遮罩关闭、危险项红色
+4. 筛选钮展开/收起;结果计数与重置恒可见
+5. SplitButton/确认弹窗:全屏、按钮好按;终端任务栏 chip 的关闭 × 手机可见可点
+6. 桌面/iPad:列表仍表格、下拉仍锚定浮层、筛选仍平铺——零回归

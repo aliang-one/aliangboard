@@ -2,6 +2,7 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 
 const props = defineProps({
@@ -20,6 +21,11 @@ const props = defineProps({
 const emit = defineEmits(['row-click', 'update:selection', 'expand'])
 
 const { setWidth } = useTableColumns()
+
+// 手机卡片模式(spec §4.1):首个数据列=标题,其余列=键值行;同一份列 slot 双分支复用,单渲染
+const { isPhone } = useIsPhone()
+const titleKey = computed(() => props.headers[0]?.key)
+const kvHeaders = computed(() => props.headers.slice(1))
 
 // 列管理弹层
 const mgrOpen = ref(false)
@@ -94,7 +100,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
 
 <template>
   <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-    <div class="overflow-x-auto">
+    <div v-if="!isPhone" class="overflow-x-auto">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -188,6 +194,41 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
           </tr>
         </tbody>
       </table>
+    </div>
+    <!-- 手机卡片模式(spec §4.1):slot 与桌面同源单渲染;checkbox/expand .stop 防误触 row-click -->
+    <div v-else class="divide-y divide-outline-variant/30">
+      <div v-for="(row, idx) in rows" :key="rowId(row) ?? idx" data-card-row
+        class="relative px-md py-md active:bg-surface-container-low/60 transition-colors"
+        @click="$emit('row-click', row)">
+        <div class="flex items-start gap-sm">
+          <div class="flex-1 min-w-0" data-card-title>
+            <slot :name="titleKey" :row="row" :value="row[titleKey]">
+              <span class="block truncate font-semibold text-body-md">{{ row[titleKey] }}</span>
+            </slot>
+          </div>
+          <span v-if="selectable" data-card-select-hit class="shrink-0 -m-1 p-2 inline-flex items-center justify-center" @click.stop>
+            <input type="checkbox" data-card-select :checked="isSelected(row)" @click.stop="toggleRow(row)"
+              class="w-5 h-5 accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
+          </span>
+          <button v-if="expandable" data-card-expand @click.stop="toggleExpand(row)"
+            class="shrink-0 p-xs text-on-surface-variant hover:text-primary rounded">
+            <span class="material-symbols-outlined text-base">{{ isExpanded(row) ? 'expand_more' : 'chevron_right' }}</span>
+          </button>
+        </div>
+        <div class="mt-sm grid gap-xs">
+          <div v-for="header in kvHeaders" :key="header.key" data-kv-row class="flex items-baseline gap-sm min-w-0">
+            <span data-kv-label class="text-label-caps text-on-surface-variant shrink-0 w-20">{{ header.label }}</span>
+            <span class="min-w-0 overflow-hidden text-body-sm"><slot :name="header.key" :row="row" :value="row[header.key]">{{ row[header.key] }}</slot></span>
+          </div>
+        </div>
+        <div v-if="expandable && isExpanded(row)" class="mt-sm pt-sm border-t border-outline-variant/30">
+          <slot name="expanded" :row="row" />
+        </div>
+      </div>
+      <div v-if="!rows.length" class="px-md py-xl text-center">
+        <span class="material-symbols-outlined text-4xl text-surface-container-high block mb-sm">inbox</span>
+        <p class="text-on-surface-variant">{{ $t('common.noData') }}</p>
+      </div>
     </div>
     <div v-if="$slots.pagination" class="px-lg py-md bg-surface-container-low border-t border-outline-variant flex justify-between items-center">
       <slot name="pagination" />
