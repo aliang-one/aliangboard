@@ -4,7 +4,7 @@
 import { test, expect, vi, beforeEach } from 'vitest'
 
 const captured = vi.hoisted(() => ({ svcAdds: [], svcUpdates: [], ingAdds: [] }))
-const state = vi.hoisted(() => ({ workload: null, services: [], pdbs: [], netpols: [], pods: [], ingresses: [], endpoints: [], replicasets: [], hpas: [] }))
+const state = vi.hoisted(() => ({ workload: null, services: [], pdbs: [], netpols: [], pods: [], ingresses: [], endpoints: [], replicasets: [], hpas: [], ingressClasses: [] }))
 
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -29,6 +29,7 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   fetchServices: vi.fn(async () => state.services), fetchIngresses: vi.fn(async () => state.ingresses), fetchEvents: vi.fn(async () => []),
   fetchPDBs: vi.fn(async () => state.pdbs), fetchNetworkPolicies: vi.fn(async () => state.netpols),
   fetchEndpoints: vi.fn(async () => state.endpoints), fetchReplicaSets: vi.fn(async () => state.replicasets), fetchHPAs: vi.fn(async () => state.hpas),
+  fetchIngressClasses: vi.fn(async () => state.ingressClasses),
   updateWorkload: vi.fn(async () => {}), applyWorkloadTemplate: vi.fn(async () => {}),
   updateWorkloadMeta: vi.fn(async () => {}),
   addService: vi.fn(item => { captured.svcAdds.push(item); return { ok: true } }),
@@ -71,7 +72,7 @@ beforeEach(() => {
   state.workload = JSON.parse(JSON.stringify(demoWorkload))
   state.services = [JSON.parse(JSON.stringify(svcMatching))]
   state.pdbs = []; state.netpols = []; state.pods = []; state.ingresses = []
-  state.endpoints = []; state.replicasets = []; state.hpas = []
+  state.endpoints = []; state.replicasets = []; state.hpas = []; state.ingressClasses = []
   i18n.global.locale.value = 'zh'
 })
 
@@ -196,6 +197,18 @@ test('A5: saveIngressMap 未选 Service 端口 → error 提示且不触 Ingress
   await clickModalBtn('创建')
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('请先选择 Service 端口'))
   expect(captured.ingAdds).toHaveLength(0)
+})
+
+// A6:「集群默认」退役(2026-09-01)——新建 Ingress 的 className 恒为确定类(曾硬编码 '' → 落地无类无人接)
+test('A6: 新建 Ingress 的 className 选确定类(isDefault 优先),不再为空', async () => {
+  state.ingressClasses = [{ name: 'traefik' }, { name: 'nginx', isDefault: true }]
+  state.services = [{ ...JSON.parse(JSON.stringify(svcMatching)), portList: [{ port: 8080 }] }]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
+  await plusButtons.at(0).trigger('click'); await flushPromises()   // Ingress 映射 +
+  await clickModalBtn('创建')
+  expect(captured.ingAdds).toHaveLength(1)
+  expect(captured.ingAdds[0].className).toBe('nginx')
 })
 
 // === expose 弹窗 nodePort(2026-09-01):第三条创建路径补 nodePort 输入 + 集群级空闲推荐 ===

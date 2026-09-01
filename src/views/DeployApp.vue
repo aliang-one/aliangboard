@@ -9,6 +9,7 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
+import { pickIngressClassName } from '@/logic/ingressClass'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
@@ -154,6 +155,15 @@ const form = ref(makeForm())
 // Ingress 方言:按 className 自动探测;切换方言清空旧 adv 值(键对新方言无意义)
 const ingressDialect = computed(() => detectDialect(form.value.ingressClassName))
 watch(ingressDialect, () => { form.value.ingressAdv = {} })
+
+// 「集群默认」退役(2026-09-01):曾默认 ingressClassName='' 指望集群默认类兜底,但集群经常没有
+// 任何 is-default-class 标记 → Ingress 落地无类,控制器不接。现在仅当未选时补选一个确定的类
+// (isDefault 优先,否则字母序第一);用户已手选不覆盖。
+watch(allIngressClasses, () => {
+  if (form.value.ingressClassName) return
+  const picked = pickIngressClassName(allIngressClasses.value)
+  if (picked) form.value.ingressClassName = picked
+}, { immediate: true })
 
 // Service 候选:ns 已有(Vue Query)+ 向导自建虚拟项(createService 开启时;label 标「本向导创建」)
 // watch live 零轮询 / 降级 60s 兜底；refetchInterval 直传 ref
@@ -1583,7 +1593,7 @@ async function handleDeploy() {
             <div class="mb-xs">
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressClass') }}</label>
               <select v-model="form.ingressClassName" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">{{ $t('deploy.ingressClassDefaultOption') }}</option>
+                <option v-if="!allIngressClasses.length" value="">{{ $t('deploy.ingressClassNoneAvailable') }}</option>
                 <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('deploy.ingressClassDefault') : '' }}</option>
               </select>
             </div>

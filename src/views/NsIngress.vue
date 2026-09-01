@@ -16,6 +16,7 @@ import { usePagination } from '@/composables/usePagination'
 import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, validateIngressAdv, validateCustomAnnotations, hintKeyOfKey, placeholderOfKey } from '@/composables/useIngressPerf'
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { hostsToK8sSpec, ingressHostsErrors } from '@/composables/useIngressRules'
+import { pickIngressClassName } from '@/logic/ingressClass'
 import { notify } from '@/composables/useToast'
 import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
@@ -105,9 +106,18 @@ watch(createDialect, (d) => {
   if (createTab.value === 'extra' && !dialectGroups(d).some(g => g.tab === 'extra')) createTab.value = 'perf'
 })
 
+// 「集群默认」退役(2026-09-01):曾默认 className='' 指望集群默认类兜底,但集群经常没有任何
+// is-default-class 标记(平台自带控制器清单全不标)→ Ingress 落地无类,控制器不接。
+// 现在:仅当未选时补选一个确定的类(isDefault 优先,否则字母序第一);用户已手选不覆盖。
+watch(allIngressClasses, () => {
+  if (createForm.value.className) return
+  const picked = pickIngressClassName(allIngressClasses.value)
+  if (picked) createForm.value.className = picked
+}, { immediate: true })
+
 
 function resetCreate() {
-  createForm.value = { name: '', className: '' }
+  createForm.value = { name: '', className: pickIngressClassName(allIngressClasses.value) }
   hosts.value = [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '' }] }]
   rulesErrors.value = []
   adv.value = {}
@@ -273,7 +283,7 @@ async function handleDelete() {
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.classLabel') }}</label>
           <select v-model="createForm.className" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-            <option value="">{{ t('ns.ingress.classDefaultOption') }}</option>
+            <option v-if="!allIngressClasses.length" value="">{{ t('ns.ingress.classNoneAvailable') }}</option>
             <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? t('ns.ingress.defaultClass') : '' }}</option>
           </select>
         </div>
