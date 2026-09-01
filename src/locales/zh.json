@@ -3652,6 +3652,8 @@
       "projectRecapSummary": "AI 每轮携带的项目决策摘要",
       "recapEdit": "编辑",
       "recapSave": "保存",
+      "recapEmptyHint": "尚无项目记忆。AI 每轮对话会携带此摘要作为项目背景;可手动写入,或由对话自动滚动生成。",
+      "recapWrite": "写入记忆",
       "recapCancel": "取消",
       "recapClear": "清空",
       "recapClearConfirm": "确定清空项目记忆？清空后 AI 将不再携带此背景（摘要水位归零，后续对话会重新累积）。",

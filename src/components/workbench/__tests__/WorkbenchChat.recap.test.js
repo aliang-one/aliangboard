@@ -69,7 +69,9 @@ test('清空:二次确认后调 updateProject(id,{recap:\'\'}) 卡片收起 + �
   await card.find('[data-testid="recap-clear-btn"]').trigger('click')
   await flushPromises()
   expect(api.updateProject).toHaveBeenCalledWith('p1', { recap: '' })
-  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(false)
+  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(true, '清空后转空态卡(仍可再写入)')
+  expect(w.find('[data-testid="recap-empty"]').exists()).toBe(true)
+  expect(w.text()).not.toContain('旧记忆')
   expect(notify).toHaveBeenCalledWith('success', expect.any(String))
 })
 
@@ -122,7 +124,7 @@ test('空文本保存:confirm 同意 → 按「清空」提交(recap:\'\')且卡
   await flushPromises()
   expect(confirm).toHaveBeenCalled()
   expect(api.updateProject).toHaveBeenCalledWith('p1', { recap: '' })
-  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(false, '清空后卡片收起')
+  expect(w.find('[data-testid="recap-empty"]').exists()).toBe(true, '清空后转空态卡')
   expect(notify).toHaveBeenCalledWith('success', expect.any(String))
   vi.unstubAllGlobals()
 })
@@ -156,4 +158,42 @@ test('保存失败:error 提示透传服务端 message(M3,与 WorkbenchList 一�
   await card.find('[data-testid="recap-save-btn"]').trigger('click')
   await flushPromises()
   expect(notify).toHaveBeenCalledWith('error', 'recap 太长')
+})
+
+// ═══ 空态可写(2026-09-01 可见性修复,spec §3):v-if 恒真后,无记忆也有写入入口 ═══
+
+test('空态:无记忆时卡片渲染、默认展开、写入记忆钮进编辑态', async () => {
+  const w = await mountWithProjectRecap(null)
+  const card = w.find('[data-testid="project-recap-card"]')
+  expect(card.exists()).toBe(true)
+  expect(card.element.open).toBe(true, '空态默认展开——入口必须一眼可见')
+  expect(card.find('[data-testid="recap-empty"]').exists()).toBe(true)
+  await card.find('[data-testid="recap-write-btn"]').trigger('click')
+  expect(card.find('textarea').exists()).toBe(true)
+})
+
+test('空态:无对话项目(projectId 仅有的场景)卡片同样渲染', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockRejectedValueOnce(new Error('no conv'))
+  const w = mount(WorkbenchChat, {
+    props: { projectId: 'p1', projectName: 'demo' },
+    global: { plugins: [i18n] },
+  })
+  await flushPromises()
+  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(true, '无对话也要能写项目记忆')
+  expect(w.find('[data-testid="recap-write-btn"]').exists()).toBe(true)
+})
+
+test('空态写入:草稿非空保存 → updateProject(recap) 创建记忆(非清空路径无 confirm)', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => { throw new Error('非空保存不应弹 confirm') }))
+  const w = await mountWithProjectRecap(null)
+  const card = w.find('[data-testid="project-recap-card"]')
+  await card.find('[data-testid="recap-write-btn"]').trigger('click')
+  await card.find('textarea').setValue('第一条记忆')
+  await card.find('[data-testid="recap-save-btn"]').trigger('click')
+  await flushPromises()
+  expect(api.updateProject).toHaveBeenCalledWith('p1', { recap: '第一条记忆' })
+  expect(card.find('[data-testid="recap-empty"]').exists()).toBe(false)
+  expect(w.text()).toContain('第一条记忆')
+  vi.unstubAllGlobals()
 })

@@ -6,7 +6,7 @@
 // → status==='paused' → 弹审批 modal;approve/deny → POST → 继续轮询
 // → status==='done' → 显示终答 + 停轮询;status==='failed' → 显示错误 + 停轮询。
 // 审批 modal 展 path+content。
-import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
+import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
@@ -67,6 +67,16 @@ const recapSaving = ref(false)
 // 卡片本体(终审 I4):编辑器在 <details> 折叠 body 里,点编辑必须同步展开,
 // 否则编辑态藏在折叠区,按钮又随编辑态消失——用户观感即「点了没反应」。
 const projectRecapCard = ref(null)
+
+// 空态卡默认展开(spec §3):入口必须一眼可见。不用 :open 声明式绑定——30s 自适应轮询
+// 重渲染会与用户手动展开/收起互搏,改编程式一次性展开;有记忆态维持默认收起(现状)。
+function expandRecapIfEmpty() {
+  if (props.projectId && !projectRecap.value && !recapEditing.value && projectRecapCard.value) {
+    projectRecapCard.value.open = true
+  }
+}
+watch(projectRecap, expandRecapIfEmpty)          // 清空/从未有记忆时转空态 → 展开
+onMounted(() => nextTick(expandRecapIfEmpty))    // 首挂(模板 ref 此时尚未绑定,须 nextTick)
 
 function startRecapEdit() {
   recapDraft.value = projectRecap.value || ''
@@ -1009,6 +1019,47 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
 
     <!-- Messages -->
     <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onChatScroll">
+        <!-- 项目背景(2026-08-29 项目记忆;2026-09-01 常驻+空态可写):AI 每轮携带的项目决策摘要。
+             脱离 v-if/v-else 链挂在滚动区顶部——无对话的新项目也要有写入入口(spec §3)。 -->
+        <details v-if="projectId" ref="projectRecapCard" data-testid="project-recap-card" class="mt-md bg-surface-container-low border border-outline-variant rounded-lg">
+          <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
+            <span class="material-symbols-outlined text-base text-primary/60">folder_special</span>
+            <span class="flex-1">{{ t('workbench.chat.projectRecapTitle') }}</span>
+            <!-- 人工纠偏(T5)/空态写入(2026-09-01):点击不折叠卡片 -->
+            <span v-if="projectRecap && !recapEditing" class="flex items-center gap-xs" @click.stop>
+              <button data-testid="recap-edit-btn" type="button" @click="startRecapEdit"
+                class="text-body-xs text-on-surface-variant hover:text-primary flex items-center gap-xs px-xs rounded transition-colors">
+                <span class="material-symbols-outlined text-sm">edit</span>{{ t('workbench.chat.recapEdit') }}
+              </button>
+              <button data-testid="recap-clear-btn" type="button" @click="clearRecap"
+                class="text-body-xs text-on-surface-variant hover:text-error flex items-center gap-xs px-xs rounded transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>{{ t('workbench.chat.recapClear') }}
+              </button>
+            </span>
+            <span v-else-if="!projectRecap && !recapEditing" class="flex items-center gap-xs" @click.stop>
+              <button data-testid="recap-write-btn" type="button" @click="startRecapEdit"
+                class="text-body-xs text-primary hover:text-primary flex items-center gap-xs px-xs rounded transition-colors">
+                <span class="material-symbols-outlined text-sm">edit</span>{{ t('workbench.chat.recapWrite') }}
+              </button>
+            </span>
+          </summary>
+          <!-- 编辑态:textarea + 保存/取消 -->
+          <div v-if="recapEditing" class="px-md pb-md flex flex-col gap-xs">
+            <textarea v-model="recapDraft" rows="5"
+              class="w-full text-body-sm text-on-surface bg-surface-container border border-outline-variant rounded-lg px-sm py-sm focus:outline-none focus:border-primary resize-y"></textarea>
+            <div class="flex items-center gap-sm">
+              <button data-testid="recap-save-btn" type="button" :disabled="recapSaving" @click="saveRecapEdit"
+                class="px-md py-xs text-body-sm rounded-md bg-primary text-on-primary hover:opacity-90 disabled:opacity-50 transition-opacity">{{ t('workbench.chat.recapSave') }}</button>
+              <button data-testid="recap-cancel-btn" type="button" :disabled="recapSaving" @click="cancelRecapEdit"
+                class="px-md py-xs text-body-sm rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors">{{ t('workbench.chat.recapCancel') }}</button>
+            </div>
+          </div>
+          <!-- 空态:说明 + 可发现性(卡已默认展开,此文案兜底被手动折叠后的再展开场景) -->
+          <div v-else-if="!projectRecap" data-testid="recap-empty" class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed">
+            {{ t('workbench.chat.recapEmptyHint') }}
+          </div>
+          <div v-else class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ projectRecap }}</div>
+        </details>
       <!-- 对话初载/退避重试中(R2):显示 loading 而非空态——单发静默失败曾让"没加载出来"
            被误读成"没有对话";加载失败(errorBanner)时同样不出建议卡,由 banner 示错 -->
       <div v-if="convLoading || (!turns.length && errorBanner)" class="h-full flex items-center justify-center">
@@ -1040,37 +1091,6 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
             {{ t('workbench.chat.recapSummary') }}
           </summary>
           <div class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ recap }}</div>
-        </details>
-
-        <!-- 项目背景(2026-08-29 项目记忆):AI 每轮携带的项目决策摘要,透明可查 -->
-        <details v-if="projectRecap" ref="projectRecapCard" data-testid="project-recap-card" class="mt-xs bg-surface-container-low border border-outline-variant rounded-lg">
-          <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">
-            <span class="material-symbols-outlined text-base text-primary/60">folder_special</span>
-            <span class="flex-1">{{ t('workbench.chat.projectRecapTitle') }}</span>
-            <!-- 人工纠偏(T5):编辑/清空;点击不折叠卡片 -->
-            <span v-if="!recapEditing" class="flex items-center gap-xs" @click.stop>
-              <button data-testid="recap-edit-btn" type="button" @click="startRecapEdit"
-                class="text-body-xs text-on-surface-variant hover:text-primary flex items-center gap-xs px-xs rounded transition-colors">
-                <span class="material-symbols-outlined text-sm">edit</span>{{ t('workbench.chat.recapEdit') }}
-              </button>
-              <button data-testid="recap-clear-btn" type="button" @click="clearRecap"
-                class="text-body-xs text-on-surface-variant hover:text-error flex items-center gap-xs px-xs rounded transition-colors">
-                <span class="material-symbols-outlined text-sm">delete</span>{{ t('workbench.chat.recapClear') }}
-              </button>
-            </span>
-          </summary>
-          <!-- 编辑态:textarea + 保存/取消 -->
-          <div v-if="recapEditing" class="px-md pb-md flex flex-col gap-xs">
-            <textarea v-model="recapDraft" rows="5"
-              class="w-full text-body-sm text-on-surface bg-surface-container border border-outline-variant rounded-lg px-sm py-sm focus:outline-none focus:border-primary resize-y"></textarea>
-            <div class="flex items-center gap-sm">
-              <button data-testid="recap-save-btn" type="button" :disabled="recapSaving" @click="saveRecapEdit"
-                class="px-md py-xs text-body-sm rounded-md bg-primary text-on-primary hover:opacity-90 disabled:opacity-50 transition-opacity">{{ t('workbench.chat.recapSave') }}</button>
-              <button data-testid="recap-cancel-btn" type="button" :disabled="recapSaving" @click="cancelRecapEdit"
-                class="px-md py-xs text-body-sm rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors">{{ t('workbench.chat.recapCancel') }}</button>
-            </div>
-          </div>
-          <div v-else class="px-md pb-md text-body-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{{ projectRecap }}</div>
         </details>
 
         <!-- Conversation -->

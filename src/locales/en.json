@@ -3652,6 +3652,8 @@
       "projectRecapSummary": "Project decision summary the AI carries each turn",
       "recapEdit": "Edit",
       "recapSave": "Save",
+      "recapEmptyHint": "No project memory yet. Each AI turn carries this summary as project background; write it manually or let conversations build it up automatically.",
+      "recapWrite": "Write memory",
       "recapCancel": "Cancel",
       "recapClear": "Clear",
       "recapClearConfirm": "Clear the project memory? AI will no longer carry this context (summary watermark resets; it rebuilds from new chats).",
