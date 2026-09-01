@@ -22,7 +22,14 @@ test('DataTable: 传 columnKey → 出现 ☰ 按钮,点击展开 ColumnManager 
   expect(wrapper.find('[data-col-manager]').exists()).toBe(true)
   expect(wrapper.text()).not.toContain('列管理')
   await wrapper.find('[data-col-manager]').trigger('click')
-  expect(wrapper.text()).toContain('列管理') // ColumnManager 标题
+  // 列管理弹层 Teleport 到 body + fixed(2026-09-01):表格根 overflow-hidden +
+  // overflow-x-auto(overflow-y 计算为 auto)会裁切就地 absolute 弹层
+  const panel = document.body.querySelector('[data-testid="col-manager-panel"]')
+  expect(panel, '弹层应传送至 document.body').toBeTruthy()
+  expect(wrapper.element.contains(panel)).toBe(false)
+  expect(panel.style.position).toBe('fixed')
+  expect(panel.style.zIndex).toBe('110')
+  expect(panel.textContent).toContain('列管理') // ColumnManager 标题
 })
 
 test('DataTable: header.width 被应用到 th style', () => {

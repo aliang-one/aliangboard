@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { useDropdownPanel } from '@/composables/useDropdownPanel'
 
 // 环境变量来源选择器（ConfigMap / Secret）：资源名 + key 均为「可选可输」的自定义 combobox。
 // 用自定义下拉面板（而非原生 <datalist>）：原生 datalist 弹层由浏览器渲染，暗色模式下是纯黑、无法用应用主题染色。
@@ -56,9 +57,16 @@ const activeKey = ref(-1)
 
 const nameWrap = ref(null)
 const keyWrap = ref(null)
+// 下拉面板 Teleport 到 body + fixed 锚定输入框(遮挡根治:就地 absolute 面板会被
+// DeployApp 向导根 overflow-hidden / Modal overflow-y-auto 裁切;配方=PortSelect issue#4)
+const nameInputRef = ref(null)
+const keyInputRef = ref(null)
+const { panelRef: namePanelRef, panelStyle: namePanelStyle } = useDropdownPanel(nameInputRef, openName, { matchTriggerWidth: true })
+const { panelRef: keyPanelRef, panelStyle: keyPanelStyle } = useDropdownPanel(keyInputRef, openKey, { matchTriggerWidth: true })
 function onDocMousedown(e) {
-  if (nameWrap.value && !nameWrap.value.contains(e.target)) openName.value = false
-  if (keyWrap.value && !keyWrap.value.contains(e.target)) openKey.value = false
+  // 面板已传送出 wrap,「点面板不关」须连同面板元素判定
+  if (nameWrap.value && !nameWrap.value.contains(e.target) && !namePanelRef.value?.contains(e.target)) openName.value = false
+  if (keyWrap.value && !keyWrap.value.contains(e.target) && !keyPanelRef.value?.contains(e.target)) openKey.value = false
 }
 onMounted(() => document.addEventListener('mousedown', onDocMousedown))
 onUnmounted(() => document.removeEventListener('mousedown', onDocMousedown))
@@ -94,8 +102,10 @@ function onKeyKeydown(e) {
 const inputClass = computed(() => props.size === 'md'
   ? 'w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors'
   : 'w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors')
-const panelClass = 'absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-md border border-outline-variant bg-surface-container-lowest shadow-lg py-xs'
-const optClass = 'w-full text-left px-sm py-xs hover:bg-primary-container/15 text-on-surface transition-colors truncate'
+const panelClass = 'max-h-52 overflow-y-auto rounded-md border border-outline-variant bg-surface-container-lowest shadow-lg py-xs'
+// 选项显式字号与输入框对齐(md→text-body-sm / sm→text-xs):此前无字号类,创建流(md)
+// 语境下纯靠继承被放大——用户可见「弹出项字体太大」
+const optClass = computed(() => `w-full text-left px-sm py-xs hover:bg-primary-container/15 text-on-surface transition-colors truncate ${props.size === 'md' ? 'text-body-sm' : 'text-xs'}`)
 </script>
 
 <template>
@@ -104,6 +114,7 @@ const optClass = 'w-full text-left px-sm py-xs hover:bg-primary-container/15 tex
       <!-- 资源名 combobox -->
       <div ref="nameWrap" class="relative flex-1 min-w-0">
         <input
+          ref="nameInputRef"
           v-model="name" :class="inputClass"
           @focus="onNameFocus"
           @input="clearDataKey"
@@ -111,25 +122,30 @@ const optClass = 'w-full text-left px-sm py-xs hover:bg-primary-container/15 tex
           @blur="onNameBlur"
           :placeholder="kind === 'secret' ? 'Secret' : 'ConfigMap'"
         />
-        <div v-if="openName && filterName.length" :class="panelClass">
-          <button type="button" v-for="(o, i) in filterName" :key="o" @mousedown.prevent="pickName(o)" :class="[optClass, i === activeName ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
-        </div>
       </div>
       <!-- key combobox -->
       <div v-if="withKey" ref="keyWrap" class="relative flex-1 min-w-0">
         <input
+          ref="keyInputRef"
           v-model="dataKey" :class="inputClass"
           @focus="onKeyFocus"
           @keydown="onKeyKeydown"
           @blur="onKeyBlur"
           placeholder="key"
         />
-        <div v-if="openKey && filterKey.length" :class="panelClass">
-          <button type="button" v-for="(o, i) in filterKey" :key="o" @mousedown.prevent="pickKey(o)" :class="[optClass, i === activeKey ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
-        </div>
       </div>
     </div>
     <!-- ④ ns 漂移警示 -->
     <div v-if="nsMissing" class="mt-xs text-xs text-error/80">{{ t('envSource.nsMissing') }}</div>
+
+    <!-- 下拉面板:Teleport body + fixed 定位(见脚本注释),外层壳只承载定位,视觉在 panelClass -->
+    <Teleport to="body">
+      <div v-if="openName && filterName.length" ref="namePanelRef" data-testid="env-source-panel" :class="panelClass" :style="namePanelStyle">
+        <button type="button" v-for="(o, i) in filterName" :key="o" @mousedown.prevent="pickName(o)" :class="[optClass, i === activeName ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
+      </div>
+      <div v-if="openKey && filterKey.length" ref="keyPanelRef" data-testid="env-source-panel" :class="panelClass" :style="keyPanelStyle">
+        <button type="button" v-for="(o, i) in filterKey" :key="o" @mousedown.prevent="pickKey(o)" :class="[optClass, i === activeKey ? 'bg-primary-container/40' : '']" :title="o">{{ o }}</button>
+      </div>
+    </Teleport>
   </div>
 </template>

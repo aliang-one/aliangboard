@@ -1,8 +1,11 @@
 // 全局浮层 z-index 阶梯——单一事实源。全局 fixed/Teleport 浮层一律从此取值,
 // 禁止新增裸 z-[N] 魔数(issue #3: toast 与弹窗同为 z-[100],弹窗 Teleport 到 body
 // 后到 DOM 而盖住 toast,再被遮罩 backdrop-blur 糊化,用户看不到错误)。
-// 内容级局部层叠(z-10~50 的 Tailwind 类,如 TagInput z-30/DropdownMenu z-40/
-// TopNavBar sticky z-50)不在本阶梯管辖——它们处于局部 stacking context 内。
+// 内容级局部层叠(z-10~50 的 Tailwind 类,如 TopNavBar sticky z-50/UserMenu z-50)
+// 不在本阶梯管辖——它们处于局部 stacking context 内。下拉弹层不属此类:一律
+// Teleport+fixed 走本阶梯 popover 档(共享配方 src/composables/useDropdownPanel.js,
+// 2026-09-01 收编 TagInput/DropdownMenu/EnvSourceField/DataTable 列管理;新下拉禁止
+// 再写 absolute z-* 就地面板——会被 overflow 祖先裁切,见该文件头注)。
 export const Z = {
   nav: 50,         // 顶栏 sticky 层(内容级最高,参照值)
   windowBase: 60,  // 浮动窗口带下限(终端/文件浏览器浮窗、全局 loading bar)

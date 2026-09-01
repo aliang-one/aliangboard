@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onBeforeUnmount } from 'vue'
+import { useDropdownPanel } from '@/composables/useDropdownPanel'
 
 const props = defineProps({
   // 菜单项：[{ label, icon, action: Function, danger?: bool, disabled?: bool }]
@@ -11,6 +12,10 @@ const props = defineProps({
 })
 
 const open = ref(false)
+// 菜单 Teleport body + fixed 锚定触发钮(2026-09-01):表格 #actions 场景里就地 absolute
+// 菜单被 DataTable 根 overflow-hidden / overflow-x-auto 裁切;配方=useDropdownPanel(issue#4)
+const triggerRef = ref(null)
+const { panelRef, panelStyle } = useDropdownPanel(triggerRef, open, { align: 'right' })
 
 function toggle(e) {
   e.stopPropagation()
@@ -34,6 +39,7 @@ onBeforeUnmount(close)
 <template>
   <div class="relative inline-block">
     <button
+      ref="triggerRef"
       @click="toggle($event)"
       class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-colors"
       :aria-label="triggerLabel"
@@ -42,26 +48,32 @@ onBeforeUnmount(close)
       <span class="material-symbols-outlined text-lg">{{ triggerIcon }}</span>
     </button>
 
-    <!-- 菜单 -->
-    <div
-      v-if="open"
-      class="absolute right-0 top-full mt-1 min-w-[160px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-40 py-xs overflow-hidden"
-      @click.stop
-    >
-      <button
-        v-for="(item, idx) in items"
-        :key="idx"
-        @click="run(item)"
-        :disabled="item.disabled"
-        class="w-full flex items-center gap-sm px-md py-sm text-left text-body-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        :class="item.danger
-          ? 'text-error hover:bg-error-container/10'
-          : 'text-on-surface hover:bg-surface-container'"
+    <!-- 菜单:Teleport body + fixed(见脚本注释);遮罩仍在宿主子树,菜单在 body 根上下文
+         Z.popover(110) 恒高于遮罩 z-30,点菜单不触遮罩、点遮罩关菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="open"
+        ref="panelRef"
+        data-testid="dropdown-menu-panel"
+        :style="panelStyle"
+        class="min-w-[160px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown py-xs overflow-hidden"
+        @click.stop
       >
-        <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-        <span class="font-medium">{{ item.label }}</span>
-      </button>
-    </div>
+        <button
+          v-for="(item, idx) in items"
+          :key="idx"
+          @click="run(item)"
+          :disabled="item.disabled"
+          class="w-full flex items-center gap-sm px-md py-sm text-left text-body-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          :class="item.danger
+            ? 'text-error hover:bg-error-container/10'
+            : 'text-on-surface hover:bg-surface-container'"
+        >
+          <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+          <span class="font-medium">{{ item.label }}</span>
+        </button>
+      </div>
+    </Teleport>
 
     <!-- 点击外部关闭的遮罩 -->
     <!-- .stop:遮罩虽 fixed 但 DOM 上是宿主元素的子孙——不加 stop,「点外部关菜单」

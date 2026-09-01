@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { syncTagHistory, getTagSuggestions } from '@/composables/useTagHistory'
+import { useDropdownPanel } from '@/composables/useDropdownPanel'
 
 const { t } = useI18n()
 
@@ -74,11 +75,17 @@ onMounted(refresh)
 watch(() => props.namespace, refresh)
 watch(() => props.modelValue, refresh)
 watch(input, refresh)
+
+// 建议下拉 Teleport body + fixed 锚定 chip 容器(2026-09-01):消费方 DeployApp 向导根
+// overflow-hidden / NsWorkloadDetail 编辑壳 Modal overflow-y-auto 会裁切就地 absolute 面板
+const chipWrapRef = ref(null)
+const panelOpen = computed(() => focused.value && suggestions.value.length > 0)
+const { panelRef, panelStyle } = useDropdownPanel(chipWrapRef, panelOpen, { matchTriggerWidth: true })
 </script>
 
 <template>
   <div>
-    <div class="relative">
+    <div ref="chipWrapRef" class="relative">
       <!-- chip 容器 -->
       <div
         class="flex flex-wrap items-center gap-1 bg-surface-container-low border rounded-lg px-sm py-1.5 min-h-[38px] transition-colors focus-within:ring-2 focus-within:ring-primary focus-within:border-primary"
@@ -107,11 +114,16 @@ watch(input, refresh)
           {{ tags.length }}/{{ max }}
         </span>
       </div>
+    </div>
 
-      <!-- 建议下拉 -->
+    <!-- 建议下拉:Teleport body + fixed(见脚本注释),外层壳只承载定位 -->
+    <Teleport to="body">
       <div
         v-if="focused && suggestions.length"
-        class="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-48 overflow-auto"
+        ref="panelRef"
+        data-testid="tag-suggest-panel"
+        :style="panelStyle"
+        class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg max-h-48 overflow-auto"
       >
         <button
           v-for="s in suggestions"
@@ -124,7 +136,7 @@ watch(input, refresh)
           <span v-if="s.count > 0" class="text-[10px] text-on-surface-variant shrink-0">{{ t('component.tagInput.usageCount', { count: s.count }) }}</span>
         </button>
       </div>
-    </div>
+    </Teleport>
     <p class="mt-1 text-[10px] text-on-surface-variant/70 flex items-center gap-1">
       <span class="material-symbols-outlined text-xs">label</span>
       {{ t('component.tagInput.hint', { max }) }}

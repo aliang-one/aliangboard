@@ -50,8 +50,16 @@ function mountView() {
 function openCardMenu(w) {
   return w.find('button[aria-label="项目操作"]')
 }
+// DropdownMenu 菜单已 Teleport 到 body(2026-09-01 遮挡根治),菜单项须从 body 查
+const menuPanel = () => document.body.querySelector('[data-testid="dropdown-menu-panel"]')
+async function clickMenuItem(label) {
+  const btn = [...menuPanel().querySelectorAll('button')].find(b => b.textContent.includes(label))
+  btn.click()
+  await flushPromises()
+}
 
 beforeEach(() => {
+  document.body.innerHTML = ''
   notifyMock.mockClear(); updateProjectMock.mockClear(); deleteProjectMock.mockClear(); pushMock.mockClear()
   state.projects = [{ id: 'p1', name: 'alpha', clusterId: 'c1', namespace: 'default', manifestCount: 0, lastReconcile: null }]
 })
@@ -60,7 +68,8 @@ test('菜单:点 ⋮ 展开菜单且不触发整卡导航(stopPropagation)', asy
   const w = mountView()
   await flushPromises()
   await openCardMenu(w).trigger('click')
-  expect(w.text()).toContain('重命名')
+  await flushPromises()
+  expect(menuPanel()?.textContent).toContain('重命名')
   expect(pushMock).not.toHaveBeenCalled()
 })
 
@@ -81,7 +90,7 @@ test('重命名:弹窗输入新名 → updateProject(id,{name}) + 本地刷新 +
   const w = mountView()
   await flushPromises()
   await openCardMenu(w).trigger('click')
-  await w.findAll('button').find(b => b.text().includes('重命名')).trigger('click')
+  await clickMenuItem('重命名')
   const input = w.find('input[data-testid="rename-input"]')
   expect(input.exists()).toBe(true)
   await input.setValue('beta')
@@ -96,7 +105,7 @@ test('重命名:空名确定钮禁用不发请求', async () => {
   const w = mountView()
   await flushPromises()
   await openCardMenu(w).trigger('click')
-  await w.findAll('button').find(b => b.text().includes('重命名')).trigger('click')
+  await clickMenuItem('重命名')
   await w.find('input[data-testid="rename-input"]').setValue('   ')
   expect(w.find('[data-testid="rename-confirm-btn"]').attributes('disabled')).toBeDefined()
   await w.find('[data-testid="rename-confirm-btn"]').trigger('click')
@@ -108,7 +117,7 @@ test('重命名:PATCH 失败保留弹窗与输入可重试(错误透传)', async
   const w = mountView()
   await flushPromises()
   await openCardMenu(w).trigger('click')
-  await w.findAll('button').find(b => b.text().includes('重命名')).trigger('click')
+  await clickMenuItem('重命名')
   await w.find('input[data-testid="rename-input"]').setValue('delta')
   await w.find('[data-testid="rename-confirm-btn"]').trigger('click')
   await flushPromises()
@@ -126,7 +135,7 @@ test('重命名:PATCH 失败保留弹窗与输入可重试(错误透传)', async
 
 async function openDeleteModal(w) {
   await openCardMenu(w).trigger('click')
-  await w.findAll('button').find(b => b.text().includes('删除')).trigger('click')
+  await clickMenuItem('删除')
 }
 
 test('删除:确认名不一致时确定钮禁用且点击不发请求', async () => {
