@@ -2264,16 +2264,30 @@
       "noIngress": "No Ingress configured",
       "service": "Service",
       "noService": "No related Service",
-      "selectorDrift": "selector no longer matches current pod labels; endpoints are empty (503)",
       "repairSelector": "Repair selector",
       "selectorRepaired": "Repaired {name} selector; endpoints will recover as the controller syncs",
       "replicasCount": "{replicas} replicas · {age}",
       "pods": "Pods",
       "noPods": "No running instances",
+      "rsUngrouped": "ungrouped pods",
+      "labelConsumers": "label consumers",
       "flowPath": "Traffic path: ",
       "flowPathDesc": "External request → Ingress (domain/path) → Service (via selector) → {type} replica Pods.",
       "noServiceHint": "No related Service — external traffic cannot reach. Click + on the Deployment card to create one from exposed ports.",
-      "addHint": "Click + on the left of any card to add more: Deployment→Service, Service→Ingress."
+      "addHint": "Click + on the left of any card to add more: Deployment→Service, Service→Ingress.",
+      "countRoutes": "{n} routes",
+      "countServices": "{n} Service(s)",
+      "countPods": "{n} Pod(s)",
+      "otherRoutes": "+{count} other route(s)",
+      "endpoints": "endpoints {ready}/{total}",
+      "driftBroken": "Broken: selector mismatch, no endpoints (503)",
+      "driftPending": "Will break on rollout: current pods match, new pods will not",
+      "driftHeuristic": "Heuristic: a selector value equals this workload name",
+      "governing": "governing",
+      "noSelectorHint": "Services without a selector (ExternalName / self-managed Endpoints) are not listed",
+      "schedule": "schedule",
+      "suspended": "suspended",
+      "completions": "{succeeded}/{total} completed"
     },
     "network": {
       "containerPorts": "Container Ports",
@@ -2355,7 +2369,8 @@
       "port": "+ Port",
       "identityRequired": "Cannot determine stable identity labels (add app to the pod template labels). Creation is blocked to keep the Service matching after future label changes (otherwise Ingress would return 503)",
       "cancel": "Cancel",
-      "create": "Create"
+      "create": "Create",
+      "portRequired": "At least one port is required"
     },
     "ingressMap": {
       "host": "Host",
@@ -2370,7 +2385,8 @@
       "createNew": "New Ingress",
       "conflict": "Path {path} already exists in this ingress",
       "selectSvcForPorts": "Select a service to list its ports",
-      "relatedBadge": " (related)"
+      "relatedBadge": " (related)",
+      "portRequired": "Select a service port first"
     },
     "imageTag": {
       "repoReadonly": "Image repo (read-only)",
