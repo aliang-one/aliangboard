@@ -376,7 +376,7 @@ const { isPhone } = useIsPhone()
 
     <!-- 手机底部止血条(spec §5):重启/删除一键可达;复用既有处理器,二次确认不放松 -->
     <div v-if="isPhone" data-testid="pod-action-bar"
-      class="fixed bottom-0 inset-x-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
+      class="sticky bottom-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
       :style="{ zIndex: Z.drawer - 1, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }">
       <button @click="askRestart" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm bg-primary text-on-primary rounded-lg font-semibold active:scale-95 transition-all">
         <span class="material-symbols-outlined text-base">restart_alt</span>{{ $t('common.restart') }}

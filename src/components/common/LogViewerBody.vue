@@ -183,9 +183,9 @@ async function copyLogs() {
         <template v-if="isPhone">
           <span class="w-px h-5 bg-outline-variant/60 shrink-0"></span>
           <button data-testid="log-font-down" @click="adjustFont(-1)" :aria-label="t('component.logViewer.fontHint')" :title="t('component.logViewer.fontHint')"
-            class="px-sm min-h-[32px] rounded-lg hover:bg-surface-container-low text-body-sm font-mono">A-</button>
+            class="px-sm min-h-[40px] rounded-lg hover:bg-surface-container-low text-body-sm font-mono">A-</button>
           <button data-testid="log-font-up" @click="adjustFont(1)" :aria-label="t('component.logViewer.fontHint')" :title="t('component.logViewer.fontHint')"
-            class="px-sm min-h-[32px] rounded-lg hover:bg-surface-container-low text-body-base font-mono">A+</button>
+            class="px-sm min-h-[40px] rounded-lg hover:bg-surface-container-low text-body-base font-mono">A+</button>
         </template>
         <button @click="restart" :title="t('component.logViewer.refresh')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors" :class="isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center' : ''"><span class="material-symbols-outlined text-body-md">refresh</span></button>
         <button @click="downloadLogs" :title="t('component.logViewer.download')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors" :class="isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center' : ''"><span class="material-symbols-outlined text-body-md">download</span></button>
@@ -197,9 +197,9 @@ async function copyLogs() {
     <div class="px-md py-0.5 text-[11px] text-on-surface-variant/60 border-b border-outline-variant/50 shrink-0">{{ t('component.logViewer.stat', { loaded: lines.length, visible: visibleLines.length }) }}</div>
 
     <!-- 渲染区 -->
-    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" :style="{ fontSize: fontSize + 'px' }" class="flex-1 min-h-0 overflow-auto bg-code-surface text-on-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
+    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" :style="isPhone ? { fontSize: fontSize + 'px', lineHeight: Math.round(fontSize * 1.5) + 'px' } : null" class="flex-1 min-h-0 overflow-auto bg-code-surface text-on-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
       <p v-if="!visibleLines.length" class="text-on-code-surface/60 py-md text-center">{{ t('component.logViewer.empty') }}</p>
-      <div v-for="(log, idx) in visibleLines" :key="idx" data-testid="log-line" class="leading-relaxed break-all" :class="wrap ? 'whitespace-pre-wrap' : 'whitespace-pre'">
+      <div v-for="(log, idx) in visibleLines" :key="idx" data-testid="log-line" class="break-all" :class="[(isPhone ? '' : 'leading-relaxed'), wrap ? 'whitespace-pre-wrap' : 'whitespace-pre']">
         <span v-if="showTs" class="text-on-code-surface/50">{{ log.timestamp }} </span>
         <span data-testid="log-level-tag" :class="levelColor(log.level)">[{{ log.level }}]</span>
         <span v-for="(seg, si) in filter.highlight(log.message)" :key="si" :data-testid="seg.hit ? 'log-highlight' : undefined" :class="seg.hit ? 'bg-code-surface-selection text-on-code-surface rounded-sm' : ''">{{ seg.text }}</span>

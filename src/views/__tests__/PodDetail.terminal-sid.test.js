@@ -129,16 +129,22 @@ test('手机档:头部按钮 40px 触控目标;底部止血条(重启/删除)在
     const headerBtns = w.findAll('.mb-lg button')
     expect(headerBtns.length).toBeGreaterThan(0)
     for (const b of headerBtns) expect(b.classes().join(' ')).toContain('max-sm:min-h-[40px]')
-    // 止血条在场:恰好 重启/删除 两钮
+    // 止血条在场:恰好 重启/删除 两钮;终审修复(W2-A):sticky(非 fixed)——挂 main 滚动流内,
+    // 停在视口固定 footer/TerminalTaskbar 上方,不再盖住任务栏 chip。
     const bar = w.find('[data-testid="pod-action-bar"]')
     expect(bar.exists()).toBe(true)
+    expect(bar.classes()).toContain('sticky')
+    expect(bar.classes()).not.toContain('fixed')
     const barBtns = bar.findAll('button')
     expect(barBtns.length).toBe(2)
-    // 点击重启钮 → 走既有 askRestart(confirmOpen=true,shallow 桩 Modal 收到 modelValue),非直接执行
+    // 点击重启钮 → 走既有 askRestart(confirmOpen=true);终审修复(W2-H):
+    // 断言收紧到「打开的是重启确认弹窗」(标题= restartPod),非任意 Modal 打开。
     await barBtns[0].trigger('click')
     const modals = w.findAllComponents({ name: 'Modal' })
     expect(modals.length).toBeGreaterThan(0)
-    expect(modals.some(m => m.attributes('modelvalue') === 'true' || m.props('modelValue') === true)).toBe(true)
+    const open = modals.filter(m => m.attributes('modelvalue') === 'true' || m.props('modelValue') === true)
+    expect(open.length).toBe(1)
+    expect(open[0].props('title')).toBe(i18n.global.t('podDetail.restartPod'))
     w.unmount()
   } finally { spy.mockRestore() }
 })

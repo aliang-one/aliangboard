@@ -56,7 +56,7 @@ let gen = 0               // 连接代际：降级重连时自增，旧流的回
 function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
 
 // 手机虚拟按键条输入:复用 term.onData 同款数据通路(WS 协议语义不变)
-function sendInput(d) { stream?.send(d) }
+function sendInput(d) { stream?.send(d); term?.focus() }
 
 function ensureTerm() {
   if (term) return
@@ -206,7 +206,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
       <div ref="root" class="flex-1 min-h-0 p-sm"></div>
       <!-- 手机档虚拟按键条:无物理键盘时的 exec 刚需(Esc/Tab/方向键/Ctrl+C) -->
       <div v-if="isPhone" data-test="term-keybar" class="flex items-center gap-1 px-sm py-1 border-t border-outline-variant bg-surface-container-low overflow-x-auto shrink-0">
-        <button v-for="(bytes, key) in KEY_BYTES" :key="key" @click="sendInput(bytes)"
+        <button v-for="(bytes, key) in KEY_BYTES" :key="key" @pointerdown.prevent @click="sendInput(bytes)"
           class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono active:bg-primary-container/20 transition-colors">
           {{ key }}
         </button>

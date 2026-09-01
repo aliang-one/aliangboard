@@ -155,7 +155,14 @@ test('手机档:工具栏换行收纳+字号调节按钮进退钳制', async () 
   const after = w.find('[data-testid="log-scroll"]').attributes('style') || ''
   expect(after).not.toBe(before)
   for (let i = 0; i < 20; i++) await w.find('[data-testid="log-font-down"]').trigger('click')
+  // 终审修复(W2-G):钳制下界 10px;且手机档 inline style 带同步行高
+  const clampedLow = w.find('[data-testid="log-scroll"]').attributes('style') || ''
+  expect(clampedLow).toContain('10px')
+  expect(clampedLow).toContain('line-height: 15px')
   await w.find('[data-testid="log-font-up"]').trigger('click')
+  for (let i = 0; i < 30; i++) await w.find('[data-testid="log-font-up"]').trigger('click')
+  const clampedHigh = w.find('[data-testid="log-scroll"]').attributes('style') || ''
+  expect(clampedHigh).toContain('18px')
   expect(w.find('[data-testid="log-font-down"]').exists()).toBe(true)
   w.unmount()
   spy.mockRestore()
@@ -165,6 +172,8 @@ test('桌面档:无字号调节钮,工具栏无换行类', async () => {
   const spy = mockViewport(false)
   const w = mountBody()
   expect(w.find('[data-testid="log-font-down"]').exists()).toBe(false)
+  // 终审修复(W2-C):桌面档渲染区回归 token 原生,无 inline fontSize/lineHeight
+  expect(w.find('[data-testid="log-scroll"]').attributes('style') || '').not.toContain('font-size')
   expect(w.find('[data-testid="log-toolbar-row-1"]').classes()).not.toContain('max-sm:flex-wrap')
   w.unmount()
   spy.mockRestore()

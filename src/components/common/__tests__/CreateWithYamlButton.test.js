@@ -1,7 +1,10 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { i18n } from '@/i18n'
+
+// 终审修复(W2):SplitButton 下拉 Teleport 到 body,跨用例清场防 DOM 残留串扰
+afterEach(() => { document.body.innerHTML = '' })
 
 const { applyYamlMock } = vi.hoisted(() => ({ applyYamlMock: vi.fn() }))
 vi.mock('@/composables/useResourceApply', () => ({
