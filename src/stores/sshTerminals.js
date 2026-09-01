@@ -1,14 +1,41 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { createWindowZAllocator } from '@/styles/zScale'
+import { sshApi } from '@/api/client'
+import { onPopupSync, GONE_GRACE_MS } from '@/utils/popupSync'
 
-// SSH 终端浮窗(全局宿主 AppLayout,2026-08-29 任务栏化改造):
+// SSH 终端浮窗(全局宿主 AppLayout,2026-08-29 任务栏化改造;2026-09-01 弹窗状态对账):
 // - 多开:同服务器可开多个终端,每窗独立 sid(网关侧同一条池化连接多路 shell 通道)。
 //   打开语义分两个入口:openOrFocus=服务器行按钮(无窗开新/有窗聚焦,防误触);
 //   openNew=任务栏分组 chip 的「+」(总是新开)。
 // - 刷新恢复:窗口元数据持久化 localStorage,启动时全部恢复为最小化(与 pod 终端
 //   loadPersisted 同款体验);点任务栏恢复 → 同 sid 重连 → 网关保活窗口内回放续跑。
+// - 弹窗生死对账:弹窗页以 popupSync 信标/墓碑广播(见 popupSync.js),不再纯靠 opener
+//   内存引用;显式关闭连网关会话一起收(默认 detachedIdle 10min 才 reap,不主动收会被
+//   任务栏对账标成「未跟踪」警示——「明明关了还提示开着」)。
 const LS_KEY = 'aliangboard.ssh.windows'
+
+// 最近显式关闭的会话(任务栏 reconcile 降噪):关闭 → killSession 与网关 /api/ssh/sessions
+// 快照之间存在竞态/失败窗口,这期间不该把自家刚关的会话标成红色「未跟踪」警示。
+const RECENT_KILL_MS = 120000
+const recentlyClosed = new Map()   // sid → closedAt
+function markRecentlyClosed(sid) {
+  const nowTs = Date.now()
+  recentlyClosed.set(sid, nowTs)
+  for (const [k, at] of recentlyClosed) if (nowTs - at > RECENT_KILL_MS) recentlyClosed.delete(k)
+}
+function isRecentlyClosed(sid) {
+  const at = recentlyClosed.get(sid)
+  if (!at) return false
+  if (Date.now() - at > RECENT_KILL_MS) { recentlyClosed.delete(sid); return false }
+  return true
+}
+// best-effort:网关会话随手收(404=清道夫已收走,照样静默;离线/403 同样不炸)
+function killSessionBestEffort(sid) { Promise.resolve().then(() => sshApi.killSession(sid)).catch(() => {}) }
+
+// 弹窗↔opener 对账分发(模块级,同文件头 storageSyncTargets 模式)
+const popupSyncTargets = new Set()
+onPopupSync(sig => { for (const fn of popupSyncTargets) fn(sig) })
 
 // sid 三级降级:randomUUID 仅安全上下文(HTTPS/localhost),局域网 HTTP 下是
 // undefined(2026-08-28 真机事故)→ getRandomValues 拼 UUID → 时间戳兜底。
@@ -79,16 +106,27 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     return w
   }
 
-  // 服务器行按钮:无窗开新;有窗聚焦置顶(不多开,防误触)
+  // 服务器行按钮:无窗开新;有窗聚焦置顶(不多开,防误触)。external → 聚焦弹窗标签页,
+  // 绝不在本页复活浮窗(同 sid 双消费)。
   function openOrFocus(server) {
     const existing = windows.value.find(w => w.serverId === server.id)
-    if (existing) { focusWindow(existing.id); return existing }
+    if (existing) {
+      if (existing.status === 'external') focusExternal(existing.id)
+      else focusWindow(existing.id)
+      return existing
+    }
     return addWindow(server)
   }
   // 任务栏分组「+」:总是新开一个终端
   const openNew = server => addWindow(server)
 
-  const closeWindow = id => { windows.value = windows.value.filter(w => w.id !== id); persist() }
+  // 显式关闭 = 本地记录 + 网关会话一起收;recentlyClosed 供任务栏 reconcile 降噪
+  const closeWindow = id => {
+    windows.value = windows.value.filter(w => w.id !== id)
+    persist()
+    markRecentlyClosed(id)
+    killSessionBestEffort(id)
+  }
 
   // —— 新标签页打开(pod terminals.openExternal 同款)——
   // external 状态:浮动宿主(AppLayout)不再挂载该窗(其 WS 随组件卸载而断),
@@ -108,23 +146,76 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       if (!popupWins.size) { clearInterval(pollTimer); pollTimer = null }
     }, 2000)
   }
+  const popupUrl = w => {
+    const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.name })
+    return `${window.location.origin}/ssh-terminal-popup?${params}`
+  }
+  // 窗口名 = sid(确定性):再点由浏览器复用/聚焦同一标签页,不再 _blank 多开
   function openExternal(id) {
     const w = windows.value.find(x => x.id === id)
     if (!w) return
+    const known = popupWins.get(id)
+    if (known && !known.closed) { known.focus(); return }   // 幂等:已开着只聚焦
+    popupWins.delete(id)
     w.status = 'external'
     persist()
-    const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.name })
-    const win = window.open(`${window.location.origin}/ssh-terminal-popup?${params}`, '_blank')
+    const win = window.open(popupUrl(w), w.id)
     if (win) { popupWins.set(id, win); startPolling() }
   }
+  // 有内存引用直接 focus;没有(opener 刷新过/曾被拦截)按确定性窗口名重开——标签页活着 →
+  // 浏览器复用聚焦;真关了 → 同 sid 重开,网关回放续跑。仅 window.open 被拦截时降级最小化。
   function focusExternal(id) {
-    const win = popupWins.get(id)
-    if (win && !win.closed) { win.focus(); return true }
-    popupWins.delete(id)
     const w = windows.value.find(x => x.id === id)
-    if (w) { w.status = 'minimized'; persist() }
-    return false
+    if (!w) return false
+    const known = popupWins.get(id)
+    if (known && !known.closed) {
+      known.focus()
+      if (w.status !== 'external') { w.status = 'external'; persist() }
+      return true
+    }
+    popupWins.delete(id)
+    const win = window.open(popupUrl(w), w.id)
+    if (!win) { w.status = 'minimized'; persist(); return false }
+    popupWins.set(id, win)
+    startPolling()
+    if (w.status !== 'external') { w.status = 'external'; persist() }
+    return true
   }
+
+  // —— 弹窗生死对账(popupSync 信标/墓碑)——
+  const pendingGone = new Map()  // sid → 收尾定时器(墓碑宽限期,给 F5 留复活窗口)
+  function onPopupSignal({ type, sid, meta }) {
+    if (type === 'alive') {
+      const timer = pendingGone.get(sid)
+      if (timer) { clearTimeout(timer); pendingGone.delete(sid) }   // F5 复活 → 取消收尾
+      let w = windows.value.find(x => x.id === sid)
+      if (!w && meta?.serverId) {   // opener 错过创建窗口期:按信标元数据重建,不失明
+        w = { id: sid, serverId: meta.serverId, name: meta.name || meta.serverId, status: 'external', zIndex: 0 }
+        windows.value.push(w)
+        persist()
+        return
+      }
+      if (w && w.status === 'minimized') { w.status = 'external'; persist() }   // 刷新恢复压成的最小化复位
+      return
+    }
+    // 墓碑:弹窗标签页没了 → 即刻最小化(chip 变灰),宽限期后移除 + 网关会话一并收
+    popupWins.delete(sid)
+    const w = windows.value.find(x => x.id === sid)
+    if (w && w.status === 'external') w.status = 'minimized'
+    const prev = pendingGone.get(sid)
+    if (prev) clearTimeout(prev)
+    pendingGone.set(sid, setTimeout(() => {
+      pendingGone.delete(sid)
+      const before = windows.value.length
+      windows.value = windows.value.filter(x => x.id !== sid)
+      if (windows.value.length !== before) {
+        persist()
+        markRecentlyClosed(sid)
+        killSessionBestEffort(sid)
+      }
+    }, GONE_GRACE_MS))
+  }
+  popupSyncTargets.add(onPopupSignal)
   const minimizeWindow = id => { const w = windows.value.find(w => w.id === id); if (w) w.status = 'minimized' }
   const restoreWindow = id => { const w = windows.value.find(w => w.id === id); if (w) { w.status = 'open'; w.zIndex = takeZ() } }
   function focusWindow(id) { const w = windows.value.find(w => w.id === id); if (w) w.zIndex = takeZ() }
@@ -143,5 +234,5 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     return [...map.values()].map(g => ({ serverId: g.serverId, name: g.name, count: g.windows.length, windows: g.windows }))
   })
 
-  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow }
+  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed }
 })

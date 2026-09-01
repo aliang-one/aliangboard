@@ -14,6 +14,7 @@ vi.mock('@/components/ssh/SshTerminal.vue', () => ({
 }))
 
 import SshTerminalPopup from '../SshTerminalPopup.vue'
+import { POPUP_ALIVE_KEY } from '@/utils/popupSync'
 
 describe('SshTerminalPopup sid 守卫', () => {
   it('URL 带 sid → 正常挂载 SshTerminal', () => {
@@ -27,5 +28,19 @@ describe('SshTerminalPopup sid 守卫', () => {
     const w = mount(SshTerminalPopup)
     expect(w.findComponent({ name: 'SshTerminal' }).exists()).toBe(false)
     expect(w.find('[data-test="sid-missing"]').exists()).toBe(true)
+  })
+
+  it('带 sid 挂载即发存活信标(kind=ssh);缺 sid 不发(2026-09-01 状态对账)', () => {
+    localStorage.removeItem(POPUP_ALIVE_KEY)
+    state.query = { serverId: 'sv1', sid: 'ssh-abc', name: 'gw-1' }
+    const w = mount(SshTerminalPopup)
+    expect(JSON.parse(localStorage.getItem(POPUP_ALIVE_KEY))).toMatchObject({
+      kind: 'ssh', sid: 'ssh-abc', meta: { serverId: 'sv1', name: 'gw-1' },
+    })
+    w.unmount()
+    localStorage.removeItem(POPUP_ALIVE_KEY)
+    state.query = { serverId: 'sv1', sid: '', name: 'gw-1' }
+    mount(SshTerminalPopup).unmount()
+    expect(localStorage.getItem(POPUP_ALIVE_KEY)).toBeNull()
   })
 })

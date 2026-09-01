@@ -1,12 +1,13 @@
 <script setup>
 // 独立终端弹窗页面（新浏览器标签页打开）：全屏 xterm，无侧栏/顶栏。
 // URL: /terminal-popup?ns=xxx&pod=xxx&container=xxx&name=xxx&sid=xxx(token 由 main.js 落 sessionStorage)
-import { computed } from 'vue'
+import { computed, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { codeTheme } from '@/styles/code-theme'
+import { startPopupHeartbeat } from '@/utils/popupSync'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -24,11 +25,16 @@ const sid = computed(() => route.query.sid || '')
 document.title = t('terminal.title', { name: name.value })
 // session token 已由 main.js 从 URL 写入 sessionStorage；验证存在
 const hasToken = sessionStorage.getItem('aliangboard.session')
+// 存活信标(2026-09-01 状态对账):opener 借此即时感知本弹窗生死(F5 复活/关闭墓碑),
+// 替代纯内存轮询——opener 刷新后不再失明(详见 utils/popupSync.js 头注)
+let stopHeartbeat = null
 if (!hasToken) {
   document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${codeTheme.surface};color:${codeTheme.onSurface};font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
 } else {
   if (ns.value) store.setNamespace(ns.value)
+  if (sid.value) stopHeartbeat = startPopupHeartbeat('pod', sid.value, { namespace: ns.value, podName: pod.value, container: container.value, name: name.value })
 }
+onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
 </script>
 
 <template>

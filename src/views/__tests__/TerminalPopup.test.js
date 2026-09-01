@@ -14,6 +14,7 @@ vi.mock('@/api/client', async (importOriginal) => {
 })
 
 import TerminalPopup from '@/views/TerminalPopup.vue'
+import { POPUP_ALIVE_KEY } from '@/utils/popupSync'
 
 // InteractiveTerminal 桩:捕获 props(真组件会开 WS,桩内不连)
 const termProps = []
@@ -44,4 +45,18 @@ test('URL 无 sid(直接敲地址):session-id 退化为空串,由网关按一次
   sessionStorage.setItem('aliangboard.session', 'tok')
   const w = await mountPopup('ns=ns1&pod=pod-a&container=main&name=term1')
   expect(termProps[0].sessionId).toBe('')
+})
+
+test('弹窗页 mount 即发存活信标(kind=pod);缺 sid 不发(2026-09-01 状态对账)', async () => {
+  sessionStorage.setItem('aliangboard.session', 'tok')
+  localStorage.removeItem(POPUP_ALIVE_KEY)
+  const w = await mountPopup('ns=ns1&pod=pod-a&container=main&name=term1&sid=term-abc123')
+  expect(JSON.parse(localStorage.getItem(POPUP_ALIVE_KEY))).toMatchObject({
+    kind: 'pod', sid: 'term-abc123', meta: { namespace: 'ns1', podName: 'pod-a', container: 'main' },
+  })
+  w.unmount()
+  localStorage.removeItem(POPUP_ALIVE_KEY)
+  const w2 = await mountPopup('ns=ns1&pod=pod-a&container=main&name=term1')   // 无 sid:手输 URL
+  expect(localStorage.getItem(POPUP_ALIVE_KEY)).toBeNull()
+  w2.unmount()
 })
