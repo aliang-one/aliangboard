@@ -170,6 +170,25 @@ test('有记忆态:载入后默认收起(recapLoaded 闸——终审 I2,不预�
   expect(card.find('[data-testid="recap-empty"]').exists()).toBe(false)
 })
 
+test('空态卡手动收起后 pollOnce 不再强制重开(一次性闸——终审 R2)', async () => {
+  // 空态(无记忆)项目会持续 2s 轮询:展开只许发生在首次载入,后续轮询不得碰开合
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-r', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '',
+    projectRecap: null, messages: [],
+  })
+  const w = mount(WorkbenchChat, {
+    props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-r', activeConversationId: 'conv-r' },
+    global: { plugins: [i18n] },
+  })
+  await flushPromises()
+  const card = w.find('[data-testid="project-recap-card"]')
+  expect(card.element.open).toBe(true, '空态首载默认展开')
+  card.element.open = false   // 用户手动收起
+  await w.vm.pollOnce('conv-r')   // 下一轮询周期(直接驱动,同 WorkbenchChat.test.js 手法)
+  await flushPromises()
+  expect(w.find('[data-testid="project-recap-card"]').element.open).toBe(false, '轮询不得与用户收起互搏')
+})
+
 test('空态:无记忆时卡片渲染、默认展开、写入记忆钮进编辑态', async () => {
   const w = await mountWithProjectRecap(null)
   const card = w.find('[data-testid="project-recap-card"]')

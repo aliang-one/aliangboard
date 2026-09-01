@@ -521,9 +521,18 @@ async function pollOnce(id) {
     if (conv.context) ctxInfo.value = conv.context
     recap.value = conv.recap || ''
     if (conv.projectRecap !== undefined) projectRecap.value = conv.projectRecap
-    recapLoaded.value = true   // 本会话记忆已见载入:此后 null 才可信为「无记忆」→ 空态展开(终审 I2)
-    // null→null 赋值不触发 watch,此处显式补一刀:载入为无记忆 → 空态展开(有记忆则 no-op)
-    expandRecapIfEmpty()
+    // 首次载入一次性(终审 R2):置位 recapLoaded 闸与展开绑定在同一守卫分支——pollOnce
+    // 每 2s 重跑,无条件 expand 会在用户手动收起空态卡后强制重开(与本文件「编程式一次性
+    // 展开,不与用户手动收起互搏」的既定语义相撞)。null→null 赋值不触发 watch,首载为
+    // 无记忆时的空态展开靠这一刀;此后 recapLoaded 恒 true,轮询不再碰卡片开合。
+    // 首次载入一次性(终审 R2):置位 recapLoaded 闸与展开绑定在同一守卫分支——pollOnce
+    // 每 2s 重跑,无条件 expand 会在用户手动收起空态卡后强制重开(与本文件「编程式一次性
+    // 展开,不与用户手动收起互搏」的既定语义相撞)。null→null 赋值不触发 watch,首载为
+    // 无记忆时的空态展开靠这一刀;此后 recapLoaded 恒 true,轮询不再碰卡片开合。
+    if (!recapLoaded.value) {
+      recapLoaded.value = true
+      expandRecapIfEmpty()
+    }
     // 首次加载(watch/send-remount 后 turns 为空):从对话数据重建 turns。
     let rebuiltFromMessages = false
     if (!turns.value.length) {
