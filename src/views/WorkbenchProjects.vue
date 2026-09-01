@@ -1,12 +1,13 @@
 <script setup>
 // 项目卡片网格(工作台 V2 P1):替代 WorkbenchList 的列表视图。
 // 每张卡显示项目名/简介/ns/manifests/reconcile;点击 → WorkbenchDetail。
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import Modal from '@/components/common/Modal.vue'
+import DropdownMenu from '@/components/common/DropdownMenu.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -52,6 +53,70 @@ async function bindCluster(p, v) {
     load()
   } catch (e) { notify('error', e.message || t('workbench.card.loadFailed')) }
 }
+
+// ═══ 项目卡片菜单(2026-09-01 可见性修复):重命名/删除入口从死组件 WorkbenchList 移植 ═══
+// 形态裁决(spec §6):行内 blur 重命名 → 弹窗确认式;busy 防重替代 enter/blur 竞态守卫。
+const showRename = ref(false)
+const renameTarget = ref(null)
+const renameText = ref('')
+const renameBusy = ref(false)
+function startRename(p) {
+  renameTarget.value = p
+  renameText.value = p.name || ''
+  showRename.value = true
+}
+async function confirmRename() {
+  if (!showRename.value || renameBusy.value) return
+  const name = renameText.value.trim()
+  if (!name) return                                    // 空名不发请求(确定钮同时禁用)
+  if (name === renameTarget.value.name) { showRename.value = false; return }
+  renameBusy.value = true
+  try {
+    await workbenchApi.updateProject(renameTarget.value.id, { name })
+    const p = projects.value.find(x => x.id === renameTarget.value.id)
+    if (p) p.name = name
+    notify('success', t('workbench.card.projectRenamed', { name }))
+    showRename.value = false
+  } catch (e) {
+    // 失败保留弹窗与输入可重试;透传服务端消息(与死组件/WorkbenchChat 同款)
+    notify('error', e?.message || t('workbench.card.projectRenameFailed'))
+  } finally { renameBusy.value = false }
+}
+
+// 删除:确认名与项目名(trim 后)一致才启用确定。M1:两侧都 trim——项目名可含首尾空白,
+// 只比原文会让这类项目永远删不掉。deleteBusy(M2):删除在途拦第二次提交,否则双击的
+// 第二发落在已删项目上 → 404 → 用户看到假「删除失败」。
+const deleteTarget = ref(null)
+const deleteConfirmText = ref('')
+const deleteBusy = ref(false)
+const deleteConfirmed = computed(() =>
+  !!deleteTarget.value && deleteConfirmText.value.trim() === deleteTarget.value.name.trim())
+function startDelete(p) {
+  deleteTarget.value = p
+  deleteConfirmText.value = ''
+}
+async function doDelete() {
+  if (!deleteTarget.value || deleteBusy.value || !deleteConfirmed.value) return
+  deleteBusy.value = true
+  try {
+    const res = await workbenchApi.deleteProject(deleteTarget.value.id, deleteConfirmText.value.trim())
+    projects.value = projects.value.filter(x => x.id !== deleteTarget.value.id)
+    deleteTarget.value = null
+    // repo 目录清除失败时后端仍 200,但带 warning(数据已级联删、目录成孤儿):
+    // 必须 error 级示警(终审 I2)——只报成功会让孤儿目录永远无人跟进。
+    if (res?.warning) notify('error', t('workbench.card.projectDeletedWithWarning', { warning: res.warning }))
+    else notify('success', t('workbench.card.projectDeleted'))
+  } catch (e) { notify('error', e.message || t('workbench.card.projectDeleteFailed')) }
+  finally { deleteBusy.value = false }
+}
+
+// 菜单项工厂(Task 2 在此追加删除项)
+function cardActions(p) {
+  return [
+    { label: t('workbench.card.renameProject'), icon: 'edit', action: () => startRename(p) },
+    { label: t('workbench.card.deleteProject'), icon: 'delete', danger: true, action: () => startDelete(p) },
+  ]
+}
 </script>
 
 <template>
@@ -83,7 +148,12 @@ async function bindCluster(p, v) {
             <p v-if="p.clusterId" class="text-body-xs text-on-surface-variant">{{ clusterName(p.clusterId) }}</p>
             <span v-else data-test="unbound-badge" class="inline-block px-1.5 py-0.5 rounded bg-warning/10 text-warning text-body-xs">{{ t('workbench.unboundBadge') }}</span>
           </div>
-          <span class="material-symbols-outlined text-on-surface-variant/30 group-hover:text-primary transition-colors">arrow_forward</span>
+          <div class="flex items-center gap-xs">
+            <!-- 菜单恒可见低强调(触屏无 hover;hover 时加强),组件自带 stopPropagation 防误触整卡导航 -->
+            <DropdownMenu :items="cardActions(p)" :trigger-label="t('workbench.card.projectActions')"
+              class="opacity-60 group-hover:opacity-100 transition-opacity" />
+            <span class="material-symbols-outlined text-on-surface-variant/30 group-hover:text-primary transition-colors">arrow_forward</span>
+          </div>
         </div>
         <!-- 换绑下拉(无集群项目也可事后绑定;整卡 click 进详情,须 stop) -->
         <select data-test="bind-cluster" :value="p.clusterId || ''" @click.stop @change="bindCluster(p, $event.target.value)"
@@ -128,6 +198,37 @@ async function bindCluster(p, v) {
       <template #actions>
         <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
         <button @click="createProject" :disabled="!form.name.trim()" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
+      </template>
+    </Modal>
+
+    <!-- Rename Modal(可见性修复):空名禁用;失败保留可重试 -->
+    <Modal v-model="showRename" :title="t('workbench.card.renameModalTitle')" width="max-w-md">
+      <div>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.nameLabel') }}</label>
+        <input v-model="renameText" data-testid="rename-input" @keyup.enter="confirmRename"
+          class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+      </div>
+      <template #actions>
+        <button @click="showRename = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+        <button @click="confirmRename" :disabled="!renameText.trim() || renameBusy" data-testid="rename-confirm-btn"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
+      </template>
+    </Modal>
+
+    <!-- Delete Modal:确认名逐字一致才启用;两侧 trim 对称;busy 防双发 -->
+    <Modal :model-value="!!deleteTarget" @update:model-value="v => { if (!v) deleteTarget = null }"
+      :title="t('workbench.card.confirmDeleteTitle')" width="max-w-md">
+      <div v-if="deleteTarget" class="flex flex-col gap-md">
+        <p class="text-body-sm text-on-surface-variant">{{ t('workbench.card.confirmDeleteHint') }}</p>
+        <p><code class="px-sm py-0.5 bg-surface-container rounded text-on-surface font-mono text-body-sm">{{ deleteTarget.name }}</code></p>
+        <input v-model="deleteConfirmText" data-testid="delete-confirm-input"
+          class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono"
+          :placeholder="t('workbench.card.confirmDeletePlaceholder')" />
+      </div>
+      <template #actions>
+        <button @click="deleteTarget = null" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+        <button @click="doDelete" :disabled="!deleteConfirmed || deleteBusy" data-testid="delete-confirm-btn"
+          class="px-md py-sm bg-error text-on-error rounded-lg font-semibold disabled:opacity-40">{{ t('workbench.card.deleteProject') }}</button>
       </template>
     </Modal>
   </div>

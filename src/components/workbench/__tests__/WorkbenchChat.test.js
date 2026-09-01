@@ -1069,8 +1069,8 @@ test('渲染窗口:切对话重置回 60', async () => {
   expect(w.vm.renderLimit).toBe(60, '窗口重置')
 })
 
-// 项目记忆 T4(2026-08-29):projectRecap 有值→折叠卡;无值→不渲染
-test('项目背景卡:有 projectRecap 渲染折叠卡;无则不渲染', async () => {
+// 项目记忆 T4(2026-08-29;2026-09-01 常驻化):projectRecap 有值→折叠卡;无值→空态卡(不再消失,spec §3)
+test('项目背景卡:有 projectRecap 渲染折叠卡;无则转空态卡', async () => {
   api.conversations.get.mockReset()
   api.conversations.get.mockResolvedValue({ id: 'c-pm', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', projectRecap: '定了用 nginx', messages: [{ id: 'm1', role: 'user', content: 'q', createdAt: 1 }] })
   const w = await mountChat({ conversationId: 'c-pm', activeConversationId: 'c-pm' })
@@ -1079,7 +1079,9 @@ test('项目背景卡:有 projectRecap 渲染折叠卡;无则不渲染', async (
   expect(w.find('[data-testid="project-recap-card"]').text()).toContain('定了用 nginx')
   api.conversations.get.mockImplementation(async () => ({ id: 'c-pm', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', projectRecap: null, messages: [{ id: 'm1', role: 'user', content: 'q', createdAt: 1 }] }))
   await w.vm.pollOnce('c-pm'); await flushPromises()
-  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(false)
+  expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(true, '2026-09-01 常驻:无记忆转空态卡(仍可写入)')
+  expect(w.find('[data-testid="recap-empty"]').exists()).toBe(true)
+  expect(w.text()).not.toContain('定了用 nginx')
 })
 
 // ── A3 回顾审计:slash 面板选中先退编辑态(否则 /compact 清输入但 banner 挂着;剧本顶掉编辑回填)──

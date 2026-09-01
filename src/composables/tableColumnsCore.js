@@ -439,15 +439,6 @@ export const TABLE_CATALOG = [
   },
   // —— admin/app 视图(Phase 2 扩张:工作台 / 审计 / API Key / 用户)——
   {
-    key: 'workbenchList', labelKey: 'workbench.list.title', label: 'Workbench Projects', icon: 'workspaces',
-    columns: [
-      { key: 'name', labelKey: 'workbench.list.tableProject', label: 'Project' },
-      { key: 'cluster', labelKey: 'workbench.list.tableCluster', label: 'Cluster' },
-      { key: 'created', labelKey: 'workbench.list.tableCreated', label: 'Created' },
-      { key: 'actions', labelKey: 'cols._c.actions', label: 'Actions', align: 'right' },
-    ],
-  },
-  {
     key: 'auditTrail', labelKey: 'auditTrail.title', label: 'Audit Trail', icon: 'manage_history',
     columns: [
       { key: 'ts', labelKey: 'auditTrail.colTs', label: 'Time' },
