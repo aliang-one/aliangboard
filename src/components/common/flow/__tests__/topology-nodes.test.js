@@ -72,7 +72,8 @@ test('WorkloadNode:三形态语义保留(CronJob schedule/Job completions/常规
 
 test('PodsNode/ConsumersNode:hasPods 空态文案/消费者 chips 渲染且无 Handle', () => {
   const empty = mountNode(TopologyPodsNode, { hasPods: false })
-  expect(empty.text()).toContain(empty.text() ? '' : '')
+  expect(empty.text()).toContain('deployed_code')
+  expect(empty.text()).toContain(i18n.global.t('workload.topology.noPods'))
   const consumers = mountNode(TopologyConsumersNode, { consumers: [{ kind: 'PDB', name: 'pdb-1', disruptive: false }] })
   expect(consumers.text()).toContain('pdb-1')
   expect(consumers.find('.vue-flow__handle').exists()).toBe(false)
