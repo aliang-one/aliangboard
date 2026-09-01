@@ -21,14 +21,8 @@ const props = defineProps({
 })
 defineEmits(['goto'])
 
-const WL = ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob']
 const REF_ROUTES = { ConfigMap: 'NsConfigMapDetail', Secret: 'NsSecretDetail', PVC: 'NsPVCDetail', imagePullSecrets: 'NsSecretDetail' }
 const REF_ICONS = { ConfigMap: 'description', Secret: 'key', imagePullSecrets: 'key', PVC: 'database' }
-function go(node) {
-  if (WL.includes(node.kind)) router.push({ name: 'NsWorkloadDetail', params: { namespace: node.namespace, type: node.kind.toLowerCase(), name: node.name } })
-  else if (node.kind === 'Pod') router.push({ name: 'NsPodDetail', params: { namespace: node.namespace, name: node.name } })
-  else if (node.kind === 'Service') router.push({ name: 'NsServiceDetail', params: { namespace: node.namespace, name: node.name } })
-}
 const gotoRef = ref2 => router.push({ name: REF_ROUTES[ref2.kind] || 'NsSecretDetail', params: { namespace: props.workload.namespace, name: ref2.name } })
 const gotoHpa = h => router.push({ name: 'NsHPADetail', params: { namespace: h.namespace || props.workload.namespace, name: h.name } })
 
