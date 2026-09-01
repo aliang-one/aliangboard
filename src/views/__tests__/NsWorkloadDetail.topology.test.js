@@ -85,10 +85,11 @@ test('A1: 共享 Ingress 只显示本负载规则,他人规则合并为 +N 行',
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
   const text = w.text()
   expect(text).toContain('a.com/api')
-  expect(text).toContain('other-svc')          // 合并行出现
+  expect(text).toContain('shared · +1 条其他应用路由')   // 合并行出现(不点他人 Service 名)
   expect(text).toContain('+1 条其他应用路由')
-  // 他人路由不得渲染成规则卡(→ other-svc 形式的规则行不存在;合并行格式为「shared · +N …」)
+  // 他人路由不得渲染成规则卡,也不得点名他人 Service(spec §2:others 只带 {name,count})
   expect(text).not.toContain('→ other-svc')
+  expect(text).not.toContain('other-svc')
 })
 
 test('C4: Service 卡显示端点就绪数,ready=0 标红', async () => {
@@ -115,5 +116,7 @@ test('C7: 实际 Pod 也不匹配 → 红「已断」;现有 Pod 仍匹配 → �
 test('C7: 失配卡 title 说明启发式判据(D3)', async () => {
   state.services = [{ ...JSON.parse(JSON.stringify(svcMatching)), selector: { app: 'demo-deploy', team: 'blue' } }]
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
-  expect(w.text()).toContain('selector 值包含本负载名')
+  const repairBtn = w.findAll('button').find(b => b.text() === '修复 selector')
+  expect(repairBtn).toBeTruthy()
+  expect(repairBtn.attributes('title')).toContain('selector 值包含本负载名')
 })

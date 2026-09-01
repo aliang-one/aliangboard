@@ -9,7 +9,7 @@ const backendPortOf = p => p?.backend?.service?.port?.number ?? p?.backend?.serv
 // host:'*' 一条);指向其他应用的路径合并为 others [{name,count}]——入口不丢,但不冒充本负载流量。
 export function filterOwnIngressRules(relatedIngresses, relatedServiceNames) {
   const ownRules = []
-  const otherCounts = new Map() // name → {count, services:Set}(services 供合并行点名他人后端,入口可寻)
+  const otherCounts = new Map()
   for (const ing of relatedIngresses || []) {
     const db = ing?.defaultBackend
     if (db?.serviceName && relatedServiceNames.has(db.serviceName)) {
@@ -21,15 +21,12 @@ export function filterOwnIngressRules(relatedIngresses, relatedServiceNames) {
         if (relatedServiceNames.has(name)) {
           ownRules.push({ ingress: ing.name, host: r.host || '*', path: p.path || '/', serviceName: name, port: backendPortOf(p) })
         } else {
-          const e = otherCounts.get(ing?.name) || { count: 0, services: new Set() }
-          e.count += 1
-          if (name) e.services.add(name)
-          otherCounts.set(ing?.name, e)
+          otherCounts.set(ing?.name, (otherCounts.get(ing?.name) || 0) + 1)
         }
       }
     }
   }
-  return { ownRules, others: [...otherCounts].map(([name, e]) => ({ name, count: e.count, services: [...e.services] })) }
+  return { ownRules, others: [...otherCounts].map(([name, count]) => ({ name, count })) }
 }
 
 // C7:Service drift 两档。'broken'=已断(实际无匹配 Pod,或 Endpoints 就绪数为 0);

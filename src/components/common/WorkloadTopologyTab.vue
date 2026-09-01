@@ -69,7 +69,7 @@ const svcTotal = computed(() => props.topo.relatedServices.value.length + props.
               @click="router.push({ name: 'NsIngressDetail', params: { namespace: workload.namespace, name: o.name } })"
               class="text-left text-[11px] text-on-surface-variant/70 hover:text-primary rounded-lg px-sm py-1 border border-dashed border-outline-variant/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               <span class="material-symbols-outlined text-xs align-middle">alt_route</span>
-              {{ o.name }} · {{ $t('workload.topology.otherRoutes', { count: o.count }) }}<span v-if="o.services?.length"> · {{ o.services.join(', ') }}</span>
+              {{ o.name }} · {{ $t('workload.topology.otherRoutes', { count: o.count }) }}
             </button>
             <div v-if="!topo.ingressBreakdown.value.ownRules.length && !topo.ingressBreakdown.value.others.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
               <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noIngress') }}
@@ -120,8 +120,6 @@ const svcTotal = computed(() => props.topo.relatedServices.value.length + props.
                 <p class="text-[11px] mt-0.5" :class="s.drift === 'broken' ? 'text-error/80' : 'text-tertiary-container'">
                   {{ s.drift === 'broken' ? $t('workload.topology.driftBroken') : $t('workload.topology.driftPending') }}
                 </p>
-                <!-- D3:启发式判据显性说明(可见文本;修复按钮 title 同样携带) -->
-                <p class="text-[10px] text-on-surface-variant/60 mt-0.5">{{ $t('workload.topology.driftHeuristic') }}</p>
               </div>
               <div v-if="!topo.relatedServices.value.length && !topo.driftedServices.value.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
