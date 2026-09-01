@@ -68,7 +68,9 @@ async function reconcile() {
   try {
     const { sessions } = await sshApi.listSessions()
     const known = new Set(sshStore.windows.map(w => w.id))
-    orphans.value = sessions.filter(s => !known.has(s.sid))
+    // recentlyClosed:自家刚显式关闭、网关尚未 reap(默认 detachedIdle 10min)的会话,
+    // 不标红警示——「明明关了还提示开着」的鬼影来源之一
+    orphans.value = sessions.filter(s => !known.has(s.sid) && !sshStore.isRecentlyClosed(s.sid))
   } catch { orphans.value = [] }
 }
 async function killOrphan(chip) {

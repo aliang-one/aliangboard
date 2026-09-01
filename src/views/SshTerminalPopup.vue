@@ -3,10 +3,11 @@
 // URL: /ssh-terminal-popup?serverId=xxx&sid=xxx&name=xxx
 // 平台 token 走 localStorage(同源新标签页自动可用),SshTerminal→sshTerminalStream 自取。
 // 同 sid + 网关保活 → 打开即回放续跑(比 pod 的 per-connection exec 更顺)。
-import { computed } from 'vue'
+import { computed, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import SshTerminal from '@/components/ssh/SshTerminal.vue'
+import { startPopupHeartbeat } from '@/utils/popupSync'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -18,6 +19,11 @@ const name = computed(() => route.query.name || serverId.value || 'SSH')
 const sidMissing = computed(() => !sid.value)
 
 document.title = t('ssh.popupTitle', { name: name.value })
+
+// 存活信标(2026-09-01 状态对账):opener 借此即时感知本弹窗生死(F5 复活/关闭墓碑),
+// 替代纯内存轮询——opener 刷新后不再失明(详见 utils/popupSync.js 头注)
+const stopHeartbeat = sidMissing.value ? null : startPopupHeartbeat('ssh', sid.value, { serverId: serverId.value, name: name.value })
+onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
 </script>
 
 <template>

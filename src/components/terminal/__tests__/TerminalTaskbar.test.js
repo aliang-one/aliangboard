@@ -119,3 +119,16 @@ test('本地已登记的 sid 不算未跟踪;listSessions 失败(非 admin)静�
   await flushPromises()
   expect(bar2.find('[data-test="orphan-chip"]').exists()).toBe(false)
 })
+
+test('刚被本地显式关闭的会话不算「未跟踪」(关闭与网关 reap 之间的窗口期降噪)', async () => {
+  vi.spyOn(sshApi, 'killSession').mockResolvedValue({ ok: true })
+  const ssh = useSshTerminalStore()
+  const w = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  ssh.closeWindow(w.id)   // 显式关闭 → recentlyClosed(网关侧默认 10min 才 reap,期间不该标红)
+  vi.spyOn(sshApi, 'listSessions').mockResolvedValue({
+    sessions: [{ sid: w.id, serverId: 'sv1', userId: 'me', browserCount: 0, idleMs: 1000 }],
+  })
+  const bar = mountBar()
+  await flushPromises()
+  expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)
+})
