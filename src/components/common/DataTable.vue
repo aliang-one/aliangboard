@@ -206,7 +206,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
               <span class="block truncate font-semibold text-body-md">{{ row[titleKey] }}</span>
             </slot>
           </div>
-          <span v-if="selectable" data-card-select-hit class="shrink-0 -m-1 p-2 inline-flex items-center justify-center" @click.stop>
+          <span v-if="selectable" data-card-select-hit class="shrink-0 -m-1 p-2.5 inline-flex items-center justify-center" @click.stop>
             <input type="checkbox" data-card-select :checked="isSelected(row)" @click.stop="toggleRow(row)"
               class="w-5 h-5 accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
           </span>

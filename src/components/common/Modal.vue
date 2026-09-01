@@ -77,7 +77,7 @@ function confirm() {
               </button>
             </div>
           </div>
-          <div :class="isMaxLayout ? 'flex-1 overflow-y-auto p-lg' : ''"><slot :maximized="maximized" /></div>
+          <div :class="isMaxLayout ? ['flex-1 overflow-y-auto p-lg', 'max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+16px)]'] : ''"><slot :maximized="maximized" /></div>
           <div v-if="$slots.actions" class="flex justify-end gap-md" :class="isMaxLayout ? 'shrink-0 px-lg py-md border-t border-outline-variant' : 'mt-lg pt-md border-t border-outline-variant'"
             :style="isMaxLayout && isPhone ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' } : null"
             :data-safe-area="isMaxLayout && isPhone ? '' : null">

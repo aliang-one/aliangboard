@@ -28,7 +28,7 @@ const headerTitle = computed(() => {
   >
     <!-- Modal 槽区自带 p-lg + max-h-[90vh];内层定高让 WorkbenchChat 自管滚动。
          width 用 ! 前缀压过 Modal 默认 w-full/max-w-lg 的类冲突,取大横幅。 -->
-    <div v-if="conversation" class="h-[72vh] flex flex-col min-h-0">
+    <div v-if="conversation" class="h-[72vh] max-sm:h-full flex flex-col min-h-0">
       <WorkbenchChat
         :key="conversation.id"
         :project-id="conversation.projectId"

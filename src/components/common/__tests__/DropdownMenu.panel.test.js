@@ -7,22 +7,15 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import DropdownMenu from '../DropdownMenu.vue'
 import { Z } from '@/styles/zScale'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 beforeEach(() => { document.body.innerHTML = '' })
-afterEach(() => { matchMediaSpy?.mockRestore(); vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks() })
 
-let matchMediaSpy
 const mqListeners = new Map()
 function fireChange(query, matches) {
   const cb = mqListeners.get(query)
   if (cb) cb({ matches })
-}
-function mockBelowSm(belowSm) {
-  matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-    matches: q === '(max-width: 639.98px)' ? belowSm : false,
-    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
-    removeEventListener: () => { mqListeners.delete(q) },
-  }))
 }
 
 const mountMenu = (items) => mount(DropdownMenu, {
@@ -69,7 +62,7 @@ test('遮罩(点外部)关闭菜单——遮罩仍在宿主子树,.stop 不冒�
 })
 
 test('手机档:菜单呈现为底部面板(贴合底缘,zIndex 仍 Z.popover);菜单项触控目标 ≥40px', async () => {
-  mockBelowSm(true)
+  mockViewport(true)
   const w = mountMenu([{ label: '重命名', icon: 'edit', action: vi.fn() }])
   await w.find('button').trigger('click')
   await nextTick()
@@ -86,7 +79,7 @@ test('手机档:菜单呈现为底部面板(贴合底缘,zIndex 仍 Z.popover);�
 })
 
 test('桌面档:菜单锚定触发钮(非贴底),无 min-h 触控类', async () => {
-  mockBelowSm(false)
+  mockViewport(false)
   const w = mountMenu([{ label: '重命名', icon: 'edit', action: vi.fn() }])
   await w.find('button').trigger('click')
   await nextTick()

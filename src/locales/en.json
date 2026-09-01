@@ -357,6 +357,7 @@
       "since_21600": "6 hours",
       "previous": "Previous",
       "previousHint": "Show logs from the previous (crashed) container instance",
+      "fontHint": "Font size",
       "follow": "Follow",
       "live": "Live",
       "searchPlaceholder": "Search logs…",

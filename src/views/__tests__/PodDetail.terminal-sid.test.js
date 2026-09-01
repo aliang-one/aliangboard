@@ -115,3 +115,45 @@ test('同一 pod 重复挂载(=刷新)得到同一 session-id → 才能重连�
   await mountDetail()
   expect(sidSeen[0]).toBe(first)
 })
+
+// === 手机适配 Wave 2 Task 4:手机档头部按钮触控目标 + 底部止血条 ===
+// 止血条(重启/删除)必须复用 askRestart/askDelete → ConfirmDialog 二次确认不放松(spec 红线);
+// 桌面/iPad 档零回归:无止血条、既有用例断言零改动。
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
+
+test('手机档:头部按钮 40px 触控目标;底部止血条(重启/删除)在场且点击走既有确认弹窗', async () => {
+  const spy = mockViewport(true)
+  try {
+    const w = await mountDetail()
+    // 头部既有按钮(导出/删除/重启)在手机档获得 min-h-40px 触控目标
+    const headerBtns = w.findAll('.mb-lg button')
+    expect(headerBtns.length).toBeGreaterThan(0)
+    for (const b of headerBtns) expect(b.classes().join(' ')).toContain('max-sm:min-h-[40px]')
+    // 止血条在场:恰好 重启/删除 两钮;终审修复(W2-A):sticky(非 fixed)——挂 main 滚动流内,
+    // 停在视口固定 footer/TerminalTaskbar 上方,不再盖住任务栏 chip。
+    const bar = w.find('[data-testid="pod-action-bar"]')
+    expect(bar.exists()).toBe(true)
+    expect(bar.classes()).toContain('sticky')
+    expect(bar.classes()).not.toContain('fixed')
+    const barBtns = bar.findAll('button')
+    expect(barBtns.length).toBe(2)
+    // 点击重启钮 → 走既有 askRestart(confirmOpen=true);终审修复(W2-H):
+    // 断言收紧到「打开的是重启确认弹窗」(标题= restartPod),非任意 Modal 打开。
+    await barBtns[0].trigger('click')
+    const modals = w.findAllComponents({ name: 'Modal' })
+    expect(modals.length).toBeGreaterThan(0)
+    const open = modals.filter(m => m.attributes('modelvalue') === 'true' || m.props('modelValue') === true)
+    expect(open.length).toBe(1)
+    expect(open[0].props('title')).toBe(i18n.global.t('podDetail.restartPod'))
+    w.unmount()
+  } finally { spy.mockRestore() }
+})
+
+test('桌面档:无底部止血条(零回归)', async () => {
+  const spy = mockViewport(false)
+  try {
+    const w = await mountDetail()
+    expect(w.find('[data-testid="pod-action-bar"]').exists()).toBe(false)
+    w.unmount()
+  } finally { spy.mockRestore() }
+})

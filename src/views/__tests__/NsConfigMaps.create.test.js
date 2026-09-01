@@ -1,6 +1,10 @@
-import { test, expect, vi, beforeEach } from 'vitest'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { i18n } from '@/i18n'
+
+// 终审修复(W2):Modal Teleport 到 body,跨用例清场防 DOM 残留串扰
+afterEach(() => { document.body.innerHTML = '' })
 
 const invalidateQueries = vi.fn()
 
@@ -65,7 +69,9 @@ test('NsConfigMaps: SplitButton 次级项 → Modal 以 startInYaml=true 打开'
     global: { plugins: [i18n], stubs: { CreateConfigResourceModal: ccmStub } },
   })
   await w.find('[data-testid="open-create"] button:nth-of-type(2)').trigger('click') // 箭头展开
-  await w.find('[data-menu-item]').trigger('click') // 首项=从 YAML 创建
+  // 菜单已 Teleport 到 body(SplitButton 2026-09-01),从 document 点击首项
+  document.querySelector('[data-menu-item]').click() // 首项=从 YAML 创建
+  await nextTick()
   expect(w.find('[data-testid="ccm-stub-configmap"]').exists()).toBe(true)
   expect(w.find('[data-testid="ccm-stub-configmap"]').attributes('start-in-yaml')).toBe('true')
 })

@@ -357,6 +357,7 @@
       "since_21600": "6 小时",
       "previous": "Previous",
       "previousHint": "查看上一次（崩溃前）容器的日志",
+      "fontHint": "字号",
       "follow": "Follow",
       "live": "实时流",
       "searchPlaceholder": "搜索日志…",
