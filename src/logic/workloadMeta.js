@@ -119,3 +119,14 @@ export function consumersBrokenBy(oldTplLabels, newTplLabels, consumers) {
     })
     .map(c => ({ kind: c.kind, name: c.name }))
 }
+
+// Pod 模板 labels 单一事实源(A2,2026-09-01 拓扑整修):CronJob 的 Pod 模板在
+// spec.jobTemplate.spec.template 下——此前调用方直读 spec.template 缺失后静默回退
+// 到 CronJob 自身 metadata.labels,导致 relatedServices/driftedServices/identitySelector
+// 全部建在错误标签面上。其余类型读 spec.template。缺 shape 一律空 map 不炸。
+export function podTemplateLabels(raw) {
+  const spec = raw?.spec
+  const tpl = spec?.jobTemplate?.spec?.template?.metadata?.labels
+    ?? spec?.template?.metadata?.labels
+  return tpl && typeof tpl === 'object' && !Array.isArray(tpl) ? tpl : {}
+}
