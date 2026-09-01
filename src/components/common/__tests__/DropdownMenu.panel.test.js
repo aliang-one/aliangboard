@@ -88,3 +88,16 @@ test('桌面档:菜单锚定触发钮(非贴底),无 min-h 触控类', async () 
   expect(panel.querySelector('button').className).not.toContain('min-h-[40px]')
   w.unmount(); document.body.innerHTML = ''
 })
+
+test('遮罩 zIndex=Z.popover-1(与 SplitButton 配方统一,不再裸 z-30)', async () => {
+  const w = await mountMenu([{ label: '重命名', icon: 'edit', action: vi.fn() }])
+  await w.find('button').trigger('click')
+  await nextTick()
+  // 遮罩是面板的兄弟 fixed 层(document.body 内即宿主内)——按宿主内查询
+  const mask = w.find('.fixed.inset-0')
+  expect(mask.exists()).toBe(true)
+  const styleAttr = mask.attributes('style')
+  expect(styleAttr).toBeTruthy()
+  expect(styleAttr).toContain(String(Z.popover - 1))
+  w.unmount(); document.body.innerHTML = ''
+})

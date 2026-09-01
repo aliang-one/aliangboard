@@ -56,7 +56,7 @@ onBeforeUnmount(close)
     </button>
 
     <!-- 菜单:Teleport body + fixed(见脚本注释);遮罩仍在宿主子树,菜单在 body 根上下文
-         Z.popover(110) 恒高于遮罩 z-30,点菜单不触遮罩、点遮罩关菜单 -->
+         Z.popover(110) 恒高于遮罩(popover-1=109),点菜单不触遮罩、点遮罩关菜单 -->
     <Teleport to="body">
       <div
         v-if="open"
@@ -91,6 +91,6 @@ onBeforeUnmount(close)
     <!-- 点击外部关闭的遮罩 -->
     <!-- .stop:遮罩虽 fixed 但 DOM 上是宿主元素的子孙——不加 stop,「点外部关菜单」
          会冒泡到宿主的 @click(如项目卡点击即导航)变成误导航(终审 I1) -->
-    <div v-if="open" class="fixed inset-0 z-30" @click.stop="close"></div>
+    <div v-if="open" class="fixed inset-0" :style="{ zIndex: Z.popover - 1 }" @click.stop="close"></div>
   </div>
 </template>

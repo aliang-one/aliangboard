@@ -216,7 +216,7 @@ const { isPhone } = useIsPhone()
 </script>
 
 <template>
-  <div class="animate-fade-in max-sm:pb-20" v-if="pod">
+  <div class="animate-fade-in" v-if="pod">
     <!-- Header -->
     <div class="mb-lg flex items-center justify-between">
       <div class="flex flex-col">
