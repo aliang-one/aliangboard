@@ -6,8 +6,13 @@ import { ref, computed, watch, onMounted, nextTick, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useLogViewer, LOG_LINE_OPTIONS, LOG_SINCE_OPTIONS } from '@/composables/useLogViewer'
 import { compileFilter, isNearBottom, levelCounts } from '@/logic/podLogs'
+import { useIsPhone } from '@/composables/useBreakpoint'
 
 const { t } = useI18n()
+const { isPhone } = useIsPhone()
+// 手机档字号调节:渲染区 fontSize 覆盖 text-code-sm 默认观感(10~18px 钳制)
+const fontSize = ref(12)
+function adjustFont(delta) { fontSize.value = Math.min(18, Math.max(10, fontSize.value + delta)) }
 // since 下拉的 i18n 键映射（静态字面量，i18n:check 可校验；动态拼接会被判引用键缺失）
 const SINCE_LABEL_KEYS = {
   '': 'component.logViewer.since_all',
@@ -117,30 +122,30 @@ async function copyLogs() {
     </div>
 
     <!-- 工具栏·第一行:数据源 -->
-    <div data-testid="log-toolbar-row-1" class="bg-surface-container-highest/50 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0">
+    <div data-testid="log-toolbar-row-1" class="bg-surface-container-highest/50 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0" :class="isPhone ? 'max-sm:flex-wrap max-sm:gap-sm max-sm:py-1' : ''">
       <div class="flex items-center gap-xs">
         <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.container') }}</span>
-        <select v-model="container" data-testid="log-container" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <select v-model="container" data-testid="log-container" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :class="isPhone ? 'max-sm:min-h-[40px]' : ''">
           <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
         </select>
       </div>
       <div class="flex items-center gap-xs">
         <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.lines') }}</span>
-        <select v-model="logLines" data-testid="log-lines" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <select v-model="logLines" data-testid="log-lines" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :class="isPhone ? 'max-sm:min-h-[40px]' : ''">
           <option v-for="n in LOG_LINE_OPTIONS" :key="n" :value="n">{{ n }}</option>
         </select>
       </div>
       <div class="flex items-center gap-xs">
         <span class="text-body-xs text-on-surface-variant font-medium">{{ t('component.logViewer.since') }}</span>
-        <select v-model="logSince" data-testid="log-since" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
+        <select v-model="logSince" data-testid="log-since" class="h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :class="isPhone ? 'max-sm:min-h-[40px]' : ''">
           <option v-for="o in LOG_SINCE_OPTIONS" :key="o.value" :value="o.value">{{ t(SINCE_LABEL_KEYS[o.value] || 'component.logViewer.since_all') }}</option>
         </select>
       </div>
-      <label class="flex items-center gap-1 cursor-pointer select-none" :class="logPrevious ? 'text-tertiary-container font-medium' : 'text-on-surface-variant'" :title="t('component.logViewer.previousHint')">
+      <label class="flex items-center gap-1 cursor-pointer select-none" :class="[logPrevious ? 'text-tertiary-container font-medium' : 'text-on-surface-variant', isPhone ? 'max-sm:py-1' : '']" :title="t('component.logViewer.previousHint')">
         <input v-model="logPrevious" data-testid="log-previous" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
         <span class="text-body-sm font-medium">{{ t('component.logViewer.previous') }}</span>
       </label>
-      <label class="flex items-center gap-1 cursor-pointer select-none" :class="logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant'">
+      <label class="flex items-center gap-1 cursor-pointer select-none" :class="[logPrevious ? 'text-on-surface-variant/50' : 'text-on-surface-variant', isPhone ? 'max-sm:py-1' : '']">
         <input v-model="followLog" data-testid="log-follow" :disabled="logPrevious" type="checkbox" class="rounded text-primary focus:ring-primary h-4 w-4" />
         <span class="text-body-sm">{{ t('component.logViewer.follow') }}</span>
         <span v-if="followLog" class="flex items-center gap-xs ml-xs px-sm py-0 bg-primary-container/10 text-primary text-xs rounded-full">
@@ -150,7 +155,7 @@ async function copyLogs() {
     </div>
 
     <!-- 工具栏·第二行:查看控制 -->
-    <div data-testid="log-toolbar-row-2" class="bg-surface-container-highest/30 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0">
+    <div data-testid="log-toolbar-row-2" class="bg-surface-container-highest/30 px-md py-1.5 flex items-center gap-md border-b border-outline-variant shrink-0" :class="isPhone ? 'max-sm:flex-wrap max-sm:gap-sm max-sm:py-1' : ''">
       <div class="flex items-center gap-xs flex-1 min-w-40">
         <span class="material-symbols-outlined text-body-base text-on-surface-variant">search</span>
         <input v-model="search" data-testid="log-search" type="text" :placeholder="t('component.logViewer.searchPlaceholder')" class="flex-1 min-w-0 h-8 bg-surface-container-low border border-outline-variant rounded-lg px-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
@@ -175,9 +180,16 @@ async function copyLogs() {
         <input v-model="showTs" type="checkbox" class="h-3 w-3" />{{ t('component.logViewer.timestamps') }}
       </label>
       <div class="flex items-center gap-1 ml-auto">
-        <button @click="restart" :title="t('component.logViewer.refresh')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">refresh</span></button>
-        <button @click="downloadLogs" :title="t('component.logViewer.download')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">download</span></button>
-        <button @click="copyLogs" :title="t('component.logViewer.copy')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
+        <template v-if="isPhone">
+          <span class="w-px h-5 bg-outline-variant/60 shrink-0"></span>
+          <button data-testid="log-font-down" @click="adjustFont(-1)" :aria-label="t('component.logViewer.fontHint')" :title="t('component.logViewer.fontHint')"
+            class="px-sm min-h-[32px] rounded-lg hover:bg-surface-container-low text-body-sm font-mono">A-</button>
+          <button data-testid="log-font-up" @click="adjustFont(1)" :aria-label="t('component.logViewer.fontHint')" :title="t('component.logViewer.fontHint')"
+            class="px-sm min-h-[32px] rounded-lg hover:bg-surface-container-low text-body-base font-mono">A+</button>
+        </template>
+        <button @click="restart" :title="t('component.logViewer.refresh')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors" :class="isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center' : ''"><span class="material-symbols-outlined text-body-md">refresh</span></button>
+        <button @click="downloadLogs" :title="t('component.logViewer.download')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors" :class="isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center' : ''"><span class="material-symbols-outlined text-body-md">download</span></button>
+        <button @click="copyLogs" :title="t('component.logViewer.copy')" class="p-1.5 rounded-lg hover:bg-surface-container-low transition-colors" :class="isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center' : ''"><span class="material-symbols-outlined text-body-md">content_copy</span></button>
       </div>
     </div>
 
@@ -185,7 +197,7 @@ async function copyLogs() {
     <div class="px-md py-0.5 text-[11px] text-on-surface-variant/60 border-b border-outline-variant/50 shrink-0">{{ t('component.logViewer.stat', { loaded: lines.length, visible: visibleLines.length }) }}</div>
 
     <!-- 渲染区 -->
-    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" class="flex-1 min-h-0 overflow-auto bg-code-surface text-on-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
+    <div ref="scrollEl" data-testid="log-scroll" @scroll="onScroll" :style="{ fontSize: fontSize + 'px' }" class="flex-1 min-h-0 overflow-auto bg-code-surface text-on-code-surface p-md font-mono text-code-sm code-scroll" :class="wrap ? '' : '[&>div]:whitespace-pre [&>div]:overflow-x-visible'">
       <p v-if="!visibleLines.length" class="text-on-code-surface/60 py-md text-center">{{ t('component.logViewer.empty') }}</p>
       <div v-for="(log, idx) in visibleLines" :key="idx" data-testid="log-line" class="leading-relaxed break-all" :class="wrap ? 'whitespace-pre-wrap' : 'whitespace-pre'">
         <span v-if="showTs" class="text-on-code-surface/50">{{ log.timestamp }} </span>
