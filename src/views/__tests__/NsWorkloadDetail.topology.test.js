@@ -40,6 +40,8 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' } }), useRouter: () => ({ push: () => {} }) }))
 
 import NsWorkloadDetail from '../NsWorkloadDetail.vue'
+import WorkloadTopologyTab from '@/components/common/WorkloadTopologyTab.vue'
+import PortSelect from '@/components/common/PortSelect.vue'
 
 const demoWorkload = {
   name: 'demo-deploy', namespace: 'default', type: 'Deployment', labels: { app: 'demo-deploy' }, annotations: {},
@@ -121,7 +123,7 @@ test('C7: 实际 Pod 也不匹配 → 红「已断」;现有 Pod 仍匹配 → �
 test('C7: 失配卡 title 说明启发式判据(D3)', async () => {
   state.services = [{ ...JSON.parse(JSON.stringify(svcMatching)), selector: { app: 'demo-deploy', team: 'blue' } }]
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
-  const repairBtn = w.findAll('button').find(b => b.text() === '修复 selector')
+  const repairBtn = w.findAll('button.topo-repair-btn').find(b => b.text() === '修复 selector')
   expect(repairBtn).toBeTruthy()
   expect(repairBtn.attributes('title')).toContain('selector 值包含本负载名')
 })
@@ -157,14 +159,17 @@ test('C2: HPA chip 与 标签消费者(PDB/NetPol)chips 渲染', async () => {
 test('C3: 规则卡 hover → 匹配 Service 卡高亮(ring)', async () => {
   state.ingresses = [{ name: 'ing1', namespace: 'default', rules: [{ host: 'a.com', http: { paths: [{ path: '/', pathType: 'Prefix', backend: { service: { name: 'demo-svc', port: { number: 80 } } } }] } }], defaultBackend: null }]
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
-  const ruleCard = w.findAll('button').find(b => b.text().includes('a.com'))
-  const svcCardBefore = w.findAll('button').find(b => b.text().includes('demo-svc') && b.text().includes('ClusterIP'))
+  // 节点化后:规则节点=div.topo-rule,Service 节点=div(常显形态,非 button);
+  // 取「文本同时含名+类型」的最深 div(祖先容器全文也含,at(-1) 即节点根)
+  const ruleCard = w.findAll('.topo-rule').find(b => b.text().includes('a.com'))
+  const svcNode = w.findAll('div').filter(x => x.text().includes('demo-svc') && x.text().includes('ClusterIP')).at(-1)
+  expect(ruleCard).toBeTruthy(); expect(svcNode).toBeTruthy()
   // token 级匹配(classes() 返回数组,toContain 逐 token 严格比对)——focus-visible:ring-2 不会误中
-  expect(svcCardBefore.classes()).not.toContain('ring-2')
+  expect(svcNode.classes()).not.toContain('ring-2')
   await ruleCard.trigger('mouseenter')
-  expect(svcCardBefore.classes()).toContain('ring-2')
+  expect(svcNode.classes()).toContain('ring-2')
   await ruleCard.trigger('mouseleave')
-  expect(svcCardBefore.classes()).not.toContain('ring-2')
+  expect(svcNode.classes()).not.toContain('ring-2')
 })
 
 // 弹窗(teleport 到 body)内按文本点按钮:取 body 内同名按钮最后一个即弹窗内的
@@ -177,9 +182,9 @@ async function clickModalBtn(text) {
 test('D1: saveExpose 容器无端口 → error 提示且不下发 Service 创建', async () => {
   state.workload.raw.spec.template.spec.containers = [{ name: 'main', image: 'nginx' }]
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
-  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
-  expect(plusButtons.length).toBe(2)
-  await plusButtons.at(-1).trigger('click'); await flushPromises()   // Deployment 卡「暴露」+
+  const addBtns = w.findAll('.topo-wl-add')   // 节点化后加号落卡:workload 节点右上 hover-+(原 -left-3 边框钮已移除)
+  expect(addBtns.length).toBe(1)
+  await addBtns[0].trigger('click'); await flushPromises()   // workload 节点「暴露」+
   await clickModalBtn('创建')
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('至少填写一个端口'))
   expect(captured.svcAdds).toHaveLength(0)
@@ -190,10 +195,43 @@ test('D1: saveExpose 容器无端口 → error 提示且不下发 Service 创建
 test('A5: saveIngressMap 未选 Service 端口 → error 提示且不触 Ingress 变更', async () => {
   // 默认 fixture 的 svcMatching.portList=[] → ingressMapForm.servicePort 初始为 ''
   const w = mountDetail(); await flushPromises(); await gotoTopology(w)
-  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
-  expect(plusButtons.length).toBe(2)
-  await plusButtons.at(0).trigger('click'); await flushPromises()   // Ingress 映射 +
+  const addBtns = w.findAll('.topo-svc-add')   // Service 节点 hover-+ 开 ingress-map(原 -left-3 边框钮已移除)
+  expect(addBtns.length).toBe(1)
+  await addBtns[0].trigger('click'); await flushPromises()   // Ingress 映射 +
   await clickModalBtn('创建')
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('请先选择 Service 端口'))
   expect(captured.ingAdds).toHaveLength(0)
+})
+
+// 弹窗内 serviceName 取值:PortSelect(placeholder='my-service' 唯一定位)的 modelValue
+function modalServiceName(w) {
+  const sel = w.findAllComponents(PortSelect).find(c => c.props('placeholder') === 'my-service')
+  expect(sel, 'ingress-map 弹窗 serviceName 输入应存在').toBeTruthy()
+  return sel.props('modelValue')
+}
+
+test('B6: Service 节点 hover-+ → ingressMap 弹窗预填该 Service(指定名参数化)', async () => {
+  state.services = [
+    { ...JSON.parse(JSON.stringify(svcMatching)), portList: [{ port: 8080 }] },
+    { name: 'demo-svc-2', namespace: 'default', type: 'ClusterIP', ports: '81:8081/TCP', selector: { app: 'demo-deploy' }, portList: [{ port: 8081 }] },
+  ]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  // 两个 Service 节点各有 hover-+;点「demo-svc-2」节点内那个(按钮父节点即节点根)
+  const addBtn = w.findAll('.topo-svc-add').find(b => b.element.parentElement?.textContent.includes('demo-svc-2'))
+  expect(addBtn).toBeTruthy()
+  await addBtn.trigger('click'); await flushPromises()
+  expect(modalServiceName(w)).toBe('demo-svc-2')   // 钉到点击的 Service,而非第一个关联 Service
+})
+
+test('B6: openIngressMap 无参回归——仍取第一个关联 Service', async () => {
+  state.services = [
+    { ...JSON.parse(JSON.stringify(svcMatching)), portList: [{ port: 8080 }] },
+    { name: 'demo-svc-2', namespace: 'default', type: 'ClusterIP', ports: '81:8081/TCP', selector: { app: 'demo-deploy' }, portList: [{ port: 8081 }] },
+  ]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  // 经 Tab provide 的 topo-actions 直调无参形态(链路与 hover-+ 同源:name => openIngressMap(name))
+  const tab = w.findComponent(WorkloadTopologyTab)
+  const actions = tab.vm.$.provides['topo-actions']
+  actions.openIngressMap(); await flushPromises()
+  expect(modalServiceName(w)).toBe('demo-svc')
 })
