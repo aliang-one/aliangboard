@@ -41,6 +41,7 @@ icon `folder_special` 与聊天页项目背景卡一致,语义呼应。
 | `memoryCleared` | 项目记忆已清空 | Project memory cleared |
 | `memoryClearConfirm` | 确认清空该项目记忆?清空后 AI 不再携带旧摘要,对话将重新滚动生成新记忆。 | Clear this project's memory? The AI will stop carrying the old summary; new memory will build up from upcoming conversations. |
 | `memorySaveFailed` | 保存项目记忆失败 | Failed to save project memory |
+| `memoryModalHint` | 上限 65536 字符;清空后 AI 不再携带旧摘要,对话将重新滚动生成新记忆。 | Up to 65,536 characters. Clearing stops the AI from carrying the old summary; new memory builds up from upcoming conversations. |
 
 ## 5. 测试(追加至 `WorkbenchProjects.lifecycle.test.js`,7 条)
 
