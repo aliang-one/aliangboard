@@ -28,6 +28,7 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 
 - **网关单进程不变式**(2026-08-28 显式化):`server/` 网关以「单进程 + 单 SQLite 库」为前提——`node:sqlite` 单连接同步写、会话/限流/看门狗全在内存 Map、审计链哈希(prevHash 单调)假设唯一写入者。双进程同库 = 静默脑裂。防线:启动时抢 `<db>.lock` 独占锁(`server/single-process-lock.mjs`,持锁者活着拒启、死 pid 接管);部署侧固定 `replicas: 1 + Recreate`(deployment.yaml)。**要水平扩展必须先做状态外移(会话/限流/审计锚点)的 ADR,禁止默认可扩。**
 - **路由鉴权单一事实源**:新端点必须先在 `server/route-auth-map.mjs` 的 `ROUTE_AUTH` 声明鉴权 class(none/session/platform/admin/apikey/mcp)——表外 `/api/*` 一律 404,守卫测试静态扫源码路径字面量强制登记。
+- **组件文本溢出治理**(2026-09-01 顶栏 cluster/ns chip 溢出事故固化):`truncate` 的安全配方——**列向**(`flex-col` + `items-start`)容器里,truncate 元素必须自带 `w-full` 或 `max-w-*`(fit-content 不受父级 max-w 钳制,nowrap 全文宽会穿透 UI);**行向**嵌套链上,中间 flex 子项必须有 `min-w-0`、overflow 收敛或 max-w 有界(`overflow:hidden` 只有直接长在 flex 子项上才把 min-width:auto 归零,隔一层 min-content 沿链传导撑破)。两类失效形态由 `scripts/overflow-guard.test.mjs` 静态扫全仓 .vue 强制,进 `npm test`。
 
 ## 测试
 
