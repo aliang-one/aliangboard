@@ -141,3 +141,36 @@ test('volumesAndPullSecretsFromPodSpec: PVC + imagePullSecrets 提取去重', ()
   ])
   assert.deepEqual(volumesAndPullSecretsFromPodSpec(undefined), [])
 })
+
+// --- expose 弹窗 nodePort 推荐(2026-09-01 补第三条创建路径的 nodePort 缺口)---
+import { NODE_PORT_MIN, NODE_PORT_MAX, usedNodePortsFromServices, suggestNodePorts } from './topology.js'
+
+test('usedNodePortsFromServices: 只收 NodePort/LoadBalancer 的非空 nodePort,跨 ns', () => {
+  const svcs = [
+    { name: 'a', namespace: 'ns1', type: 'NodePort', portList: [{ nodePort: 30000 }, { nodePort: 30050 }] },
+    { name: 'b', namespace: 'ns2', type: 'LoadBalancer', portList: [{ nodePort: 30100 }] },
+    { name: 'c', namespace: 'ns1', type: 'ClusterIP', portList: [{ nodePort: 30200 }] },   // ClusterIP 的 nodePort 字段不算占用
+    { name: 'd', namespace: 'ns1', type: 'NodePort', portList: [{ nodePort: null }, { nodePort: 0 }] }, // 空/0 不算
+  ]
+  assert.deepEqual(usedNodePortsFromServices(svcs), [30000, 30050, 30100])
+  assert.deepEqual(usedNodePortsFromServices([]), [])
+  assert.deepEqual(usedNodePortsFromServices(undefined), [])
+})
+
+test('suggestNodePorts: 默认 range 内按序推荐,跳过占用', () => {
+  assert.equal(NODE_PORT_MIN, 30000)
+  assert.equal(NODE_PORT_MAX, 32767)
+  assert.deepEqual(suggestNodePorts([30000, 30001], 3), [30002, 30003, 30004])
+  assert.deepEqual(suggestNodePorts([], 2), [30000, 30001])
+})
+
+test('suggestNodePorts: count 不足时能推多少推多少,不越界', () => {
+  const used = []
+  for (let p = 30000; p <= 30005; p++) used.push(p)
+  assert.deepEqual(suggestNodePorts(used, 3), [30006, 30007, 30008])
+  // range 全占用 → 空数组(调用方留空行给 API 自动分配)
+  const all = []
+  for (let p = NODE_PORT_MIN; p <= NODE_PORT_MAX; p++) all.push(p)
+  assert.deepEqual(suggestNodePorts(all, 1), [])
+  assert.deepEqual(suggestNodePorts(undefined, 2), [30000, 30001])
+})

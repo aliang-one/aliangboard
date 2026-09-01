@@ -4,16 +4,18 @@
 // pollInterval/managedPods 经参数只读注入。判定纯函数在 logic/topology 与 logic/workloadMeta。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { notify } from '@/composables/useToast'
 import { sameHostIngresses, appendPathToIngress } from '@/composables/useIngressRules'
 import { identitySelector, servicesBrokenBy, podTemplateLabels } from '@/logic/workloadMeta'
-import { filterOwnIngressRules, classifyServiceDrift, endpointsForService, groupPodsByReplicaSet, latestOwnedRs } from '@/logic/topology'
+import { filterOwnIngressRules, classifyServiceDrift, endpointsForService, groupPodsByReplicaSet, latestOwnedRs, usedNodePortsFromServices, suggestNodePorts } from '@/logic/topology'
 
 export function useWorkloadTopology({ workload, namespace, pollInterval, managedPods }) {
   const { t } = useI18n()
   const store = useClusterStore()
+  const queryClient = useQueryClient()
   const cid = computed(() => (store.currentCluster || 'cluster'))
   const ns = () => namespace
   const POLL = { refetchInterval: pollInterval }
@@ -96,9 +98,21 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
     const existing = new Set(relatedServices.value.map(s => s.name))
     let name = `${base}-svc`, n = 2
     while (existing.has(name)) name = `${base}-svc-${n++}`
-    // D1:不再猜 80→8080;无声明端口时空一行由用户填
-    exposeForm.value = { name, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol })) : [{ port: '', targetPort: '', protocol: 'TCP' }] }
+    // D1:不再猜 80→8080;无声明端口时空一行由用户填。nodePort:NodePort/LoadBalancer 专属,留空=集群自动分配
+    exposeForm.value = { name, type: 'ClusterIP', ports: containerPorts.value.length ? containerPorts.value.map(p => ({ port: p.port, targetPort: p.port, protocol: p.protocol, nodePort: '' })) : [{ port: '', targetPort: '', protocol: 'TCP', nodePort: '' }] }
     showExposeModal.value = true
+  }
+  // nodePort 推荐:占用是集群级的(跨 ns 都会撞),须看【全量】Service——query 缓存存 fetcher 原始数据
+  // (select 只影响读取面),直接取缓存;无缓存时 fetchQuery 拉一次。只填空行,不覆盖手填值。
+  const isNodePortType = () => ['NodePort', 'LoadBalancer'].includes(exposeForm.value.type)
+  async function recommendNodePorts() {
+    if (!isNodePortType()) return
+    const key = ['cluster', cid.value, 'services']
+    let all = queryClient.getQueryData(key)
+    if (!Array.isArray(all) || !all.length) all = await queryClient.fetchQuery({ queryKey: key, queryFn: () => store.fetchServices() })
+    const used = new Set(usedNodePortsFromServices(Array.isArray(all) ? all : []))
+    const empties = exposeForm.value.ports.filter(p => p.nodePort === '' || p.nodePort == null)
+    suggestNodePorts([...used], empties.length).forEach((port, i) => { empties[i].nodePort = port; used.add(port) })
   }
   async function saveExpose() {
     try {
@@ -107,7 +121,20 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
       // D1:至少一个有效端口,不静默丢弃
       const ports = exposeForm.value.ports.filter(p => p.port)
       if (!ports.length) { notify('error', t('workload.expose.portRequired')); return }
-      const r = await store.addService({ name: exposeForm.value.name, namespace: ns(), type: exposeForm.value.type, clusterIP: '', ports: ports.map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: sel })
+      // nodePort 校验(分级):填了必须是 1-65535 数字;默认 range(30000-32767)外放行——自定义 range 集群合法,交 API 裁
+      for (const p of ports) {
+        if (p.nodePort === '' || p.nodePort == null) continue
+        const n = Number(p.nodePort)
+        if (!Number.isFinite(n) || n < 1 || n > 65535) { notify('error', t('workload.expose.nodePortInvalid')); return }
+      }
+      // 结构化 portList 无损通道(generateYAML('service') 优先吃它,nodePort 在此输出;扁平串通道废弃)
+      const portList = ports.map(p => ({
+        name: '', port: Number(p.port), targetPort: p.targetPort === '' || p.targetPort == null ? Number(p.port) : Number(p.targetPort),
+        protocol: p.protocol || 'TCP',
+        nodePort: isNodePortType() && p.nodePort !== '' && p.nodePort != null ? Number(p.nodePort) : null,
+        appProtocol: '',
+      }))
+      const r = await store.addService({ name: exposeForm.value.name, namespace: ns(), type: exposeForm.value.type, clusterIP: '', portList, selector: sel })
       if (r && r.ok === false) return
       notify('success', t('workload.notify.createdService', { name: exposeForm.value.name })); showExposeModal.value = false
     } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
@@ -201,7 +228,7 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
     tplLabels, relatedServices, relatedServiceNames, relatedIngresses, ingressBreakdown,
     driftedServices, epFor, workloadHpas, labelConsumers,
     replicaSets, latestRs, podsGrouped, governingSvcName, containerPorts, identitySel, states,
-    showExposeModal, exposeForm, openExpose, saveExpose,
+    showExposeModal, exposeForm, openExpose, saveExpose, recommendNodePorts, isNodePortType,
     showIngressMapModal, ingressMapForm, sameHost, mapConflict, mapSvcOptions, mapPortsFor, openIngressMap, saveIngressMap,
     repairingSvc, repairServiceSelector,
   }

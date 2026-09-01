@@ -2168,9 +2168,15 @@ function podStatusBorder(s) {
         <input v-model.number="p.port" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="port" />
         <span class="text-on-surface-variant">:</span>
         <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="target" />
+        <!-- nodePort:NodePort/LoadBalancer 专属;留空=集群自动分配,「自动推荐」填集群级空闲端口 -->
+        <input v-if="topo.isNodePortType()" v-model.number="p.nodePort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="nodePort" />
         <button @click="exposeForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
       </div>
-      <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP' })" class="self-start text-xs text-primary">+ {{ $t('workload.expose.port') }}</button>
+      <div class="flex items-center gap-sm flex-wrap">
+        <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP', nodePort: '' })" class="self-start text-xs text-primary">+ {{ $t('workload.expose.port') }}</button>
+        <button v-if="topo.isNodePortType()" @click="topo.recommendNodePorts()" class="self-start text-xs text-primary inline-flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">auto_awesome</span>{{ $t('workload.expose.recommendNodePort') }}</button>
+        <span v-if="topo.isNodePortType()" class="text-[11px] text-on-surface-variant/60">{{ $t('workload.expose.nodePortAutoHint') }}</span>
+      </div>
     </div>
     <template #actions>
       <button @click="showExposeModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('workload.expose.cancel') }}</button>

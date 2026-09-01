@@ -2372,7 +2372,11 @@
       "identityRequired": "Cannot determine stable identity labels (add app to the pod template labels). Creation is blocked to keep the Service matching after future label changes (otherwise Ingress would return 503)",
       "cancel": "Cancel",
       "create": "Create",
-      "portRequired": "At least one port is required"
+      "portRequired": "At least one port is required",
+      "nodePort": "nodePort",
+      "recommendNodePort": "Auto-suggest free ports",
+      "nodePortAutoHint": "Leave nodePort empty for cluster auto-allocation",
+      "nodePortInvalid": "nodePort must be a number between 1-65535"
     },
     "ingressMap": {
       "host": "Host",
@@ -3374,11 +3378,20 @@
       "running": "{n} running",
       "pending": "{n} pending approvals",
       "ssh": "{n} SSH",
-      "relNow": "just now", "relMin": "{n}m ago", "relHour": "{n}h ago", "relDay": "{n}d ago",
-      "newProject": "New project", "openLedger": "Cluster ledger", "openRecords": "Records",
-      "noProjects": "No projects yet", "pendingChip": "{n} pending",
-      "kProjects": " projects", "kRunning": " running", "kPending": " pending",
-      "stale": "Update failed, showing data from {t}", "loadFailed": "Failed to load"
+      "relNow": "just now",
+      "relMin": "{n}m ago",
+      "relHour": "{n}h ago",
+      "relDay": "{n}d ago",
+      "newProject": "New project",
+      "openLedger": "Cluster ledger",
+      "openRecords": "Records",
+      "noProjects": "No projects yet",
+      "pendingChip": "{n} pending",
+      "kProjects": " projects",
+      "kRunning": " running",
+      "kPending": " pending",
+      "stale": "Update failed, showing data from {t}",
+      "loadFailed": "Failed to load"
     },
     "unboundBadge": "No cluster",
     "unboundBanner": "No cluster bound: draft manifests and manage SSH servers now; bind a cluster to unlock resource investigation and apply — existing drafts apply as-is",

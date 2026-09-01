@@ -112,3 +112,33 @@ export function volumesAndPullSecretsFromPodSpec(podSpec) {
   for (const s of (podSpec?.imagePullSecrets || [])) add('imagePullSecrets', s?.name)
   return out
 }
+
+// === expose 弹窗 nodePort(2026-09-01):第三条 Service 创建路径补 nodePort 缺口 ===
+// K8s 默认 --service-node-port-range;自定义 range 的集群由 API 最终校验(前端只拦明显错误)。
+export const NODE_PORT_MIN = 30000
+export const NODE_PORT_MAX = 32767
+
+// nodePort 占用是集群级的(NodePort/LoadBalancer 才占用;ClusterIP 的 nodePort 字段无意义不算)。
+// 入参须为【全量】Service 列表——ns 过滤面会漏跨 ns 冲突,调用方从 query 原始缓存取。
+export function usedNodePortsFromServices(services) {
+  const out = []
+  for (const s of services || []) {
+    if (s?.type !== 'NodePort' && s?.type !== 'LoadBalancer') continue
+    for (const p of (s?.portList || [])) {
+      const n = Number(p?.nodePort)
+      if (Number.isFinite(n) && n > 0) out.push(n)
+    }
+  }
+  return out
+}
+
+// 按序推荐 count 个空闲端口;占用集变异自调用方(推荐多个时逐个落行须互斥)。
+// range 耗尽 → 返回不足 count 个(调用方留空行交 API 自动分配)。
+export function suggestNodePorts(used, count) {
+  const taken = new Set((used || []).map(Number).filter(n => Number.isFinite(n)))
+  const out = []
+  for (let p = NODE_PORT_MIN; p <= NODE_PORT_MAX && out.length < count; p++) {
+    if (!taken.has(p)) { out.push(p); taken.add(p) }
+  }
+  return out
+}
