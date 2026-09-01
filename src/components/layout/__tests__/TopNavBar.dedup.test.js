@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 // 回归:顶栏去重,仅保留刷新;通知/设置图标移除(与侧边栏重复)。
@@ -54,7 +55,7 @@ const mountIt = () => mount(TopNavBar, {
   global: {
     mocks: { $t: (k) => k },
     stubs: { ConfirmDialog: true },
-    plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+    plugins: [createPinia(), createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
   },
 })
 

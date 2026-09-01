@@ -7,7 +7,8 @@ import WorkbenchEntryPill from './WorkbenchEntryPill.vue'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
-import { useBreakpoint, MQ_BELOW_LG } from '@/composables/useBreakpoint'
+import { useBreakpoint, MQ_BELOW_LG, MQ_BELOW_SM } from '@/composables/useBreakpoint'
+import { useShellStore } from '@/stores/shell'
 import { Z } from '@/styles/zScale'
 
 const router = useRouter()
@@ -21,6 +22,8 @@ const cid = computed(() => (store.currentCluster || 'cluster'))
 const searchOpen = ref(false)
 // <lg(iPad 竖屏):搜索收成图标钮,点击弹 Teleport 弹层(2026-08-31 设计 §4)
 const { matches: belowLg } = useBreakpoint(MQ_BELOW_LG)
+const { matches: belowSm } = useBreakpoint(MQ_BELOW_SM)
+const shell = useShellStore()
 const searchModalOpen = ref(false)
 const searchModalInput = ref(null)
 const searchEnabled = computed(() => searchOpen.value || searchModalOpen.value) // 弹层打开也启用惰性查询(与内联 focus 同语义)
@@ -181,6 +184,12 @@ onBeforeUnmount(unbindDropFollow)
 <template>
   <header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface h-16 border-b border-outline-variant shrink-0">
     <div class="flex items-center gap-sm lg:gap-md xl:gap-lg flex-1 min-w-0">
+      <!-- 手机抽屉开关(仅 <640):桌面/iPad 不渲染(汉堡在手机档取代常驻侧栏的入口职能) -->
+      <button v-if="belowSm" data-test="menu-trigger" @click="shell.toggleDrawer()"
+        class="p-sm -ml-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors"
+        :aria-label="$t('nav.openMenu')">
+        <span class="material-symbols-outlined">menu</span>
+      </button>
       <template v-if="!belowLg">
       <div class="relative max-w-xs xl:max-w-md w-full min-w-0">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>

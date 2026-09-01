@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
 // 回归:点 ns 名 → 回拓扑首页(NamespaceOverview);箭头单独切 ns。
 const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }))
@@ -26,7 +27,7 @@ import SideNavBar from '../SideNavBar.vue'
 
 describe('SideNavBar ns 名回首页', () => {
   it('点击 ns 名区域 → push NamespaceOverview', async () => {
-    const w = mount(SideNavBar, { global: { mocks: { $t: (k) => k } } })
+    const w = mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
     const nsHome = w.find('[data-test="ns-home"]')
     expect(nsHome.exists()).toBe(true)
     await nsHome.trigger('click')

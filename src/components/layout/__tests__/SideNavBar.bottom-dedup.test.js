@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
 // 回归:审计日志入口从「集群管理分组」迁到底部「活动记录」,且只此一处。
 const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }))
@@ -25,7 +26,7 @@ vi.mock('vue-router', () => ({
 
 import SideNavBar from '../SideNavBar.vue'
 
-const mountIt = () => mount(SideNavBar, { global: { mocks: { $t: (k) => k } } })
+const mountIt = () => mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
 
 describe('SideNavBar 审计日志去重 + 底部 active 高亮', () => {
   it('底部存在「活动记录」入口,点击 → /audit-logs', async () => {

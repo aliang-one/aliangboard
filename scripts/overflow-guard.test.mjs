@@ -103,3 +103,21 @@ test('全仓 .vue 无 truncate 失效形态(V1 列向 + V2 行向链)', () => {
     + findings.map(f => `  [${f.rule}] src/${f.file}:${f.line}\n    element: ${f.self}\n    ${f.detail}`).join('\n')
   )
 })
+
+// ── V3:裸 z-index 任意值魔数禁令(2026-09-01 手机适配 Wave 1a)──
+// 浮层层级唯一来源是 zScale.js 的 Z;`z-[N]` 任意值类绕过单源,是 issue#3 糊化事故的
+// 同族根因。既有违规入 allowlist(后续波次逐个清零后从名单移除);新文件一律红灯。
+const Z_ARBITRARY_ALLOWLIST = [
+  'components/workbench/ChatPresence.vue' // Task 6 Step 1 盘点结果: z-[45] at line 84 // TODO: ChatPresence.vue z-[45] 清零后移出名单,删整个 allowlist
+]
+
+test('V3: .vue 禁止 z-[N] 任意值魔数(层级一律 zScale 取值)', () => {
+  const offenders = []
+  for (const f of walk(SRC)) {
+    if (Z_ARBITRARY_ALLOWLIST.some(a => f.endsWith(a))) continue
+    const src = readFileSync(f, 'utf8')
+    const m = src.match(/z-\[\d+\]/)
+    if (m) offenders.push(`${f}: ${m[0]}`)
+  }
+  assert.deepEqual(offenders, [])
+})

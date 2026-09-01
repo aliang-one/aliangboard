@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
 // 回归:底部「事件/活动记录/设置」三入口两态——
 // ns 态 = 停靠坞 dock 砖块(icon-only,hover/title 提示);集群态 = icon-only 双图标。
@@ -30,7 +31,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import SideNavBar from '../SideNavBar.vue'
-const mountIt = () => mount(SideNavBar, { global: { mocks: { $t: (k) => k } } })
+const mountIt = () => mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
 
 describe('SideNavBar 底部 icon 行(事件/活动记录/设置)', () => {
   it('选中 ns:三项都在,各含正确 icon,dock 内 icon-only(title 提示)', () => {

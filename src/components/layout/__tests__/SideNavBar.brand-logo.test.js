@@ -2,6 +2,7 @@
 // 不再是绿盒 + kubernetes 通用图标。路由 meta 为空 → cluster 模式(useNavMode)。
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
@@ -25,7 +26,7 @@ import SideNavBar from '../SideNavBar.vue'
 
 describe('SideNavBar 集群头品牌位', () => {
   it('集群态 cluster-brand 展示 aliang-logo 品牌 img', () => {
-    const w = mount(SideNavBar, { global: { mocks: { $t: (k) => k } } })
+    const w = mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
     const brand = w.find('[data-test="cluster-brand"]')
     expect(brand.exists()).toBe(true)
     expect(brand.find('img[alt="AliangBoard"]').exists()).toBe(true)
