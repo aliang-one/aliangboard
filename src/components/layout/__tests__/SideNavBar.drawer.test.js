@@ -115,6 +115,81 @@ test('跨断点:手机开抽屉→切到非手机(belowSm 变 false)自动 close
   wrapper.unmount()
 })
 
+test('手机档:裸 router.push 点击入口收编 navTo——ns 态锚点/坞 4 入口点已激活路由也收抽屉', async () => {
+  mockViewport(true, true)
+  // 切到 ns 态:渲染 cluster-anchor(头部)与停靠坞(cluster-slab/settings/activity/deploy)
+  routeRef.meta.scope = 'namespace'
+  routeRef.fullPath = '/ns/default/workloads'
+  routeRef.path = '/ns/default/workloads'
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  shell.toggleDrawer()
+  await Promise.resolve()
+  expect(shell.drawerOpen).toBe(true)
+  // cluster-anchor 推 '/cluster':mock router 下 fullPath 不变由 push stub 吸收,
+  // 契约 = navTo 内的 closeDrawer(点击后 drawerOpen === false)
+  const anchor = wrapper.find('[data-test="cluster-anchor"]')
+  expect(anchor.exists()).toBe(true)
+  await anchor.trigger('click')
+  expect(pushMock).toHaveBeenCalled()
+  expect(shell.drawerOpen).toBe(false)
+  // 停靠坞 4 入口逐个重开抽屉再点,同断言
+  for (const sel of ['cluster-slab', 'bottom-settings', 'bottom-activity', 'deploy-card']) {
+    shell.toggleDrawer()
+    await Promise.resolve()
+    expect(shell.drawerOpen).toBe(true)
+    const el = wrapper.find(`[data-test="${sel}"]`)
+    expect(el.exists()).toBe(true)
+    await el.trigger('click')
+    expect(shell.drawerOpen).toBe(false)
+  }
+  wrapper.unmount()
+  routeRef.meta.scope = 'global'
+})
+
+test('手机档:集群态底部 activity/settings 两入口收编 navTo——同路由点击也收抽屉', async () => {
+  mockViewport(true, true)
+  // 集群态(meta.scope=global):渲染 else 分支的两个底部入口
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  for (const sel of ['bottom-activity', 'bottom-settings']) {
+    shell.toggleDrawer()
+    await Promise.resolve()
+    expect(shell.drawerOpen).toBe(true)
+    const el = wrapper.find(`[data-test="${sel}"]`)
+    expect(el.exists()).toBe(true)
+    await el.trigger('click')
+    expect(pushMock).toHaveBeenCalled()
+    expect(shell.drawerOpen).toBe(false)
+  }
+  wrapper.unmount()
+})
+
+test('手机档:selectNamespace 与 onNsHomeClick 跳转入口收编 navTo——抽屉即收', async () => {
+  mockViewport(true, true)
+  routeRef.meta.scope = 'namespace'
+  storeMock.namespaceList.push({ name: 'default', status: 'Active', pods: 3 })
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  // onNsHomeClick:currentNs=default → push NamespaceOverview,收编后应收抽屉
+  shell.toggleDrawer()
+  await Promise.resolve()
+  await wrapper.find('[data-test="ns-home"]').trigger('click')
+  expect(pushMock).toHaveBeenCalled()
+  expect(shell.drawerOpen).toBe(false)
+  // selectNamespace:开下拉点 ns 行,同样收抽屉
+  shell.toggleDrawer()
+  await Promise.resolve()
+  await wrapper.find('.ns-tile').trigger('click')
+  await Promise.resolve()
+  const row = wrapper.find('.ns-row')
+  expect(row.exists()).toBe(true)
+  await row.trigger('click')
+  expect(shell.drawerOpen).toBe(false)
+  wrapper.unmount()
+  routeRef.meta.scope = 'global'
+})
+
 test('手机档:点击导航项(含已激活同路由)抽屉即收起', async () => {
   mockViewport(true, true)
   const wrapper = mountNav()

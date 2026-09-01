@@ -161,17 +161,17 @@ function selectNamespace(ns) {
   store.setNamespace(ns)
   showNsDropdown.value = false
   nsSearch.value = ''
-  router.push({ name: 'NamespaceOverview', params: { namespace: ns } })
+  navTo({ name: 'NamespaceOverview', params: { namespace: ns } })
 }
 
 // ns 主按钮:空态开下拉(不跳转);否则进/回 NamespaceOverview(集群态=进入,ns态=回总览)
 function onNsHomeClick() {
   if (!currentNs.value) {
-    if (belowLg.value) { router.push('/namespaces'); return }  // rail 态弹层放不下 → 去集群 ns 列表
+    if (belowLg.value) { router.push('/namespaces'); return }  // rail 态弹层放不下 → 去集群 ns 列表(例外:程序化降级跳转,不收抽屉)
     showNsDropdown.value = true
     return
   }
-  router.push({ name: 'NamespaceOverview', params: { namespace: currentNs.value } })
+  navTo({ name: 'NamespaceOverview', params: { namespace: currentNs.value } })
 }
 
 function goNsRoute(routeKey) {
@@ -240,7 +240,7 @@ function nsStatusColor(status) {
           <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
         </div>
       </div>
-      <button v-else data-test="cluster-anchor" @click="router.push('/cluster')"
+      <button v-else data-test="cluster-anchor" @click="navTo('/cluster')"
         class="flex items-center gap-sm w-full min-w-0 group cursor-pointer"
         :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
         <img src="/aliang-logo.svg" alt="" class="h-5 w-auto shrink-0" width="22" height="20" />
@@ -398,7 +398,7 @@ function nsStatusColor(status) {
       <!-- ns 态:单一停靠坞板块——集群 hero + 部署 + 3 图标一行成组 -->
       <div v-if="isNsMode" class="dock-band relative mt-sm mb-xs">
         <div class="dock flex items-stretch gap-1.5 p-1.5">
-          <button data-test="cluster-slab" @click="router.push('/cluster')"
+          <button data-test="cluster-slab" @click="navTo('/cluster')"
             class="cluster-slab flex-1 min-w-0 flex items-center gap-sm px-sm text-left cursor-pointer"
             :title="$t('nav.clusterOverview')" :aria-label="$t('nav.clusterOverview')">
             <span class="slab-chip flex items-center justify-center shrink-0">
@@ -414,7 +414,7 @@ function nsStatusColor(status) {
           </button>
           <!-- 4 图标 3 列网格:设置/事件/活动,部署横跨底行(高频入口给最大点击面+文字) -->
           <div class="grid grid-cols-3 gap-1 content-center shrink-0">
-            <button data-test="bottom-settings" @click="router.push('/settings')"
+            <button data-test="bottom-settings" @click="navTo('/settings')"
               :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
               class="dock-ig dock-ig--lg cursor-pointer" :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
               <span class="dock-ig__sq"><span class="material-symbols-outlined text-base">settings</span></span>
@@ -424,12 +424,12 @@ function nsStatusColor(status) {
               class="dock-ig cursor-pointer" :class="isNsRouteActive('events') ? 'dock-ig--hot' : ''">
               <span class="dock-ig__sq"><span class="material-symbols-outlined text-base">notifications_active</span></span>
             </button>
-            <button data-test="bottom-activity" @click="router.push('/audit-logs')"
+            <button data-test="bottom-activity" @click="navTo('/audit-logs')"
               :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
               class="dock-ig cursor-pointer" :class="isGlobalActive('/audit-logs') ? 'dock-ig--hot' : ''">
               <span class="dock-ig__sq"><span class="material-symbols-outlined text-sm">history</span></span>
             </button>
-            <button data-test="deploy-card" @click="router.push({ name: 'NsDeploy', params: { namespace: currentNs } })"
+            <button data-test="deploy-card" @click="navTo({ name: 'NsDeploy', params: { namespace: currentNs } })"
               :title="$t('nav.deploy')" :aria-label="$t('nav.deploy')"
               class="dock-ig dock-ig--deploy dock-ig--wide col-span-3 cursor-pointer">
               <span class="dock-ig__sq">
@@ -442,13 +442,13 @@ function nsStatusColor(status) {
       </div>
       <!-- 集群态:活动+设置(维持现状布局) -->
       <div v-else class="flex items-stretch gap-xs">
-        <a data-test="bottom-activity" @click="router.push('/audit-logs')"
+        <a data-test="bottom-activity" @click="navTo('/audit-logs')"
           :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
           :class="isGlobalActive('/audit-logs') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">history</span>
         </a>
-        <a data-test="bottom-settings" @click="router.push('/settings')"
+        <a data-test="bottom-settings" @click="navTo('/settings')"
           :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
           :class="isGlobalActive('/settings') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
