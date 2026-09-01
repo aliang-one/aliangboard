@@ -86,7 +86,7 @@ function removeCluster(c) {
           class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
           :placeholder="t('clusters.searchPlaceholder')"
         />
-        <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
+        <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
           <span class="material-symbols-outlined text-base">close</span>
         </button>
       </div>

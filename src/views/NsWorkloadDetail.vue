@@ -2294,7 +2294,7 @@ function podStatusBorder(s) {
     </template>
   </Modal>
 
-  <!-- 手机底部止血条(Wave 3 Task 3):伸缩/重启一键可达;复用 openScale/handleRestart,确认流/权限零改动 -->
+  <!-- 手机底部止血条(Wave 3 Task 3):伸缩/重启一键可达;复用 openScale/askRestart——重启经确认弹窗(两档同改) -->
   <div v-if="isPhone && workload" data-testid="workload-action-bar"
     class="sticky bottom-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
     :style="{ zIndex: Z.drawer - 1, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }">

@@ -145,7 +145,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
                   :style="mgrPanelStyle"
                   class="w-64 p-md bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card"
                 >
-                  <button @click="toggleMgr" class="absolute top-xs right-xs material-symbols-outlined text-base text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">close</button>
+                  <button @click="toggleMgr" class="absolute top-xs right-xs material-symbols-outlined text-base text-on-surface-variant hover:text-primary max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">close</button>
                   <ColumnManager :table-key="columnKey" />
                 </div>
               </Teleport>

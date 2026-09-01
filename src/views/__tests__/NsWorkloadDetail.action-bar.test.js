@@ -1,5 +1,5 @@
 // 手机适配 Wave 3 Task 3:NsWorkloadDetail 手机动作区 + 底部止血条。
-// 红线:止血条(伸缩/重启)必须复用 openScale/handleRestart——确认流/权限 canMutate 零改动;
+// 红线:止血条(伸缩/重启)必须复用 openScale/askRestart——重启经确认弹窗(两档同改);
 // 桌面/iPad 零回归:无止血条、既有用例断言零改动。
 // mock 策略照 NsWorkloadDetail.edit-shell.test.js(cluster store 回真实 Deployment,
 // canMutate 默认 true 不锁死;真实 i18n + Vue Query,不 stub Modal 以便断言弹窗打开)。
