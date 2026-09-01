@@ -49,3 +49,52 @@ export function templateSelectorBreaks(tplLabels, selector) {
   }
   return out
 }
+
+// === Service selector 失配防线(2026-09-01 Ingress 503 事故) ===
+// saveExpose 曾把暴露时刻全部模板 labels 快照进 Service selector;元数据编辑器镜像改动
+// 业务标签 → Pod labels 变 → Service selector ⊄ Pod labels → Endpoints 空 → Ingress 503,
+// 全程静默(K8s 只校验 Deployment 自己的 selector,上面四道防线对此全盲)。
+// 裁决:selector 单一事实源 = 不可变身份标签;模板 labels 变更前先算会失配哪些 Service。
+
+// merge-patch 语义求补后 labels:{...base},patch 值 null → 删键,否则覆写。
+// saveMeta(带 null 删除)与 saveTemplate(YAML 键级合并)两条守卫共用,勿在视图各写一套。
+export function applyLabelPatch(base, patchLabels) {
+  const out = { ...(base && typeof base === 'object' ? base : {}) }
+  const patch = patchLabels && typeof patchLabels === 'object' ? patchLabels : {}
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null) delete out[k]
+    else out[k] = v
+  }
+  return out
+}
+
+// 身份 selector:Deployment 不可变 selector(selectorMatchLabels)中「模板实有且值相等」的键
+// + 模板上的身份标签(app / app.kubernetes.io/name)。业务/自定义标签永不算身份(会被元数据
+// 编辑器镜像改写)。模板为空(legacy 扁平数据)时回退 {app: fallbackName}(与创建向导落点一致);
+// 模板非空却无身份键 → 返回空 map,调用方必须拦截(空 selector 会选中 ns 全部 Pod,更糟)。
+// 返回新对象,不改入参;值一律 String 化(标签本就是字符串)。
+export function identitySelector(raw, tplLabels, fallbackName) {
+  const tpl = tplLabels && typeof tplLabels === 'object' ? tplLabels : {}
+  const out = {}
+  for (const [k, v] of Object.entries(selectorMatchLabels(raw))) {
+    if (k in tpl && String(tpl[k]) === String(v)) out[k] = String(v)
+  }
+  for (const k of ['app', 'app.kubernetes.io/name']) {
+    if (!(k in out) && tpl[k] != null && tpl[k] !== '') out[k] = String(tpl[k])
+  }
+  if (!Object.keys(out).length && fallbackName && !Object.keys(tpl).length) out.app = String(fallbackName)
+  return out
+}
+
+// 会因模板 labels 变为 tplLabels 而失配的 Service 名单:selector 非空 且 ⊄ tplLabels
+// (值按字符串比较)。空 selector(含 ExternalName)天然匹配一切,跳过。
+export function servicesBrokenBy(tplLabels, services) {
+  const tpl = tplLabels && typeof tplLabels === 'object' ? tplLabels : {}
+  return (services || [])
+    .filter(s => {
+      const sel = s?.selector
+      if (!sel || typeof sel !== 'object' || !Object.keys(sel).length) return false
+      return !Object.entries(sel).every(([k, v]) => k in tpl && String(tpl[k]) === String(v))
+    })
+    .map(s => s.name)
+}
