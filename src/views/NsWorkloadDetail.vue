@@ -1658,7 +1658,7 @@ function podStatusBorder(s) {
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
           <span class="text-body-sm font-semibold">{{ $t('workload.network.relatedIngress') }}</span>
-          <button @click="openIngressMap" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">{{ $t('workload.network.mapIngress') }}</button>
+          <button @click="openIngressMap()" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">{{ $t('workload.network.mapIngress') }}</button>
         </div>
         <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/15">
           <template v-for="ing in relatedIngresses" :key="ing.name">

@@ -80,6 +80,24 @@ test('attachEdgeStates:hover 命中边 active、无关边 dim;空 hover 全部�
   assert.ok(off.every(e => !e.class.includes('topo-edge--active') && !e.class.includes('topo-edge--dim')))
 })
 
+// 终审 M1:规则目标也匹配失配 Service——规则→drift 节点有 route 边(不再静默悬空),hover 同步命中
+test('route 边补失配目标:规则指向失配 Service 时产 rule->drift:svc 边且 hover 命中 active', () => {
+  const input = baseInput()
+  input.ownRules = [...input.ownRules, { ingress: 'x-ing', host: 'x.com', path: '/', serviceName: 'svc-x', port: 80 }]
+  const { edges } = deriveFlowGraph(input)
+  const toDrift = edges.find(e => e.target === 'drift:svc-x' && e.class.includes('topo-edge-route'))
+  assert.ok(toDrift, '规则→失配 Service 应有 route 边')
+  assert.equal(toDrift.source, 'rule:3')
+  // 仍指向正常 Service 的边不受影响;悬空(两边都无)不产边
+  assert.equal(edges.filter(e => e.class.includes('topo-edge-route') && e.target === 'svc:svc-a').length, 2)
+  const dangling = deriveFlowGraph({ ...input, ownRules: [{ ingress: 'z-ing', host: 'z.com', path: '/', serviceName: 'svc-none', port: 80 }] })
+  assert.equal(dangling.edges.filter(e => e.class.includes('topo-edge-route')).length, 0)
+  // hover 失配 Service 名:入边(route)+出边(drift->workload)同 active
+  const on = attachEdgeStates(edges, 'svc-x')
+  assert.ok(on.find(e => e.target === 'drift:svc-x').class.includes('topo-edge--active'))
+  assert.ok(on.find(e => e.source === 'drift:svc-x').class.includes('topo-edge--active'))
+})
+
 test('布局常量:列宽/列距为正数且列 x = 序×(COL_WIDTH+COL_GAP)', () => {
   const { nodes } = deriveFlowGraph(baseInput())
   const rule = nodes.find(n => n.type === 'rule')

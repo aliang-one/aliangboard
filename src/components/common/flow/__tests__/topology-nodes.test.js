@@ -37,7 +37,8 @@ test('RuleNode:content+Handle+点击跳转', async () => {
   expect(w.text()).toContain('a.com'); expect(w.text()).toContain('svc-a')
   expect(w.find('.vue-flow__handle').exists()).toBe(true)
   await w.find('.topo-rule').trigger('click')
-  expect(goto).toHaveBeenCalledWith({ name: 'NsIngressDetail', params: { namespace: undefined, name: 'a-ing' } })
+  // 终审 C1:节点传规则对象自身(非自拼路由对象),Tab 侧 goto 读 r.ingress 权威定位
+  expect(goto).toHaveBeenCalledWith({ ingress: 'a-ing', host: 'a.com', path: '/', serviceName: 'svc-a', port: 80, goto })
 })
 
 test('ServiceNode(normal):governing 徽章/endpoints 行/hover-+ 调 openIngressMap(指定名)', async () => {

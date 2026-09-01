@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "npm run test:server && npm run test:unit",
-    "test:server": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/*.test.mjs && node --test scripts/i18n-check.test.mjs && node --test src/utils/envRows.test.mjs && node --test src/utils/taskbarFit.test.mjs && node --test scripts/deployment-manifest.test.mjs && node --test src/composables/useIngressRules.test.mjs && node --test src/logic/workloadTransition.test.mjs && node --test src/utils/containerNames.test.mjs && node --test src/logic/containerValidation.test.mjs && node --test src/logic/subContainer.test.mjs && node --test server/ssh/*.test.mjs && node --test scripts/overflow-guard.test.mjs && node --test src/logic/topology.test.mjs",
+    "test:server": "node scripts/test.mjs && node scripts/exec-bridge.test.mjs && node --test server/*.test.mjs && node --test scripts/i18n-check.test.mjs && node --test src/utils/envRows.test.mjs && node --test src/utils/taskbarFit.test.mjs && node --test scripts/deployment-manifest.test.mjs && node --test src/composables/useIngressRules.test.mjs && node --test src/logic/workloadTransition.test.mjs && node --test src/utils/containerNames.test.mjs && node --test src/logic/containerValidation.test.mjs && node --test src/logic/subContainer.test.mjs && node --test server/ssh/*.test.mjs && node --test scripts/overflow-guard.test.mjs && node --test src/logic/topology.test.mjs && node --test src/logic/topologyFlow.test.mjs",
     "test:unit": "vitest run",
     "i18n:check": "node scripts/i18n-check.mjs"
   },

@@ -14,8 +14,8 @@ function leave() { hovered.value = '' }
   <div class="topo-rule rounded-lg border border-outline-variant/60 px-sm py-1.5 bg-surface-container-lowest cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
     :class="hovered === data.serviceName ? 'ring-2 ring-primary' : ''"
     tabindex="0"
-    @click="data.goto?.({ name: 'NsIngressDetail', params: { namespace: data.namespace, name: data.ingress } })"
-    @keydown.enter="data.goto?.({ name: 'NsIngressDetail', params: { namespace: data.namespace, name: data.ingress } })"
+    @click="data.goto?.(data)"
+    @keydown.enter="data.goto?.(data)"
     @mouseenter="enter" @mouseleave="leave">
     <p class="font-mono text-xs text-primary font-semibold truncate">{{ data.host }}<span class="text-on-surface-variant font-normal">{{ data.path }}</span></p>
     <p class="text-[11px] text-on-surface-variant truncate">→ {{ data.serviceName }}<span v-if="data.port">:{{ data.port }}</span></p>

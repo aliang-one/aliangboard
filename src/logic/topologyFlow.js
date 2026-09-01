@@ -23,8 +23,12 @@ export function deriveFlowGraph(input) {
   // 列 0:Ingress 规则(每规则一节点,扇入来源)
   ownRules.forEach((r, i) => {
     nodes.push({ id: `rule:${i}`, type: 'rule', position: { x: colX('rule'), y: i * estRuleH() }, data: { ...r } })
-    if (relatedServices.some(s => s.name === r.serviceName)) {
-      edges.push({ id: `e:rule:${i}->svc:${r.serviceName}`, source: `rule:${i}`, target: `svc:${r.serviceName}`, type: 'smoothstep', class: 'topo-edge topo-edge-route', markerEnd: '' })
+    // 终审 M1:目标同时匹配正常 Service 与失配 Service(两者 selector 语义互斥,实际不重名;
+    // 以存在者为准——同键名 drift 节点 id 前缀不同,规则→失配也有 route 边,不再静默悬空)
+    const target = relatedServices.some(s => s.name === r.serviceName) ? `svc:${r.serviceName}`
+      : driftedServices.some(s => s.name === r.serviceName) ? `drift:${r.serviceName}` : null
+    if (target) {
+      edges.push({ id: `e:rule:${i}->${target}`, source: `rule:${i}`, target, type: 'smoothstep', class: 'topo-edge topo-edge-route', markerEnd: '' })
     }
   })
 
@@ -59,7 +63,7 @@ export function attachEdgeStates(edges, hoveredName) {
   if (!hoveredName) return edges.map(e => ({ ...e, class: e.class.replace(/ ?topo-edge--(active|dim)/g, '') }))
   return edges.map(e => {
     const hit = e.source === `svc:${hoveredName}` || e.source === `drift:${hoveredName}` ||
-      (e.class.includes('topo-edge-route') && e.target === `svc:${hoveredName}`)
+      (e.class.includes('topo-edge-route') && (e.target === `svc:${hoveredName}` || e.target === `drift:${hoveredName}`))
     return { ...e, class: hit ? `${e.class} topo-edge--active` : `${e.class} topo-edge--dim` }
   })
 }

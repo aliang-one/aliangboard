@@ -2263,7 +2263,6 @@
     },
     "topology": {
       "ingress": "App Routes",
-      "noIngress": "No Ingress configured",
       "service": "Service",
       "noService": "No related Service",
       "repairSelector": "Repair selector",
@@ -2277,9 +2276,6 @@
       "flowPathDesc": "External request → Ingress (domain/path) → Service (via selector) → {type} replica Pods.",
       "noServiceHint": "No related Service — external traffic cannot reach. Click + on the Deployment card to create one from exposed ports.",
       "addHint": "Click + on the left of any card to add more: Deployment→Service, Service→Ingress.",
-      "countRoutes": "{n} routes",
-      "countServices": "{n} Service(s)",
-      "countPods": "{n} Pod(s)",
       "otherRoutes": "+{count} other route(s)",
       "endpoints": "endpoints {ready}/{total}",
       "driftBroken": "Broken: selector mismatch, no endpoints (503)",
@@ -2288,7 +2284,6 @@
       "governing": "governing",
       "addIngressFor": "Add Ingress for this Service",
       "addExpose": "Expose as Service",
-      "noSelectorHint": "Services without a selector (ExternalName / self-managed Endpoints) are not listed",
       "schedule": "schedule",
       "suspended": "suspended",
       "completions": "{succeeded}/{total} completed"

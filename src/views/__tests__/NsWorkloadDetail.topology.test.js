@@ -3,7 +3,7 @@
 // 真实 i18n + Vue Query;useToast importOriginal 保真)。fixture 经 state 对象按用例注入。
 import { test, expect, vi, beforeEach } from 'vitest'
 
-const captured = vi.hoisted(() => ({ svcAdds: [], svcUpdates: [], ingAdds: [] }))
+const captured = vi.hoisted(() => ({ svcAdds: [], svcUpdates: [], ingAdds: [], routerPushes: [] }))
 const state = vi.hoisted(() => ({ workload: null, services: [], pdbs: [], netpols: [], pods: [], ingresses: [], endpoints: [], replicasets: [], hpas: [] }))
 
 import { mount, flushPromises } from '@vue/test-utils'
@@ -37,7 +37,7 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   addIngress: vi.fn(item => { captured.ingAdds.push(item); return { ok: true } }),
   updateIngressRules: vi.fn(async () => ({})),
 }) }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' } }), useRouter: () => ({ push: () => {} }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' } }), useRouter: () => ({ push: loc => captured.routerPushes.push(loc) }) }))
 
 import NsWorkloadDetail from '../NsWorkloadDetail.vue'
 import WorkloadTopologyTab from '@/components/common/WorkloadTopologyTab.vue'
@@ -68,7 +68,7 @@ async function gotoTopology(w) {
 
 beforeEach(() => {
   document.body.innerHTML = ''
-  captured.svcAdds.length = 0; captured.svcUpdates.length = 0; captured.ingAdds.length = 0
+  captured.svcAdds.length = 0; captured.svcUpdates.length = 0; captured.ingAdds.length = 0; captured.routerPushes.length = 0
   notify.mockClear()
   state.workload = JSON.parse(JSON.stringify(demoWorkload))
   state.services = [JSON.parse(JSON.stringify(svcMatching))]
@@ -234,4 +234,16 @@ test('B6: openIngressMap 无参回归——仍取第一个关联 Service', async
   const actions = tab.vm.$.provides['topo-actions']
   actions.openIngressMap(); await flushPromises()
   expect(modalServiceName(w)).toBe('demo-svc')
+})
+
+// 终审 C1:规则卡点击 → router.push 收到含正确 ingress 名的定位对象(goto 契约=传规则对象)
+test('C1: 规则卡点击跳转——push 定位对象含正确 ingress 名与 namespace', async () => {
+  state.ingresses = [{ name: 'ing1', namespace: 'default', rules: [{ host: 'a.com', http: { paths: [{ path: '/app', pathType: 'Prefix', backend: { service: { name: 'demo-svc', port: { number: 80 } } } }] } }], defaultBackend: null }]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const ruleCard = w.findAll('.topo-rule').find(x => x.text().includes('a.com'))
+  expect(ruleCard).toBeTruthy()
+  await ruleCard.trigger('click'); await flushPromises()
+  const hit = captured.routerPushes.find(l => l?.name === 'NsIngressDetail')
+  expect(hit, '应有 NsIngressDetail 跳转(终审 C1:goto 契约断裂则恒 undefined)').toBeTruthy()
+  expect(hit.params).toEqual({ namespace: 'default', name: 'ing1' })
 })
