@@ -1,6 +1,9 @@
 <script>
 // 手机虚拟按键字节表(VT100/xterm 标准):无物理键盘时的 exec 刚需(spec §5)
 export const KEY_BYTES = { 'Esc': '\x1b', 'Tab': '\t', '↑': '\x1b[A', '↓': '\x1b[B', '←': '\x1b[D', '→': '\x1b[C', 'Ctrl+C': '\x03' }
+// 手机档字号热调(Task 2,mobile Wave 3):8~20px 钳制,默认=创建 term 的 fontSize(13)
+export const FONT_MIN = 8, FONT_MAX = 20
+export const clampFont = n => Math.min(FONT_MAX, Math.max(FONT_MIN, n))
 </script>
 
 <script setup>
@@ -57,6 +60,13 @@ function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
 
 // 手机虚拟按键条输入:复用 term.onData 同款数据通路(WS 协议语义不变)
 function sendInput(d) { stream?.send(d); term?.focus() }
+
+// 手机字号热调:term.options.fontSize 热改后立即 fit 重排行;term 未初始化时静默安全
+const termFont = ref(13)
+function adjustFont(delta) {
+  termFont.value = clampFont(termFont.value + delta)
+  if (term) { term.options.fontSize = termFont.value; fit?.fit() }
+}
 
 function ensureTerm() {
   if (term) return
@@ -206,6 +216,10 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
       <div ref="root" class="flex-1 min-h-0 p-sm"></div>
       <!-- 手机档虚拟按键条:无物理键盘时的 exec 刚需(Esc/Tab/方向键/Ctrl+C) -->
       <div v-if="isPhone" data-test="term-keybar" class="flex items-center gap-1 px-sm py-1 border-t border-outline-variant bg-surface-container-low overflow-x-auto shrink-0">
+        <button @pointerdown.prevent @click="adjustFont(-1)"
+          class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono font-semibold active:bg-primary-container/20 transition-colors">A-</button>
+        <button @pointerdown.prevent @click="adjustFont(1)"
+          class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono font-semibold active:bg-primary-container/20 transition-colors">A+</button>
         <button v-for="(bytes, key) in KEY_BYTES" :key="key" @pointerdown.prevent @click="sendInput(bytes)"
           class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono active:bg-primary-container/20 transition-colors">
           {{ key }}

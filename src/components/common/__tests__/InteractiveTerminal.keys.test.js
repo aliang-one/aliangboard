@@ -4,7 +4,7 @@
 import { test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { KEY_BYTES } from '../InteractiveTerminal.vue'
+import { KEY_BYTES, clampFont, FONT_MIN, FONT_MAX } from '../InteractiveTerminal.vue'
 
 test('虚拟按键字节映射:与 VT100/xterm 标准转义一致', () => {
   expect(KEY_BYTES['Esc']).toBe('\x1b')
@@ -36,6 +36,25 @@ test('sendInput 复用既有 term.onData 同款数据通路(stream?.send)+ 终�
 
 test('终审修复(B):按键钮 @pointerdown.prevent 阻止焦点转移(软键盘不收起)', () => {
   expect(src).toContain('@pointerdown.prevent @click="sendInput(bytes)"')
+})
+
+// Task 2(mobile Wave 3):字号热调——钳制纯函数直测 + 模板/接线静态断言
+test('字号钳制:8~20,默认外值收敛到界内', () => {
+  expect(FONT_MIN).toBe(8)
+  expect(FONT_MAX).toBe(20)
+  expect(clampFont(12)).toBe(12)
+  expect(clampFont(4)).toBe(8)
+  expect(clampFont(99)).toBe(20)
+  expect(clampFont(19)).toBe(19)
+})
+
+test('字号钮模板:A-/A+ 在按键条 v-for 之前 + 防焦点转移配方 + 热调接线', () => {
+  expect(src).toContain('@pointerdown.prevent @click="adjustFont(-1)"')
+  expect(src).toContain('@pointerdown.prevent @click="adjustFont(1)"')
+  expect(src.indexOf('adjustFont(-1)')).toBeLessThan(src.indexOf('v-for="(bytes, key) in KEY_BYTES"'))
+  expect(src).toContain('termFont.value = clampFont(termFont.value + delta)')
+  expect(src).toContain('term.options.fontSize = termFont.value')
+  expect(src).toContain('fit?.fit()')
 })
 
 const taskbar = readFileSync(resolve('src/components/terminal/TerminalTaskbar.vue'), 'utf8')
