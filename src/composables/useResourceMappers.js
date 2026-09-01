@@ -57,11 +57,20 @@ export function mapNode(item, metric) {
 
 export function mapPod(item, metric) {
   const statuses = item.status?.containerStatuses || []
-  // request 取自容器 resources.requests（分母），用量取自 metrics.k8s.io（分子）
-  const reqCpu = (item.spec?.containers || []).reduce((s, c) => s + cpuToMilli(c.resources?.requests?.cpu), 0)
-  const reqMem = (item.spec?.containers || []).reduce((s, c) => s + memToKi(c.resources?.requests?.memory), 0)
+  const containers = item.spec?.containers || []
+  // request/limit 取自容器 resources（分母候选），用量取自 metrics.k8s.io（分子）
+  const reqCpu = containers.reduce((s, c) => s + cpuToMilli(c.resources?.requests?.cpu), 0)
+  const reqMem = containers.reduce((s, c) => s + memToKi(c.resources?.requests?.memory), 0)
+  const limCpu = containers.reduce((s, c) => s + cpuToMilli(c.resources?.limits?.cpu), 0)
+  const limMem = containers.reduce((s, c) => s + memToKi(c.resources?.limits?.memory), 0)
   const usedCpu = metric ? metric.cpuMilli : null
   const usedMem = metric ? metric.memKi : null
+  // 用量分母 = 容器上限：全部容器都设了 limits 才用 limits 总和（超限 throttle/OOMKill，是用量条的自然满格），
+  // 否则（limits 未设/部分容器未设=无可信上限）回退 requests 承诺量。
+  // 2026-09-01 修复：此前恒用 requests——req 512Mi / limit 2048Mi 用到 1024Mi 时 200% 封顶满格标红。
+  const hasLimits = containers.length > 0 && containers.every(c => c.resources?.limits)
+  const cpuTotal = hasLimits ? limCpu : reqCpu
+  const memTotal = hasLimits ? limMem : reqMem
   // 与 mock 保持一致格式 "124m/500m" / "182Mi/512Mi"；无用量时返回 null，视图降级展示
   const ratio = (used, total, fmt) => (used != null ? `${fmt(used)}/${fmt(total)}` : null)
   return {
@@ -72,13 +81,13 @@ export function mapPod(item, metric) {
     ip: item.status?.podIP || '',
     restarts: statuses.reduce((sum, s) => sum + (s.restartCount || 0), 0),
     age: ageOf(item.metadata?.creationTimestamp),
-    containers: (item.spec?.containers || []).map(c => c.name),
+    containers: containers.map(c => c.name),
     image: item.spec?.containers?.[0]?.image || '',
     labels: item.metadata?.labels || {},
     annotations: item.metadata?.annotations || {},
-    cpu: ratio(usedCpu, reqCpu, m => Math.round(m) + 'm'),
-    memory: ratio(usedMem, reqMem, k => Math.round(k / 1024) + 'Mi'),
-    usedCpu, usedMem, reqCpu, reqMem,
+    cpu: ratio(usedCpu, cpuTotal, m => Math.round(m) + 'm'),
+    memory: ratio(usedMem, memTotal, k => Math.round(k / 1024) + 'Mi'),
+    usedCpu, usedMem, reqCpu, reqMem, limCpu, limMem,
     // 保留原始对象：详情页需要 ownerReferences（关联 ReplicaSet/版本）、
     // status.conditions（生命周期）、status.containerStatuses（容器状态/重启/启动时间）
     raw: item,

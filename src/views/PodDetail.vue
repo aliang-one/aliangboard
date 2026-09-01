@@ -19,6 +19,7 @@ import EventList from '@/components/common/EventList.vue'
 import { podDebugApi, exportYaml } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { dumpResourceYaml } from '@/composables/useYaml'
+import { podCpuPct, podMemPct } from '@/composables/usePod'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 
 const { t } = useI18n()
@@ -82,26 +83,9 @@ const tabs = computed(() => [
   { key: 'events', label: t('podDetail.tabEvents'), icon: 'event_note' },
 ])
 
-// 资源用量百分比：优先用远端数值字段，缺失时回退解析 "used/total" 字符串（兼容 mock）
-function pctFromRatio(str) {
-  if (!str || str === '0/0') return null
-  const parts = String(str).split('/')
-  if (parts.length !== 2) return null
-  const used = parseFloat(parts[0])
-  const total = parseFloat(parts[1])
-  if (!total) return null
-  return Math.min(100, Math.round((used / total) * 100))
-}
-const cpuPct = computed(() => {
-  const p = pod.value
-  if (p?.usedCpu != null && p?.reqCpu) return Math.min(100, Math.round((p.usedCpu / p.reqCpu) * 100))
-  return pctFromRatio(p?.cpu)
-})
-const memPct = computed(() => {
-  const p = pod.value
-  if (p?.usedMem != null && p?.reqMem) return Math.min(100, Math.round((p.usedMem / p.reqMem) * 100))
-  return pctFromRatio(p?.memory)
-})
+// 资源用量百分比：收编到 usePod 单一事实源（分母=limit 优先、缺省回退 request，与 PodCard 一致）
+const cpuPct = computed(() => podCpuPct(pod.value))
+const memPct = computed(() => podMemPct(pod.value))
 
 // === Pod 操作（Delete / Restart）+ 真实 YAML 视图 ===
 const confirmAction = ref(null)   // null | { mode: 'delete' | 'restart' }
