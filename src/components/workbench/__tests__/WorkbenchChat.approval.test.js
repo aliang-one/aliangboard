@@ -31,6 +31,7 @@ vi.mock('@/components/common/Modal.vue', () => ({
   },
 }))
 
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 import WorkbenchChat from '../WorkbenchChat.vue'
 
 const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh, en } })
@@ -88,4 +89,23 @@ test('ssh 审批参数缺省:server 缺省目标行显示 —,sudo 缺省不渲�
   expect(text).toContain('uptime')
   expect(text).toContain('—')
   expect(text).not.toContain(zh.workbench.chat.sudoLabel)
+})
+
+test('手机档:审批按钮全宽大目标(拒绝/批准各 flex-1 ≥44px)', async () => {
+  mockViewport(true)
+  const w = await mountPausedApproval({
+    toolCallId: 't-mobile', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', container: 'app', command: 'uptime' },
+  })
+  const deny = w.find('[data-testid="approval-deny"]')
+  const approve = w.find('[data-testid="approval-approve"]')
+  expect(deny.exists()).toBe(true)
+  expect(approve.exists()).toBe(true)
+  expect(approve.classes()).toContain('max-sm:min-h-[44px]')
+  expect(approve.classes()).toContain('max-sm:flex-1')
+  expect(approve.classes()).toContain('max-sm:text-body-md')
+  expect(deny.classes()).toContain('max-sm:min-h-[44px]')
+  expect(deny.classes()).toContain('max-sm:flex-1')
+  expect(deny.classes()).toContain('max-sm:text-body-md')
+  w.unmount()
 })
