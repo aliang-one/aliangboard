@@ -101,7 +101,10 @@ test('C4: Service 卡显示端点就绪数,ready=0 标红', async () => {
   state.endpoints = [{ name: 'demo-svc', namespace: 'default', addresses: [], notReadyAddresses: [] }]
   const w2 = mountDetail(); await flushPromises(); await gotoTopology(w2)
   expect(w2.text()).toContain('端点 0/0')
-  expect(w2.html()).toContain('text-error')
+  // 元素级断言(终审 minor:全文 html 子串匹配会被他处 text-error 误绿)
+  const epRow = w2.findAll('p').find(x => x.text().includes('端点 0/0'))
+  expect(epRow, '端点行应渲染').toBeTruthy()
+  expect(epRow.classes()).toContain('text-error')
 })
 
 test('C7: 实际 Pod 也不匹配 → 红「已断」;现有 Pod 仍匹配 → 黄「滚动后将断」', async () => {
