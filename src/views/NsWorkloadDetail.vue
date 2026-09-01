@@ -42,6 +42,8 @@ import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
 import { backfillVolumes } from '@/logic/volumeBackfill'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { Z } from '@/styles/zScale'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,6 +52,7 @@ const store = useClusterStore()
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const { applyYaml } = useResourceApply()
+const { isPhone } = useIsPhone()
 store.setNamespace(route.params.namespace)
 
 // 关联资源走 Vue Query。Events 留本页(不在拓扑域);services/ingresses/pdbs/netpols
@@ -1239,16 +1242,16 @@ function podStatusBorder(s) {
           </div>
         </div>
       </div>
-      <div class="flex gap-xs shrink-0">
-        <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
+      <div class="flex gap-xs shrink-0 max-sm:flex-wrap">
+        <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
           <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">{{ $t('workload.refresh') }}</span>
         </button>
-        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
-        <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
-        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
-        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
-        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
-        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
+        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
+        <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
+        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
+        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
+        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
+        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
       </div>
     </div>
 
@@ -2278,4 +2281,16 @@ function podStatusBorder(s) {
       <button @click="confirmApplyYaml" :disabled="!diffStat.add && !diffStat.del" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ $t('workload.diff.apply') }}</button>
     </template>
   </Modal>
+
+  <!-- 手机底部止血条(Wave 3 Task 3):伸缩/重启一键可达;复用 openScale/handleRestart,确认流/权限零改动 -->
+  <div v-if="isPhone && workload" data-testid="workload-action-bar"
+    class="sticky bottom-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
+    :style="{ zIndex: Z.drawer - 1, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }">
+    <button v-if="isScalable" @click="openScale" :disabled="!canMutate" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm bg-primary text-on-primary rounded-lg font-semibold active:scale-95 transition-all disabled:opacity-40">
+      <span class="material-symbols-outlined text-base">open_in_full</span>{{ $t('workload.scale') }}
+    </button>
+    <button @click="handleRestart" :disabled="!canMutate" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm border border-outline-variant text-on-surface rounded-lg active:scale-95 transition-all disabled:opacity-40">
+      <span class="material-symbols-outlined text-base">restart_alt</span>{{ $t('workload.restart') }}
+    </button>
+  </div>
 </template>
