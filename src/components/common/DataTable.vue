@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onBeforeUnmount } from 'vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useDropdownPanel } from '@/composables/useDropdownPanel'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 
 const props = defineProps({
@@ -23,6 +24,10 @@ const { setWidth } = useTableColumns()
 // 列管理弹层
 const mgrOpen = ref(false)
 function toggleMgr() { mgrOpen.value = !mgrOpen.value }
+// 弹层 Teleport body + fixed 锚定 ☰ 按钮(2026-09-01):表格根 overflow-hidden +
+// overflow-x-auto(overflow-y 计算为 auto)会把就地 absolute 弹层裁进滚动容器
+const colMgrBtnRef = ref(null)
+const { panelRef: mgrPanelRef, panelStyle: mgrPanelStyle } = useDropdownPanel(colMgrBtnRef, mgrOpen, { align: 'right' })
 
 // 列宽拖拽
 let resizing = null // { key, startX, startW }
@@ -118,16 +123,26 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
             <th v-if="columnKey" class="px-sm py-md w-10 text-right">
               <div class="relative inline-block">
                 <button
+                  ref="colMgrBtnRef"
                   data-col-manager
                   @click="toggleMgr"
                   class="material-symbols-outlined text-base text-on-surface-variant hover:text-primary p-xs rounded"
                   :title="$t('settings.columnManager')"
                 >view_column</button>
-                <div v-if="mgrOpen" class="absolute right-0 top-full mt-xs z-50 w-64 p-md bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card">
+              </div>
+              <!-- 弹层 Teleport body + fixed(见脚本注释),脱离表格 overflow 裁切链 -->
+              <Teleport to="body">
+                <div
+                  v-if="mgrOpen"
+                  ref="mgrPanelRef"
+                  data-testid="col-manager-panel"
+                  :style="mgrPanelStyle"
+                  class="w-64 p-md bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card"
+                >
                   <button @click="toggleMgr" class="absolute top-xs right-xs material-symbols-outlined text-base text-on-surface-variant hover:text-primary">close</button>
                   <ColumnManager :table-key="columnKey" />
                 </div>
-              </div>
+              </Teleport>
             </th>
           </tr>
         </thead>
