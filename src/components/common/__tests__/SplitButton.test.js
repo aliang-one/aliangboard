@@ -1,18 +1,9 @@
 import { test, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SplitButton from '@/components/common/SplitButton.vue'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
-// mockBelowSm 模式同 SideNavBar.drawer.test.js
-let matchMediaSpy
-const mqListeners = new Map()
-function mockBelowSm(below) {
-  matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
-    matches: q === '(max-width: 639.98px)' ? below : false,
-    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
-    removeEventListener: () => { mqListeners.delete(q) },
-  }))
-}
-afterEach(() => { matchMediaSpy?.mockRestore() })
+afterEach(() => { vi.restoreAllMocks() })
 
 function mountSplit() {
   const mainAction = vi.fn()
@@ -40,7 +31,7 @@ test('SplitButton: 主按钮触发 mainAction,箭头展开菜单并显示菜单�
 })
 
 test('手机档:主动作/展开钮/菜单项触控目标 ≥40px', async () => {
-  mockBelowSm(true)
+  mockViewport(true)
   const { wrapper } = mountSplit()
   const buttons = wrapper.findAll('button')
   // 主按钮 + 展开箭头钮
