@@ -2268,6 +2268,8 @@
       "replicasCount": "{replicas} replicas · {age}",
       "pods": "Pods",
       "noPods": "No running instances",
+      "rsUngrouped": "ungrouped pods",
+      "labelConsumers": "label consumers",
       "flowPath": "Traffic path: ",
       "flowPathDesc": "External request → Ingress (domain/path) → Service (via selector) → {type} replica Pods.",
       "noServiceHint": "No related Service — external traffic cannot reach. Click + on the Deployment card to create one from exposed ports.",

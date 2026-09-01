@@ -120,3 +120,43 @@ test('C7: 失配卡 title 说明启发式判据(D3)', async () => {
   expect(repairBtn).toBeTruthy()
   expect(repairBtn.attributes('title')).toContain('selector 值包含本负载名')
 })
+
+const mkRs = (name, ready, desired, ts, pods = []) => ({ name, namespace: 'default', ready, desired, raw: { metadata: { name, namespace: 'default', creationTimestamp: ts, ownerReferences: [{ kind: 'Deployment', name: 'demo-deploy', controller: true }], labels: { 'pod-template-hash': name } } } })
+
+test('C1: RS chips 渲染 ready/desired,淘汰 RS 置灰,Pods 列按 RS 分组', async () => {
+  state.replicasets = [mkRs('demo-9f8', 2, 2, '2026-02-01T00:00:00Z'), mkRs('demo-old', 0, 0, '2026-01-01T00:00:00Z')]
+  state.pods = [
+    { ...mkPod('demo-9f8-a', { app: 'demo-deploy' }), raw: { metadata: { name: 'demo-9f8-a', namespace: 'default', ownerReferences: [{ kind: 'ReplicaSet', name: 'demo-9f8', controller: true }] } } },
+    { ...mkPod('demo-old-a', { app: 'demo-deploy' }), raw: { metadata: { name: 'demo-old-a', namespace: 'default', ownerReferences: [{ kind: 'ReplicaSet', name: 'demo-old', controller: true }] } } },
+  ]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const text = w.text()
+  expect(text).toContain('demo-9f8')
+  expect(text).toContain('demo-old')
+  // Pods 列按 RS 分组:组头含 RS 名;淘汰组容器带 opacity 降透明类
+  expect(w.html()).toContain('opacity-60')
+})
+
+test('C2: HPA chip 与 标签消费者(PDB/NetPol)chips 渲染', async () => {
+  state.hpas = [{ name: 'demo-hpa', namespace: 'default', targetName: 'demo-deploy', targetKind: 'Deployment', minReplicas: 1, maxReplicas: 5, cpuTarget: 80 }]
+  state.pdbs = [{ name: 'demo-pdb', namespace: 'default', selector: { app: 'demo-deploy' }, raw: { status: { disruptionsAllowed: 0 } } }]
+  state.netpols = [{ name: 'demo-np', namespace: 'default', podSelector: { app: 'demo-deploy' } }]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const text = w.text()
+  expect(text).toContain('demo-hpa')
+  expect(text).toContain('demo-pdb')
+  expect(text).toContain('demo-np')
+  expect(text).toContain('标签消费者')
+})
+
+test('C3: 规则卡 hover → 匹配 Service 卡高亮(ring)', async () => {
+  state.ingresses = [{ name: 'ing1', namespace: 'default', rules: [{ host: 'a.com', http: { paths: [{ path: '/', pathType: 'Prefix', backend: { service: { name: 'demo-svc', port: { number: 80 } } } }] } }], defaultBackend: null }]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const ruleCard = w.findAll('button').find(b => b.text().includes('a.com'))
+  const svcCardBefore = w.findAll('button').find(b => b.text().includes('demo-svc') && b.text().includes('ClusterIP'))
+  expect(svcCardBefore.classes().join(' ')).not.toContain('ring-2')
+  await ruleCard.trigger('mouseenter')
+  expect(svcCardBefore.classes().join(' ')).toContain('ring-2')
+  await ruleCard.trigger('mouseleave')
+  expect(svcCardBefore.classes().join(' ')).not.toContain('ring-2')
+})
