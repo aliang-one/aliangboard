@@ -7,6 +7,7 @@ import { nextTick } from 'vue'
 import Modal from '@/components/common/Modal.vue'
 import { Z } from '@/styles/zScale'
 import { i18n } from '@/i18n'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 // Modal teleport 到 body;断言失败提前抛出会跳过 wrapper.unmount,统一在此清场
 afterEach(() => { document.body.innerHTML = '' })
@@ -195,6 +196,21 @@ test('Modal: 手机档(<640)自动全屏,width prop 被忽略,动作条带安全
   // happy-dom 的 CSSStyleDeclaration 不解析 env()(style prop/attr 均被静默丢弃),
   // 改验手机全屏态专属 data-safe-area 标记;内联 style 值见 Modal.vue 动作条绑定。
   expect(actions.hasAttribute('data-safe-area')).toBe(true)
+  spy.mockRestore()
+  wrapper.unmount()
+  document.body.innerHTML = ''
+})
+
+// 2026-09-01 手机适配 Wave 2 Task 6:无 actions 槽的全屏 Modal(ToolCallModal/ChatModal 等)
+// 内容底缘不再贴死——max-layout 内容区手机档带底部安全区 padding。
+// env() 值 happy-dom 测不了,按 1a 先例断言 max-sm: 前缀类名在场。
+test('Modal: 手机档全屏 Modal 无 actions 时内容区带底部安全区 padding', async () => {
+  const spy = mockViewport(true)
+  const wrapper = mount(Modal, { props: { modelValue: true, title: 't' }, global: { plugins: [i18n] } })
+  await nextTick()
+  const content = document.querySelector('body .flex-1')
+  expect(content).toBeTruthy()
+  expect(content.className).toContain('max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+16px)]')
   spy.mockRestore()
   wrapper.unmount()
   document.body.innerHTML = ''

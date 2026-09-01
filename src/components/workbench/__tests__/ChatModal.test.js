@@ -62,3 +62,11 @@ test('Modal 桩 emit update:modelValue=false → 对外 emitted 收到 false', (
   w.findComponent({ name: 'Modal' }).vm.$emit('update:modelValue', false)
   expect(w.emitted('update:modelValue')).toEqual([[false]])
 })
+
+// 2026-09-01 手机适配 Wave 2 Task 6:ChatModal 内层 72vh 硬编码在全屏 Modal 里手机档会下方留空,
+// 加 max-sm:h-full 手机档满高。断言语义=手机档满高类在场(env/几何 happy-dom 测不了)。
+test('手机档:ChatModal 内层满高(max-sm:h-full 与 h-[72vh] 并存)', () => {
+  const w = mountModal()
+  expect(w.html()).toContain('h-[72vh] max-sm:h-full')
+  w.unmount()
+})
