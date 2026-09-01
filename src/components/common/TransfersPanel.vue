@@ -31,10 +31,10 @@ const kindIcon = k => (k === 'download' ? 'download' : 'upload')
             <span class="material-symbols-outlined text-base shrink-0" :class="task.status === 'error' ? 'text-error' : task.status === 'done' ? 'text-primary' : 'text-on-surface-variant'">{{ kindIcon(task.kind) }}</span>
             <span class="font-mono text-xs truncate flex-1" :title="`${task.namespace}/${task.pod}/${task.container}${task.path}`">{{ task.name }}</span>
             <span class="text-[10px] px-1 rounded shrink-0" :class="task.status === 'error' ? 'bg-error/10 text-error' : task.status === 'done' ? 'bg-primary/10 text-primary' : 'bg-surface-container text-on-surface-variant'">{{ statusLabel(task.status) }}</span>
-            <button v-if="task.status === 'active'" @click="tr.cancel(task.id)" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('transfers.cancelTitle')">
+            <button v-if="task.status === 'active'" @click="tr.cancel(task.id)" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('transfers.cancelTitle')">
               <span class="material-symbols-outlined text-base">close</span>
             </button>
-            <button v-else @click="tr.remove(task.id)" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('transfers.removeTitle')">
+            <button v-else @click="tr.remove(task.id)" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('transfers.removeTitle')">
               <span class="material-symbols-outlined text-base">delete</span>
             </button>
           </div>

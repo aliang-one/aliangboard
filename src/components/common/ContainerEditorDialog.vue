@@ -179,7 +179,7 @@ function onConfirm() {
       <section data-testid="ced-env-section">
         <div class="flex items-center justify-between">
           <h4 class="text-body-sm font-semibold text-on-surface-variant">{{ t('deploy.ced.sectionEnv') }}</h4>
-          <button type="button" data-testid="ced-env-toggle" @click="openSect.env = !openSect.env" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+          <button type="button" data-testid="ced-env-toggle" @click="openSect.env = !openSect.env" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ openSect.env ? 'expand_less' : 'expand_more' }}</span>
           </button>
         </div>
@@ -216,7 +216,7 @@ function onConfirm() {
       <section data-testid="ced-ports-section">
         <div class="flex items-center justify-between">
           <h4 class="text-body-sm font-semibold text-on-surface-variant">{{ t('deploy.ced.sectionPorts') }}</h4>
-          <button type="button" data-testid="ced-ports-toggle" @click="openSect.ports = !openSect.ports" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+          <button type="button" data-testid="ced-ports-toggle" @click="openSect.ports = !openSect.ports" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ openSect.ports ? 'expand_less' : 'expand_more' }}</span>
           </button>
         </div>
@@ -236,7 +236,7 @@ function onConfirm() {
       <section data-testid="ced-probes-section">
         <div class="flex items-center justify-between">
           <h4 class="text-body-sm font-semibold text-on-surface-variant">{{ t('deploy.ced.sectionProbes') }}</h4>
-          <button type="button" data-testid="ced-probes-toggle" @click="openSect.probes = !openSect.probes" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+          <button type="button" data-testid="ced-probes-toggle" @click="openSect.probes = !openSect.probes" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ openSect.probes ? 'expand_less' : 'expand_more' }}</span>
           </button>
         </div>
@@ -281,7 +281,7 @@ function onConfirm() {
       <section data-testid="ced-lifecycle-section">
         <div class="flex items-center justify-between">
           <h4 class="text-body-sm font-semibold text-on-surface-variant">{{ t('deploy.ced.sectionLifecycle') }}</h4>
-          <button type="button" data-testid="ced-lifecycle-toggle" @click="openSect.lifecycle = !openSect.lifecycle" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+          <button type="button" data-testid="ced-lifecycle-toggle" @click="openSect.lifecycle = !openSect.lifecycle" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ openSect.lifecycle ? 'expand_less' : 'expand_more' }}</span>
           </button>
         </div>
@@ -297,7 +297,7 @@ function onConfirm() {
       <section data-testid="ced-security-section">
         <div class="flex items-center justify-between">
           <h4 class="text-body-sm font-semibold text-on-surface-variant">{{ t('deploy.ced.sectionSecurity') }}</h4>
-          <button type="button" data-testid="ced-security-toggle" @click="openSect.security = !openSect.security" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+          <button type="button" data-testid="ced-security-toggle" @click="openSect.security = !openSect.security" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ openSect.security ? 'expand_less' : 'expand_more' }}</span>
           </button>
         </div>

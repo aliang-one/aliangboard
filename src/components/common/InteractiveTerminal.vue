@@ -70,8 +70,9 @@ function adjustFont(delta) {
 
 function ensureTerm() {
   if (term) return
+  termFont.value = 13  // 重连重建时复位(终审 E):热调值不跨会话残留
   term = new Terminal({
-    cursorBlink: true, fontSize: 13,
+    cursorBlink: true, fontSize: termFont.value,
     fontFamily: '"JetBrains Mono","JetBrains Mono NF",monospace',
     theme: { background: codeTheme.surface, foreground: codeTheme.onSurface, cursor: codeTheme.onSurface, selectionBackground: codeTheme.selection },
   })

@@ -203,7 +203,7 @@ async function handleCreate() {
           @delete="confirmDelete"
         >
           <template #actions>
-            <button @click.stop="exportPod(p)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('ns.pods.exportYaml')">
+            <button @click.stop="exportPod(p)" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('ns.pods.exportYaml')">
               <span class="material-symbols-outlined text-sm">download</span>
             </button>
           </template>

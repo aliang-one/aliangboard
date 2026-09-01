@@ -97,7 +97,7 @@ const { panelRef, panelStyle } = useDropdownPanel(chipWrapRef, panelOpen, { matc
           class="inline-flex items-center gap-0.5 bg-primary-container text-on-primary-container text-xs font-medium pl-2 pr-1 py-0.5 rounded-md"
         >
           {{ tag }}
-          <button type="button" @click="remove(tag)" class="hover:text-error rounded p-0.5 max-sm:p-2 max-sm:-m-2" :title="t('component.tagInput.removeTag', { tag })">
+          <button type="button" @click="remove(tag)" class="hover:text-error rounded p-0.5 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.tagInput.removeTag', { tag })">
             <span class="material-symbols-outlined text-sm leading-none">close</span>
           </button>
         </span>

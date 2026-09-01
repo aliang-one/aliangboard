@@ -119,7 +119,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
       <span class="material-symbols-outlined text-primary text-base">{{ typeIcon }}</span>
       <span v-if="cardLevel !== 'ok'" data-testid="status-dot" class="h-2 w-2 rounded-full shrink-0" :class="dotCls[cardLevel]" />
       <span class="font-mono text-xs text-on-surface-variant truncate" :class="issuesFor('name').some(i => i.level === 'error') ? 'text-error' : ''">{{ entry.name }}</span>
-      <button @click="emit('remove')" class="ml-auto p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
+      <button @click="emit('remove')" class="ml-auto p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
     </div>
     <div v-if="issuesFor('name').length" class="flex flex-col">
       <p v-for="(i, ii) in issuesFor('name')" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
@@ -215,7 +215,7 @@ const fld = 'w-full bg-surface-container-lowest border border-outline-variant ro
           </select>
           <span class="material-symbols-outlined text-sm text-on-surface-variant">arrow_forward</span>
           <input v-model="it.path" :class="[fld, issueCls('itemsPath:' + idx)]" :aria-invalid="ariaInvalid('itemsPath:' + idx)" :placeholder="t('component.volumeMount.fileNamePlaceholder')" />
-          <button @click="entry.items.splice(idx, 1)" class="p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors max-sm:p-2 max-sm:-m-2"><span class="material-symbols-outlined text-base">close</span></button>
+          <button @click="entry.items.splice(idx, 1)" class="p-0.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
         </div>
         <p v-for="(i, ii) in rowIssues(idx)" :key="ii" class="text-[10px] mt-0.5" :class="issueTextCls[i.level]">{{ issueMsg(i) }}</p>
       </div>

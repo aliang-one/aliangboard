@@ -100,7 +100,7 @@ watch(() => transferStore.tasks, (ts) => {
   <div class="flex flex-col h-full min-h-0">
     <!-- 工具条 -->
     <div class="flex items-center gap-xs pb-sm border-b border-outline-variant/40 shrink-0">
-      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container" :title="t('common.sync')" @click="refresh">
+      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.sync')" @click="refresh">
         <span class="material-symbols-outlined text-base" :class="files.inflight.value.size ? 'animate-spin' : ''">refresh</span>
       </button>
       <span class="font-mono text-xs text-on-surface-variant truncate flex-1">{{ selected || '/' }}</span>

@@ -57,7 +57,7 @@ function download() {
       <span class="font-mono text-xs truncate flex-1" :title="path">{{ file?.name || path }}</span>
       <span v-if="file?.binary" class="text-[10px] px-1 rounded bg-surface-container text-on-surface-variant shrink-0">{{ t('component.fileBrowser.binary') }}</span>
       <span v-else-if="file?.truncated" class="text-[10px] px-1 rounded bg-tertiary-container/20 text-tertiary-container shrink-0">{{ t('component.fileBrowser.truncated') }}</span>
-      <button class="p-1 rounded-md text-on-surface-variant hover:text-primary hover:bg-primary/10 shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('component.fileBrowser.download')" @click="download"><span class="material-symbols-outlined text-base">download</span></button>
+      <button class="p-1 rounded-md text-on-surface-variant hover:text-primary hover:bg-primary/10 shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.download')" @click="download"><span class="material-symbols-outlined text-base">download</span></button>
       <template v-if="editable && !editing">
         <button class="fb-edit flex items-center gap-0.5 px-sm py-1 rounded-md bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0" @click="startEdit"><span class="material-symbols-outlined text-sm">edit</span>{{ t('common.edit') }}</button>
       </template>

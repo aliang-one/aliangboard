@@ -88,3 +88,25 @@ test('桌面档:无底部止血条(零回归)', async () => {
     document.body.innerHTML = ''
   } finally { spy.mockRestore() }
 })
+
+test('手机档:止血条重启经确认弹窗(终审 B)——点开弹窗→确认才执行', async () => {
+  const spy = mockViewport(true)
+  try {
+    const w = await mountDetail()
+    const bar = w.find('[data-testid="workload-action-bar"]')
+    const restartBtn = bar.findAll('button').find(b => b.text().includes(i18n.global.t('workload.restart')))
+    await restartBtn.trigger('click')
+    const modals = w.findAllComponents({ name: 'Modal' })
+    const open = modals.filter(m => m.props('modelValue') === true)
+    expect(open.length).toBe(1)
+    expect(open[0].props('title')).toBe(i18n.global.t('workload.modals.restartTitle'))
+    expect(document.body.textContent).toContain(i18n.global.t('workload.modals.restartConfirm', { name: 'demo-deploy' }))
+    // 确认钮在 Teleport body 内:点击后弹窗关闭
+    const confirmBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent.trim() === i18n.global.t('workload.restart'))
+    await confirmBtn.click()
+    await flushPromises()
+    expect(document.body.textContent).not.toContain(i18n.global.t('workload.modals.restartConfirm', { name: 'demo-deploy' }))
+    w.unmount()
+    document.body.innerHTML = ''
+  } finally { spy.mockRestore() }
+})
