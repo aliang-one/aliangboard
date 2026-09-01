@@ -2286,6 +2286,8 @@
       "driftPending": "Will break on rollout: current pods match, new pods will not",
       "driftHeuristic": "Heuristic: a selector value equals this workload name",
       "governing": "governing",
+      "addIngressFor": "Add Ingress for this Service",
+      "addExpose": "Expose as Service",
       "noSelectorHint": "Services without a selector (ExternalName / self-managed Endpoints) are not listed",
       "schedule": "schedule",
       "suspended": "suspended",

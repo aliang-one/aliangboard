@@ -100,10 +100,10 @@ beforeEach(() => {
 test('saveExpose 下发身份 selector——不再快照全量模板 labels(根因回归锁)', async () => {
   const w = mountDetail(); await flushPromises()
   await gotoTopology(w)
-  // 拓扑条上两个「+」:Ingress 映射(Service 卡)在前,暴露(Deployment 卡)在后
-  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
-  expect(plusButtons.length).toBe(2)
-  await plusButtons.at(-1).trigger('click'); await flushPromises()
+  // 节点化后加号落卡:workload 节点右上「暴露为 Service」hover-+(原 -left-3 边框钮已移除)
+  const addBtns = w.findAll('.topo-wl-add')
+  expect(addBtns.length).toBe(1)
+  await addBtns[0].trigger('click'); await flushPromises()
   await clickBody('创建')
   expect(captured.svcAdds).toHaveLength(1)
   // 只锚身份标签 app;team / aliangboard.io/version 等会被元数据编辑器镜像改写的键不得进 selector

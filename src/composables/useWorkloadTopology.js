@@ -163,8 +163,9 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
     const svc = serviceList.value.find(s => s.name === ingressMapForm.value.serviceName)
     return (svc?.portList || []).map(p => p.port)
   })
-  function openIngressMap() {
-    const svc = relatedServices.value[0]
+  function openIngressMap(serviceName) {
+    const svc = (serviceName ? relatedServices.value.find(s => s.name === serviceName) : relatedServices.value[0])
+      || relatedServices.value[0]
     const base = workload.value?.name || 'app'
     const existing = new Set(ingressList.value.map(i => i.name))
     let name = `${base}-ingress`, n = 2

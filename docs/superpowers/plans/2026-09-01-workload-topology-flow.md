@@ -374,7 +374,6 @@ const mountNode = (Comp, data, extra) => mount(Comp, {
   },
 })
 
-```js
 test('RuleNode:content+Handle+点击跳转', async () => {
   const goto = vi.fn()
   const w = mountNode(TopologyRuleNode, { ingress: 'a-ing', host: 'a.com', path: '/', serviceName: 'svc-a', port: 80, goto })
@@ -739,8 +738,8 @@ const nodes = computed(() => graph.value.nodes.map(n => {
 const edges = computed(() => attachEdgeStates(graph.value.edges, hoveredSvc.value))
 
 const nodeTypes = markRaw({
-  rule: TopologyRuleNode, service: TopologyServiceNode, workload: TopologyWorkloadNode, pods: TopologyPodsNode, consumers: TopologyConsumersNode,
-})
+  rule: TopologyRuleNode, service: TopologyServiceNode, drift: TopologyServiceNode, workload: TopologyWorkloadNode, pods: TopologyPodsNode, consumers: TopologyConsumersNode,
+}) // drift 与 service 共用组件(logic 层 drift 独立 type 键,评审裁量)
 
 // 节点实测尺寸一次校正(估算行高兜底):onNodesInitialized 触发后按实测高重排 y。
 const { onNodesInitialized, updateNode } = useVueFlow()
