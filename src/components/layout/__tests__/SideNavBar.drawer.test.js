@@ -55,6 +55,15 @@ function mockViewport(belowSm, belowLg) {
 beforeEach(() => { setActivePinia(createPinia()) })
 afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = '' })
 afterEach(() => { vi.restoreAllMocks() })
+// 泄漏收口:前面用例会改 route 字段/播种 namespaceList/pushMock 调用记录,逐用例还原
+afterEach(() => {
+  routeRef.fullPath = '/cluster'
+  routeRef.path = '/cluster'
+  routeRef.params = {}
+  routeRef.meta.scope = 'global'
+  storeMock.namespaceList.splice(0, storeMock.namespaceList.length)
+  pushMock.mockClear()
+})
 
 function mountNav() {
   return mount(SideNavBar, { global: { plugins: [i18n] } })

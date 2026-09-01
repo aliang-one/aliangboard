@@ -19,7 +19,7 @@ const open = ref(false)
 const triggerRef = ref(null)
 const { panelRef, panelStyle } = useDropdownPanel(triggerRef, open, { align: 'right' })
 const { isPhone } = useIsPhone()
-const phonePanelStyle = computed(() => ({ position: 'fixed', left: '0px', right: '0px', bottom: '0px', zIndex: String(Z.popover) }))
+const phonePanelStyle = computed(() => ({ position: 'fixed', left: '0px', right: '0px', bottom: '0px', maxHeight: '70vh', zIndex: String(Z.popover) }))
 
 function toggle(e) {
   e.stopPropagation()
@@ -64,7 +64,7 @@ onBeforeUnmount(close)
         data-testid="dropdown-menu-panel"
         :style="isPhone ? phonePanelStyle : panelStyle"
         :class="isPhone
-          ? 'w-full rounded-t-2xl rounded-b-none py-sm shadow-dropdown'
+          ? 'w-full rounded-t-2xl rounded-b-none py-sm shadow-dropdown overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+8px)]'
           : 'min-w-[160px] rounded-lg py-xs'"
         class="bg-surface-container-lowest border border-outline-variant overflow-hidden"
         @click.stop

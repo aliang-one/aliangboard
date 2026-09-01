@@ -206,9 +206,10 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
               <span class="block truncate font-semibold text-body-md">{{ row[titleKey] }}</span>
             </slot>
           </div>
-          <input v-if="selectable" type="checkbox" data-card-select :checked="isSelected(row)"
-            @click.stop="toggleRow(row)"
-            class="shrink-0 mt-0.5 accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
+          <span v-if="selectable" data-card-select-hit class="shrink-0 -m-1 p-2 inline-flex items-center justify-center" @click.stop>
+            <input type="checkbox" data-card-select :checked="isSelected(row)" @click.stop="toggleRow(row)"
+              class="w-5 h-5 accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
+          </span>
           <button v-if="expandable" data-card-expand @click.stop="toggleExpand(row)"
             class="shrink-0 p-xs text-on-surface-variant hover:text-primary rounded">
             <span class="material-symbols-outlined text-base">{{ isExpanded(row) ? 'expand_more' : 'chevron_right' }}</span>
@@ -217,7 +218,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
         <div class="mt-sm grid gap-xs">
           <div v-for="header in kvHeaders" :key="header.key" data-kv-row class="flex items-baseline gap-sm min-w-0">
             <span data-kv-label class="text-label-caps text-on-surface-variant shrink-0 w-20">{{ header.label }}</span>
-            <span class="min-w-0 text-body-sm"><slot :name="header.key" :row="row" :value="row[header.key]">{{ row[header.key] }}</slot></span>
+            <span class="min-w-0 overflow-hidden text-body-sm"><slot :name="header.key" :row="row" :value="row[header.key]">{{ row[header.key] }}</slot></span>
           </div>
         </div>
         <div v-if="expandable && isExpanded(row)" class="mt-sm pt-sm border-t border-outline-variant/30">

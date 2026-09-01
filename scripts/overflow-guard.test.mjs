@@ -124,14 +124,14 @@ test('V3: .vue 禁止 z-[N] 任意值魔数(层级一律 zScale 取值)', () => 
 
 // ── V4:hover 动作常显守卫(2026-09-01 手机适配 Wave 1b,spec §4)──
 // 触屏无 hover:`opacity-0` + `group-hover:opacity-100` 的动作在手机上永不可见。
-// 规则:同元素 class 同时含两者时,必须配对 `max-sm:opacity-100`(手机档常显)。
+// 规则:同元素 class 同时含两者时,必须配对 `max-sm:opacity-100`(手机档常显);含命名 group 变体(group-hover/turn: 等)。
 test('V4: hover 显隐动作必须配 max-sm:opacity-100(手机常显)', () => {
   const offenders = []
   for (const f of walk(SRC)) {
     const src = readFileSync(f, 'utf8')
     for (const m of src.matchAll(/class="([^"]*)"/g)) {
       const cls = m[1]
-      if (cls.includes('opacity-0') && cls.includes('group-hover:opacity-100') && !cls.includes('max-sm:opacity-100')) {
+      if (cls.includes('opacity-0') && /group-hover(?:\/[\w-]+)?:opacity-100/.test(cls) && !cls.includes('max-sm:opacity-100')) {
         offenders.push(`${f}: ${cls.slice(0, 80)}`)
       }
     }
