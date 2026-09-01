@@ -169,7 +169,7 @@ function closeAll() {
           :title="t('terminal.orphanChipTitle', { serverId: chip.name, user: chip.user })">
           <span class="material-symbols-outlined text-sm">link_off</span>
           <span v-if="!iconMode" class="truncate font-mono">{{ chip.name }}</span>
-          <span @click.stop="killOrphan(chip)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-error/60 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100" :title="t('terminal.closeThisTitle')">
+          <span @click.stop="killOrphan(chip)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-error/60 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
@@ -180,7 +180,7 @@ function closeAll() {
           :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : chip.status === 'external' ? t('terminal.statusExternal') : t('terminal.statusMinimized')}）`">
           <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'terminal' : chip.status === 'external' ? 'open_in_new' : 'hide_source' }}</span>
           <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
-          <span @click.stop="termStore.closeTerminal(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100" :title="t('terminal.closeThisTitle')">
+          <span @click.stop="termStore.closeTerminal(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
@@ -191,7 +191,7 @@ function closeAll() {
           :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized')}）`">
           <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'folder_open' : 'hide_source' }}</span>
           <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
-          <span @click.stop="fbStore.closeBrowser(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100" :title="t('terminal.closeThisTitle')">
+          <span @click.stop="fbStore.closeBrowser(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
@@ -204,7 +204,7 @@ function closeAll() {
           <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
           <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
           <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>
-          <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100" :title="t('terminal.closeThisTitle')">
+          <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
