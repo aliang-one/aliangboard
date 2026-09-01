@@ -31,7 +31,7 @@ test('filterOwnIngressRules: 只保留指向本负载 Service 的路径,他人�
   }]
   const r = filterOwnIngressRules(ings, Svc('web'))
   assert.deepEqual(r.ownRules, [{ ingress: 'shared', host: 'a.com', path: '/api', serviceName: 'web', port: 8080 }])
-  assert.deepEqual(r.others, [{ name: 'shared', count: 1 }])
+  assert.deepEqual(r.others, [{ name: 'shared', count: 1, services: ['other'] }])
 })
 test('filterOwnIngressRules: defaultBackend 命中折算 host:* 一条;命名端口透传', () => {
   const ings = [{ name: 'ing', defaultBackend: { serviceName: 'web', servicePort: '8080' }, rules: [] }]
@@ -47,7 +47,7 @@ test('filterOwnIngressRules: 全不命中 → ownRules 空 + others 计数完整
   const ings = [ingA, ingB]
   const r = filterOwnIngressRules(ings, Svc('web'))
   assert.deepEqual(r.ownRules, [])
-  assert.deepEqual(r.others, [{ name: 'a', count: 2 }, { name: 'b', count: 1 }])
+  assert.deepEqual(r.others, [{ name: 'a', count: 2, services: ['x', 'y'] }, { name: 'b', count: 1, services: ['x'] }])
 })
 test('filterOwnIngressRules: 空/缺段安全', () => {
   assert.deepEqual(filterOwnIngressRules(undefined, Svc('web')), { ownRules: [], others: [] })

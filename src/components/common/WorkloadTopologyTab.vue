@@ -69,7 +69,7 @@ const svcTotal = computed(() => props.topo.relatedServices.value.length + props.
               @click="router.push({ name: 'NsIngressDetail', params: { namespace: workload.namespace, name: o.name } })"
               class="text-left text-[11px] text-on-surface-variant/70 hover:text-primary rounded-lg px-sm py-1 border border-dashed border-outline-variant/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               <span class="material-symbols-outlined text-xs align-middle">alt_route</span>
-              {{ o.name }} · {{ $t('workload.topology.otherRoutes', { count: o.count }) }}
+              {{ o.name }} · {{ $t('workload.topology.otherRoutes', { count: o.count }) }}<span v-if="o.services?.length"> · {{ o.services.join(', ') }}</span>
             </button>
             <div v-if="!topo.ingressBreakdown.value.ownRules.length && !topo.ingressBreakdown.value.others.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
               <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noIngress') }}
@@ -111,13 +111,17 @@ const svcTotal = computed(() => props.topo.relatedServices.value.length + props.
                 </p>
               </button>
               <!-- 失配 Service:selector ⊄ 当前 Pod labels(Endpoints 空,经 Ingress 访问 503)——显性化 + 一键修复 -->
-              <div v-for="s in topo.driftedServices.value" :key="'drift-' + s.name" class="rounded-lg border border-error/50 bg-error/5 px-sm py-1.5">
+              <div v-for="s in topo.driftedServices.value" :key="'drift-' + s.name" class="rounded-lg border px-sm py-1.5" :class="s.drift === 'broken' ? 'border-error/50 bg-error/5' : 'border-tertiary-container/40 bg-tertiary-container/5'">
                 <div class="flex items-center gap-xs">
-                  <span class="material-symbols-outlined text-error text-sm shrink-0">warning</span>
-                  <p class="font-mono text-xs text-error font-semibold truncate flex-1">{{ s.name }}</p>
-                  <button @click.stop="topo.repairServiceSelector(s.name)" :disabled="!canMutate || !!topo.repairingSvc.value || !Object.keys(topo.identitySel.value).length" :title="!Object.keys(topo.identitySel.value).length ? $t('workload.expose.identityRequired') : !canMutate ? $t('workload.noUpdatePerm') : $t('workload.topology.repairSelector')" class="text-[11px] px-1.5 py-0.5 rounded-md bg-error text-on-error font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0">{{ $t('workload.topology.repairSelector') }}</button>
+                  <span class="material-symbols-outlined text-sm shrink-0" :class="s.drift === 'broken' ? 'text-error' : 'text-tertiary-container'">warning</span>
+                  <p class="font-mono text-xs font-semibold truncate flex-1" :class="s.drift === 'broken' ? 'text-error' : 'text-tertiary-container'">{{ s.name }}</p>
+                  <button @click.stop="topo.repairServiceSelector(s.name)" :disabled="!canMutate || !!topo.repairingSvc.value || !Object.keys(topo.identitySel.value).length" :title="[!Object.keys(topo.identitySel.value).length ? $t('workload.expose.identityRequired') : '', !canMutate ? $t('workload.noUpdatePerm') : '', $t('workload.topology.driftHeuristic')].filter(Boolean).join(' · ')" class="text-[11px] px-1.5 py-0.5 rounded-md font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0" :class="s.drift === 'broken' ? 'bg-error text-on-error' : 'bg-tertiary-container text-on-tertiary-container'">{{ $t('workload.topology.repairSelector') }}</button>
                 </div>
-                <p class="text-[11px] text-error/80 mt-0.5">{{ $t('workload.topology.driftBroken') }}</p>
+                <p class="text-[11px] mt-0.5" :class="s.drift === 'broken' ? 'text-error/80' : 'text-tertiary-container'">
+                  {{ s.drift === 'broken' ? $t('workload.topology.driftBroken') : $t('workload.topology.driftPending') }}
+                </p>
+                <!-- D3:启发式判据显性说明(可见文本;修复按钮 title 同样携带) -->
+                <p class="text-[10px] text-on-surface-variant/60 mt-0.5">{{ $t('workload.topology.driftHeuristic') }}</p>
               </div>
               <div v-if="!topo.relatedServices.value.length && !topo.driftedServices.value.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
