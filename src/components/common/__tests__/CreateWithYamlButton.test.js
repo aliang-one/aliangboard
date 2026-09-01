@@ -51,7 +51,8 @@ test('YAML 项在最前、extraItems 随后(workload 视图现状顺序)', async
 test('YAML 项打开 dialog,模板随 yamlTemplate + namespace 填充', async () => {
   const w = mountBtn({ yamlTemplate: 'Service', namespace: 'demo' })
   await w.findAll('button')[1].trigger('click')
-  await w.findAll('button')[2].trigger('click') // 菜单里的「从 YAML 创建」
+  // 菜单已 Teleport 到 body(SplitButton 2026-09-01),从 document 点击首项「从 YAML 创建」
+  document.querySelector('[data-menu-item]').click()
   await flushPromises()
   expect(document.body.textContent).toContain('my-service')
   expect(document.body.textContent).toContain('demo')
@@ -82,7 +83,7 @@ test('applied 透传:dialog 创建成功后 emit applied', async () => {
   applyYamlMock.mockResolvedValue({ ok: true, kind: 'Service', name: 'my-service' })
   const w = mountBtn({ yamlTemplate: 'Service', namespace: 'demo' })
   await w.findAll('button')[1].trigger('click')
-  await w.findAll('button')[2].trigger('click')
+  document.querySelector('[data-menu-item]').click() // 菜单已 Teleport 到 body
   await flushPromises()
   const createBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent.trim() === i18n.global.t('component.createFromYaml.create'))
   expect(createBtn).toBeTruthy()
