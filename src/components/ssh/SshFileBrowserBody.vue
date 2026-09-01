@@ -116,7 +116,7 @@ onBeforeUnmount(() => transferAbort?.abort())   // 关窗中止在途传输
           :class="i === crumbs.length - 1 ? 'text-primary font-semibold' : ''" @click="crumbTo(c.p)">{{ c.name }}</button>
       </template>
       <span class="flex-1" />
-      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0" :title="t('common.sync')" @click="refresh">
+      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('common.sync')" @click="refresh">
         <span class="material-symbols-outlined text-base" :class="loading ? 'animate-spin' : ''">refresh</span>
       </button>
       <button data-test="btnUpload" class="flex items-center gap-0.5 px-sm py-1 rounded-md bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0"
@@ -156,7 +156,7 @@ onBeforeUnmount(() => transferAbort?.abort())   // 关窗中止在途传输
         <div class="h-full bg-primary transition-all" :style="{ width: (pct ?? 100) + '%' }" />
       </div>
       <span class="text-xs text-on-surface-variant shrink-0">{{ pct !== null ? pct + '%' : Math.round(progress.received / 1024) + ' KB' }}</span>
-      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0" :title="t('common.cancel')" @click="cancelTransfer">
+      <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0 max-sm:p-2 max-sm:-m-2" :title="t('common.cancel')" @click="cancelTransfer">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>
