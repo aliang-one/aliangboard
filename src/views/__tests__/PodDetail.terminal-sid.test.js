@@ -115,3 +115,39 @@ test('同一 pod 重复挂载(=刷新)得到同一 session-id → 才能重连�
   await mountDetail()
   expect(sidSeen[0]).toBe(first)
 })
+
+// === 手机适配 Wave 2 Task 4:手机档头部按钮触控目标 + 底部止血条 ===
+// 止血条(重启/删除)必须复用 askRestart/askDelete → ConfirmDialog 二次确认不放松(spec 红线);
+// 桌面/iPad 档零回归:无止血条、既有用例断言零改动。
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
+
+test('手机档:头部按钮 40px 触控目标;底部止血条(重启/删除)在场且点击走既有确认弹窗', async () => {
+  const spy = mockViewport(true)
+  try {
+    const w = await mountDetail()
+    // 头部既有按钮(导出/删除/重启)在手机档获得 min-h-40px 触控目标
+    const headerBtns = w.findAll('.mb-lg button')
+    expect(headerBtns.length).toBeGreaterThan(0)
+    for (const b of headerBtns) expect(b.classes().join(' ')).toContain('max-sm:min-h-[40px]')
+    // 止血条在场:恰好 重启/删除 两钮
+    const bar = w.find('[data-testid="pod-action-bar"]')
+    expect(bar.exists()).toBe(true)
+    const barBtns = bar.findAll('button')
+    expect(barBtns.length).toBe(2)
+    // 点击重启钮 → 走既有 askRestart(confirmOpen=true,shallow 桩 Modal 收到 modelValue),非直接执行
+    await barBtns[0].trigger('click')
+    const modals = w.findAllComponents({ name: 'Modal' })
+    expect(modals.length).toBeGreaterThan(0)
+    expect(modals.some(m => m.attributes('modelvalue') === 'true' || m.props('modelValue') === true)).toBe(true)
+    w.unmount()
+  } finally { spy.mockRestore() }
+})
+
+test('桌面档:无底部止血条(零回归)', async () => {
+  const spy = mockViewport(false)
+  try {
+    const w = await mountDetail()
+    expect(w.find('[data-testid="pod-action-bar"]').exists()).toBe(false)
+    w.unmount()
+  } finally { spy.mockRestore() }
+})
