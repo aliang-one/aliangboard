@@ -3,7 +3,7 @@
 // 真实 i18n + Vue Query;useToast importOriginal 保真)。fixture 经 state 对象按用例注入。
 import { test, expect, vi, beforeEach } from 'vitest'
 
-const captured = vi.hoisted(() => ({ svcAdds: [], svcUpdates: [] }))
+const captured = vi.hoisted(() => ({ svcAdds: [], svcUpdates: [], ingAdds: [] }))
 const state = vi.hoisted(() => ({ workload: null, services: [], pdbs: [], netpols: [], pods: [], ingresses: [], endpoints: [], replicasets: [], hpas: [] }))
 
 import { mount, flushPromises } from '@vue/test-utils'
@@ -34,6 +34,8 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   addService: vi.fn(item => { captured.svcAdds.push(item); return { ok: true } }),
   updateService: vi.fn((name, ns, updates) => { captured.svcUpdates.push({ name, updates }); return { ok: true } }),
   invalidateAllClusterQueries: vi.fn(async () => {}),
+  addIngress: vi.fn(item => { captured.ingAdds.push(item); return { ok: true } }),
+  updateIngressRules: vi.fn(async () => ({})),
 }) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' } }), useRouter: () => ({ push: () => {} }) }))
 
@@ -64,7 +66,7 @@ async function gotoTopology(w) {
 
 beforeEach(() => {
   document.body.innerHTML = ''
-  captured.svcAdds.length = 0; captured.svcUpdates.length = 0
+  captured.svcAdds.length = 0; captured.svcUpdates.length = 0; captured.ingAdds.length = 0
   notify.mockClear()
   state.workload = JSON.parse(JSON.stringify(demoWorkload))
   state.services = [JSON.parse(JSON.stringify(svcMatching))]
@@ -160,4 +162,35 @@ test('C3: 规则卡 hover → 匹配 Service 卡高亮(ring)', async () => {
   expect(svcCardBefore.classes()).toContain('ring-2')
   await ruleCard.trigger('mouseleave')
   expect(svcCardBefore.classes()).not.toContain('ring-2')
+})
+
+// 弹窗(teleport 到 body)内按文本点按钮:取 body 内同名按钮最后一个即弹窗内的
+async function clickModalBtn(text) {
+  const els = [...document.body.querySelectorAll('button')].filter(b => b.textContent.trim() === text)
+  expect(els.length, `body 内应有「${text}」按钮`).toBeGreaterThan(0)
+  els.at(-1).click(); await flushPromises()
+}
+
+test('D1: saveExpose 容器无端口 → error 提示且不下发 Service 创建', async () => {
+  state.workload.raw.spec.template.spec.containers = [{ name: 'main', image: 'nginx' }]
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
+  expect(plusButtons.length).toBe(2)
+  await plusButtons.at(-1).trigger('click'); await flushPromises()   // Deployment 卡「暴露」+
+  await clickModalBtn('创建')
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('至少填写一个端口'))
+  expect(captured.svcAdds).toHaveLength(0)
+  // 弹窗不关:创建按钮仍在 body(校验失败不落库不清弹窗)
+  expect([...document.body.querySelectorAll('button')].some(b => b.textContent.trim() === '创建')).toBe(true)
+})
+
+test('A5: saveIngressMap 未选 Service 端口 → error 提示且不触 Ingress 变更', async () => {
+  // 默认 fixture 的 svcMatching.portList=[] → ingressMapForm.servicePort 初始为 ''
+  const w = mountDetail(); await flushPromises(); await gotoTopology(w)
+  const plusButtons = w.findAll('button').filter(b => b.classes().includes('-left-3'))
+  expect(plusButtons.length).toBe(2)
+  await plusButtons.at(0).trigger('click'); await flushPromises()   // Ingress 映射 +
+  await clickModalBtn('创建')
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('请先选择 Service 端口'))
+  expect(captured.ingAdds).toHaveLength(0)
 })

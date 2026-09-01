@@ -195,9 +195,6 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
   const states = computed(() => ({
     servicesPending: !!servicesQuery.isPending.value,
     ingressesPending: !!ingressesQuery.isPending.value,
-    endpointsPending: !!endpointsQuery.isPending.value,
-    rsPending: !!rsQuery.isPending.value,
-    hpasPending: !!hpasQuery.isPending.value,
   }))
 
   return {
