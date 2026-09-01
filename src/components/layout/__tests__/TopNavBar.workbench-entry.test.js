@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 // 可变路由状态:vi.hoisted 保证 vi.mock 工厂引用时不踩 TDZ(工厂懒执行于模块 import 期)
@@ -62,7 +63,7 @@ const mountIt = () => mount(TopNavBar, {
   global: {
     mocks: { $t: (k) => k },
     stubs: { ConfirmDialog: true },
-    plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+    plugins: [createPinia(), createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
   },
 })
 const findPill = (w) =>

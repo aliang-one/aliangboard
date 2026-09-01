@@ -12,3 +12,12 @@ for (const f of ['AppLayout.vue', 'TopNavBar.vue', 'SideNavBar.vue']) {
     expect(src).not.toMatch(/ml-\[260px\]|left-\[260px\]|w-\[260px\]/)
   })
 }
+
+test('AppLayout:手机抽屉三要素在场——遮罩(Z.drawer-1)/--sb-width 归 0 档/footer 安全区', () => {
+  const src = readFileSync(join(dir, 'AppLayout.vue'), 'utf8')
+  expect(src).toMatch(/max-width: 639\.98px\) \{ :root \{ --sb-width: 0px; \} \}/)
+  expect(src).toMatch(/Z\.drawer - 1/)
+  expect(src).toMatch(/safe-area-inset-bottom/)
+  const z = readFileSync(join(dir, '../../styles/zScale.js'), 'utf8')
+  expect(z).toMatch(/drawer:\s*\d+/)
+})

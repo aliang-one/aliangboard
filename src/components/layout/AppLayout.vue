@@ -12,6 +12,7 @@ import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { getSession } from '@/api/client'
 import { Z } from '@/styles/zScale'
+import { useShellStore } from '@/stores/shell'
 
 // 终端窗口懒加载：xterm + addons（~400KB）仅在 allTerminals 非空（用户开了终端）时才加载，
 // 移出首屏关键路径。TerminalTaskbar 不引 xterm（仅会话列表），保持静态避免任务栏闪空。
@@ -38,6 +39,7 @@ const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
 const sshStore = useSshTerminalStore()
 const { tick: refreshTick } = usePageRefresh()
+const shell = useShellStore()
 
 // 平台版本更新检测(横幅:每版本提示一次;未登录不进 AppLayout,query 天然不启用)
 const { query: versionQuery } = useAppVersion()
@@ -68,6 +70,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 <template>
   <div class="flex h-screen overflow-hidden">
+    <!-- 手机抽屉遮罩(<640 仅为真抽屉;iPad/桌面 drawerOpen 恒 false,自然不渲染) -->
+    <div v-if="shell.drawerOpen" data-test="drawer-backdrop" class="fixed inset-0 bg-on-surface/40"
+      :style="{ zIndex: Z.drawer - 1 }" @click="shell.closeDrawer()"></div>
     <SideNavBar />
     <div class="shell-main flex-1 flex flex-col min-w-0">
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
@@ -96,7 +101,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </router-view>
       </main>
       <!-- Footer Status Bar -->
-      <footer class="px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
+      <footer class="shell-footer px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
         <div class="flex items-center gap-lg min-w-0">
           <div class="flex items-center gap-sm min-w-0">
             <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
@@ -130,5 +135,11 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
    禁止壳层再写 260px 定位/宽度字面量(shell-width-guard.test.js 强制)。 */
 :root { --sb-width: 260px; }
 @media (max-width: 1023.98px) { :root { --sb-width: 72px; } }
+/* 手机档:内容满宽,抽屉 overlay 不推挤(2026-09-01 手机适配 Wave 1a) */
+@media (max-width: 639.98px) { :root { --sb-width: 0px; } }
 .shell-main { margin-left: var(--sb-width); }
+/* 手机档底部安全区(iPhone Home 指示条):footer 既有 py-sm 之上叠加 */
+@media (max-width: 639.98px) {
+  .shell-footer { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+}
 </style>

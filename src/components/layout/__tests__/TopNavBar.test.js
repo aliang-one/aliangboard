@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/cluster' }), useRouter
 
 import TopNavBar from '@/components/layout/TopNavBar.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useShellStore } from '@/stores/shell'
 
 function mountNav() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -66,6 +67,29 @@ test('ns 下拉面板 Teleport 到 body 且带 data-testid', async () => {
   await flushPromises()
   expect(document.querySelector('[data-testid="ns-dropdown-panel"]')).toBeTruthy()
   expect(w.find('[data-testid="ns-dropdown-panel"]').exists()).toBe(false) // 不在组件树内
+})
+
+test('手机档:顶栏左端汉堡可见,点击开抽屉;桌面档无汉堡', async () => {
+  const spy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+    matches: q === '(max-width: 639.98px)',
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }))
+  setActivePinia(createPinia())
+  const w = mountNav()
+  const btn = w.find('[data-test="menu-trigger"]')
+  expect(btn.exists()).toBe(true)
+  await btn.trigger('click')
+  expect(useShellStore().drawerOpen).toBe(true)
+  w.unmount()
+  spy.mockRestore()
+
+  const spy2 = vi.spyOn(window, 'matchMedia').mockImplementation(() => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }))
+  setActivePinia(createPinia())
+  const w2 = mountNav()
+  expect(w2.find('[data-test="menu-trigger"]').exists()).toBe(false)
+  w2.unmount()
+  spy2.mockRestore()
 })
 
 test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 enabled 查询', async () => {
