@@ -3680,7 +3680,12 @@
       "noClusterOption": "Don't bind, decide later",
       "loadFailed": "Load failed",
       "createFailed": "Create failed",
-      "created": "Created"
+      "created": "Created",
+      "projectActions": "Project actions",
+      "renameProject": "Rename",
+      "renameModalTitle": "Rename project",
+      "projectRenamed": "Project renamed to {name}",
+      "projectRenameFailed": "Failed to rename"
     },
     "records": {
       "title": "Workbench Records",

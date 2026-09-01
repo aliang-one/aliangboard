@@ -3680,7 +3680,12 @@
       "noClusterOption": "不绑定,稍后再说",
       "loadFailed": "加载失败",
       "createFailed": "创建失败",
-      "created": "创建成功"
+      "created": "创建成功",
+      "projectActions": "项目操作",
+      "renameProject": "重命名",
+      "renameModalTitle": "重命名项目",
+      "projectRenamed": "项目已重命名为 {name}",
+      "projectRenameFailed": "重命名失败"
     },
     "records": {
       "title": "工作台记录",

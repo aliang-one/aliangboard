@@ -7,6 +7,7 @@ import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import Modal from '@/components/common/Modal.vue'
+import DropdownMenu from '@/components/common/DropdownMenu.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -52,6 +53,41 @@ async function bindCluster(p, v) {
     load()
   } catch (e) { notify('error', e.message || t('workbench.card.loadFailed')) }
 }
+
+// ═══ 项目卡片菜单(2026-09-01 可见性修复):重命名/删除入口从死组件 WorkbenchList 移植 ═══
+// 形态裁决(spec §6):行内 blur 重命名 → 弹窗确认式;busy 防重替代 enter/blur 竞态守卫。
+const showRename = ref(false)
+const renameTarget = ref(null)
+const renameText = ref('')
+const renameBusy = ref(false)
+function startRename(p) {
+  renameTarget.value = p
+  renameText.value = p.name || ''
+  showRename.value = true
+}
+async function confirmRename() {
+  if (!showRename.value || renameBusy.value) return
+  const name = renameText.value.trim()
+  if (!name) return                                    // 空名不发请求(确定钮同时禁用)
+  if (name === renameTarget.value.name) { showRename.value = false; return }
+  renameBusy.value = true
+  try {
+    await workbenchApi.updateProject(renameTarget.value.id, { name })
+    const p = projects.value.find(x => x.id === renameTarget.value.id)
+    if (p) p.name = name
+    notify('success', t('workbench.card.projectRenamed', { name }))
+    showRename.value = false
+  } catch (e) {
+    // 失败保留弹窗与输入可重试;透传服务端消息(与死组件/WorkbenchChat 同款)
+    notify('error', e?.message || t('workbench.card.projectRenameFailed'))
+  } finally { renameBusy.value = false }
+}
+// 菜单项工厂(Task 2 在此追加删除项)
+function cardActions(p) {
+  return [
+    { label: t('workbench.card.renameProject'), icon: 'edit', action: () => startRename(p) },
+  ]
+}
 </script>
 
 <template>
@@ -83,7 +119,12 @@ async function bindCluster(p, v) {
             <p v-if="p.clusterId" class="text-body-xs text-on-surface-variant">{{ clusterName(p.clusterId) }}</p>
             <span v-else data-test="unbound-badge" class="inline-block px-1.5 py-0.5 rounded bg-warning/10 text-warning text-body-xs">{{ t('workbench.unboundBadge') }}</span>
           </div>
-          <span class="material-symbols-outlined text-on-surface-variant/30 group-hover:text-primary transition-colors">arrow_forward</span>
+          <div class="flex items-center gap-xs">
+            <!-- 菜单恒可见低强调(触屏无 hover;hover 时加强),组件自带 stopPropagation 防误触整卡导航 -->
+            <DropdownMenu :items="cardActions(p)" :trigger-label="t('workbench.card.projectActions')"
+              class="opacity-60 group-hover:opacity-100 transition-opacity" />
+            <span class="material-symbols-outlined text-on-surface-variant/30 group-hover:text-primary transition-colors">arrow_forward</span>
+          </div>
         </div>
         <!-- 换绑下拉(无集群项目也可事后绑定;整卡 click 进详情,须 stop) -->
         <select data-test="bind-cluster" :value="p.clusterId || ''" @click.stop @change="bindCluster(p, $event.target.value)"
@@ -128,6 +169,20 @@ async function bindCluster(p, v) {
       <template #actions>
         <button @click="showCreate = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
         <button @click="createProject" :disabled="!form.name.trim()" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
+      </template>
+    </Modal>
+
+    <!-- Rename Modal(可见性修复):空名禁用;失败保留可重试 -->
+    <Modal v-model="showRename" :title="t('workbench.card.renameModalTitle')" width="max-w-md">
+      <div>
+        <label class="text-body-xs text-on-surface-variant block mb-xs">{{ t('workbench.card.nameLabel') }}</label>
+        <input v-model="renameText" data-testid="rename-input" @keyup.enter="confirmRename"
+          class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" />
+      </div>
+      <template #actions>
+        <button @click="showRename = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ t('common.cancel') }}</button>
+        <button @click="confirmRename" :disabled="!renameText.trim() || renameBusy" data-testid="rename-confirm-btn"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ t('common.confirm') }}</button>
       </template>
     </Modal>
   </div>
