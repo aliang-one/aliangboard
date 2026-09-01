@@ -3685,7 +3685,14 @@
       "renameProject": "Rename",
       "renameModalTitle": "Rename project",
       "projectRenamed": "Project renamed to {name}",
-      "projectRenameFailed": "Failed to rename"
+      "projectRenameFailed": "Failed to rename",
+      "deleteProject": "Delete",
+      "confirmDeleteTitle": "Delete project",
+      "confirmDeleteHint": "This is irreversible and removes all repository content of the project. Type the project name shown below to confirm:",
+      "confirmDeletePlaceholder": "Type project name to confirm",
+      "projectDeleted": "Project deleted",
+      "projectDeletedWithWarning": "Project deleted, but repo directory removal failed: {warning}",
+      "projectDeleteFailed": "Failed to delete project"
     },
     "records": {
       "title": "Workbench Records",
