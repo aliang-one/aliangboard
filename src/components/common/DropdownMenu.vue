@@ -1,6 +1,8 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onBeforeUnmount, computed } from 'vue'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { Z } from '@/styles/zScale'
 
 const props = defineProps({
   // 菜单项：[{ label, icon, action: Function, danger?: bool, disabled?: bool }]
@@ -16,6 +18,8 @@ const open = ref(false)
 // 菜单被 DataTable 根 overflow-hidden / overflow-x-auto 裁切;配方=useDropdownPanel(issue#4)
 const triggerRef = ref(null)
 const { panelRef, panelStyle } = useDropdownPanel(triggerRef, open, { align: 'right' })
+const { isPhone } = useIsPhone()
+const phonePanelStyle = computed(() => ({ position: 'fixed', left: '0px', right: '0px', bottom: '0px', maxHeight: '70vh', zIndex: String(Z.popover) }))
 
 function toggle(e) {
   e.stopPropagation()
@@ -42,6 +46,9 @@ onBeforeUnmount(close)
       ref="triggerRef"
       @click="toggle($event)"
       class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-colors"
+      :class="[
+        isPhone ? 'min-h-[40px] min-w-[40px] flex items-center justify-center' : ''
+      ]"
       :aria-label="triggerLabel"
       :title="triggerLabel"
     >
@@ -55,8 +62,11 @@ onBeforeUnmount(close)
         v-if="open"
         ref="panelRef"
         data-testid="dropdown-menu-panel"
-        :style="panelStyle"
-        class="min-w-[160px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown py-xs overflow-hidden"
+        :style="isPhone ? phonePanelStyle : panelStyle"
+        :class="isPhone
+          ? 'w-full rounded-t-2xl rounded-b-none py-sm shadow-dropdown overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+8px)]'
+          : 'min-w-[160px] rounded-lg py-xs'"
+        class="bg-surface-container-lowest border border-outline-variant overflow-hidden"
         @click.stop
       >
         <button
@@ -65,9 +75,12 @@ onBeforeUnmount(close)
           @click="run(item)"
           :disabled="item.disabled"
           class="w-full flex items-center gap-sm px-md py-sm text-left text-body-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          :class="item.danger
-            ? 'text-error hover:bg-error-container/10'
-            : 'text-on-surface hover:bg-surface-container'"
+          :class="[
+            item.danger
+              ? 'text-error hover:bg-error-container/10'
+              : 'text-on-surface hover:bg-surface-container',
+            isPhone ? 'min-h-[40px]' : ''
+          ]"
         >
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
           <span class="font-medium">{{ item.label }}</span>

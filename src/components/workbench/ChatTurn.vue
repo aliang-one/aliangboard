@@ -220,12 +220,12 @@ function onRootClick(e) {
       <span v-if="turn.role === 'assistant'" class="ml-auto flex items-center gap-xs">
         <span v-if="turn.steps" class="text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
         <button v-if="turn.status === 'done'" @click.stop="copyContent" type="button"
-          class="p-0.5 rounded text-on-surface-variant/50 hover:text-on-surface opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-on-surface opacity-0 group-hover/turn:opacity-100 max-sm:opacity-100 transition-opacity"
           :title="t('common.copy')">
           <span class="material-symbols-outlined text-sm">{{ copied ? 'check' : 'content_copy' }}</span>
         </button>
         <button v-if="showRegenerate" @click.stop="emit('regenerate')" type="button"
-          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 max-sm:opacity-100 transition-opacity"
           :title="t('workbench.chat.regenerate')">
           <span class="material-symbols-outlined text-sm">refresh</span>
         </button>
@@ -233,7 +233,7 @@ function onRootClick(e) {
       <!-- 编辑重发(T3):user 消息 hover 编辑入口,emit edit(载荷=turn) -->
       <span v-if="turn.role === 'user' && showEdit" class="ml-auto flex items-center gap-xs">
         <button data-testid="edit-msg-btn" @click.stop="emit('edit')" type="button"
-          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 transition-opacity"
+          class="p-0.5 rounded text-on-surface-variant/50 hover:text-primary opacity-0 group-hover/turn:opacity-100 max-sm:opacity-100 transition-opacity"
           :title="t('workbench.chat.editTitle')">
           <span class="material-symbols-outlined text-sm">edit</span>
         </button>
