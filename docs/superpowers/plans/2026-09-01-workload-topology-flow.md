@@ -374,7 +374,6 @@ const mountNode = (Comp, data, extra) => mount(Comp, {
   },
 })
 
-```js
 test('RuleNode:content+Handle+点击跳转', async () => {
   const goto = vi.fn()
   const w = mountNode(TopologyRuleNode, { ingress: 'a-ing', host: 'a.com', path: '/', serviceName: 'svc-a', port: 80, goto })
