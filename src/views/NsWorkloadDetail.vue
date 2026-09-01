@@ -17,7 +17,7 @@ import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch } from '@/logic/workloadMeta'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
 import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
@@ -761,6 +761,32 @@ const topoIngressRules = computed(() => {
   }
   return out
 })
+// Service 失配检测(2026-09-01 Ingress 503):selector ⊄ 当前模板 labels 的 Service = Endpoints 已空
+// (存量病灶:saveExpose 曾快照全量 labels 进 selector,后续标签漂移即失配,且因 relatedServices
+// 按 ⊆ 过滤而「坏得看不见」)。键与模板有交集 = 曾锚定本 workload 的,列警示 + 一键修复
+// (selector 收敛为身份子集 identitySelector,修复后自动回到 relatedServices)。
+const driftedServices = computed(() => {
+  const broken = new Set(servicesBrokenBy(podLabels.value, serviceList.value))
+  if (!broken.size) return []
+  const tplKeys = new Set(Object.keys(podLabels.value || {}))
+  return (serviceList.value || []).filter(s => broken.has(s.name) && Object.keys(s.selector || {}).some(k => tplKeys.has(k)))
+})
+// 身份 selector 单源:saveExpose 下发与拓扑一键修复共用同一份(与创建向导 DeployApp 的 app:<name> 范式一致)
+const identitySel = computed(() => identitySelector(workload.value?.raw, podLabels.value, workload.value?.name))
+const repairingSvc = ref('')
+async function repairServiceSelector(name) {
+  const sel = identitySel.value
+  if (!Object.keys(sel).length) return
+  const svc = (serviceList.value || []).find(s => s.name === name)
+  if (!svc) return
+  repairingSvc.value = name
+  try {
+    // {ok} 契约:makeCrud.update 从缓存取当前对象合并后 generateYAML 无损回写,只覆写 selector
+    const r = await store.updateService(name, route.params.namespace, { selector: sel })
+    if (!(r && r.ok === false)) notify('success', t('workload.topology.selectorRepaired', { name }))
+  } catch (e) { notify('error', e.message || t('workload.notify.saveFailed')) }
+  repairingSvc.value = ''
+}
 const showExposeModal = ref(false)
 const exposeForm = ref({ name: '', type: 'ClusterIP', ports: [] })
 function openExpose() {
@@ -774,7 +800,12 @@ function openExpose() {
 }
 async function saveExpose() {
   try {
-    const r = await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: { ...podLabels.value } })
+    // selector 身份化(2026-09-01 Ingress 503 事故):只取不可变身份标签(Deployment selector + app 系),
+    // 不再快照全部模板 labels——业务/自定义标签会被元数据编辑器镜像改写,快照进 selector 迟早失配
+    //(Endpoints 清空 → Ingress 503,全程静默)。空 = 无身份标签可锚,宁可不建也不埋雷。
+    const sel = identitySel.value
+    if (!Object.keys(sel).length) { notify('error', t('workload.expose.identityRequired')); return }
+    const r = await store.addService({ name: exposeForm.value.name, namespace: route.params.namespace, type: exposeForm.value.type, clusterIP: '', ports: exposeForm.value.ports.filter(p => p.port).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(','), selector: sel })
     if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
     notify('success', t('workload.notify.createdService', { name: exposeForm.value.name })); showExposeModal.value = false
   } catch (e) { notify('error', e.message || t('workload.notify.createServiceFailed')) }
@@ -1228,6 +1259,16 @@ async function saveMeta() {
   const templateLabels = templateChanged
     ? { ...guardedTplLabels, ...Object.keys(rawTplLabels).filter(k => managedTpl.has(k) && !(k in desiredTplLabels)).reduce((o, k) => { o[k] = null; return o }, {}) }
     : null
+  // 防线④(2026-09-01 Ingress 503 事故):上面防线只保 Deployment 自己的 selector(K8s 只校验它),
+  // Service selector 无 K8s 校验——模板 labels 一变,失配 Service 的 Endpoints 静默清空 → Ingress 503。
+  // 求补后模板 labels 会失配任何 ns 内 Service → 拦下列名,改 Service selector 前不许保存。
+  if (templateLabels) {
+    const broken = servicesBrokenBy(applyLabelPatch(rawTplLabels, templateLabels), serviceList.value)
+    if (broken.length) {
+      notify('error', t('workload.meta.svcSelectorLocked', { names: broken.join('、') }))
+      return
+    }
+  }
   store.updateWorkloadMeta(route.params.name, route.params.namespace, { labels, annotations, removedLabels, removedAnnotations, templateLabels })
   if (f.tags) recordTagUsage(route.params.namespace, f.tags) // 编辑标签也即时入历史，供下次建议
   showMetaModal.value = false
@@ -1263,6 +1304,16 @@ async function saveTemplate(yamlStr) {
     const breaks = templateSelectorBreaks(parsed?.metadata?.labels || {}, metaSelectorLabels.value)
     if (breaks.length) {
       notify('error', t('workload.meta.tplSelectorLocked', { keys: breaks.join('、') }))
+      return
+    }
+    // Service 失配防线(同 saveMeta 防线④):merge-patch 键级合并不删未提及键,故按「求补后
+    // labels」判定会失配哪些 Service;有则拦下列名,不拦就是静默 503(K8s 不校验 Service selector)。
+    const brokenSvcs = servicesBrokenBy(
+      applyLabelPatch(workload.value?.raw?.spec?.template?.metadata?.labels || {}, parsed?.metadata?.labels || {}),
+      serviceList.value,
+    )
+    if (brokenSvcs.length) {
+      notify('error', t('workload.meta.svcSelectorLocked', { names: brokenSvcs.join('、') }))
       return
     }
     await store.applyWorkloadTemplate(route.params.name, route.params.namespace, parsed)
@@ -1741,7 +1792,16 @@ function podStatusBorder(s) {
                 <p class="font-mono text-xs text-on-surface font-semibold truncate">{{ s.name }}</p>
                 <p class="text-[11px] text-on-surface-variant truncate"><span class="px-1 rounded bg-surface-container">{{ s.type }}</span> {{ s.ports }}</p>
               </div>
-              <div v-if="!relatedServices.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
+              <!-- 失配 Service:selector ⊄ 当前 Pod labels(Endpoints 空,经 Ingress 访问 503)——此前这类 Service 因 relatedServices ⊆ 过滤而「坏得看不见」,现显性化 + 一键修复 -->
+              <div v-for="s in driftedServices" :key="'drift-' + s.name" class="rounded-lg border border-error/50 bg-error/5 px-sm py-1.5">
+                <div class="flex items-center gap-xs">
+                  <span class="material-symbols-outlined text-error text-sm shrink-0">warning</span>
+                  <p class="font-mono text-xs text-error font-semibold truncate flex-1">{{ s.name }}</p>
+                  <button @click.stop="repairServiceSelector(s.name)" :disabled="!canMutate || !!repairingSvc || !Object.keys(identitySel).length" :title="!Object.keys(identitySel).length ? $t('workload.expose.identityRequired') : !canMutate ? $t('workload.noUpdatePerm') : $t('workload.topology.repairSelector')" class="text-[11px] px-1.5 py-0.5 rounded-md bg-error text-on-error font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity shrink-0">{{ $t('workload.topology.repairSelector') }}</button>
+                </div>
+                <p class="text-[11px] text-error/80 mt-0.5">{{ $t('workload.topology.selectorDrift') }}</p>
+              </div>
+              <div v-if="!relatedServices.length && !driftedServices.length" class="flex-1 flex flex-col items-center justify-center text-center text-xs text-on-surface-variant/50 py-md">
                 <span class="material-symbols-outlined text-2xl text-surface-container-high">block</span>{{ $t('workload.topology.noService') }}
               </div>
             </div>

@@ -4,7 +4,7 @@
 // Pod 模板 labels → selector ⊄ template → K8s 422「selector does not match template labels」。
 // 防线:①自定义列表隐藏 selector 键 ②保存前拦截撞键行 ③模板镜像对 selector 键强制原值透传。
 import { describe, test, expect } from 'vitest'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks } from '../workloadMeta.js'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch } from '../workloadMeta.js'
 
 const KUBOARD_DEPLOY = {
   spec: {
@@ -80,5 +80,92 @@ describe('templateSelectorBreaks:模板 YAML 编辑器防线(改 selector 键值
   })
   test('无 selector → 恒通过', () => {
     expect(templateSelectorBreaks({ any: 'thing' }, {})).toEqual([])
+  })
+})
+
+// === Service selector 身份化 + 失配防线(2026-09-01 Ingress 503 事故) ===
+// saveExpose 曾把暴露时刻全部模板 labels 快照进 Service selector;元数据编辑器镜像改动
+// 业务标签 → Pod labels 变 → Service 失配 → Endpoints 空 → Ingress 503(全程静默)。
+
+describe('identitySelector:身份 selector(Deployment selector ∩ 模板 + app 系身份标签)', () => {
+  test('kuboard selector + app 并存:selector 键 + app,业务标签(pod-template-hash 等)不进', () => {
+    const tpl = { ...KUBOARD_DEPLOY.spec.template.metadata.labels, app: 'ai-gateway', 'aliangboard.io/version': 'v1' }
+    expect(identitySelector(KUBOARD_DEPLOY, tpl)).toEqual({
+      'k8s.kuboard.cn/layer': 'svc', 'k8s.kuboard.cn/name': 'ai-gateway', app: 'ai-gateway',
+    })
+  })
+  test('selector 已绑定 app → 不重复添加', () => {
+    const raw = { spec: { selector: { matchLabels: { app: 'web' } }, template: { metadata: { labels: { app: 'web' } } } } }
+    expect(identitySelector(raw, { app: 'web' })).toEqual({ app: 'web' })
+  })
+  test('selector 键不在模板(脏数据)→ 只留交集', () => {
+    const raw = { spec: { selector: { matchLabels: { a: '1', ghost: '2' } } } }
+    expect(identitySelector(raw, { a: '1' })).toEqual({ a: '1' })
+  })
+  test('值不等(脏数据)→ 该键不进(保证 selector ⊆ 模板)', () => {
+    const raw = { spec: { selector: { matchLabels: { a: '1' } } } }
+    expect(identitySelector(raw, { a: '9' })).toEqual({})
+  })
+  test('app.kubernetes.io/name 作为身份标签补位', () => {
+    expect(identitySelector({}, { 'app.kubernetes.io/name': 'api' })).toEqual({ 'app.kubernetes.io/name': 'api' })
+  })
+  test('业务标签永不算身份:模板只有自定义标签 → 空 map(调用方拦截)', () => {
+    expect(identitySelector({}, { team: 'x', 'aliangboard.io/version': 'v1' }, 'web')).toEqual({})
+  })
+  test('模板为空(legacy 扁平数据)→ 回退 {app: fallbackName}', () => {
+    expect(identitySelector(null, {}, 'web')).toEqual({ app: 'web' })
+    expect(identitySelector(null, null, 'web')).toEqual({ app: 'web' })
+  })
+  test('全空输入 → 空 map', () => {
+    expect(identitySelector(null, {}, '')).toEqual({})
+  })
+  test('值一律 String 化', () => {
+    expect(identitySelector({}, { app: 123 })).toEqual({ app: '123' })
+  })
+})
+
+describe('servicesBrokenBy:模板 labels 变更会失配的 Service 名单', () => {
+  test('值漂移 / 键缺失 → 失配;匹配 / 空 selector → 通过', () => {
+    const svcs = [
+      { name: 'ok-svc', selector: { app: 'v2' } },
+      { name: 'drift-svc', selector: { app: 'v1' } },
+      { name: 'gone-key-svc', selector: { app: 'v2', team: 'a' } },
+      { name: 'empty-svc', selector: {} },
+      { name: 'no-sel-svc', selector: null },
+    ]
+    expect(servicesBrokenBy({ app: 'v2' }, svcs)).toEqual(['drift-svc', 'gone-key-svc'])
+  })
+  test('全匹配 → 空数组', () => {
+    const svcs = [
+      { name: 'ok-svc', selector: { app: 'web' } },
+      { name: 'gone-key-svc', selector: { app: 'web', team: 'a' } },
+    ]
+    expect(servicesBrokenBy({ app: 'web', team: 'a' }, svcs)).toEqual([])
+  })
+  test('值按字符串比较(标签本就是字符串)', () => {
+    expect(servicesBrokenBy({ app: 2 }, [{ name: 's', selector: { app: '2' } }])).toEqual([])
+    expect(servicesBrokenBy({ app: 3 }, [{ name: 's', selector: { app: '2' } }])).toEqual(['s'])
+  })
+  test('services 缺失 / 空 → 空数组(不炸)', () => {
+    expect(servicesBrokenBy({ app: 'x' }, null)).toEqual([])
+    expect(servicesBrokenBy({ app: 'x' }, [])).toEqual([])
+  })
+})
+
+describe('applyLabelPatch:merge-patch 语义求补后 labels', () => {
+  test('覆写 + 未提及键保留', () => {
+    expect(applyLabelPatch({ app: 'v1', team: 'x' }, { app: 'v2' })).toEqual({ app: 'v2', team: 'x' })
+  })
+  test('null 删键', () => {
+    expect(applyLabelPatch({ app: 'v1', team: 'x' }, { team: null })).toEqual({ app: 'v1' })
+  })
+  test('不改入参', () => {
+    const base = { app: 'v1' }
+    applyLabelPatch(base, { app: 'v2' })
+    expect(base).toEqual({ app: 'v1' })
+  })
+  test('patch 缺失 → 原 map 浅拷贝', () => {
+    expect(applyLabelPatch({ app: 'v1' }, null)).toEqual({ app: 'v1' })
+    expect(applyLabelPatch(null, { app: 'v1' })).toEqual({ app: 'v1' })
   })
 })
