@@ -314,7 +314,7 @@ function saveEditLabel() {
               <span class="text-xs text-on-surface-variant shrink-0">{{ $t('ns.ingressDetail.ingressClass') }}</span>
               <div class="flex items-center gap-xs min-w-0">
                 <span class="text-body-sm text-on-surface truncate">{{ ing.className || $t('ns.ingressDetail.defaultClass') }}</span>
-                <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0" :title="$t('ns.ingressDetail.editClassTitle')"><span class="material-symbols-outlined text-base">edit</span></button>
+                <button @click="openClassEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.ingressDetail.editClassTitle')"><span class="material-symbols-outlined text-base">edit</span></button>
               </div>
             </div>
             <div class="px-md py-2 flex items-center justify-between gap-sm">
@@ -323,7 +323,7 @@ function saveEditLabel() {
                 <span class="flex items-center gap-0.5 text-body-sm" :class="ing.tls ? 'text-primary font-medium' : 'text-on-surface-variant'">
                   <span class="material-symbols-outlined text-sm">{{ ing.tls ? 'lock' : 'lock_open' }}</span>{{ ing.tls ? $t('ns.ingressDetail.tlsEnabled') : $t('ns.ingressDetail.tlsDisabled') }}
                 </span>
-                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0" :title="$t('ns.ingressDetail.editTlsTitle')"><span class="material-symbols-outlined text-base">edit</span></button>
+                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.ingressDetail.editTlsTitle')"><span class="material-symbols-outlined text-base">edit</span></button>
               </div>
             </div>
             <div v-if="ing.tlsSecret" class="px-md py-2 flex items-center justify-between gap-sm">
@@ -357,12 +357,12 @@ function saveEditLabel() {
             <span class="material-symbols-outlined text-primary text-base">sell</span>
             <span class="text-body-sm font-semibold">{{ $t('ns.ingressDetail.labelsTitle') }}</span>
             <span class="ml-auto text-xs text-on-surface-variant">{{ allLabels.length }}</span>
-            <button @click="showAddLabelModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="$t('ns.ingressDetail.addLabel')"><span class="material-symbols-outlined text-base">add</span></button>
+            <button @click="showAddLabelModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.ingressDetail.addLabel')"><span class="material-symbols-outlined text-base">add</span></button>
           </div>
           <div class="p-sm flex flex-wrap gap-xs">
             <span v-for="([k, v]) in allLabels" :key="k" class="group inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-surface-container text-[11px] border border-outline-variant font-mono">
               <span class="text-secondary font-semibold">{{ k }}</span><span class="text-on-surface-variant">:{{ v }}</span>
-              <button @click="deleteLabel(k)" class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-on-surface-variant hover:text-error transition-opacity" title="Delete"><span class="material-symbols-outlined text-xs">close</span></button>
+              <button @click="deleteLabel(k)" class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-on-surface-variant hover:text-error transition-opacity relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" title="Delete"><span class="material-symbols-outlined text-xs">close</span></button>
             </span>
             <span v-if="!allLabels.length" class="text-xs text-on-surface-variant/50 py-xs">{{ $t('ns.ingressDetail.noLabels') }}</span>
           </div>
@@ -374,15 +374,15 @@ function saveEditLabel() {
             <span class="material-symbols-outlined text-primary text-base">label</span>
             <span class="text-body-sm font-semibold">{{ $t('ns.ingressDetail.annotationsTitle') }}</span>
             <span class="ml-auto text-xs text-on-surface-variant">{{ allAnnotations.length }}</span>
-            <button @click="showAddAnnModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="$t('ns.ingressDetail.addAnnotation')"><span class="material-symbols-outlined text-base">add</span></button>
+            <button @click="showAddAnnModal = true" class="p-0.5 text-on-surface-variant hover:text-primary rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.ingressDetail.addAnnotation')"><span class="material-symbols-outlined text-base">add</span></button>
           </div>
           <div class="divide-y divide-outline-variant/15 max-h-80 overflow-y-auto">
             <div v-for="([key, val], idx) in allAnnotations" :key="idx" class="px-md py-1.5 group">
               <div class="flex items-center justify-between gap-xs">
                 <span class="font-mono text-[11px] text-primary font-semibold truncate" :title="key">{{ key }}</span>
                 <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
-                  <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-0.5 text-on-surface-variant hover:text-primary rounded"><span class="material-symbols-outlined text-sm">edit</span></button>
-                  <button @click="deleteAnnotation(key)" class="p-0.5 text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-sm">delete</span></button>
+                  <button v-if="editingAnn !== key" @click="startEditAnn(key)" class="p-0.5 text-on-surface-variant hover:text-primary rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">edit</span></button>
+                  <button @click="deleteAnnotation(key)" class="p-0.5 text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">delete</span></button>
                 </div>
               </div>
               <div v-if="editingAnn === key" class="flex flex-col gap-xs mt-1">

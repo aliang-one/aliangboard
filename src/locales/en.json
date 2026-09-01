@@ -2320,6 +2320,9 @@
       "noEvents": "No events"
     },
     "modals": {
+      "restartTitle": "Restart Workload",
+      "restartConfirm": "Restart workload {name}?",
+      "restartHint": "Equivalent to kubectl rollout restart: Pods are replaced by the controller without service interruption.",
       "deleteTitle": "Delete Workload",
       "deleteConfirm": "Delete {name}?",
       "deletePodTitle": "Delete Pod",

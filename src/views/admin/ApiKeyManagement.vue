@@ -216,9 +216,9 @@ async function doRevoke(k) {
       </template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
-        <button v-if="!row.revokedAt" @click.stop="openNsEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('nsAllowlist.editNs')"><span class="material-symbols-outlined text-base">filter_alt</span></button>
-        <button v-if="!row.revokedAt" @click.stop="openOverrideEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('admin.apiKeys.editOverrides')"><span class="material-symbols-outlined text-base">tune</span></button>
-        <button v-if="!row.revokedAt" @click.stop="doRevoke(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('admin.apiKeys.revoke')"><span class="material-symbols-outlined text-base">block</span></button>
+        <button v-if="!row.revokedAt" @click.stop="openNsEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('nsAllowlist.editNs')"><span class="material-symbols-outlined text-base">filter_alt</span></button>
+        <button v-if="!row.revokedAt" @click.stop="openOverrideEditor(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.apiKeys.editOverrides')"><span class="material-symbols-outlined text-base">tune</span></button>
+        <button v-if="!row.revokedAt" @click.stop="doRevoke(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.apiKeys.revoke')"><span class="material-symbols-outlined text-base">block</span></button>
       </template>
     </DataTable>
 

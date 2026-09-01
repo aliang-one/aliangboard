@@ -1173,7 +1173,7 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           <span class="material-symbols-outlined text-sm text-primary">{{ refIcon(r.kind) }}</span>
           <span class="text-body-xs font-mono font-semibold text-primary">{{ r.name }}</span>
           <span v-if="r.namespace" class="text-body-xs text-on-surface-variant">{{ r.namespace }}</span>
-          <button @click="removeRef(i)" class="ml-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+          <button @click="removeRef(i)" class="ml-xs text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
       </div>
 

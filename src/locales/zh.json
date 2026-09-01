@@ -2320,6 +2320,9 @@
       "noEvents": "暂无事件"
     },
     "modals": {
+      "restartTitle": "重启工作负载",
+      "restartConfirm": "确定要重启工作负载 {name} 吗？",
+      "restartHint": "等同 kubectl rollout restart：由控制器滚动替换 Pod，服务不中断。",
       "deleteTitle": "Delete Workload",
       "deleteConfirm": "Delete {name}?",
       "deletePodTitle": "删除 Pod",
