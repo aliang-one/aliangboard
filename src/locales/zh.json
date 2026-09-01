@@ -2268,6 +2268,8 @@
       "replicasCount": "{replicas} 副本 · {age}",
       "pods": "Pods",
       "noPods": "无运行实例",
+      "rsUngrouped": "未分组 Pod",
+      "labelConsumers": "标签消费者",
       "flowPath": "流量路径：",
       "flowPathDesc": "外部请求 → Ingress（域名/路径）→ Service（经 selector）→ {type} 副本 Pod。",
       "noServiceHint": "当前无关联 Service，外部无法访问——点 Deployment 卡片左侧 + 在已暴露端口上创建。",
