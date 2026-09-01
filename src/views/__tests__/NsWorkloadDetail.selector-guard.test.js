@@ -10,7 +10,7 @@ import { test, expect, vi, beforeEach } from 'vitest'
 
 const captured = vi.hoisted(() => ({ svcAdds: [], metaSaves: [], svcUpdates: [] }))
 // 可变 fixture:各用例注入不同 Service selector(state.services)/workload(state.workload)
-const state = vi.hoisted(() => ({ workload: null, services: [] }))
+const state = vi.hoisted(() => ({ workload: null, services: [], pdbs: [], netpols: [] }))
 
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -34,6 +34,7 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   fetchWorkloads: vi.fn(async () => [state.workload]), fetchPods: vi.fn(async () => []),
   fetchPVCs: vi.fn(async () => []), fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
   fetchServices: vi.fn(async () => state.services), fetchIngresses: vi.fn(async () => []), fetchEvents: vi.fn(async () => []),
+  fetchPDBs: vi.fn(async () => state.pdbs), fetchNetworkPolicies: vi.fn(async () => state.netpols),
   updateWorkload: vi.fn(async () => {}), applyWorkloadTemplate: vi.fn(async () => {}),
   updateWorkloadMeta: vi.fn((n, ns, payload) => { captured.metaSaves.push(payload) }),
   addService: vi.fn(item => { captured.svcAdds.push(item); return { ok: true } }),
@@ -89,6 +90,7 @@ beforeEach(() => {
   notify.mockClear()
   state.workload = JSON.parse(JSON.stringify(demoWorkload))
   state.services = [JSON.parse(JSON.stringify(svcMatching))]
+  state.pdbs = []; state.netpols = []
   i18n.global.locale.value = 'zh'
 })
 
@@ -162,4 +164,47 @@ test('拓扑:失配 Service 显性化,一键修复收敛为身份 selector', asy
   expect(captured.svcUpdates).toEqual([
     { name: 'demo-svc', updates: { selector: { app: 'demo-deploy' } } },
   ])
+})
+
+// --- 防线④精度版(consumersBrokenBy)+ 三类消费者扩面 ---
+
+// meta 弹窗内加一行自定义标签 team:<value> 并点保存(saveMeta 镜像 → 模板 team 变更)
+async function metaEditTeam(value) {
+  const w = mountDetail(); await flushPromises()
+  await w.findAll('button').find(b => b.text() === '元数据').trigger('click'); await flushPromises()
+  bodyBtns('+ 添加')[0].click(); await flushPromises()
+  setInput([...document.body.querySelectorAll('input[placeholder="key"]')].at(-1), 'team')
+  setInput([...document.body.querySelectorAll('input[placeholder="value"]')].at(-1), value)
+  await clickBody('保存'); await flushPromises()
+  return w
+}
+
+test('防线④精度:无关 Service(selector 指向别处)不再误拦,拓扑失配卡也不误报', async () => {
+  state.services = [
+    JSON.parse(JSON.stringify(svcMatching)),
+    { name: 'other-svc', namespace: 'default', type: 'ClusterIP', ports: '80:80/TCP', selector: { app: 'other-app' }, portList: [] },
+  ]
+  const w = await metaEditTeam('blue')
+  // team: red→blue 仍拦 demo-svc;other-svc 从不匹配本负载,不是这次编辑拆的 → 不拦不点名
+  expect(captured.metaSaves).toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('Service/demo-svc'))
+  expect(notify).not.toHaveBeenCalledWith('error', expect.stringContaining('other-svc'))
+  // 拓扑:other-svc 不得出现在失配卡(否则「修复」会把别人的 Service 指到本负载)
+  await gotoTopology(w)
+  const repairBtns = w.findAll('button').filter(b => b.text() === '修复 selector')
+  expect(repairBtns.length).toBe(0)
+})
+
+test('防线④扩面:NetworkPolicy podSelector 绑定标签进拦截名单', async () => {
+  state.netpols = [{ name: 'np-team', namespace: 'default', podSelector: { app: 'demo-deploy', team: 'red' }, policyTypes: ['Ingress'] }]
+  await metaEditTeam('blue')
+  expect(captured.metaSaves).toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('NetworkPolicy/np-team'))
+})
+
+test('防线④扩面:PDB selector 绑定标签进拦截名单', async () => {
+  state.pdbs = [{ name: 'pdb-demo', namespace: 'default', selector: { app: 'demo-deploy', team: 'red' }, minAvailable: '1', maxUnavailable: '', allowedDisruptions: 0, currentHealthy: 1, desiredHealthy: 1, age: '' }]
+  await metaEditTeam('blue')
+  expect(captured.metaSaves).toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('PDB/pdb-demo'))
 })

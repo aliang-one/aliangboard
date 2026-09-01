@@ -4,7 +4,7 @@
 // Pod 模板 labels → selector ⊄ template → K8s 422「selector does not match template labels」。
 // 防线:①自定义列表隐藏 selector 键 ②保存前拦截撞键行 ③模板镜像对 selector 键强制原值透传。
 import { describe, test, expect } from 'vitest'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch } from '../workloadMeta.js'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch, consumersBrokenBy } from '../workloadMeta.js'
 
 const KUBOARD_DEPLOY = {
   spec: {
@@ -167,5 +167,38 @@ describe('applyLabelPatch:merge-patch 语义求补后 labels', () => {
   test('patch 缺失 → 原 map 浅拷贝', () => {
     expect(applyLabelPatch({ app: 'v1' }, null)).toEqual({ app: 'v1' })
     expect(applyLabelPatch(null, { app: 'v1' })).toEqual({ app: 'v1' })
+  })
+})
+
+describe('consumersBrokenBy:这次 labels 变更会拆掉的消费者(编辑面守卫④,精度版)', () => {
+  // 与 servicesBrokenBy 的分工:守卫只拦「当前正匹配本负载(selector ⊆ old)且改后将不匹配(⊄ new)」
+  // 的消费者——从不匹配本负载的无关对象(selector app: other)不是这次编辑拆的,不得误拦。
+  const consumers = [
+    { kind: 'Service', name: 'matched-svc', selector: { app: 'web', team: 'red' } },
+    { kind: 'Service', name: 'unrelated-svc', selector: { app: 'other' } },
+    { kind: 'PDB', name: 'pdb-drift', selector: { app: 'web', team: 'red' } },
+    { kind: 'NetworkPolicy', name: 'np-keep', selector: { app: 'web' } },
+    { kind: 'Service', name: 'empty-svc', selector: {} },
+  ]
+  test('正匹配且将失配 → 列出 kind/name;从未匹配 → 排除(精度缺口回归锁)', () => {
+    expect(consumersBrokenBy({ app: 'web', team: 'red' }, { app: 'web', team: 'blue' }, consumers))
+      .toEqual([
+        { kind: 'Service', name: 'matched-svc' },
+        { kind: 'PDB', name: 'pdb-drift' },
+      ])
+  })
+  test('改后仍匹配 → 排除;键缺失同判', () => {
+    expect(consumersBrokenBy({ app: 'web', team: 'red' }, { app: 'web' }, [
+      { kind: 'NetworkPolicy', name: 'np-keep', selector: { app: 'web' } },
+      { kind: 'PDB', name: 'gone-key', selector: { app: 'web', team: 'red' } },
+    ])).toEqual([{ kind: 'PDB', name: 'gone-key' }])
+  })
+  test('值按字符串比较', () => {
+    expect(consumersBrokenBy({ app: 2 }, { app: 3 }, [{ kind: 'Service', name: 's', selector: { app: '2' } }]))
+      .toEqual([{ kind: 'Service', name: 's' }])
+  })
+  test('consumers 缺失 / old 缺失 → 空数组(不炸;old 缺失=无当前匹配,无从拆起)', () => {
+    expect(consumersBrokenBy({ app: 'web' }, { app: 'x' }, null)).toEqual([])
+    expect(consumersBrokenBy(null, { app: 'x' }, consumers)).toEqual([])
   })
 })
