@@ -43,11 +43,9 @@ export function deriveFlowGraph(input) {
     edges.push({ id: `e:drift:${s.name}->workload`, source: `drift:${s.name}`, target: 'workload', type: 'smoothstep', class: 'topo-edge topo-edge-drift', markerEnd: '' })
   }
 
-  // 列 2:Workload(单节点);列 3:Pods(整列一节点,有 Pod 才渲染)
+  // 列 2:Workload(单节点);列 3:Pods(整列一节点恒渲染,空态语义由 data.hasPods=false 走 noPods 分支)
   nodes.push({ id: 'workload', type: 'workload', position: { x: colX('workload'), y: 0 }, data: { workload } })
-  if (hasPods) {
-    nodes.push({ id: 'pods', type: 'pods', position: { x: colX('pods'), y: 0 }, data: { hasPods } })
-  }
+  nodes.push({ id: 'pods', type: 'pods', position: { x: colX('pods'), y: 0 }, data: { hasPods } })
 
   // Service 列尾:标签消费者(有内容才渲染;无连线)
   if (labelConsumers.length) {

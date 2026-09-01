@@ -64,9 +64,10 @@ test('规则数据随节点 data 携带(host/path/serviceName/port/ingress);gove
   assert.equal(wa.data.workload.name, 'demo')
 })
 
-test('空态:无规则/无服务/无失配/无消费者 → 相应节点与边为零,workload+pods 仍在', () => {
+test('空态:无规则/无服务/无失配/无消费者 → 相应节点与边为零,workload+pods 仍在(pods 走 hasPods=false 空态)', () => {
   const { nodes, edges } = deriveFlowGraph({ ownRules: [], others: [], relatedServices: [], driftedServices: [], workload: { name: 'x', type: 'Job' }, governingSvcName: '', labelConsumers: [], hasPods: false })
-  assert.deepEqual(nodes.map(n => n.type).sort(), ['workload'])
+  assert.deepEqual(nodes.map(n => n.type).sort(), ['pods', 'workload'])
+  assert.equal(nodes.find(n => n.type === 'pods').data.hasPods, false)
   assert.equal(edges.length, 0)
 })
 
