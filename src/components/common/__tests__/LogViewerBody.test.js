@@ -3,6 +3,7 @@ import { test, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { i18n } from '@/i18n'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 // k8sStream 捕获 handlers 后由测试手动推流；api.k8s 静态返回三行
 let streamHandlers = null
@@ -140,4 +141,31 @@ test('工具栏双行:数据源行(容器/行数/时间)与查看控制行(搜�
   expect(r1.find('[data-testid="log-search"]').exists()).toBe(false)
   expect(r2.find('[data-testid="log-search"]').exists()).toBe(true)
   expect(r2.find('[data-testid="log-container"]').exists()).toBe(false)
+})
+
+test('手机档:工具栏换行收纳+字号调节按钮进退钳制', async () => {
+  const spy = mockViewport(true)
+  const w = mountBody()   // 无流式数据也要可渲染
+  expect(w.find('[data-testid="log-toolbar-row-1"]').classes()).toContain('max-sm:flex-wrap')
+  expect(w.find('[data-testid="log-toolbar-row-2"]').classes()).toContain('max-sm:flex-wrap')
+  // 字号:默认不变,A- 减,连点到 10 钳制,A+ 加回
+  const before = w.find('[data-testid="log-scroll"]').attributes('style') || ''
+  await w.find('[data-testid="log-font-down"]').trigger('click')
+  await w.find('[data-testid="log-font-down"]').trigger('click')
+  const after = w.find('[data-testid="log-scroll"]').attributes('style') || ''
+  expect(after).not.toBe(before)
+  for (let i = 0; i < 20; i++) await w.find('[data-testid="log-font-down"]').trigger('click')
+  await w.find('[data-testid="log-font-up"]').trigger('click')
+  expect(w.find('[data-testid="log-font-down"]').exists()).toBe(true)
+  w.unmount()
+  spy.mockRestore()
+})
+
+test('桌面档:无字号调节钮,工具栏无换行类', async () => {
+  const spy = mockViewport(false)
+  const w = mountBody()
+  expect(w.find('[data-testid="log-font-down"]').exists()).toBe(false)
+  expect(w.find('[data-testid="log-toolbar-row-1"]').classes()).not.toContain('max-sm:flex-wrap')
+  w.unmount()
+  spy.mockRestore()
 })
