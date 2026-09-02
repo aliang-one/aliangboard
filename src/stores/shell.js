@@ -7,5 +7,9 @@ export const useShellStore = defineStore('shell', () => {
   const drawerOpen = ref(false)
   function toggleDrawer() { drawerOpen.value = !drawerOpen.value }
   function closeDrawer() { drawerOpen.value = false }
-  return { drawerOpen, toggleDrawer, closeDrawer }
+  // 抽屉集群切换通道(2026-09-02 手机适配 Wave 4 Task 3):SideNavBar drawer-mode 的
+  // cluster-anchor 经 tick 请求打开集群选择器;TopNavBar watch(仅 belowSm)承接。
+  const clusterSelectTick = ref(0)
+  function requestClusterSelect() { clusterSelectTick.value++ }
+  return { drawerOpen, toggleDrawer, closeDrawer, clusterSelectTick, requestClusterSelect }
 })

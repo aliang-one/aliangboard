@@ -1,6 +1,7 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
 import { test, expect, vi, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
@@ -148,4 +149,16 @@ test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 
   await flushPromises()
   expect(document.querySelector('[data-test="search-modal"]')).toBeTruthy()
   mqSpy.mockRestore()
+})
+
+test('手机档:shell 通道请求 → 集群面板打开(bottom sheet)', async () => {
+  const spy = mockViewport(true)
+  const w = await mountTopNav()
+  useShellStore().requestClusterSelect()
+  await nextTick()
+  expect(w.vm.showClusterDropdown).toBe(true)
+  await nextTick()
+  // 既有 Teleport 用例不 unmount 会遗留桌面面板在 body,取最后一个(本用例的面板;同 ns 例注释)
+  expect(Array.from(document.querySelectorAll('[data-testid="cluster-dropdown-panel"]')).pop().getAttribute('data-bottom-sheet')).toBe('true')
+  w.unmount(); spy.mockRestore()
 })

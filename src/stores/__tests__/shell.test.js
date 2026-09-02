@@ -13,3 +13,10 @@ test('shell store:toggleDrawer 开合,closeDrawer 幂等关闭', () => {
   shell.closeDrawer()
   expect(shell.drawerOpen).toBe(false)
 })
+
+test('requestClusterSelect:tick 自增(跨组件打开集群选择器的通道)', () => {
+  const shell = useShellStore()
+  const before = shell.clusterSelectTick
+  shell.requestClusterSelect()
+  expect(shell.clusterSelectTick).toBe(before + 1)
+})

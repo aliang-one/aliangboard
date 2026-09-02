@@ -240,7 +240,7 @@ function nsStatusColor(status) {
           <p class="text-body-sm text-on-surface-variant">{{ store.cluster.version }}</p>
         </div>
       </div>
-      <button v-else data-test="cluster-anchor" @click="navTo('/cluster')"
+      <button v-else data-test="cluster-anchor" @click="belowSm ? shell.requestClusterSelect() : navTo('/cluster')"
         class="flex items-center gap-sm w-full min-w-0 group cursor-pointer"
         :title="$t('nav.backToCluster')" :aria-label="$t('nav.backToCluster')">
         <img src="/aliang-logo.svg" alt="" class="h-5 w-auto shrink-0" width="22" height="20" />

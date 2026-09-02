@@ -179,6 +179,9 @@ function unbindDropFollow() {
 watch([showClusterDropdown, showNsDropdown], v => {
   if (v.some(Boolean)) { placeAll(); bindDropFollow() } else { unbindDropFollow() }
 })
+// 抽屉集群切换通道(spec §13.1):SideNavBar drawer-mode 的 cluster-anchor 经 shell tick
+// 请求打开集群选择器(面板锚点 clusterBtnRef 手机档不存在,placeDropdown 手机分支本就绕过)
+watch(() => shell.clusterSelectTick, () => { if (belowSm.value) { showNsDropdown.value = false; showClusterDropdown.value = true } })
 onBeforeUnmount(unbindDropFollow)
 
 </script>

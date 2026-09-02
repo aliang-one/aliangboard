@@ -135,13 +135,14 @@ test('手机档:裸 router.push 点击入口收编 navTo——ns 态锚点/坞 4
   shell.toggleDrawer()
   await Promise.resolve()
   expect(shell.drawerOpen).toBe(true)
-  // cluster-anchor 推 '/cluster':mock router 下 fullPath 不变由 push stub 吸收,
-  // 契约 = navTo 内的 closeDrawer(点击后 drawerOpen === false)
+  // cluster-anchor(Wave 4 Task 3 起 drawer 档改发集群选择通道,不再导航/收抽屉):
+  // 契约 = shell.clusterSelectTick 自增(导航语义仅保留在非 drawer 档)
   const anchor = wrapper.find('[data-test="cluster-anchor"]')
   expect(anchor.exists()).toBe(true)
+  const tickBefore = shell.clusterSelectTick
   await anchor.trigger('click')
-  expect(pushMock).toHaveBeenCalled()
-  expect(shell.drawerOpen).toBe(false)
+  expect(shell.clusterSelectTick).toBe(tickBefore + 1)
+  shell.closeDrawer() // 通道不发导航,抽屉仍开——显式收起以复用下方「重开再点」循环
   // 停靠坞 4 入口逐个重开抽屉再点,同断言
   for (const sel of ['cluster-slab', 'bottom-settings', 'bottom-activity', 'deploy-card']) {
     shell.toggleDrawer()
@@ -214,4 +215,20 @@ test('手机档:点击导航项(含已激活同路由)抽屉即收起', async ()
   expect(pushMock).toHaveBeenCalled()
   expect(shell.drawerOpen).toBe(false)
   wrapper.unmount()
+})
+
+test('手机抽屉:cluster-anchor 点击发集群选择通道(不再导航)', async () => {
+  mockViewport(true, true)
+  // 切到 ns 态:cluster-anchor 仅在非集群态渲染(照抄上例置备)
+  routeRef.meta.scope = 'namespace'
+  routeRef.fullPath = '/ns/default/workloads'
+  routeRef.path = '/ns/default/workloads'
+  const wrapper = await mountNav()
+  const shell = useShellStore()
+  const before = shell.clusterSelectTick
+  await wrapper.find('[data-test="cluster-anchor"]').trigger('click')
+  expect(shell.clusterSelectTick).toBe(before + 1)
+  // drawer-mode 下不再导航去 /cluster(navTo 仅非 drawer 语义)——断言 shell 通道而非路由
+  wrapper.unmount()
+  routeRef.meta.scope = 'global'
 })
