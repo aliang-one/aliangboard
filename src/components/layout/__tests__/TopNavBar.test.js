@@ -1,6 +1,7 @@
 // src/components/layout/__tests__/TopNavBar.test.js
 // issue #3 顶栏溢出回归:整行可收缩链(搜索框优先缩)+ 名字截断后 title 兜底。
 import { test, expect, vi, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
@@ -11,9 +12,11 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/cluster' }), useRouter
 import TopNavBar from '@/components/layout/TopNavBar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useShellStore } from '@/stores/shell'
+import { Z } from '@/styles/zScale'
 
-// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存)
-afterEach(() => { vi.restoreAllMocks() })
+// 统一清场:防 spyOn/mockImplementation 跨文件泄漏(与既有单点 mockRestore 幂等共存);
+// body 清场消掉 Teleport 面板跨用例残留(不再依赖 .pop() 取最后一个)
+afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 
 function mountNav() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -95,6 +98,52 @@ test('手机档:顶栏左端汉堡可见,点击开抽屉;桌面档无汉堡', as
   spy2.mockRestore()
 })
 
+// === 手机档 Wave 4:单颗上下文胶囊 + 选择器 bottom sheet ===
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
+
+function mountTopNav() {
+  setActivePinia(createPinia())
+  const store = useClusterStore()
+  store.savedClusters = [{ name: 'kind-local', apiServer: 'https://k8s.example', version: 'v1.31', distribution: 'k3s' }]
+  store.currentCluster = 'kind-local'
+  store.currentNamespace = 'default'
+  return mountNav()
+}
+
+test('手机档:双 chip 不渲染,单颗上下文胶囊在场(ns 主/集群副);面板为底部面板', async () => {
+  const spy = mockViewport(true)
+  const w = await mountTopNav()
+  expect(w.find('[data-test="cluster-trigger"]').exists()).toBe(false)
+  expect(w.find('[data-test="ns-trigger"]').exists()).toBe(false)
+  const cap = w.find('[data-test="context-capsule"]')
+  expect(cap.exists()).toBe(true)
+  // 终审 D:375px 省空间——px-sm + 无 expand_more 尾图标(桌面双 chip 的 chevron 不动)
+  expect(cap.classes().join(' ')).toContain('px-sm')
+  expect(cap.findAll('.material-symbols-outlined').map(s => s.text())).toEqual(['folder_open'])  // 仅 folder_open,无 expand_more
+  expect(cap.text()).toContain('default')            // ns 主文本
+  expect(cap.text()).toContain('kind-local')         // 集群副文本
+  await cap.trigger('click')
+  expect(w.vm.showNsDropdown).toBe(true)
+  await flushPromises()
+  // 既有 Teleport 用例不 unmount 会遗留桌面面板在 body,取最后一个(本用例的面板)
+  const panel = Array.from(document.querySelectorAll('[data-testid="ns-dropdown-panel"]')).pop()
+  expect(panel.getAttribute('data-bottom-sheet')).toBe('true')
+  expect(panel.style.bottom).toBe('0px')
+  w.unmount(); spy.mockRestore()
+})
+
+test('桌面档:双 chip 现状,胶囊不渲染,面板非底部面板', async () => {
+  const spy = mockViewport(false)
+  const w = await mountTopNav()
+  expect(w.find('[data-test="cluster-trigger"]').exists()).toBe(true)
+  expect(w.find('[data-test="ns-trigger"]').exists()).toBe(true)
+  expect(w.find('[data-test="context-capsule"]').exists()).toBe(false)
+  await w.find('[data-test="ns-trigger"]').trigger('click')
+  await flushPromises()
+  expect(Array.from(document.querySelectorAll('[data-testid="ns-dropdown-panel"]')).pop().getAttribute('data-bottom-sheet')).toBe('false')
+  w.unmount(); spy.mockRestore()
+})
+
 test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 enabled 查询', async () => {
   const mqSpy = vi.spyOn(window, 'matchMedia').mockImplementation(q => ({ matches: q.includes('1023.98'), media: q, addEventListener() {}, removeEventListener() {} }))
   setActivePinia(createPinia())
@@ -105,4 +154,43 @@ test('<lg 档:搜索收成图标触发钮,弹层 Teleport 到 body 且开启时 
   await flushPromises()
   expect(document.querySelector('[data-test="search-modal"]')).toBeTruthy()
   mqSpy.mockRestore()
+})
+
+test('手机档:shell 通道请求 → 集群面板打开(bottom sheet)', async () => {
+  const spy = mockViewport(true)
+  const w = await mountTopNav()
+  useShellStore().requestClusterSelect()
+  await nextTick()
+  expect(w.vm.showClusterDropdown).toBe(true)
+  await nextTick()
+  // 既有 Teleport 用例不 unmount 会遗留桌面面板在 body,取最后一个(本用例的面板;同 ns 例注释)
+  expect(Array.from(document.querySelectorAll('[data-testid="cluster-dropdown-panel"]')).pop().getAttribute('data-bottom-sheet')).toBe('true')
+  w.unmount(); spy.mockRestore()
+})
+
+// 终审 C:手机档 bottom sheet 遮罩独立全屏,Z.popover-1 盖过顶栏/抽屉;点击关闭面板
+test('手机档:bottom sheet 遮罩 zIndex=Z.popover-1 全屏,点击关面板', async () => {
+  const spy = mockViewport(true)
+  const w = await mountTopNav()
+  await w.find('[data-test="context-capsule"]').trigger('click')
+  await flushPromises()
+  const overlay = w.find('[data-test="sheet-overlay"]')
+  expect(overlay.exists()).toBe(true)
+  expect(overlay.element.style.zIndex).toBe(String(Z.popover - 1))
+  await overlay.trigger('click')
+  expect(w.vm.showNsDropdown).toBe(false)
+  expect(w.find('[data-test="sheet-overlay"]').exists()).toBe(false)
+  w.unmount(); spy.mockRestore()
+})
+
+// 反向:桌面档仍用共享 z-30 遮罩(不出现 sheet-overlay)
+test('桌面档:面板遮罩仍是共享 z-30(无 sheet-overlay)', async () => {
+  const spy = mockViewport(false)
+  const w = await mountTopNav()
+  await w.find('[data-test="ns-trigger"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[data-test="sheet-overlay"]')).toBeFalsy()
+  const z30 = w.findAll('div').find(d => d.classes().join(' ') === 'fixed inset-0 z-30')
+  expect(z30).toBeTruthy()
+  w.unmount(); spy.mockRestore()
 })

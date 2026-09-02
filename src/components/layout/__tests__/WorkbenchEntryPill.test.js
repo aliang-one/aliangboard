@@ -5,6 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createI18n } from 'vue-i18n'
 import { readFileSync } from 'node:fs'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 const mocks = vi.hoisted(() => ({ summary: vi.fn(), push: vi.fn(), path: '/cluster' }))
 vi.mock('@/api/client', () => ({
@@ -103,6 +104,64 @@ test('title 摘要由 summary 拼装', async () => {
   expect(title).toContain('1 运行中')
   expect(title).toContain('2 待审批')
   expect(title).toContain('3 SSH')
+})
+
+// ===== 手机档(Wave 4 Task 2):40px 图标钮 =====
+test('手机档:pill 收成 40px 图标钮(文本不在场,待审批红点保留),点击仍进工作台', async () => {
+  const spy = mockViewport(true)
+  mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 1, runningConvs: 0, pendingApprovals: 2, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  const btn = w.find('[data-test="wb-pill"] button')
+  expect(btn.text()).not.toContain('工作台')
+  expect(btn.classes().join(' ')).toContain('max-sm:min-h-[40px]')
+  expect(btn.find('span.material-symbols-outlined').exists()).toBe(true)
+  expect(btn.find('[data-test="pill-pending-dot"]').exists()).toBe(true)   // 红点接管
+  await btn.trigger('click')
+  expect(mocks.push).toHaveBeenCalledWith('/workbench')
+  w.unmount(); spy.mockRestore()
+})
+
+// 手机档整条数字徽章链(待审批/运行/项目)必须不渲染,否则 18px 徽章挂在图标钮旁与红点并存
+test('手机档:数字徽章链整体不渲染(运行/项目徽章也不泄漏,文本无数字)', async () => {
+  const spy = mockViewport(true)
+  mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 7, runningConvs: 2, pendingApprovals: 3, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  const btn = w.find('[data-test="wb-pill"] button')
+  expect(w.find('[data-test="pill-pending"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-running"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-projects"]').exists()).toBe(false)
+  // 统计条(pill-stats)仍在 DOM 但 CSS 隐藏(hidden xl:inline-flex);剔除其文本后不得残留任何数字
+  const stats = w.find('[data-test="pill-stats"]')
+  expect(stats.classes()).toContain('hidden')
+  expect(btn.text().replace(stats.text(), '')).not.toMatch(/[0-9]/)
+  w.unmount()
+  // 均零:中性项目徽章也不得泄漏到手机档
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w2 = mountPill(); await flushPromises()
+  expect(w2.find('[data-test="pill-projects"]').exists()).toBe(false)
+  w2.unmount(); spy.mockRestore()
+})
+
+test('桌面档:完整胶囊(文本在场)', async () => {
+  const spy = mockViewport(false)
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  expect(w.find('[data-test="wb-pill"] button').text()).toContain('工作台')
+  w.unmount(); spy.mockRestore()
+})
+
+// 终审 A:触屏 tap 合成 mouseenter 会让悬停面板在跳转 /workbench 后残留新页(touch 无
+// mouseleave 关不掉)——手机档 mouseenter 整链禁开
+test('手机档:mouseenter 不开悬停面板(触屏 tap 泄漏防线)', async () => {
+  const spy = mockViewport(true)
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(500); await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
+  vi.useRealTimers()
+  w.unmount(); spy.mockRestore()
 })
 
 // ===== Task 4:悬停面板 =====
