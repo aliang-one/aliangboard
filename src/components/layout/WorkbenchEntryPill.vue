@@ -139,16 +139,20 @@ function relTime(ts) {
         </span>
       </span>
       <!-- 状态徽章(<xl 接管统计条;≥xl 隐藏防信息重复):
-           待审批红数字(行动性最强)> 运行中绿数字 > 项目数中性,常驻不空 -->
-      <span v-if="!isPhone && pendingCount > 0" data-test="pill-pending"
-        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
-        :title="$t('workbench.pill.pending', { n: pendingCount })">{{ pendingCount }}</span>
-      <span v-else-if="runningCount > 0" data-test="pill-running"
-        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-status-running/10 text-status-running text-body-xs font-bold leading-none"
-        :title="$t('workbench.pill.running', { n: runningCount })">{{ runningCount }}</span>
-      <span v-else data-test="pill-projects"
-        class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant text-body-xs font-bold leading-none"
-        :title="$t('workbench.pill.projects', { n: totals.projects ?? 0 })">{{ totals.projects ?? 0 }}</span>
+           待审批红数字(行动性最强)> 运行中绿数字 > 项目数中性,常驻不空。
+           整链包 !isPhone:手机档三枚整体不渲染(红点接管)——v-else-if 不继承首枚
+           条件,只给首枚加前缀会让运行/项目徽章在手机档照常求值渲染(评审抓) -->
+      <template v-if="!isPhone">
+        <span v-if="pendingCount > 0" data-test="pill-pending"
+          class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
+          :title="$t('workbench.pill.pending', { n: pendingCount })">{{ pendingCount }}</span>
+        <span v-else-if="runningCount > 0" data-test="pill-running"
+          class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-status-running/10 text-status-running text-body-xs font-bold leading-none"
+          :title="$t('workbench.pill.running', { n: runningCount })">{{ runningCount }}</span>
+        <span v-else data-test="pill-projects"
+          class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant text-body-xs font-bold leading-none"
+          :title="$t('workbench.pill.projects', { n: totals.projects ?? 0 })">{{ totals.projects ?? 0 }}</span>
+      </template>
     </button>
     <Teleport to="body">
       <div v-if="panelOpen" data-test="wb-panel"

@@ -121,6 +121,27 @@ test('手机档:pill 收成 40px 图标钮(文本不在场,待审批红点保留
   w.unmount(); spy.mockRestore()
 })
 
+// 手机档整条数字徽章链(待审批/运行/项目)必须不渲染,否则 18px 徽章挂在图标钮旁与红点并存
+test('手机档:数字徽章链整体不渲染(运行/项目徽章也不泄漏,文本无数字)', async () => {
+  const spy = mockViewport(true)
+  mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 7, runningConvs: 2, pendingApprovals: 3, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  const btn = w.find('[data-test="wb-pill"] button')
+  expect(w.find('[data-test="pill-pending"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-running"]').exists()).toBe(false)
+  expect(w.find('[data-test="pill-projects"]').exists()).toBe(false)
+  // 统计条(pill-stats)仍在 DOM 但 CSS 隐藏(hidden xl:inline-flex);剔除其文本后不得残留任何数字
+  const stats = w.find('[data-test="pill-stats"]')
+  expect(stats.classes()).toContain('hidden')
+  expect(btn.text().replace(stats.text(), '')).not.toMatch(/[0-9]/)
+  w.unmount()
+  // 均零:中性项目徽章也不得泄漏到手机档
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w2 = mountPill(); await flushPromises()
+  expect(w2.find('[data-test="pill-projects"]').exists()).toBe(false)
+  w2.unmount(); spy.mockRestore()
+})
+
 test('桌面档:完整胶囊(文本在场)', async () => {
   const spy = mockViewport(false)
   mocks.summary.mockResolvedValue(SUMMARY())
