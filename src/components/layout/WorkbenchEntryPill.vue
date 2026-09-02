@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, keepPreviousData } from '@tanstack/vue-query'
 import { workbenchApi, getPlatformToken } from '@/api/client'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import { Z } from '@/styles/zScale'
 
 const route = useRoute()
@@ -15,6 +16,7 @@ const router = useRouter()
 const { t } = useI18n()
 
 const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
+const { isPhone } = useIsPhone()
 
 // ---- 数据(导航静默:失败不 toast,keepPreviousData 保旧值)----
 const q = useQuery({
@@ -102,14 +104,22 @@ function relTime(ts) {
     <button
       @click="router.push('/workbench')"
       :aria-label="$t('nav.workbench')"
-      :title="summaryText"
+      :title="isPhone ? $t('nav.workbench') : summaryText"
       class="flex items-center gap-sm rounded-full px-md py-1.5 border transition-colors text-body-sm font-semibold shrink-0"
-      :class="isWorkbenchActive
-        ? 'border-primary bg-primary-container text-on-primary-container'
-        : 'border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10'"
+      :class="[
+        isWorkbenchActive
+          ? 'border-primary bg-primary-container text-on-primary-container'
+          : 'border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10',
+        isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:justify-center max-sm:px-0' : '',
+      ]"
     >
-      <span class="material-symbols-outlined text-lg">workspaces</span>
-      {{ $t('nav.workbench') }}
+      <span class="relative inline-flex">
+        <span class="material-symbols-outlined text-lg">workspaces</span>
+        <!-- 手机档待审批红点(数字角标让位空间;桌面数字角标保留) -->
+        <span v-if="isPhone && pendingCount > 0" data-test="pill-pending-dot"
+          class="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-error"></span>
+      </span>
+      <template v-if="!isPhone">{{ $t('nav.workbench') }}</template>
       <!-- 迷你统计条(≥xl;2026-08-30 用户反馈:内容再丰富些):三段常驻(0 也显示),
            数字按状态着色(项目中性/运行绿/待审批红);SSH 不上条(悬停面板看)。
            窄屏(<xl)整条隐藏,由下方单枚状态徽章接管 -->
@@ -130,7 +140,7 @@ function relTime(ts) {
       </span>
       <!-- 状态徽章(<xl 接管统计条;≥xl 隐藏防信息重复):
            待审批红数字(行动性最强)> 运行中绿数字 > 项目数中性,常驻不空 -->
-      <span v-if="pendingCount > 0" data-test="pill-pending"
+      <span v-if="!isPhone && pendingCount > 0" data-test="pill-pending"
         class="ml-0.5 xl:hidden min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-error text-on-error text-body-xs font-bold leading-none"
         :title="$t('workbench.pill.pending', { n: pendingCount })">{{ pendingCount }}</span>
       <span v-else-if="runningCount > 0" data-test="pill-running"

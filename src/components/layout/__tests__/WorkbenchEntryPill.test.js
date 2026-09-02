@@ -5,6 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createI18n } from 'vue-i18n'
 import { readFileSync } from 'node:fs'
+import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 
 const mocks = vi.hoisted(() => ({ summary: vi.fn(), push: vi.fn(), path: '/cluster' }))
 vi.mock('@/api/client', () => ({
@@ -103,6 +104,29 @@ test('title 摘要由 summary 拼装', async () => {
   expect(title).toContain('1 运行中')
   expect(title).toContain('2 待审批')
   expect(title).toContain('3 SSH')
+})
+
+// ===== 手机档(Wave 4 Task 2):40px 图标钮 =====
+test('手机档:pill 收成 40px 图标钮(文本不在场,待审批红点保留),点击仍进工作台', async () => {
+  const spy = mockViewport(true)
+  mocks.summary.mockResolvedValue(SUMMARY({ totals: { projects: 1, runningConvs: 0, pendingApprovals: 2, sshSessions: 0 } }))
+  const w = mountPill(); await flushPromises()
+  const btn = w.find('[data-test="wb-pill"] button')
+  expect(btn.text()).not.toContain('工作台')
+  expect(btn.classes().join(' ')).toContain('max-sm:min-h-[40px]')
+  expect(btn.find('span.material-symbols-outlined').exists()).toBe(true)
+  expect(btn.find('[data-test="pill-pending-dot"]').exists()).toBe(true)   // 红点接管
+  await btn.trigger('click')
+  expect(mocks.push).toHaveBeenCalledWith('/workbench')
+  w.unmount(); spy.mockRestore()
+})
+
+test('桌面档:完整胶囊(文本在场)', async () => {
+  const spy = mockViewport(false)
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  expect(w.find('[data-test="wb-pill"] button').text()).toContain('工作台')
+  w.unmount(); spy.mockRestore()
 })
 
 // ===== Task 4:悬停面板 =====
