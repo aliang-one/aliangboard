@@ -21,6 +21,7 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@kubernetes/client-node": "^1.4.0",
     "@tanstack/vue-query": "^5.101.4",
+    "@vue-flow/core": "^1.48.2",
     "dompurify": "^3.4.13",
     "echarts": "^6.1.0",
     "js-yaml": "^5.2.1",
