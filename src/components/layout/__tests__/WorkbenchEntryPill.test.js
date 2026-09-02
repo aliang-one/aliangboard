@@ -150,6 +150,20 @@ test('桌面档:完整胶囊(文本在场)', async () => {
   w.unmount(); spy.mockRestore()
 })
 
+// 终审 A:触屏 tap 合成 mouseenter 会让悬停面板在跳转 /workbench 后残留新页(touch 无
+// mouseleave 关不掉)——手机档 mouseenter 整链禁开
+test('手机档:mouseenter 不开悬停面板(触屏 tap 泄漏防线)', async () => {
+  const spy = mockViewport(true)
+  vi.useFakeTimers()
+  mocks.summary.mockResolvedValue(SUMMARY())
+  const w = mountPill(); await flushPromises()
+  await w.find('[data-test="wb-pill"]').trigger('mouseenter')
+  vi.advanceTimersByTime(500); await flushPromises()
+  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
+  vi.useRealTimers()
+  w.unmount(); spy.mockRestore()
+})
+
 // ===== Task 4:悬停面板 =====
 test('悬停 150ms 开面板;面板含汇总 chips 与项目行', async () => {
   vi.useFakeTimers()

@@ -60,7 +60,10 @@ function placePanel() {
     zIndex: Z.popover,
   }
 }
+// 触屏 tap 合成 mouseenter 会让面板在跳转 /workbench 后残留新页(touch 无 mouseleave 关不掉)——
+// 手机档整链禁开(Wave 4 终审 A)
 function openPanel() {
+  if (isPhone.value) return
   clearTimeout(closeTimer)
   clearTimeout(openTimer)
   openTimer = setTimeout(() => { placePanel(); panelOpen.value = true }, 150)

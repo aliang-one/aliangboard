@@ -233,7 +233,12 @@ function nsStatusColor(status) {
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
-      <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full">
+      <!-- 集群态大头部:纯展示——唯 drawer-mode(<640)可点,发集群选择通道(集群态手机切集群
+           不再只剩三跳;桌面/iPad 展示语义不变,Wave 4 终审 B) -->
+      <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full"
+        :class="belowSm ? 'cursor-pointer' : ''" :role="belowSm ? 'button' : undefined"
+        :aria-label="belowSm ? $t('nav.switchCluster') : undefined"
+        @click="belowSm && shell.requestClusterSelect()">
         <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
         <div class="min-w-0 cluster-header-txt">
           <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>

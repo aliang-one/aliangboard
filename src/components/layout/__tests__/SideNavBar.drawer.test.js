@@ -142,6 +142,8 @@ test('手机档:裸 router.push 点击入口收编 navTo——ns 态锚点/坞 4
   const tickBefore = shell.clusterSelectTick
   await anchor.trigger('click')
   expect(shell.clusterSelectTick).toBe(tickBefore + 1)
+  expect(pushMock).not.toHaveBeenCalled()   // 通道不发导航
+  expect(shell.drawerOpen).toBe(true)       // 抽屉保持开
   shell.closeDrawer() // 通道不发导航,抽屉仍开——显式收起以复用下方「重开再点」循环
   // 停靠坞 4 入口逐个重开抽屉再点,同断言
   for (const sel of ['cluster-slab', 'bottom-settings', 'bottom-activity', 'deploy-card']) {
@@ -225,10 +227,44 @@ test('手机抽屉:cluster-anchor 点击发集群选择通道(不再导航)', as
   routeRef.path = '/ns/default/workloads'
   const wrapper = await mountNav()
   const shell = useShellStore()
+  shell.toggleDrawer()
+  await Promise.resolve()
   const before = shell.clusterSelectTick
   await wrapper.find('[data-test="cluster-anchor"]').trigger('click')
   expect(shell.clusterSelectTick).toBe(before + 1)
+  expect(pushMock).not.toHaveBeenCalled()   // 通道不发导航
+  expect(shell.drawerOpen).toBe(true)       // 抽屉保持开
   // drawer-mode 下不再导航去 /cluster(navTo 仅非 drawer 语义)——断言 shell 通道而非路由
   wrapper.unmount()
   routeRef.meta.scope = 'global'
+})
+
+// 终审 B:集群态大头部(cluster-brand)drawer-mode 也可点发集群选择通道——
+// 集群态手机切集群不再只剩三跳;桌面/iPad(非 belowSm)纯展示
+test('手机档:集群态 cluster-brand 头部可点发集群选择通道;桌面档无 cursor/role', async () => {
+  mockViewport(true, true)
+  // 集群态(meta.scope=global):头部走 cluster-brand 分支
+  const wrapper = mountNav()
+  const shell = useShellStore()
+  const brand = wrapper.find('[data-test="cluster-brand"]')
+  expect(brand.exists()).toBe(true)
+  expect(brand.attributes('role')).toBe('button')
+  expect(brand.classes()).toContain('cursor-pointer')
+  const before = shell.clusterSelectTick
+  await brand.trigger('click')
+  expect(shell.clusterSelectTick).toBe(before + 1)
+  expect(pushMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+
+  // 桌面档:纯展示(无 role/cursor/通道)
+  mockViewport(false, false)
+  const w2 = mountNav()
+  const brand2 = w2.find('[data-test="cluster-brand"]')
+  expect(brand2.exists()).toBe(true)
+  expect(brand2.attributes('role')).toBeUndefined()
+  expect(brand2.classes()).not.toContain('cursor-pointer')
+  const before2 = useShellStore().clusterSelectTick
+  await brand2.trigger('click')
+  expect(useShellStore().clusterSelectTick).toBe(before2)
+  w2.unmount()
 })

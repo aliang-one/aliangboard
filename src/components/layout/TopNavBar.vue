@@ -252,7 +252,7 @@ onBeforeUnmount(unbindDropFollow)
 
       <!-- 手机单颗上下文胶囊(spec §13.1):ns 主/集群副,点击弹 ns 底部选择器;集群切换进抽屉 -->
       <button v-if="belowSm" data-test="context-capsule" @click="showNsDropdown = !showNsDropdown"
-        class="flex items-center gap-xs min-w-0 flex-1 max-w-[240px] px-md py-1.5 rounded-lg border transition-all"
+        class="flex items-center gap-xs min-w-0 flex-1 max-w-[240px] px-sm py-1.5 rounded-lg border transition-all"
         :class="showNsDropdown
           ? 'border-primary bg-primary/5 text-primary'
           : (currentNs
@@ -264,7 +264,7 @@ onBeforeUnmount(unbindDropFollow)
           <span class="w-full text-body-sm font-semibold truncate">{{ currentNs || $t('nav.notSelected') }}</span>
           <span class="w-full text-[10px] text-on-surface-variant truncate">{{ currentClusterObj?.name || '—' }}</span>
         </div>
-        <span class="material-symbols-outlined text-base shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
+        <!-- 手机档不渲染 expand_more 尾图标(375px 主文本仅剩 ~10-25px,去 chevron 省 ~28px;Wave 4 终审 D) -->
       </button>
 
       <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
@@ -398,6 +398,9 @@ onBeforeUnmount(unbindDropFollow)
       </div>
     </div>
   </Teleport>
-  <!-- 点击外部关闭下拉（集群 / 命名空间） -->
-  <div v-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
+  <!-- 点击外部关闭下拉（集群 / 命名空间）——手机档 bottom sheet 用独立全屏遮罩,
+       z 取 Z.popover-1(spec §13.2):盖过顶栏(50)/抽屉遮罩(54)/抽屉(55),面板(110)盖过遮罩 -->
+  <div v-if="belowSm && (showClusterDropdown || showNsDropdown)" class="fixed inset-0" data-test="sheet-overlay"
+    :style="{ zIndex: String(Z.popover - 1) }" @click="closeClusterDropdown(); closeNsDropdown()"></div>
+  <div v-else-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
 </template>
